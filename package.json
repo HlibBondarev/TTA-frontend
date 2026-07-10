@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "generate:api": "openapi-typescript src/api/swagger.json -o src/api/types.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -25,6 +26,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
+    "openapi-typescript": "^7.13.0",
     "postcss": "^8.5.16",
     "tailwindcss": "^4.3.2",
     "typescript": "~6.0.2",
