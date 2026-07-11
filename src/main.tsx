@@ -1,10 +1,22 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "./index.css";
+import App from "./App.tsx";
+import { db } from "./db/ttaDatabase";
 
-createRoot(document.getElementById('root')!).render(
+// Force explicit database connection to trigger IndexedDB schema creation immediately
+db.open()
+  .then(() => {
+    console.log(
+      `[IndexedDB] ${db.name} successfully connected and schema version ${db.verno} is active.`,
+    );
+  })
+  .catch((err) => {
+    console.error(`[IndexedDB] Critical error opening database:`, err);
+  });
+
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />
   </StrictMode>,
-)
+);
