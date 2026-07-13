@@ -2,18 +2,22 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
 interface MatchState {
   activeMatchId: string | null;
-  currentPeriod: number;
-  homeScore: number;
-  guestScore: number;
-  isTimerRunning: boolean;
+  periodnumber: number; // Strictly matches periodnumber in IndexedDB/Postgres
+  homescore: number; // Strictly matches homescore in IndexedDB/Postgres
+  guestscore: number; // Strictly matches guestscore in IndexedDB/Postgres
+  isPeriodActive: boolean; // Runtime UI controller
+  isInsideStoppage: boolean; // Runtime UI controller
+  globalSequenceNumber: number; // Tracks sequenceNumber across actions
 }
 
 const initialState: MatchState = {
   activeMatchId: null,
-  currentPeriod: 1,
-  homeScore: 0,
-  guestScore: 0,
-  isTimerRunning: false,
+  periodnumber: 1,
+  homescore: 0,
+  guestscore: 0,
+  isPeriodActive: false,
+  isInsideStoppage: false,
+  globalSequenceNumber: 0,
 };
 
 const matchSlice = createSlice({
@@ -22,21 +26,45 @@ const matchSlice = createSlice({
   reducers: {
     setActiveMatch(state, action: PayloadAction<string | null>) {
       state.activeMatchId = action.payload;
-    },
-    setPeriod(state, action: PayloadAction<number>) {
-      state.currentPeriod = action.payload;
+      state.periodnumber = 1;
+      state.homescore = 0;
+      state.guestscore = 0;
+      state.isPeriodActive = false;
+      state.isInsideStoppage = false;
+      state.globalSequenceNumber = 0;
     },
     updateScores(
       state,
-      action: PayloadAction<{ home: number; guest: number }>,
+      action: PayloadAction<{ homescore: number; guestscore: number }>,
     ) {
-      state.homeScore = action.payload.home;
-      state.guestScore = action.payload.guest;
+      state.homescore = action.payload.homescore;
+      state.guestscore = action.payload.guestscore;
     },
-    toggleTimer(state) {
-      state.isTimerRunning = !state.isTimerRunning;
+    startPeriodState(state) {
+      state.isPeriodActive = true;
+      state.isInsideStoppage = false;
     },
-    // State parameter removed to satisfy compiler/linter strict rules
+    endPeriodState(state) {
+      state.isPeriodActive = false;
+      state.isInsideStoppage = false;
+    },
+    incrementPeriodNumber(state) {
+      state.periodnumber += 1;
+    },
+    decrementPeriodNumber(state) {
+      if (state.periodnumber > 1) {
+        state.periodnumber -= 1;
+      }
+    },
+    startStoppageState(state) {
+      state.isInsideStoppage = true;
+    },
+    endStoppageState(state) {
+      state.isInsideStoppage = false;
+    },
+    incrementSequence(state) {
+      state.globalSequenceNumber += 1;
+    },
     resetMatchState() {
       return initialState;
     },
@@ -45,9 +73,15 @@ const matchSlice = createSlice({
 
 export const {
   setActiveMatch,
-  setPeriod,
   updateScores,
-  toggleTimer,
+  startPeriodState,
+  endPeriodState,
+  incrementPeriodNumber,
+  decrementPeriodNumber,
+  startStoppageState,
+  endStoppageState,
+  incrementSequence,
   resetMatchState,
 } = matchSlice.actions;
+
 export default matchSlice.reducer;
