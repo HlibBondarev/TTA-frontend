@@ -11,6 +11,30 @@ export interface TeamLookup {
   createdat: string; // TIMESTAMPTZ
 }
 
+export interface TournamentLookup {
+  id: string; // UUID in PostgreSQL
+  sportid: string; // UUID
+  configurationid: string; // UUID
+  cityid: string; // UUID
+  ownerid: string; // VARCHAR(64)
+  name: string; // VARCHAR(200)
+  startdate: string; // TIMESTAMPTZ
+  enddate: string | null; // TIMESTAMPTZ NULL
+  createdat: string; // TIMESTAMPTZ
+}
+
+export interface SportConfigurationLookup {
+  id: string; // UUID in PostgreSQL
+  sportid: string; // UUID
+  usescleantime: boolean; // BOOLEAN
+  periodscount: number; // INT
+  perioddurationminutes: number; // INT
+  fieldsize: string; // VARCHAR(50)
+  rosterlimit: number; // INT
+  lineuplimit: number; // INT
+  activeplayerslimit: number; // INT (DEFAULT 7)
+}
+
 export interface MatchLookup {
   id: string; // UUID in PostgreSQL
   tournamentid: string; // UUID
@@ -100,6 +124,9 @@ export class TTADatabase extends Dexie {
   timeanchors!: Table<TimeAnchor, string>;
   playerpresences!: Table<PlayerPresence, string>;
   syncQueue!: Table<SyncQueueItem, number>;
+  // 👇 New tables added for match rules configuration traversal
+  tournaments!: Table<TournamentLookup, string>;
+  sportconfigurations!: Table<SportConfigurationLookup, string>;
 
   constructor() {
     super("TTADatabase");
@@ -116,6 +143,9 @@ export class TTADatabase extends Dexie {
       playerpresences:
         "id, matchlineupid, periodnumber, sequenceNumber, isSynced",
       syncQueue: "++id, actionType, createdAt",
+      // 👇 Added configuration tables mapping
+      tournaments: "id, sportid, configurationid",
+      sportconfigurations: "id, sportid",
     });
   }
 }
