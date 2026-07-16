@@ -27,26 +27,58 @@ export const PlayerPresencePanel: React.FC<PlayerPresencePanelProps> = ({
   const [selectedActiveId, setSelectedActiveId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Keep track of the previous matchId and currentPeriod to reset selection during the render phase
+  const [prevContext, setPrevContext] = useState({ matchId, currentPeriod });
+
+  // Self-contained state adjustment on prop/context changes (replaces problematic useEffect)
+  if (
+    prevContext.matchId !== matchId ||
+    prevContext.currentPeriod !== currentPeriod
+  ) {
+    setPrevContext({ matchId, currentPeriod });
+    setSelectedActiveId(null);
+    setErrorMessage(null);
+  }
+
+  // Combined async initialization flow preventing race conditions via active-cleanup guard
   useEffect(() => {
-    const loadLineupsMetadata = async () => {
+    let isCurrent = true;
+
+    const loadAllPresenceMetadata = async () => {
       try {
         const lineups = await db.matchlineups
           .where("matchid")
           .equals(matchId)
           .toArray();
 
+        if (!isCurrent) return;
+
         const map: Record<string, MatchLineupLookup> = {};
         lineups.forEach((l) => {
           map[l.id] = l;
         });
         setLineupsMap(map);
+
+        // Run presence refresh sequentially within the same flow
+        await refreshPresenceFromDB();
       } catch (error) {
-        console.error("Failed to load lineups metadata:", error);
+        if (isCurrent) {
+          console.error(
+            "Failed to load lineups metadata or presence state:",
+            error,
+          );
+          setErrorMessage(
+            "Failed to fetch fresh roster data from the local database.",
+          );
+        }
       }
     };
 
-    loadLineupsMetadata();
-    refreshPresenceFromDB();
+    loadAllPresenceMetadata();
+
+    return () => {
+      isCurrent = false;
+    };
   }, [matchId, currentPeriod, refreshPresenceFromDB]);
 
   const handleActivePlayerTap = (lineupId: string) => {
@@ -76,6 +108,13 @@ export const PlayerPresencePanel: React.FC<PlayerPresencePanelProps> = ({
 
     // Runtime substitution swap
     if (selectedActiveId) {
+      // Security Guard: Ensure the selected player is still present inside the active water lineup
+      if (!activeLineupIds.includes(selectedActiveId)) {
+        setErrorMessage("The selected player is no longer active in the game.");
+        setSelectedActiveId(null);
+        return;
+      }
+
       try {
         await executeSubstitution(selectedActiveId, benchLineupId);
         setSelectedActiveId(null);
@@ -141,6 +180,7 @@ export const PlayerPresencePanel: React.FC<PlayerPresencePanelProps> = ({
                 <button
                   key={id}
                   onClick={() => handleActivePlayerTap(id)}
+                  aria-pressed={isSelected}
                   className={`p-3 rounded-lg flex flex-col items-center justify-center border font-bold transition-all ${
                     isSelected
                       ? "bg-blue-600 border-blue-400 text-white shadow-md scale-95"
