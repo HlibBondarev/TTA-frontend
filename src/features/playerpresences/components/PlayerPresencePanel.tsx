@@ -81,7 +81,9 @@ export const PlayerPresencePanel: React.FC<PlayerPresencePanelProps> = ({
     };
   }, [matchId, currentPeriod, refreshPresenceFromDB]);
 
+  // Clears any active error state when an active player is tapped
   const handleActivePlayerTap = (lineupId: string) => {
+    setErrorMessage(null);
     setSelectedActiveId(selectedActiveId === lineupId ? null : lineupId);
   };
 
