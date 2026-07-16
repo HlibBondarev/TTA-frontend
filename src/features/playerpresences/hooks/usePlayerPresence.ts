@@ -90,14 +90,26 @@ export function usePlayerPresence(matchId: string) {
         throw new Error("Cannot start period without a selected lineup.");
       }
       dispatch(commitStartingLineup(selectedStartingIds));
-      await initializePeriodPresenceTx(
-        matchId,
-        currentPeriod,
-        selectedStartingIds,
-        startTimestamp,
-      );
+      try {
+        await initializePeriodPresenceTx(
+          matchId,
+          currentPeriod,
+          selectedStartingIds,
+          startTimestamp,
+        );
+      } catch (error) {
+        // Reconcile Redux state from IndexedDB to revert failed optimistic changes
+        await refreshPresenceFromDB();
+        throw error;
+      }
     },
-    [matchId, currentPeriod, selectedStartingIds, dispatch],
+    [
+      matchId,
+      currentPeriod,
+      selectedStartingIds,
+      dispatch,
+      refreshPresenceFromDB,
+    ],
   );
 
   // Triggers when "END PERIOD" is clicked, closing all active DB presence sessions and cleaning UI
@@ -105,21 +117,39 @@ export function usePlayerPresence(matchId: string) {
     async (endTimestamp: string) => {
       const activeIdsToClose = [...activeLineupIds];
       dispatch(clearActiveRosterToBench());
-      await terminatePeriodPresenceTx(
-        currentPeriod,
-        activeIdsToClose,
-        endTimestamp,
-      );
+      try {
+        await terminatePeriodPresenceTx(
+          matchId,
+          currentPeriod,
+          activeIdsToClose,
+          endTimestamp,
+        );
+      } catch (error) {
+        // Reconcile Redux state from IndexedDB to revert failed optimistic changes
+        await refreshPresenceFromDB();
+        throw error;
+      }
     },
-    [currentPeriod, activeLineupIds, dispatch],
+    [matchId, currentPeriod, activeLineupIds, dispatch, refreshPresenceFromDB],
   );
 
   const executeSubstitution = useCallback(
     async (outLineupId: string, inLineupId: string) => {
       dispatch(optimisticSubstitute({ outId: outLineupId, inId: inLineupId }));
-      await substitutePlayerTx(matchId, currentPeriod, outLineupId, inLineupId);
+      try {
+        await substitutePlayerTx(
+          matchId,
+          currentPeriod,
+          outLineupId,
+          inLineupId,
+        );
+      } catch (error) {
+        // Reconcile Redux state from IndexedDB to revert failed optimistic changes
+        await refreshPresenceFromDB();
+        throw error;
+      }
     },
-    [matchId, currentPeriod, dispatch],
+    [matchId, currentPeriod, dispatch, refreshPresenceFromDB],
   );
 
   return {

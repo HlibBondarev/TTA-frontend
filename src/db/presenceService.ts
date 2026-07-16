@@ -42,8 +42,10 @@ export async function initializePeriodPresenceTx(
 /**
  * Atomically closes all active player presence sessions when the period ends.
  * Uses the timestamp provided by the match lifecycle timer.
+ * Enqueues the period-end synchronization payload in db.syncQueue.
  */
 export async function terminatePeriodPresenceTx(
+  matchId: string,
   periodNumber: number,
   playerLineupIds: string[],
   endTimestamp: string,
@@ -65,11 +67,27 @@ export async function terminatePeriodPresenceTx(
         isSynced: 0,
       });
     }
+
+    // 3. Enqueue the period-end synchronization payload
+    const payload = JSON.stringify({
+      periodNumber,
+      playerLineupIds,
+    });
+
+    const syncItem: SyncQueueItem = {
+      actionType: "PUT",
+      endpoint: `matches/${matchId}/presence/terminate`,
+      payload,
+      createdAt: endTimestamp,
+    };
+
+    await db.syncQueue.add(syncItem);
   });
 }
 
 /**
  * Executes an atomic player substitution.
+ * Throws an error if no active presence is found for the outgoing player.
  */
 export async function substitutePlayerTx(
   matchId: string,
@@ -92,6 +110,8 @@ export async function substitutePlayerTx(
         timeout: timestamp,
         isSynced: 0,
       });
+    } else {
+      throw new Error("No active presence found for the outgoing player.");
     }
 
     newPresenceId = crypto.randomUUID();

@@ -11,6 +11,7 @@ const TEST_MATCH_ID = "6f2e8f1a-7b3c-4d5e-8f9a-0b1c2d3e4f70";
 export const App: React.FC = () => {
   const dispatch = useDispatch();
   const [isInitialized, setIsInitialized] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -28,20 +29,49 @@ export const App: React.FC = () => {
 
         // 3. Set the active match ID in matchSlice to prevent startup crashes
         dispatch(setActiveMatch(TEST_MATCH_ID));
+
+        setIsInitialized(true);
       } catch (error) {
         console.error("Initialization failed:", error);
-      } finally {
-        setIsInitialized(true);
+        setInitError(
+          error instanceof Error
+            ? error.message
+            : "Failed to initialize the app.",
+        );
       }
     };
 
     initializeApp();
   }, [dispatch]);
 
+  if (initError) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center p-6 font-sans">
+        <div className="w-full max-w-md p-6 bg-red-950/40 border border-red-800 rounded-xl text-center shadow-lg">
+          <h2 className="text-xl font-bold text-red-400 mb-2">
+            Initialization Error
+          </h2>
+          <p className="text-sm text-red-200/80 mb-4 font-mono">{initError}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-red-800 hover:bg-red-700 active:bg-red-900 text-white text-xs font-bold uppercase tracking-wider rounded transition-colors"
+          >
+            Retry Loading
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!isInitialized) {
     return (
       <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-mono">
-        Loading database...
+        <div className="flex flex-col items-center gap-2">
+          <div className="w-6 h-6 border-2 border-t-blue-500 border-gray-800 rounded-full animate-spin"></div>
+          <span className="text-xs text-gray-400 mt-2">
+            Loading database...
+          </span>
+        </div>
       </div>
     );
   }
