@@ -236,7 +236,9 @@ export const PlayerPresencePanel: React.FC<PlayerPresencePanelProps> = ({
                 <span className="text-lg font-mono font-bold">
                   {getJerseyNumber(id)}
                 </span>
-                <span className="text-[9px] text-gray-400 mt-1">
+                <span
+                  className={`text-[9px] mt-1 ${isSelectedInStart ? "text-green-200" : "text-gray-400"}`}
+                >
                   {isSelectedInStart ? "Selected" : "Bench"}
                 </span>
               </button>
