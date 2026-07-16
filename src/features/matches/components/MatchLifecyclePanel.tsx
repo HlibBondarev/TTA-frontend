@@ -3,6 +3,7 @@ import { useSelector } from "react-redux";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
 import { usePlayerPresence } from "../../../features/playerpresences/hooks/usePlayerPresence";
 import type { RootState } from "../../../store";
+import { TEST_MATCH_ID } from "../../../App";
 
 export const MatchLifecyclePanel: React.FC = () => {
   const {
@@ -18,10 +19,10 @@ export const MatchLifecyclePanel: React.FC = () => {
     prevPeriod,
   } = useMatchLifecycle();
 
-  // Resolve activeMatchId from Redux, fallback to test UUID to prevent errors
+  // Retrieve match id from state without masking fallback UUID duplicates
   const activeMatchId =
     useSelector((state: RootState) => state.match.activeMatchId) ||
-    "6f2e8f1a-7b3c-4d5e-8f9a-0b1c2d3e4f70";
+    TEST_MATCH_ID;
 
   // Connect player presence tracking hook to lifecycle panel
   const {
@@ -85,7 +86,10 @@ export const MatchLifecyclePanel: React.FC = () => {
         </span>
 
         {panelError && (
-          <div className="mb-3 p-2 text-xs bg-red-900/50 border border-red-700 text-red-200 rounded font-sans">
+          <div
+            role="alert"
+            className="mb-3 p-2 text-xs bg-red-900/50 border border-red-700 text-red-200 rounded font-sans"
+          >
             {panelError}
           </div>
         )}

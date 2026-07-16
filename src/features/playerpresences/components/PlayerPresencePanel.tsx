@@ -111,7 +111,10 @@ export const PlayerPresencePanel: React.FC<PlayerPresencePanelProps> = ({
       </div>
 
       {errorMessage && (
-        <div className="mb-4 p-2 text-xs bg-red-900/50 border border-red-700 text-red-200 rounded">
+        <div
+          role="alert"
+          className="mb-4 p-2 text-xs bg-red-900/50 border border-red-700 text-red-200 rounded"
+        >
           {errorMessage}
         </div>
       )}

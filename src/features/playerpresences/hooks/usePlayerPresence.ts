@@ -1,6 +1,5 @@
 import { useCallback } from "react";
-import { useDispatch, useSelector } from "react-redux";
-import type { RootState } from "../../../store";
+import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import { db } from "../../../db/ttaDatabase";
 import {
   initializePeriodPresenceTx,
@@ -17,19 +16,17 @@ import {
 } from "../store/presenceSlice";
 
 export function usePlayerPresence(matchId: string) {
-  const dispatch = useDispatch();
+  const dispatch = useAppDispatch();
 
   // Single source of truth for the active period from match slice
-  const currentPeriod = useSelector(
-    (state: RootState) => state.match.periodnumber,
-  );
+  const currentPeriod = useAppSelector((state) => state.match.periodnumber);
 
   const {
     activeLineupIds,
     benchLineupIds,
     selectedStartingIds,
     activePlayersLimit,
-  } = useSelector((state: RootState) => state.presence);
+  } = useAppSelector((state) => state.presence);
 
   const refreshPresenceFromDB = useCallback(async () => {
     dispatch(setLoading(true));
@@ -86,8 +83,11 @@ export function usePlayerPresence(matchId: string) {
   // Triggers when "START PERIOD" is clicked, writing to DB with the precise start timestamp
   const startPeriodWithRoster = useCallback(
     async (startTimestamp: string) => {
-      if (selectedStartingIds.length === 0) {
-        throw new Error("Cannot start period without a selected lineup.");
+      // Validate that starting lineup contains exactly activePlayersLimit players
+      if (selectedStartingIds.length !== activePlayersLimit) {
+        throw new Error(
+          `Starting lineup must contain exactly ${activePlayersLimit} players.`,
+        );
       }
       dispatch(commitStartingLineup(selectedStartingIds));
       try {
@@ -107,6 +107,7 @@ export function usePlayerPresence(matchId: string) {
       matchId,
       currentPeriod,
       selectedStartingIds,
+      activePlayersLimit,
       dispatch,
       refreshPresenceFromDB,
     ],

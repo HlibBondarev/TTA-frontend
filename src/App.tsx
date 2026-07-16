@@ -1,15 +1,19 @@
 import React, { useEffect, useState, useRef } from "react";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { MatchLifecyclePanel } from "./features/matches/components/MatchLifecyclePanel";
 import { PlayerPresencePanel } from "./features/playerpresences/components/PlayerPresencePanel";
 import { seedTestData } from "./db/seed";
 import { setPresenceLimits } from "./features/playerpresences/store/presenceSlice";
 import { setActiveMatch } from "./features/matches/store/matchSlice";
+import type { RootState } from "./store";
 
-const TEST_MATCH_ID = "6f2e8f1a-7b3c-4d5e-8f9a-0b1c2d3e4f70";
+export const TEST_MATCH_ID = "6f2e8f1a-7b3c-4d5e-8f9a-0b1c2d3e4f70";
 
 export const App: React.FC = () => {
   const dispatch = useDispatch();
+  const activeMatchId = useSelector(
+    (state: RootState) => state.match.activeMatchId,
+  );
   const [isInitialized, setIsInitialized] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const initStarted = useRef(false);
@@ -96,7 +100,7 @@ export const App: React.FC = () => {
 
         {/* Sectors 1 & 2: Player Presence & Substitutions */}
         <section aria-label="Player Rosters">
-          <PlayerPresencePanel matchId={TEST_MATCH_ID} />
+          {activeMatchId && <PlayerPresencePanel matchId={activeMatchId} />}
         </section>
 
         {/* Sectors 3 & 4: Positive & Negative TTD Actions (Placeholder) */}
