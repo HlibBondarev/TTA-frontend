@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useDispatch } from "react-redux";
 import { MatchLifecyclePanel } from "./features/matches/components/MatchLifecyclePanel";
 import { PlayerPresencePanel } from "./features/playerpresences/components/PlayerPresencePanel";
@@ -12,8 +12,13 @@ export const App: React.FC = () => {
   const dispatch = useDispatch();
   const [isInitialized, setIsInitialized] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
+  const initStarted = useRef(false);
 
   useEffect(() => {
+    // Guard against concurrent double-invocation in React 18 Strict Mode
+    if (initStarted.current) return;
+    initStarted.current = true;
+
     const initializeApp = async () => {
       try {
         // 1. Seed the database with mock data if empty
