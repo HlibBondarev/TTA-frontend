@@ -38,20 +38,20 @@ export const MatchLifecyclePanel: React.FC = () => {
     setPanelError(null);
     if (selectedStartingIds.length !== activePlayersLimit) {
       setPanelError(
-        `Please select exactly ${activePlayersLimit} players on the bench first.`,
+        `Please select exactly ${activePlayersLimit} starting players before starting the period.`,
       );
       return;
     }
 
     try {
       const timestamp = new Date().toISOString();
-      // 1. Commit active lineup to local IndexedDB
       await startPeriodWithRoster(timestamp);
-      // 2. Start match timer and period lifecycle
       await startPeriod();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to start period.";
+        error && typeof error === "object" && "message" in error
+          ? String((error as { message: unknown }).message)
+          : "Failed to start period.";
       setPanelError(message);
       console.error(error);
     }
@@ -61,13 +61,13 @@ export const MatchLifecyclePanel: React.FC = () => {
     setPanelError(null);
     try {
       const timestamp = new Date().toISOString();
-      // 1. Terminate all active sessions in water and move players back to bench
       await endPeriodWithRoster(timestamp);
-      // 2. Stop the period lifecycle timer
       await endPeriod();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to end period.";
+        error && typeof error === "object" && "message" in error
+          ? String((error as { message: unknown }).message)
+          : "Failed to end period.";
       setPanelError(message);
       console.error(error);
     }
@@ -129,7 +129,7 @@ export const MatchLifecyclePanel: React.FC = () => {
           </button>
           <button
             onClick={handleEndPeriod}
-            disabled={!isPeriodActive || isInsideStoppage}
+            disabled={!isPeriodActive}
             className="py-2 px-3 bg-rose-600 hover:bg-rose-500 disabled:bg-gray-800 disabled:text-gray-600 rounded text-xs font-bold uppercase tracking-wider transition-colors"
           >
             End Period
@@ -139,7 +139,7 @@ export const MatchLifecyclePanel: React.FC = () => {
         {/* Dynamic Coach Helper Guidance */}
         {!isPeriodActive && selectedStartingIds.length < activePlayersLimit && (
           <p className="mt-3 text-[10px] text-amber-400/90 leading-tight">
-            ⚠️ Select {activePlayersLimit - selectedStartingIds.length} more
+            ⚠️ Select {activePlayersLimit - selectedStartingIds.length} more{" "}
             player(s) on the bench before starting the period.
           </p>
         )}
