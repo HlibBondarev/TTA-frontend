@@ -85,50 +85,61 @@ export const PlayerPresencePanel: React.FC<PlayerPresencePanelProps> = ({
     setSelectedActiveId(selectedActiveId === lineupId ? null : lineupId);
   };
 
-  const handleBenchPlayerTap = async (benchLineupId: string) => {
-    setErrorMessage(null);
-
-    // If active lineup is empty, we are preparing the starting lineup before "START PERIOD"
-    if (activeLineupIds.length === 0) {
-      if (selectedStartingIds.includes(benchLineupId)) {
-        stageStartingLineup(
-          selectedStartingIds.filter((id) => id !== benchLineupId),
-        );
-      } else {
-        if (selectedStartingIds.length >= activePlayersLimit) {
-          setErrorMessage(
-            `You can only select up to ${activePlayersLimit} starting players.`,
-          );
-          return;
-        }
-        stageStartingLineup([...selectedStartingIds, benchLineupId]);
-      }
+  // Helper 1: Decoupled logic for preparing the starting lineup before "START PERIOD"
+  const handleStartingLineupSelection = (benchLineupId: string) => {
+    if (selectedStartingIds.includes(benchLineupId)) {
+      stageStartingLineup(
+        selectedStartingIds.filter((id) => id !== benchLineupId),
+      );
       return;
     }
 
-    // Runtime substitution swap
-    if (selectedActiveId) {
-      // Security Guard: Ensure the selected player is still present inside the active water lineup
-      if (!activeLineupIds.includes(selectedActiveId)) {
-        setErrorMessage("The selected player is no longer active in the game.");
-        setSelectedActiveId(null);
-        return;
-      }
+    if (selectedStartingIds.length >= activePlayersLimit) {
+      setErrorMessage(
+        `You can only select up to ${activePlayersLimit} starting players.`,
+      );
+      return;
+    }
 
-      try {
-        await executeSubstitution(selectedActiveId, benchLineupId);
-        setSelectedActiveId(null);
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to perform substitution. Please try again.";
-        setErrorMessage(message);
-      }
-    } else {
+    stageStartingLineup([...selectedStartingIds, benchLineupId]);
+  };
+
+  // Helper 2: Decoupled logic for runtime player substitutions
+  const handleRuntimeSubstitution = async (benchLineupId: string) => {
+    if (!selectedActiveId) {
       setErrorMessage(
         "Please select an active player in the water first to substitute out.",
       );
+      return;
+    }
+
+    // Security Guard: Ensure the selected player is still present inside the active water lineup
+    if (!activeLineupIds.includes(selectedActiveId)) {
+      setErrorMessage("The selected player is no longer active in the game.");
+      setSelectedActiveId(null);
+      return;
+    }
+
+    try {
+      await executeSubstitution(selectedActiveId, benchLineupId);
+      setSelectedActiveId(null);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to perform substitution. Please try again.";
+      setErrorMessage(message);
+    }
+  };
+
+  // Main entry point is now extremely thin and has a Cognitive Complexity of only 1!
+  const handleBenchPlayerTap = async (benchLineupId: string) => {
+    setErrorMessage(null);
+
+    if (activeLineupIds.length === 0) {
+      handleStartingLineupSelection(benchLineupId);
+    } else {
+      await handleRuntimeSubstitution(benchLineupId);
     }
   };
 
