@@ -11,7 +11,7 @@ export const TTAConsole: React.FC = () => {
 
   return (
     <div className="w-full max-w-md mx-auto space-y-4 grow flex flex-col justify-start">
-      {/* Header */}
+      {/* Header section for the console */}
       <header className="text-center py-2 border-b border-gray-800">
         <h1 className="text-xl font-black uppercase tracking-widest text-blue-500">
           TTA Match Recorder
@@ -21,20 +21,30 @@ export const TTAConsole: React.FC = () => {
         </p>
       </header>
 
-      {/* Sectors 1 & 2: Player Presence & Substitutions */}
-      <section aria-label="Player Rosters">
-        {activeMatchId && <PlayerPresencePanel matchId={activeMatchId} />}
-      </section>
+      {/* Unified contract: both panels require an activeMatchId to be rendered */}
+      {activeMatchId ? (
+        <>
+          <section aria-label="Player Rosters">
+            <PlayerPresencePanel matchId={activeMatchId} />
+          </section>
 
-      {/* Sectors 3 & 4: Positive & Negative TTD Actions (Placeholder) */}
-      <section className="p-6 bg-gray-900/30 border border-dashed border-gray-800 rounded-xl text-center text-xs text-gray-600">
-        Positive & Negative TTD Actions Panel (To be implemented)
-      </section>
+          {/* Placeholder for future TTD action recording functionality */}
+          <section className="p-6 bg-gray-900/30 border border-dashed border-gray-800 rounded-xl text-center text-xs text-gray-600">
+            Positive & Negative TTD Actions Panel (To be implemented)
+          </section>
 
-      {/* Sectors 5 & 6: Period and Match Time Control */}
-      <section aria-label="Match Status Controls" className="mt-auto">
-        <MatchLifecyclePanel />
-      </section>
+          <section aria-label="Match Status Controls" className="mt-auto">
+            <MatchLifecyclePanel />
+          </section>
+        </>
+      ) : (
+        /* Fallback view when no match is selected */
+        <div className="p-6 text-center text-gray-500 border border-dashed border-gray-800 rounded-xl">
+          <p className="text-sm">
+            No active match. Please select a match to begin recording.
+          </p>
+        </div>
+      )}
     </div>
   );
 };
