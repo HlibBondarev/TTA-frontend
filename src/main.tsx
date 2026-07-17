@@ -6,19 +6,15 @@ import { db } from "./db/ttaDatabase";
 import App from "./App.tsx";
 import "./index.css";
 
-// Force explicit database connection to trigger IndexedDB schema creation immediately
-async function initializeDatabase() {
-  try {
-    await db.open();
-    console.log(
-      `[IndexedDB] ${db.name} successfully connected and schema version ${db.verno} is active.`,
-    );
-  } catch (err) {
-    console.error(`[IndexedDB] Critical error opening database:`, err);
-  }
+// Force explicit database connection using top-level await to satisfy SonarCloud
+try {
+  await db.open();
+  console.log(
+    `[IndexedDB] ${db.name} successfully connected and schema version ${db.verno} is active.`,
+  );
+} catch (err) {
+  console.error(`[IndexedDB] Critical error opening database:`, err);
 }
-
-initializeDatabase();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

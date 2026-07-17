@@ -74,18 +74,23 @@ export const MatchLifecyclePanel: React.FC = () => {
   const isStartDisabled =
     isPeriodActive || selectedStartingIds.length !== activePlayersLimit;
 
-  // Logic extracted to independent statements to satisfy SonarCloud maintainability rules
-  const stateColor = isPeriodActive
-    ? isInsideStoppage
-      ? "text-amber-400"
-      : "text-emerald-400"
-    : "text-rose-500";
+  // Extracted logic into independent functions to resolve nested ternary code smells
+  const getStateStyles = () => {
+    if (!isPeriodActive) {
+      return "text-rose-500";
+    }
+    return isInsideStoppage ? "text-amber-400" : "text-emerald-400";
+  };
 
-  const stateLabel = isPeriodActive
-    ? isInsideStoppage
-      ? "Stopped (Timeout)"
-      : "Live Running"
-    : "In-active";
+  const getStateLabel = () => {
+    if (!isPeriodActive) {
+      return "In-active";
+    }
+    return isInsideStoppage ? "Stopped (Timeout)" : "Live Running";
+  };
+
+  const stateColor = getStateStyles();
+  const stateLabel = getStateLabel();
 
   return (
     <div className="p-4 m-4 bg-gray-900 text-white rounded-xl shadow-lg max-w-sm border border-gray-800 w-full">
