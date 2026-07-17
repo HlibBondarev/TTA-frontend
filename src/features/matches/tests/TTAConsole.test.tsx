@@ -20,30 +20,22 @@ const rootReducer = combineReducers({
 });
 
 describe("TTAConsole Component", () => {
-  test("renders TTAConsole components correctly", () => {
-    const store = configureStore({ reducer: rootReducer });
-    render(
-      <Provider store={store}>
-        <TTAConsole />
-      </Provider>,
-    );
-    expect(screen.getByText(/TTA Match Recorder/i)).toBeDefined();
-  });
-
-  test("renders panels when activeMatchId is present", () => {
+  test("renders TTAConsole components correctly with active match", () => {
     const store = configureStore({
       reducer: rootReducer,
       preloadedState: {
         match: { activeMatchId: "test-id" },
       } as DeepPartial<RootState> as RootState,
     });
+
     render(
       <Provider store={store}>
         <TTAConsole />
       </Provider>,
     );
 
-    // Check for specific unique text elements
+    // Assert header and both panels exist when activeMatchId is present
+    expect(screen.getByText(/TTA Match Recorder/i)).toBeDefined();
     expect(screen.getByText(/Sector 2: Active Players/i)).toBeInTheDocument();
     expect(screen.getByText(/Sector 5: Period Control/i)).toBeInTheDocument();
   });
@@ -55,12 +47,17 @@ describe("TTAConsole Component", () => {
         match: { activeMatchId: null },
       } as DeepPartial<RootState> as RootState,
     });
+
     render(
       <Provider store={store}>
         <TTAConsole />
       </Provider>,
     );
 
+    // Assert panels do not exist and fallback is shown
+    expect(
+      screen.queryByText(/Sector 2: Active Players/i),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText(/Sector 5: Period Control/i),
     ).not.toBeInTheDocument();
