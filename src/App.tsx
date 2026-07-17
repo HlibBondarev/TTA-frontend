@@ -17,22 +17,20 @@ export const App: React.FC = () => {
     initStarted.current = true;
 
     const initializeApp = async () => {
+      // 1. Always initialize Redux state independently
+      dispatch(
+        setPresenceLimits({
+          limit: 7,
+          period: 1,
+        }),
+      );
+      dispatch(setActiveMatch(TEST_MATCH_ID));
+
+      // 2. Try seeding test data, but don't block app initialization on failure
       try {
-        // 1. Seed the database with mock data if empty
         await seedTestData();
-
-        // 2. Set the dynamic active players limit to Redux
-        dispatch(
-          setPresenceLimits({
-            limit: 7,
-            period: 1,
-          }),
-        );
-
-        // 3. Set the active match ID in matchSlice
-        dispatch(setActiveMatch(TEST_MATCH_ID));
       } catch (error) {
-        console.error("Initialization failed:", error);
+        console.error("Seeding failed (non-critical):", error);
       }
     };
 

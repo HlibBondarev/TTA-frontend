@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
-import { App } from "../App";
+import { App, TEST_MATCH_ID } from "../App";
 import { seedTestData } from "../db/seed";
 import matchReducer from "../features/matches/store/matchSlice";
 import presenceReducer from "../features/playerpresences/store/presenceSlice";
@@ -62,5 +62,26 @@ describe("App Bootstrapping Component", () => {
 
     // TTAConsole will still render as App component doesn't stop execution on seed error
     expect(screen.getByTestId("tta-console")).toBeInTheDocument();
+  });
+
+  it("should initialize Redux state regardless of seeding success", async () => {
+    vi.mocked(seedTestData).mockRejectedValueOnce(new Error("Seeding Fault"));
+
+    render(<App />, { wrapper });
+
+    // Assert that match ID is set in Redux despite seeding error
+    await waitFor(() => {
+      expect(store.getState().match.activeMatchId).toBe(TEST_MATCH_ID);
+      expect(store.getState().presence.activePlayersLimit).toBe(7);
+    });
+  });
+
+  it("should set Redux state correctly on successful seeding", async () => {
+    render(<App />, { wrapper });
+
+    await waitFor(() => {
+      expect(seedTestData).toHaveBeenCalled();
+      expect(store.getState().match.activeMatchId).toBe(TEST_MATCH_ID);
+    });
   });
 });
