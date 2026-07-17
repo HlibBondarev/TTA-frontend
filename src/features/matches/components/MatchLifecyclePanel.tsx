@@ -19,12 +19,10 @@ export const MatchLifecyclePanel: React.FC = () => {
     prevPeriod,
   } = useMatchLifecycle();
 
-  // Retrieve match id from state without masking fallback UUID duplicates
   const activeMatchId =
     useSelector((state: RootState) => state.match.activeMatchId) ||
     TEST_MATCH_ID;
 
-  // Connect player presence tracking hook to lifecycle panel
   const {
     selectedStartingIds,
     activePlayersLimit,
@@ -73,13 +71,24 @@ export const MatchLifecyclePanel: React.FC = () => {
     }
   };
 
-  // Enforce validation: cannot start the period unless the starting lineup is complete (exactly 7 players)
   const isStartDisabled =
     isPeriodActive || selectedStartingIds.length !== activePlayersLimit;
 
+  // Logic extracted to independent statements to satisfy SonarCloud maintainability rules
+  const stateColor = isPeriodActive
+    ? isInsideStoppage
+      ? "text-amber-400"
+      : "text-emerald-400"
+    : "text-rose-500";
+
+  const stateLabel = isPeriodActive
+    ? isInsideStoppage
+      ? "Stopped (Timeout)"
+      : "Live Running"
+    : "In-active";
+
   return (
     <div className="p-4 m-4 bg-gray-900 text-white rounded-xl shadow-lg max-w-sm border border-gray-800 w-full">
-      {/* Sector 5: Period Control */}
       <div className="mb-6 bg-gray-950 p-4 rounded-lg border border-gray-800">
         <span className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
           Sector 5: Period Control
@@ -136,7 +145,6 @@ export const MatchLifecyclePanel: React.FC = () => {
           </button>
         </div>
 
-        {/* Dynamic Coach Helper Guidance */}
         {!isPeriodActive && selectedStartingIds.length < activePlayersLimit && (
           <p className="mt-3 text-[10px] text-amber-400/90 leading-tight">
             ⚠️ Select {activePlayersLimit - selectedStartingIds.length} more{" "}
@@ -151,7 +159,6 @@ export const MatchLifecyclePanel: React.FC = () => {
           )}
       </div>
 
-      {/* Sector 6: Time Control */}
       <div className="bg-gray-950 p-4 rounded-lg border border-gray-800">
         <span className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
           Sector 6: Time Control
@@ -175,23 +182,13 @@ export const MatchLifecyclePanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Operational Tracker */}
       <div className="mt-4 pt-3 border-t border-gray-800 flex justify-between text-[10px] tracking-wider text-gray-500 font-mono uppercase">
         <span>
           Sequence:{" "}
           <strong className="text-gray-400">#{globalSequenceNumber}</strong>
         </span>
         <span>
-          State:
-          <strong
-            className={`ml-1 ${isPeriodActive ? (isInsideStoppage ? "text-amber-400" : "text-emerald-400") : "text-rose-500"}`}
-          >
-            {isPeriodActive
-              ? isInsideStoppage
-                ? "Stopped (Timeout)"
-                : "Live Running"
-              : "In-active"}
-          </strong>
+          State: <strong className={`ml-1 ${stateColor}`}>{stateLabel}</strong>
         </span>
       </div>
     </div>
