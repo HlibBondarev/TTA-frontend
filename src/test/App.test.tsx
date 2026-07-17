@@ -8,12 +8,10 @@ import { seedTestData } from "../db/seed";
 import matchReducer from "../features/matches/store/matchSlice";
 import presenceReducer from "../features/playerpresences/store/presenceSlice";
 
-// Mock the seeding module
 vi.mock("../db/seed", () => ({
   seedTestData: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock TTAConsole to isolate App rendering
 vi.mock("../features/matches/components/TTAConsole", () => ({
   TTAConsole: () => <div data-testid="tta-console">TTAConsole Mock</div>,
 }));
@@ -37,51 +35,31 @@ describe("App Bootstrapping Component", () => {
     wrapper = ({ children }) => <Provider store={store}>{children}</Provider>;
   });
 
-  it("should bootstrap, seed, and render the TTAConsole", async () => {
+  it("should initialize Redux state and render console on successful seeding", async () => {
     render(<App />, { wrapper });
 
-    // Verify seeding was initiated
     await waitFor(() => {
       expect(seedTestData).toHaveBeenCalledTimes(1);
-    });
-
-    // Verify TTAConsole is rendered
-    expect(screen.getByTestId("tta-console")).toBeInTheDocument();
-  });
-
-  it("should handle seeding error gracefully", async () => {
-    vi.mocked(seedTestData).mockRejectedValueOnce(new Error("Seeding Fault"));
-
-    render(<App />, { wrapper });
-
-    // Since we removed error handling UI in App.tsx (per requirement),
-    // we ensure the app still mounts without crashing
-    await waitFor(() => {
-      expect(seedTestData).toHaveBeenCalled();
-    });
-
-    // TTAConsole will still render as App component doesn't stop execution on seed error
-    expect(screen.getByTestId("tta-console")).toBeInTheDocument();
-  });
-
-  it("should initialize Redux state regardless of seeding success", async () => {
-    vi.mocked(seedTestData).mockRejectedValueOnce(new Error("Seeding Fault"));
-
-    render(<App />, { wrapper });
-
-    // Assert that match ID is set in Redux despite seeding error
-    await waitFor(() => {
+      // Assert Redux state initialization
       expect(store.getState().match.activeMatchId).toBe(TEST_MATCH_ID);
       expect(store.getState().presence.activePlayersLimit).toBe(7);
     });
+
+    expect(screen.getByTestId("tta-console")).toBeInTheDocument();
   });
 
-  it("should set Redux state correctly on successful seeding", async () => {
+  it("should initialize Redux state even if seeding fails", async () => {
+    vi.mocked(seedTestData).mockRejectedValueOnce(new Error("Seeding Fault"));
+
     render(<App />, { wrapper });
 
     await waitFor(() => {
       expect(seedTestData).toHaveBeenCalled();
+      // Assert Redux state is initialized despite seeding failure
       expect(store.getState().match.activeMatchId).toBe(TEST_MATCH_ID);
+      expect(store.getState().presence.activePlayersLimit).toBe(7);
     });
+
+    expect(screen.getByTestId("tta-console")).toBeInTheDocument();
   });
 });
