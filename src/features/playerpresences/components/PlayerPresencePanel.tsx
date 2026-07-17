@@ -1,0 +1,251 @@
+import React, { useEffect, useState } from "react";
+import { usePlayerPresence } from "../hooks/usePlayerPresence";
+import { db } from "../../../db/ttaDatabase";
+import type { MatchLineupLookup } from "../../../db/ttaDatabase";
+
+interface PlayerPresencePanelProps {
+  matchId: string;
+}
+
+export const PlayerPresencePanel: React.FC<PlayerPresencePanelProps> = ({
+  matchId,
+}) => {
+  const {
+    currentPeriod,
+    activeLineupIds,
+    benchLineupIds,
+    selectedStartingIds,
+    activePlayersLimit,
+    refreshPresenceFromDB,
+    stageStartingLineup,
+    executeSubstitution,
+  } = usePlayerPresence(matchId);
+
+  const [lineupsMap, setLineupsMap] = useState<
+    Record<string, MatchLineupLookup>
+  >({});
+  const [selectedActiveId, setSelectedActiveId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Keep track of the previous matchId and currentPeriod to reset selection during the render phase
+  const [prevContext, setPrevContext] = useState({ matchId, currentPeriod });
+
+  // Self-contained state adjustment on prop/context changes (replaces problematic useEffect)
+  if (
+    prevContext.matchId !== matchId ||
+    prevContext.currentPeriod !== currentPeriod
+  ) {
+    setPrevContext({ matchId, currentPeriod });
+    setSelectedActiveId(null);
+    setErrorMessage(null);
+  }
+
+  // Combined async initialization flow preventing race conditions via active-cleanup guard
+  useEffect(() => {
+    let isCurrent = true;
+
+    const loadAllPresenceMetadata = async () => {
+      try {
+        const lineups = await db.matchlineups
+          .where("matchid")
+          .equals(matchId)
+          .toArray();
+
+        if (!isCurrent) return;
+
+        const map: Record<string, MatchLineupLookup> = {};
+        lineups.forEach((l) => {
+          map[l.id] = l;
+        });
+        setLineupsMap(map);
+
+        // Run presence refresh sequentially within the same flow
+        await refreshPresenceFromDB();
+      } catch (error) {
+        if (isCurrent) {
+          console.error(
+            "Failed to load lineups metadata or presence state:",
+            error,
+          );
+          setErrorMessage(
+            "Failed to fetch fresh roster data from the local database.",
+          );
+        }
+      }
+    };
+
+    loadAllPresenceMetadata();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [matchId, currentPeriod, refreshPresenceFromDB]);
+
+  // Clears any active error state when an active player is tapped
+  const handleActivePlayerTap = (lineupId: string) => {
+    setErrorMessage(null);
+    setSelectedActiveId(selectedActiveId === lineupId ? null : lineupId);
+  };
+
+  // Helper 1: Decoupled logic for preparing the starting lineup before "START PERIOD"
+  const handleStartingLineupSelection = (benchLineupId: string) => {
+    if (selectedStartingIds.includes(benchLineupId)) {
+      stageStartingLineup(
+        selectedStartingIds.filter((id) => id !== benchLineupId),
+      );
+      return;
+    }
+
+    if (selectedStartingIds.length >= activePlayersLimit) {
+      setErrorMessage(
+        `You can only select up to ${activePlayersLimit} starting players.`,
+      );
+      return;
+    }
+
+    stageStartingLineup([...selectedStartingIds, benchLineupId]);
+  };
+
+  // Helper 2: Decoupled logic for runtime player substitutions
+  const handleRuntimeSubstitution = async (benchLineupId: string) => {
+    if (!selectedActiveId) {
+      setErrorMessage(
+        "Please select an active player in the water first to substitute out.",
+      );
+      return;
+    }
+
+    // Security Guard: Ensure the selected player is still present inside the active water lineup
+    if (!activeLineupIds.includes(selectedActiveId)) {
+      setErrorMessage("The selected player is no longer active in the game.");
+      setSelectedActiveId(null);
+      return;
+    }
+
+    try {
+      await executeSubstitution(selectedActiveId, benchLineupId);
+      setSelectedActiveId(null);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to perform substitution. Please try again.";
+      setErrorMessage(message);
+    }
+  };
+
+  // Main entry point is now extremely thin and has a Cognitive Complexity of only 1!
+  const handleBenchPlayerTap = async (benchLineupId: string) => {
+    setErrorMessage(null);
+
+    if (activeLineupIds.length === 0) {
+      handleStartingLineupSelection(benchLineupId);
+    } else {
+      await handleRuntimeSubstitution(benchLineupId);
+    }
+  };
+
+  const getJerseyNumber = (lineupId: string): string => {
+    const lineup = lineupsMap[lineupId];
+    if (!lineup) return "#??";
+    return lineup.number === -1 ? "GK" : `#${lineup.number}`;
+  };
+
+  return (
+    <div className="w-full max-w-md mx-auto p-4 bg-gray-900 text-white rounded-xl shadow-lg border border-gray-800">
+      <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-800">
+        <h3 className="text-lg font-bold tracking-wide">
+          Period {currentPeriod} Roster
+        </h3>
+        <span className="text-xs bg-blue-900 text-blue-200 px-2 py-1 rounded font-mono">
+          Limit: {activePlayersLimit} Active
+        </span>
+      </div>
+
+      {errorMessage && (
+        <div
+          role="alert"
+          className="mb-4 p-2 text-xs bg-red-900/50 border border-red-700 text-red-200 rounded"
+        >
+          {errorMessage}
+        </div>
+      )}
+
+      {/* Sector 2: Active Players (In Water) */}
+      <div className="mb-6">
+        <h4 className="text-xs font-semibold uppercase text-gray-400 tracking-wider mb-2">
+          Sector 2: Active Players (In Water)
+        </h4>
+
+        {activeLineupIds.length === 0 ? (
+          <div className="p-4 bg-gray-800/40 border border-dashed border-gray-700 rounded-lg text-center text-sm text-gray-400">
+            No active lineup defined for Period {currentPeriod}.
+            <div className="mt-2 text-xs text-blue-400">
+              Select {activePlayersLimit} players from the bench below. They
+              will enter the game once the period starts.
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-4 gap-2">
+            {activeLineupIds.map((id) => {
+              const isSelected = selectedActiveId === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => handleActivePlayerTap(id)}
+                  aria-pressed={isSelected}
+                  className={`p-3 rounded-lg flex flex-col items-center justify-center border font-bold transition-all ${
+                    isSelected
+                      ? "bg-blue-600 border-blue-400 text-white shadow-md scale-95"
+                      : "bg-blue-950/40 border-blue-900/50 text-blue-200 hover:bg-blue-900/20"
+                  }`}
+                >
+                  <span className="text-xl font-mono">
+                    {getJerseyNumber(id)}
+                  </span>
+                  <span className="text-[10px] font-normal text-blue-300 uppercase tracking-tight mt-1">
+                    Active
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Sector 1: Substitute Players (Bench) */}
+      <div className="mb-4">
+        <h4 className="text-xs font-semibold uppercase text-gray-400 tracking-wider mb-2">
+          Sector 1: Substitute Players (Bench){" "}
+          {activeLineupIds.length === 0 &&
+            `(${selectedStartingIds.length}/${activePlayersLimit})`}
+        </h4>
+        <div className="grid grid-cols-4 gap-2">
+          {benchLineupIds.map((id) => {
+            const isSelectedInStart = selectedStartingIds.includes(id);
+            return (
+              <button
+                key={id}
+                onClick={() => handleBenchPlayerTap(id)}
+                className={`p-3 rounded-lg flex flex-col items-center justify-center border transition-all ${
+                  isSelectedInStart
+                    ? "bg-green-700 border-green-500 text-white scale-95 font-bold"
+                    : "bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700"
+                }`}
+              >
+                <span className="text-lg font-mono font-bold">
+                  {getJerseyNumber(id)}
+                </span>
+                <span
+                  className={`text-[9px] mt-1 ${isSelectedInStart ? "text-green-200" : "text-gray-400"}`}
+                >
+                  {isSelectedInStart ? "Selected" : "Bench"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};

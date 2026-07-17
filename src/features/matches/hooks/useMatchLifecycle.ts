@@ -1,5 +1,5 @@
 import { db } from "../../../db/ttaDatabase";
-import { useAppDispatch, useAppSelector } from "../../../store/hooks";
+import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import {
   startPeriodState,
   endPeriodState,
@@ -8,7 +8,7 @@ import {
   incrementSequence,
   incrementPeriodNumber,
   decrementPeriodNumber,
-} from "../matchSlice";
+} from "../store/matchSlice";
 
 export const useMatchLifecycle = () => {
   const dispatch = useAppDispatch();

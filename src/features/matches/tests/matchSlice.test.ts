@@ -8,7 +8,7 @@ import matchReducer, {
   endStoppageState,
   incrementSequence,
   resetMatchState,
-} from "../matchSlice";
+} from "../store/matchSlice";
 
 describe("matchSlice Reducers", () => {
   const initialState = {

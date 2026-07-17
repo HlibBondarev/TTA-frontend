@@ -1,5 +1,9 @@
-import React from "react";
+import React, { useState } from "react";
+import { useSelector } from "react-redux";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
+import { usePlayerPresence } from "../../../features/playerpresences/hooks/usePlayerPresence";
+import type { RootState } from "../../../store";
+import { TEST_MATCH_ID } from "../../../App";
 
 export const MatchLifecyclePanel: React.FC = () => {
   const {
@@ -15,6 +19,64 @@ export const MatchLifecyclePanel: React.FC = () => {
     prevPeriod,
   } = useMatchLifecycle();
 
+  // Retrieve match id from state without masking fallback UUID duplicates
+  const activeMatchId =
+    useSelector((state: RootState) => state.match.activeMatchId) ||
+    TEST_MATCH_ID;
+
+  // Connect player presence tracking hook to lifecycle panel
+  const {
+    selectedStartingIds,
+    activePlayersLimit,
+    startPeriodWithRoster,
+    endPeriodWithRoster,
+  } = usePlayerPresence(activeMatchId);
+
+  const [panelError, setPanelError] = useState<string | null>(null);
+
+  const handleStartPeriod = async () => {
+    setPanelError(null);
+    if (selectedStartingIds.length !== activePlayersLimit) {
+      setPanelError(
+        `Please select exactly ${activePlayersLimit} starting players before starting the period.`,
+      );
+      return;
+    }
+
+    try {
+      const timestamp = new Date().toISOString();
+      await startPeriodWithRoster(timestamp);
+      await startPeriod();
+    } catch (error) {
+      const message =
+        error && typeof error === "object" && "message" in error
+          ? String((error as { message: unknown }).message)
+          : "Failed to start period.";
+      setPanelError(message);
+      console.error(error);
+    }
+  };
+
+  const handleEndPeriod = async () => {
+    setPanelError(null);
+    try {
+      const timestamp = new Date().toISOString();
+      await endPeriodWithRoster(timestamp);
+      await endPeriod();
+    } catch (error) {
+      const message =
+        error && typeof error === "object" && "message" in error
+          ? String((error as { message: unknown }).message)
+          : "Failed to end period.";
+      setPanelError(message);
+      console.error(error);
+    }
+  };
+
+  // Enforce validation: cannot start the period unless the starting lineup is complete (exactly 7 players)
+  const isStartDisabled =
+    isPeriodActive || selectedStartingIds.length !== activePlayersLimit;
+
   return (
     <div className="p-4 m-4 bg-gray-900 text-white rounded-xl shadow-lg max-w-sm border border-gray-800 w-full">
       {/* Sector 5: Period Control */}
@@ -22,6 +84,15 @@ export const MatchLifecyclePanel: React.FC = () => {
         <span className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
           Sector 5: Period Control
         </span>
+
+        {panelError && (
+          <div
+            role="alert"
+            className="mb-3 p-2 text-xs bg-red-900/50 border border-red-700 text-red-200 rounded font-sans"
+          >
+            {panelError}
+          </div>
+        )}
 
         <div className="flex items-center justify-between mb-4">
           <span className="text-sm font-medium text-gray-300">
@@ -35,7 +106,7 @@ export const MatchLifecyclePanel: React.FC = () => {
             >
               &lt;
             </button>
-            <span className="text-xl font-black text-emerald-400 min-w-6 text-center">
+            <span className="text-xl font-black text-emerald-400 min-w-6 text-center font-mono">
               {periodnumber}
             </span>
             <button
@@ -50,20 +121,34 @@ export const MatchLifecyclePanel: React.FC = () => {
 
         <div className="grid grid-cols-2 gap-2">
           <button
-            onClick={startPeriod}
-            disabled={isPeriodActive}
+            onClick={handleStartPeriod}
+            disabled={isStartDisabled}
             className="py-2 px-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 rounded text-xs font-bold uppercase tracking-wider transition-colors"
           >
             Start Period
           </button>
           <button
-            onClick={endPeriod}
-            disabled={!isPeriodActive || isInsideStoppage}
+            onClick={handleEndPeriod}
+            disabled={!isPeriodActive}
             className="py-2 px-3 bg-rose-600 hover:bg-rose-500 disabled:bg-gray-800 disabled:text-gray-600 rounded text-xs font-bold uppercase tracking-wider transition-colors"
           >
             End Period
           </button>
         </div>
+
+        {/* Dynamic Coach Helper Guidance */}
+        {!isPeriodActive && selectedStartingIds.length < activePlayersLimit && (
+          <p className="mt-3 text-[10px] text-amber-400/90 leading-tight">
+            ⚠️ Select {activePlayersLimit - selectedStartingIds.length} more{" "}
+            player(s) on the bench before starting the period.
+          </p>
+        )}
+        {!isPeriodActive &&
+          selectedStartingIds.length === activePlayersLimit && (
+            <p className="mt-3 text-[10px] text-emerald-400 font-semibold leading-tight animate-pulse">
+              ✓ Lineup prepared! Ready to start the period.
+            </p>
+          )}
       </div>
 
       {/* Sector 6: Time Control */}
