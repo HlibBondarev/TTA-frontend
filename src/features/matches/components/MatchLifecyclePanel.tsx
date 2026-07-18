@@ -10,7 +10,6 @@ export const MatchLifecyclePanel: React.FC = () => {
     periodnumber,
     isPeriodActive,
     isInsideStoppage,
-    globalSequenceNumber,
     startPeriod,
     endPeriod,
     stopTime,
@@ -18,183 +17,109 @@ export const MatchLifecyclePanel: React.FC = () => {
     nextPeriod,
     prevPeriod,
   } = useMatchLifecycle();
-
   const activeMatchId =
     useSelector((state: RootState) => state.match.activeMatchId) ||
     TEST_MATCH_ID;
-
   const {
     selectedStartingIds,
     activePlayersLimit,
     startPeriodWithRoster,
     endPeriodWithRoster,
   } = usePlayerPresence(activeMatchId);
-
   const [panelError, setPanelError] = useState<string | null>(null);
 
   const handleStartPeriod = async () => {
     setPanelError(null);
     if (selectedStartingIds.length !== activePlayersLimit) {
-      setPanelError(
-        `Please select exactly ${activePlayersLimit} starting players before starting the period.`,
-      );
+      setPanelError(`Select exactly ${activePlayersLimit} players.`);
       return;
     }
-
     try {
-      const timestamp = new Date().toISOString();
-      await startPeriodWithRoster(timestamp);
+      await startPeriodWithRoster(new Date().toISOString());
       await startPeriod();
-    } catch (error) {
-      const message =
-        error && typeof error === "object" && "message" in error
-          ? String((error as { message: unknown }).message)
-          : "Failed to start period.";
-      setPanelError(message);
-      console.error(error);
+    } catch {
+      setPanelError("Failed to start.");
     }
   };
 
   const handleEndPeriod = async () => {
     setPanelError(null);
     try {
-      const timestamp = new Date().toISOString();
-      await endPeriodWithRoster(timestamp);
+      await endPeriodWithRoster(new Date().toISOString());
       await endPeriod();
-    } catch (error) {
-      const message =
-        error && typeof error === "object" && "message" in error
-          ? String((error as { message: unknown }).message)
-          : "Failed to end period.";
-      setPanelError(message);
-      console.error(error);
+    } catch {
+      setPanelError("Failed to end.");
     }
   };
-
-  const isStartDisabled =
-    isPeriodActive || selectedStartingIds.length !== activePlayersLimit;
-
-  // Extracted logic into independent functions to resolve nested ternary code smells
-  const getStateStyles = () => {
-    if (!isPeriodActive) {
-      return "text-rose-500";
-    }
-    return isInsideStoppage ? "text-amber-400" : "text-emerald-400";
-  };
-
-  const getStateLabel = () => {
-    if (!isPeriodActive) {
-      return "In-active";
-    }
-    return isInsideStoppage ? "Stopped (Timeout)" : "Live Running";
-  };
-
-  const stateColor = getStateStyles();
-  const stateLabel = getStateLabel();
 
   return (
-    <div className="p-4 m-4 bg-gray-900 text-white rounded-xl shadow-lg max-w-sm border border-gray-800 w-full">
-      <div className="mb-6 bg-gray-950 p-4 rounded-lg border border-gray-800">
-        <span className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
-          Sector 5: Period Control
-        </span>
+    <div className="w-full bg-gray-900 text-white rounded-xl border border-gray-800 p-2">
+      {panelError && (
+        <div
+          role="alert"
+          className="mb-2 p-1 text-[10px] bg-red-900/50 text-red-200 rounded"
+        >
+          {panelError}
+        </div>
+      )}
 
-        {panelError && (
-          <div
-            role="alert"
-            className="mb-3 p-2 text-xs bg-red-900/50 border border-red-700 text-red-200 rounded font-sans"
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium text-gray-300">Period</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={prevPeriod}
+            disabled={isPeriodActive}
+            className="w-6 h-6 bg-gray-800 rounded text-xs hover:bg-gray-700 disabled:opacity-30"
           >
-            {panelError}
-          </div>
-        )}
-
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-sm font-medium text-gray-300">
-            Active Period
+            &lt;
+          </button>
+          <span className="text-sm font-black text-emerald-400 min-w-4 text-center">
+            {periodnumber}
           </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={prevPeriod}
-              disabled={isPeriodActive}
-              className="w-8 h-8 flex items-center justify-center bg-gray-800 hover:bg-gray-700 disabled:opacity-30 rounded font-black transition-all"
-            >
-              &lt;
-            </button>
-            <span className="text-xl font-black text-emerald-400 min-w-6 text-center font-mono">
-              {periodnumber}
-            </span>
-            <button
-              onClick={nextPeriod}
-              disabled={isPeriodActive}
-              className="w-8 h-8 flex items-center justify-center bg-gray-800 hover:bg-gray-700 disabled:opacity-30 rounded font-black transition-all"
-            >
-              &gt;
-            </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
           <button
-            onClick={handleStartPeriod}
-            disabled={isStartDisabled}
-            className="py-2 px-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 rounded text-xs font-bold uppercase tracking-wider transition-colors"
+            onClick={nextPeriod}
+            disabled={isPeriodActive}
+            className="w-6 h-6 bg-gray-800 rounded text-xs hover:bg-gray-700 disabled:opacity-30"
           >
-            Start Period
-          </button>
-          <button
-            onClick={handleEndPeriod}
-            disabled={!isPeriodActive}
-            className="py-2 px-3 bg-rose-600 hover:bg-rose-500 disabled:bg-gray-800 disabled:text-gray-600 rounded text-xs font-bold uppercase tracking-wider transition-colors"
-          >
-            End Period
-          </button>
-        </div>
-
-        {!isPeriodActive && selectedStartingIds.length < activePlayersLimit && (
-          <p className="mt-3 text-[10px] text-amber-400/90 leading-tight">
-            ⚠️ Select {activePlayersLimit - selectedStartingIds.length} more{" "}
-            player(s) on the bench before starting the period.
-          </p>
-        )}
-        {!isPeriodActive &&
-          selectedStartingIds.length === activePlayersLimit && (
-            <p className="mt-3 text-[10px] text-emerald-400 font-semibold leading-tight animate-pulse">
-              ✓ Lineup prepared! Ready to start the period.
-            </p>
-          )}
-      </div>
-
-      <div className="bg-gray-950 p-4 rounded-lg border border-gray-800">
-        <span className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
-          Sector 6: Time Control
-        </span>
-
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={startTime}
-            disabled={!isPeriodActive || !isInsideStoppage}
-            className="py-3 px-4 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 rounded font-extrabold uppercase tracking-widest text-sm transition-colors"
-          >
-            Start
-          </button>
-          <button
-            onClick={stopTime}
-            disabled={!isPeriodActive || isInsideStoppage}
-            className="py-3 px-4 bg-amber-600 hover:bg-amber-500 disabled:bg-gray-800 disabled:text-gray-600 rounded font-extrabold uppercase tracking-widest text-sm transition-colors"
-          >
-            Stop
+            &gt;
           </button>
         </div>
       </div>
 
-      <div className="mt-4 pt-3 border-t border-gray-800 flex justify-between text-[10px] tracking-wider text-gray-500 font-mono uppercase">
-        <span>
-          Sequence:{" "}
-          <strong className="text-gray-400">#{globalSequenceNumber}</strong>
-        </span>
-        <span>
-          State: <strong className={`ml-1 ${stateColor}`}>{stateLabel}</strong>
-        </span>
+      <div className="grid grid-cols-2 gap-1 mb-2">
+        <button
+          onClick={handleStartPeriod}
+          disabled={
+            isPeriodActive || selectedStartingIds.length !== activePlayersLimit
+          }
+          className="py-1 bg-emerald-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
+        >
+          START PERIOD
+        </button>
+        <button
+          onClick={handleEndPeriod}
+          disabled={!isPeriodActive}
+          className="py-1 bg-rose-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
+        >
+          END PERIOD
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-1">
+        <button
+          onClick={startTime}
+          disabled={!isPeriodActive || !isInsideStoppage}
+          className="py-1 bg-blue-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
+        >
+          Resume
+        </button>
+        <button
+          onClick={stopTime}
+          disabled={!isPeriodActive || isInsideStoppage}
+          className="py-1 bg-amber-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
+        >
+          Stop
+        </button>
       </div>
     </div>
   );

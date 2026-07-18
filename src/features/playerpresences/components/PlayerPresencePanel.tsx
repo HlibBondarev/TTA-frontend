@@ -2,24 +2,27 @@ import React, { useEffect, useState } from "react";
 import { usePlayerPresence } from "../hooks/usePlayerPresence";
 import { db } from "../../../db/ttaDatabase";
 import type { MatchLineupLookup } from "../../../db/ttaDatabase";
+import { useSelector } from "react-redux";
+import type { RootState } from "../../../store";
 
-interface PlayerPresencePanelProps {
+export const PlayerPresencePanel: React.FC<{
   matchId: string;
-}
-
-export const PlayerPresencePanel: React.FC<PlayerPresencePanelProps> = ({
-  matchId,
-}) => {
+  onPlayerSelect?: (lineupId: string | null) => void;
+}> = ({ matchId, onPlayerSelect }) => {
   const {
     currentPeriod,
     activeLineupIds,
     benchLineupIds,
-    selectedStartingIds,
-    activePlayersLimit,
     refreshPresenceFromDB,
-    stageStartingLineup,
     executeSubstitution,
+    stageStartingLineup,
+    selectedStartingIds,
   } = usePlayerPresence(matchId);
+
+  // Check if the match is currently active
+  const isPeriodActive = useSelector(
+    (state: RootState) => state.match.isPeriodActive,
+  );
 
   const [lineupsMap, setLineupsMap] = useState<
     Record<string, MatchLineupLookup>
@@ -27,224 +30,101 @@ export const PlayerPresencePanel: React.FC<PlayerPresencePanelProps> = ({
   const [selectedActiveId, setSelectedActiveId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Keep track of the previous matchId and currentPeriod to reset selection during the render phase
-  const [prevContext, setPrevContext] = useState({ matchId, currentPeriod });
-
-  // Self-contained state adjustment on prop/context changes (replaces problematic useEffect)
-  if (
-    prevContext.matchId !== matchId ||
-    prevContext.currentPeriod !== currentPeriod
-  ) {
-    setPrevContext({ matchId, currentPeriod });
-    setSelectedActiveId(null);
-    setErrorMessage(null);
-  }
-
-  // Combined async initialization flow preventing race conditions via active-cleanup guard
   useEffect(() => {
-    let isCurrent = true;
-
-    const loadAllPresenceMetadata = async () => {
+    const load = async () => {
       try {
         const lineups = await db.matchlineups
           .where("matchid")
           .equals(matchId)
           .toArray();
-
-        if (!isCurrent) return;
-
         const map: Record<string, MatchLineupLookup> = {};
-        lineups.forEach((l) => {
-          map[l.id] = l;
-        });
+        lineups.forEach((l) => (map[l.id] = l));
         setLineupsMap(map);
-
-        // Run presence refresh sequentially within the same flow
         await refreshPresenceFromDB();
-      } catch (error) {
-        if (isCurrent) {
-          console.error(
-            "Failed to load lineups metadata or presence state:",
-            error,
-          );
-          setErrorMessage(
-            "Failed to fetch fresh roster data from the local database.",
-          );
-        }
+      } catch {
+        setErrorMessage("Failed to fetch fresh roster data.");
       }
     };
+    load();
+  }, [matchId, refreshPresenceFromDB]);
 
-    loadAllPresenceMetadata();
-
-    return () => {
-      isCurrent = false;
-    };
-  }, [matchId, currentPeriod, refreshPresenceFromDB]);
-
-  // Clears any active error state when an active player is tapped
-  const handleActivePlayerTap = (lineupId: string) => {
-    setErrorMessage(null);
-    setSelectedActiveId(selectedActiveId === lineupId ? null : lineupId);
-  };
-
-  // Helper 1: Decoupled logic for preparing the starting lineup before "START PERIOD"
-  const handleStartingLineupSelection = (benchLineupId: string) => {
-    if (selectedStartingIds.includes(benchLineupId)) {
-      stageStartingLineup(
-        selectedStartingIds.filter((id) => id !== benchLineupId),
-      );
-      return;
-    }
-
-    if (selectedStartingIds.length >= activePlayersLimit) {
-      setErrorMessage(
-        `You can only select up to ${activePlayersLimit} starting players.`,
-      );
-      return;
-    }
-
-    stageStartingLineup([...selectedStartingIds, benchLineupId]);
-  };
-
-  // Helper 2: Decoupled logic for runtime player substitutions
-  const handleRuntimeSubstitution = async (benchLineupId: string) => {
-    if (!selectedActiveId) {
-      setErrorMessage(
-        "Please select an active player in the water first to substitute out.",
-      );
-      return;
-    }
-
-    // Security Guard: Ensure the selected player is still present inside the active water lineup
-    if (!activeLineupIds.includes(selectedActiveId)) {
-      setErrorMessage("The selected player is no longer active in the game.");
-      setSelectedActiveId(null);
-      return;
-    }
-
-    try {
-      await executeSubstitution(selectedActiveId, benchLineupId);
-      setSelectedActiveId(null);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to perform substitution. Please try again.";
-      setErrorMessage(message);
+  const handleActiveTap = (id: string) => {
+    // Only allow selection if the period is active
+    if (isPeriodActive) {
+      const newId = selectedActiveId === id ? null : id;
+      setSelectedActiveId(newId);
+      if (onPlayerSelect) onPlayerSelect(newId);
     }
   };
 
-  // Main entry point is now extremely thin and has a Cognitive Complexity of only 1!
-  const handleBenchPlayerTap = async (benchLineupId: string) => {
+  const handleBenchTap = async (benchId: string) => {
     setErrorMessage(null);
 
-    if (activeLineupIds.length === 0) {
-      handleStartingLineupSelection(benchLineupId);
+    if (isPeriodActive) {
+      // Handle substitution logic during an active period
+      if (selectedActiveId) {
+        try {
+          await executeSubstitution(selectedActiveId, benchId);
+          setSelectedActiveId(null);
+        } catch {
+          setErrorMessage("Substitution failed.");
+        }
+      } else {
+        setErrorMessage(
+          "Please select an active player in the water first to substitute out.",
+        );
+      }
     } else {
-      await handleRuntimeSubstitution(benchLineupId);
+      // Handle starting lineup selection before the period starts
+      try {
+        const newSelection = selectedStartingIds.includes(benchId)
+          ? selectedStartingIds.filter((id) => id !== benchId)
+          : [...selectedStartingIds, benchId];
+        stageStartingLineup(newSelection);
+      } catch (e: unknown) {
+        // Correctly handle the error type to satisfy ESLint
+        const errorMessage =
+          e instanceof Error ? e.message : "An unknown error occurred.";
+        setErrorMessage(errorMessage);
+      }
     }
-  };
-
-  const getJerseyNumber = (lineupId: string): string => {
-    const lineup = lineupsMap[lineupId];
-    if (!lineup) return "#??";
-    return lineup.number === -1 ? "GK" : `#${lineup.number}`;
   };
 
   return (
-    <div className="w-full max-w-md mx-auto p-4 bg-gray-900 text-white rounded-xl shadow-lg border border-gray-800">
-      <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-800">
-        <h3 className="text-lg font-bold tracking-wide">
-          Period {currentPeriod} Roster
-        </h3>
-        <span className="text-xs bg-blue-900 text-blue-200 px-2 py-1 rounded font-mono">
-          Limit: {activePlayersLimit} Active
-        </span>
-      </div>
-
+    <div className="w-full p-2 bg-gray-900 text-white rounded-xl border border-gray-800">
+      <h3 className="text-sm font-bold mb-2">Period {currentPeriod} Roster</h3>
       {errorMessage && (
-        <div
-          role="alert"
-          className="mb-4 p-2 text-xs bg-red-900/50 border border-red-700 text-red-200 rounded"
-        >
+        <div role="alert" className="text-red-500 text-[10px] mb-2">
           {errorMessage}
         </div>
       )}
 
-      {/* Sector 2: Active Players (In Water) */}
-      <div className="mb-6">
-        <h4 className="text-xs font-semibold uppercase text-gray-400 tracking-wider mb-2">
-          Sector 2: Active Players (In Water)
-        </h4>
-
-        {activeLineupIds.length === 0 ? (
-          <div className="p-4 bg-gray-800/40 border border-dashed border-gray-700 rounded-lg text-center text-sm text-gray-400">
-            No active lineup defined for Period {currentPeriod}.
-            <div className="mt-2 text-xs text-blue-400">
-              Select {activePlayersLimit} players from the bench below. They
-              will enter the game once the period starts.
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-4 gap-2">
-            {activeLineupIds.map((id) => {
-              const isSelected = selectedActiveId === id;
-              return (
-                <button
-                  key={id}
-                  onClick={() => handleActivePlayerTap(id)}
-                  aria-pressed={isSelected}
-                  className={`p-3 rounded-lg flex flex-col items-center justify-center border font-bold transition-all ${
-                    isSelected
-                      ? "bg-blue-600 border-blue-400 text-white shadow-md scale-95"
-                      : "bg-blue-950/40 border-blue-900/50 text-blue-200 hover:bg-blue-900/20"
-                  }`}
-                >
-                  <span className="text-xl font-mono">
-                    {getJerseyNumber(id)}
-                  </span>
-                  <span className="text-[10px] font-normal text-blue-300 uppercase tracking-tight mt-1">
-                    Active
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+      <h4 className="text-[10px] uppercase text-gray-400 mb-1">
+        Active Players
+      </h4>
+      <div className="grid grid-cols-4 gap-1 mb-2">
+        {activeLineupIds.map((id) => (
+          <button
+            key={id}
+            onClick={() => handleActiveTap(id)}
+            className={`p-2 rounded text-xs ${selectedActiveId === id ? "bg-blue-600" : "bg-blue-950"}`}
+          >
+            {`#${lineupsMap[id]?.number || ""}`}
+          </button>
+        ))}
       </div>
 
-      {/* Sector 1: Substitute Players (Bench) */}
-      <div className="mb-4">
-        <h4 className="text-xs font-semibold uppercase text-gray-400 tracking-wider mb-2">
-          Sector 1: Substitute Players (Bench){" "}
-          {activeLineupIds.length === 0 &&
-            `(${selectedStartingIds.length}/${activePlayersLimit})`}
-        </h4>
-        <div className="grid grid-cols-4 gap-2">
-          {benchLineupIds.map((id) => {
-            const isSelectedInStart = selectedStartingIds.includes(id);
-            return (
-              <button
-                key={id}
-                onClick={() => handleBenchPlayerTap(id)}
-                className={`p-3 rounded-lg flex flex-col items-center justify-center border transition-all ${
-                  isSelectedInStart
-                    ? "bg-green-700 border-green-500 text-white scale-95 font-bold"
-                    : "bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700"
-                }`}
-              >
-                <span className="text-lg font-mono font-bold">
-                  {getJerseyNumber(id)}
-                </span>
-                <span
-                  className={`text-[9px] mt-1 ${isSelectedInStart ? "text-green-200" : "text-gray-400"}`}
-                >
-                  {isSelectedInStart ? "Selected" : "Bench"}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+      <h4 className="text-[10px] uppercase text-gray-400 mb-1">Bench</h4>
+      <div className="grid grid-cols-4 gap-1">
+        {benchLineupIds.map((id) => (
+          <button
+            key={id}
+            onClick={() => handleBenchTap(id)}
+            className={`p-2 rounded text-xs ${selectedStartingIds.includes(id) ? "bg-emerald-600" : "bg-gray-800"}`}
+          >
+            {`#${lineupsMap[id]?.number || ""}`}
+          </button>
+        ))}
       </div>
     </div>
   );

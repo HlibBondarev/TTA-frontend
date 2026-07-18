@@ -8,6 +8,7 @@ import matchReducer, {
   endStoppageState,
   incrementSequence,
   resetMatchState,
+  addRecentAction,
 } from "../store/matchSlice";
 
 describe("matchSlice Reducers", () => {
@@ -19,6 +20,7 @@ describe("matchSlice Reducers", () => {
     isPeriodActive: false,
     isInsideStoppage: false,
     globalSequenceNumber: 0,
+    recentActions: [],
   };
 
   it("should return the initial state on first run", () => {
@@ -43,43 +45,57 @@ describe("matchSlice Reducers", () => {
   });
 
   it("should handle starting and ending a period", () => {
-    let state = matchReducer(initialState, startPeriodState());
-    expect(state.isPeriodActive).toBe(true);
-    expect(state.isInsideStoppage).toBe(false);
+    const stateStarted = matchReducer(initialState, startPeriodState());
+    expect(stateStarted.isPeriodActive).toBe(true);
+    expect(stateStarted.isInsideStoppage).toBe(false);
 
-    state = matchReducer(state, endPeriodState());
-    expect(state.isPeriodActive).toBe(false);
+    const stateEnded = matchReducer(stateStarted, endPeriodState());
+    expect(stateEnded.isPeriodActive).toBe(false);
   });
 
   it("should handle period number navigation safely", () => {
-    let state = matchReducer(initialState, incrementPeriodNumber());
-    expect(state.periodnumber).toBe(2);
+    const stateInc = matchReducer(initialState, incrementPeriodNumber());
+    expect(stateInc.periodnumber).toBe(2);
 
-    state = matchReducer(state, decrementPeriodNumber());
-    expect(state.periodnumber).toBe(1);
+    const stateDec = matchReducer(stateInc, decrementPeriodNumber());
+    expect(stateDec.periodnumber).toBe(1);
 
-    state = matchReducer(state, decrementPeriodNumber());
-    expect(state.periodnumber).toBe(1);
+    const stateSafe = matchReducer(stateDec, decrementPeriodNumber());
+    expect(stateSafe.periodnumber).toBe(1);
   });
 
   it("should handle stoppage state transitions", () => {
-    let state = matchReducer(initialState, startStoppageState());
-    expect(state.isInsideStoppage).toBe(true);
+    const stateStart = matchReducer(initialState, startStoppageState());
+    expect(stateStart.isInsideStoppage).toBe(true);
 
-    state = matchReducer(state, endStoppageState());
-    expect(state.isInsideStoppage).toBe(false);
+    const stateEnd = matchReducer(stateStart, endStoppageState());
+    expect(stateEnd.isInsideStoppage).toBe(false);
   });
 
   it("should increment sequence number step-by-step", () => {
-    let state = matchReducer(initialState, incrementSequence());
-    expect(state.globalSequenceNumber).toBe(1);
+    const state1 = matchReducer(initialState, incrementSequence());
+    expect(state1.globalSequenceNumber).toBe(1);
 
-    state = matchReducer(state, incrementSequence());
-    expect(state.globalSequenceNumber).toBe(2);
+    const state2 = matchReducer(state1, incrementSequence());
+    expect(state2.globalSequenceNumber).toBe(2);
+  });
+
+  it("should handle adding a recent action", () => {
+    const newAction = {
+      id: "test-1",
+      playerNumber: 1,
+      actionName: "Goal",
+      isPositive: true,
+      timestamp: new Date().toISOString(),
+    };
+    const state = matchReducer(initialState, addRecentAction(newAction));
+    expect(state.recentActions).toHaveLength(1);
+    expect(state.recentActions[0].id).toBe("test-1");
   });
 
   it("should reset the match state back to its initial state", () => {
     const dirtyState = {
+      ...initialState,
       activeMatchId: "active-session-uuid",
       periodnumber: 4,
       homescore: 10,
