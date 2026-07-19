@@ -22,6 +22,16 @@ export const TTAConsole: React.FC = () => {
   } | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
 
+  // Use state to track the "current" period to detect changes
+  const [prevPeriod, setPrevPeriod] = useState(periodnumber);
+
+  // If the period from props/hooks changes, reset state and update prevPeriod
+  if (periodnumber !== prevPeriod) {
+    setPrevPeriod(periodnumber);
+    setPendingAction(null);
+    setSelectedPlayerId(null);
+  }
+
   const isRecordingEnabled = isPeriodActive && !isInsideStoppage;
 
   const handleEnter = () => {
