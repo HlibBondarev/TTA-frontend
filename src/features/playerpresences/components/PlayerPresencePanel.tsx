@@ -63,6 +63,9 @@ export const PlayerPresencePanel: React.FC<{
   }, [matchId, refreshPresenceFromDB]);
 
   const handleActiveTap = (id: string) => {
+    // Clear any previous error messages before processing the new selection
+    setErrorMessage(null);
+
     if (isPeriodActive) {
       const newId = selectedPlayerId === id ? null : id;
       setSelectedPlayerId(newId);
