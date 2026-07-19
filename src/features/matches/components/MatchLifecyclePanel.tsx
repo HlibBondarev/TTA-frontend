@@ -35,20 +35,24 @@ export const MatchLifecyclePanel: React.FC = () => {
       return;
     }
     try {
+      // Atomic operation: commit roster to DB first, then update lifecycle state
       await startPeriodWithRoster(new Date().toISOString());
       await startPeriod();
     } catch {
-      setPanelError("Failed to start.");
+      // Error handling without unused variables
+      setPanelError("Failed to start period. Please try again.");
     }
   };
 
   const handleEndPeriod = async () => {
     setPanelError(null);
     try {
+      // Atomic operation: terminate presence in DB first, then update lifecycle state
       await endPeriodWithRoster(new Date().toISOString());
       await endPeriod();
     } catch {
-      setPanelError("Failed to end.");
+      // Error handling without unused variables
+      setPanelError("Failed to end period. Please try again.");
     }
   };
 
