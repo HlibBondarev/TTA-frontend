@@ -7,8 +7,10 @@ import type { RootState } from "../../../store";
 
 export const PlayerPresencePanel: React.FC<{
   matchId: string;
+  selectedPlayerId: string | null;
+  setSelectedPlayerId: (id: string | null) => void;
   onPlayerSelect?: (lineupId: string | null) => void;
-}> = ({ matchId, onPlayerSelect }) => {
+}> = ({ matchId, onPlayerSelect, selectedPlayerId, setSelectedPlayerId }) => {
   const {
     currentPeriod,
     activeLineupIds,
@@ -19,7 +21,6 @@ export const PlayerPresencePanel: React.FC<{
     selectedStartingIds,
   } = usePlayerPresence(matchId);
 
-  // Check if the match is currently active
   const isPeriodActive = useSelector(
     (state: RootState) => state.match.isPeriodActive,
   );
@@ -27,7 +28,6 @@ export const PlayerPresencePanel: React.FC<{
   const [lineupsMap, setLineupsMap] = useState<
     Record<string, MatchLineupLookup>
   >({});
-  const [selectedActiveId, setSelectedActiveId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -49,10 +49,9 @@ export const PlayerPresencePanel: React.FC<{
   }, [matchId, refreshPresenceFromDB]);
 
   const handleActiveTap = (id: string) => {
-    // Only allow selection if the period is active
     if (isPeriodActive) {
-      const newId = selectedActiveId === id ? null : id;
-      setSelectedActiveId(newId);
+      const newId = selectedPlayerId === id ? null : id;
+      setSelectedPlayerId(newId);
       if (onPlayerSelect) onPlayerSelect(newId);
     }
   };
@@ -61,11 +60,10 @@ export const PlayerPresencePanel: React.FC<{
     setErrorMessage(null);
 
     if (isPeriodActive) {
-      // Handle substitution logic during an active period
-      if (selectedActiveId) {
+      if (selectedPlayerId) {
         try {
-          await executeSubstitution(selectedActiveId, benchId);
-          setSelectedActiveId(null);
+          await executeSubstitution(selectedPlayerId, benchId);
+          setSelectedPlayerId(null);
         } catch {
           setErrorMessage("Substitution failed.");
         }
@@ -75,14 +73,12 @@ export const PlayerPresencePanel: React.FC<{
         );
       }
     } else {
-      // Handle starting lineup selection before the period starts
       try {
         const newSelection = selectedStartingIds.includes(benchId)
           ? selectedStartingIds.filter((id) => id !== benchId)
           : [...selectedStartingIds, benchId];
         stageStartingLineup(newSelection);
       } catch (e: unknown) {
-        // Correctly handle the error type to satisfy ESLint
         const errorMessage =
           e instanceof Error ? e.message : "An unknown error occurred.";
         setErrorMessage(errorMessage);
@@ -108,7 +104,7 @@ export const PlayerPresencePanel: React.FC<{
             key={id}
             type="button"
             onClick={() => handleActiveTap(id)}
-            className={`p-2 min-h-11 rounded text-xs ${selectedActiveId === id ? "bg-blue-600" : "bg-blue-950"}`}
+            className={`p-2 min-h-11 rounded text-xs ${selectedPlayerId === id ? "bg-blue-600" : "bg-blue-950"}`}
           >
             {`#${lineupsMap[id]?.number || ""}`}
           </button>

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import {
   render,
@@ -14,7 +15,7 @@ import matchReducer from "../../matches/store/matchSlice";
 import { db } from "../../../db/ttaDatabase";
 
 vi.mock("../hooks/usePlayerPresence");
-vi.mock("../../../db/ttaDatabase"); // Mock db
+vi.mock("../../../db/ttaDatabase");
 
 const renderWithRedux = (
   ui: React.ReactElement,
@@ -33,11 +34,9 @@ const renderWithRedux = (
 describe("PlayerPresencePanel Component", () => {
   const mockExecuteSubstitution = vi.fn().mockResolvedValue("new-id");
 
-  // Replace the previous mock assignment in beforeEach with this typed version:
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Create a helper type or use the return type of the chain
     vi.mocked(db.matchlineups.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
         toArray: vi.fn().mockResolvedValue([
@@ -62,13 +61,30 @@ describe("PlayerPresencePanel Component", () => {
   });
 
   it("should render roster structure correctly", async () => {
-    renderWithRedux(<PlayerPresencePanel matchId="test-match" />);
-    // Use a simpler query that works with the DOM structure in logs
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
     expect(await screen.findByText("Period 1 Roster")).toBeInTheDocument();
   });
 
   it("should support runtime player substitutions", async () => {
-    renderWithRedux(<PlayerPresencePanel matchId="test-match" />);
+    // We need a wrapper to hold the state and pass it down correctly
+    const TestWrapper = () => {
+      const [selectedId, setSelectedId] = useState<string | null>(null);
+      return (
+        <PlayerPresencePanel
+          matchId="test-match"
+          selectedPlayerId={selectedId}
+          setSelectedPlayerId={setSelectedId}
+        />
+      );
+    };
+
+    renderWithRedux(<TestWrapper />);
 
     // 1. Find and click the active player
     const activeBtn = await screen.findByText("#5");
@@ -76,7 +92,7 @@ describe("PlayerPresencePanel Component", () => {
       fireEvent.click(activeBtn);
     });
 
-    // 2. Verify that active player is visually selected (it should have 'bg-blue-600')
+    // 2. Verify that active player is visually selected
     expect(activeBtn).toHaveClass("bg-blue-600");
 
     // 3. Find and click the bench player

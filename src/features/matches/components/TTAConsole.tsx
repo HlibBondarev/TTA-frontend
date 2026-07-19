@@ -50,16 +50,15 @@ export const TTAConsole: React.FC = () => {
       {activeMatchId ? (
         <div className="flex flex-col flex-1 overflow-hidden">
           <div className="flex-1 overflow-y-auto w-full px-2 space-y-2">
-            {/* Top: Match Lifecycle Controls (includes Period selector) */}
             <MatchLifecyclePanel />
 
-            {/* Middle: Actions Log */}
             <ActionsLog />
 
-            {/* Bottom: Player Roster Panel */}
             <PlayerPresencePanel
               key={periodnumber}
               matchId={activeMatchId}
+              selectedPlayerId={selectedPlayerId}
+              setSelectedPlayerId={setSelectedPlayerId}
               onPlayerSelect={(id) => setSelectedPlayerId(id)}
             />
 
