@@ -1,1 +1,6 @@
 @import "tailwindcss";
+
+/* Define the utility class to handle iOS safe area padding */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
