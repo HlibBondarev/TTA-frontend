@@ -22,14 +22,14 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab("positive")}
-          className={`flex-1 py-2 text-xs font-bold uppercase ${activeTab === "positive" ? "text-emerald-400 border-b-2 border-emerald-400" : "text-gray-500"}`}
+          className={`flex-1 py-2 min-h-11 text-xs font-bold uppercase ${activeTab === "positive" ? "text-emerald-400 border-b-2 border-emerald-400" : "text-gray-500"}`}
         >
           Positive
         </button>
         <button
           type="button"
           onClick={() => setActiveTab("negative")}
-          className={`flex-1 py-2 text-xs font-bold uppercase ${activeTab === "negative" ? "text-rose-400 border-b-2 border-rose-400" : "text-gray-500"}`}
+          className={`flex-1 py-2 min-h-11 text-xs font-bold uppercase ${activeTab === "negative" ? "text-rose-400 border-b-2 border-rose-400" : "text-gray-500"}`}
         >
           Negative
         </button>
@@ -41,7 +41,7 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
                 type="button"
                 key={act}
                 onClick={() => onActionSelect(act, true)}
-                className={`p-2 rounded text-xs transition-all ${selectedAction === act ? "bg-blue-600 text-white" : "bg-gray-800 text-emerald-200"}`}
+                className={`p-2 min-h-11 rounded text-xs transition-all ${selectedAction === act ? "bg-blue-600 text-white" : "bg-gray-800 text-emerald-200"}`}
               >
                 {act}
               </button>
@@ -51,7 +51,7 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
                 type="button"
                 key={act}
                 onClick={() => onActionSelect(act, false)}
-                className={`p-2 rounded text-xs transition-all ${selectedAction === act ? "bg-blue-600 text-white" : "bg-gray-800 text-rose-200"}`}
+                className={`p-2 min-h-11 rounded text-xs transition-all ${selectedAction === act ? "bg-blue-600 text-white" : "bg-gray-800 text-rose-200"}`}
               >
                 {act}
               </button>

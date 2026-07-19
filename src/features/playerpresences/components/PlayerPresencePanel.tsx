@@ -106,8 +106,9 @@ export const PlayerPresencePanel: React.FC<{
         {activeLineupIds.map((id) => (
           <button
             key={id}
+            type="button"
             onClick={() => handleActiveTap(id)}
-            className={`p-2 rounded text-xs ${selectedActiveId === id ? "bg-blue-600" : "bg-blue-950"}`}
+            className={`p-2 min-h-11 rounded text-xs ${selectedActiveId === id ? "bg-blue-600" : "bg-blue-950"}`}
           >
             {`#${lineupsMap[id]?.number || ""}`}
           </button>
@@ -119,8 +120,9 @@ export const PlayerPresencePanel: React.FC<{
         {benchLineupIds.map((id) => (
           <button
             key={id}
+            type="button"
             onClick={() => handleBenchTap(id)}
-            className={`p-2 rounded text-xs ${selectedStartingIds.includes(id) ? "bg-emerald-600" : "bg-gray-800"}`}
+            className={`p-2 min-h-11 rounded text-xs ${selectedStartingIds.includes(id) ? "bg-emerald-600" : "bg-gray-800"}`}
           >
             {`#${lineupsMap[id]?.number || ""}`}
           </button>

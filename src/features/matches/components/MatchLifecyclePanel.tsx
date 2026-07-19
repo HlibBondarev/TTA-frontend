@@ -71,9 +71,10 @@ export const MatchLifecyclePanel: React.FC = () => {
         <span className="text-xs font-medium text-gray-300">Period</span>
         <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={prevPeriod}
             disabled={isPeriodActive}
-            className="w-6 h-6 bg-gray-800 rounded text-xs hover:bg-gray-700 disabled:opacity-30"
+            className="w-6 h-6 min-h-11 min-w-11 bg-gray-800 rounded text-xs hover:bg-gray-700 disabled:opacity-30"
           >
             &lt;
           </button>
@@ -81,9 +82,10 @@ export const MatchLifecyclePanel: React.FC = () => {
             {periodnumber}
           </span>
           <button
+            type="button"
             onClick={nextPeriod}
             disabled={isPeriodActive}
-            className="w-6 h-6 bg-gray-800 rounded text-xs hover:bg-gray-700 disabled:opacity-30"
+            className="w-6 h-6 min-h-11 min-w-11 bg-gray-800 rounded text-xs hover:bg-gray-700 disabled:opacity-30"
           >
             &gt;
           </button>
@@ -92,18 +94,20 @@ export const MatchLifecyclePanel: React.FC = () => {
 
       <div className="grid grid-cols-2 gap-1 mb-2">
         <button
+          type="button"
           onClick={handleStartPeriod}
           disabled={
             isPeriodActive || selectedStartingIds.length !== activePlayersLimit
           }
-          className="py-1 bg-emerald-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
+          className="py-1 min-h-11 bg-emerald-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
         >
           START PERIOD
         </button>
         <button
+          type="button"
           onClick={handleEndPeriod}
           disabled={!isPeriodActive}
-          className="py-1 bg-rose-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
+          className="py-1 min-h-11 bg-rose-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
         >
           END PERIOD
         </button>
@@ -111,16 +115,18 @@ export const MatchLifecyclePanel: React.FC = () => {
 
       <div className="grid grid-cols-2 gap-1">
         <button
+          type="button"
           onClick={startTime}
           disabled={!isPeriodActive || !isInsideStoppage}
-          className="py-1 bg-blue-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
+          className="py-1 min-h-11 bg-blue-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
         >
           Resume
         </button>
         <button
+          type="button"
           onClick={stopTime}
           disabled={!isPeriodActive || isInsideStoppage}
-          className="py-1 bg-amber-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
+          className="py-1 min-h-11 bg-amber-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
         >
           Stop
         </button>
