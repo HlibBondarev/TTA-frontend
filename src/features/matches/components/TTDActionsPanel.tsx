@@ -20,12 +20,14 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
     >
       <div className="flex border-b border-gray-800 mb-2">
         <button
+          type="button"
           onClick={() => setActiveTab("positive")}
           className={`flex-1 py-2 text-xs font-bold uppercase ${activeTab === "positive" ? "text-emerald-400 border-b-2 border-emerald-400" : "text-gray-500"}`}
         >
           Positive
         </button>
         <button
+          type="button"
           onClick={() => setActiveTab("negative")}
           className={`flex-1 py-2 text-xs font-bold uppercase ${activeTab === "negative" ? "text-rose-400 border-b-2 border-rose-400" : "text-gray-500"}`}
         >
@@ -36,6 +38,7 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
         {activeTab === "positive"
           ? ["Goal", "Pass", "Save", "Block", "Steal"].map((act) => (
               <button
+                type="button"
                 key={act}
                 onClick={() => onActionSelect(act, true)}
                 className={`p-2 rounded text-xs transition-all ${selectedAction === act ? "bg-blue-600 text-white" : "bg-gray-800 text-emerald-200"}`}
@@ -45,6 +48,7 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
             ))
           : ["Miss", "Turnover", "Error", "Foul"].map((act) => (
               <button
+                type="button"
                 key={act}
                 onClick={() => onActionSelect(act, false)}
                 className={`p-2 rounded text-xs transition-all ${selectedAction === act ? "bg-blue-600 text-white" : "bg-gray-800 text-rose-200"}`}

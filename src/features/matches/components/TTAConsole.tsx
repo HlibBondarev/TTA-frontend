@@ -72,6 +72,7 @@ export const TTAConsole: React.FC = () => {
             />
           </div>
           <button
+            type="button"
             onClick={handleEnter}
             disabled={
               !isRecordingEnabled || !pendingAction || !selectedPlayerId
