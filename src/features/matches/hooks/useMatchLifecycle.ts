@@ -48,8 +48,10 @@ export const useMatchLifecycle = () => {
     try {
       await logTimeAnchor(0, nextSeq);
     } catch (error) {
-      // Revert if DB write fails
+      // Revert Redux state if DB write fails
       dispatch(endPeriodState());
+      // Sequence is not rolled back to prevent potential reuse of ID,
+      // ensuring strict monotonicity in the sequence
       throw error;
     }
   };

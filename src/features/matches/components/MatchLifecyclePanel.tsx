@@ -38,7 +38,6 @@ export const MatchLifecyclePanel: React.FC = () => {
       return;
     }
     try {
-      // Execute as a sequenced operation, now protected by rollbacks in hooks
       await startPeriodWithRoster(new Date().toISOString());
       await startPeriod();
     } catch (err) {
@@ -50,7 +49,6 @@ export const MatchLifecyclePanel: React.FC = () => {
   const handleEndPeriod = async () => {
     setPanelError(null);
     try {
-      // Execute as a sequenced operation, now protected by rollbacks in hooks
       await endPeriodWithRoster(new Date().toISOString());
       await endPeriod();
     } catch (err) {

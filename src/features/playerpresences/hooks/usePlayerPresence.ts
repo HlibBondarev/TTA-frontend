@@ -17,8 +17,6 @@ import {
 
 export function usePlayerPresence(matchId: string) {
   const dispatch = useAppDispatch();
-
-  // Single source of truth for the active period from match slice
   const currentPeriod = useAppSelector((state) => state.match.periodnumber);
 
   const {
@@ -37,18 +35,15 @@ export function usePlayerPresence(matchId: string) {
         .toArray();
 
       const lineupIds = matchLineups.map((l) => l.id);
-
       const rawPresences = await db.playerpresences
         .where("periodnumber")
         .equals(currentPeriod)
         .toArray();
 
-      // 1. Sort presences chronologically by timein (ISO String comparison)
       const sortedPresences = [...rawPresences].sort((a, b) =>
         a.timein.localeCompare(b.timein),
       );
 
-      // 2. Filter using the chronologically sorted array
       const activeLineups = sortedPresences
         .filter(
           (p) => p.timeout === null && lineupIds.includes(p.matchlineupid),
@@ -67,7 +62,6 @@ export function usePlayerPresence(matchId: string) {
     }
   }, [matchId, currentPeriod, dispatch]);
 
-  // Saves the prepared starting lineup temporarily in Redux before match start
   const stageStartingLineup = useCallback(
     (lineupIds: string[]) => {
       if (lineupIds.length > activePlayersLimit) {
@@ -80,10 +74,8 @@ export function usePlayerPresence(matchId: string) {
     [activePlayersLimit, dispatch],
   );
 
-  // Triggers when "START PERIOD" is clicked, writing to DB with the precise start timestamp
   const startPeriodWithRoster = useCallback(
     async (startTimestamp: string) => {
-      // Validate that starting lineup contains exactly activePlayersLimit players
       if (selectedStartingIds.length !== activePlayersLimit) {
         throw new Error(
           `Starting lineup must contain exactly ${activePlayersLimit} players.`,
@@ -113,7 +105,6 @@ export function usePlayerPresence(matchId: string) {
     ],
   );
 
-  // Triggers when "END PERIOD" is clicked, closing all active DB presence sessions and cleaning UI
   const endPeriodWithRoster = useCallback(
     async (endTimestamp: string) => {
       const activeIdsToClose = [...activeLineupIds];
@@ -145,7 +136,6 @@ export function usePlayerPresence(matchId: string) {
           inLineupId,
         );
       } catch (error) {
-        // Reconcile Redux state from IndexedDB to revert failed optimistic changes
         await refreshPresenceFromDB();
         throw error;
       }
