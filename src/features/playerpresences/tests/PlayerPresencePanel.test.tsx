@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import {
   render,
@@ -7,6 +6,7 @@ import {
   act,
   waitFor,
 } from "@testing-library/react";
+import { useState } from "react";
 import { PlayerPresencePanel } from "../components/PlayerPresencePanel";
 import { usePlayerPresence } from "../hooks/usePlayerPresence";
 import { Provider } from "react-redux";
@@ -72,7 +72,6 @@ describe("PlayerPresencePanel Component", () => {
   });
 
   it("should support runtime player substitutions", async () => {
-    // We need a wrapper to hold the state and pass it down correctly
     const TestWrapper = () => {
       const [selectedId, setSelectedId] = useState<string | null>(null);
       return (
@@ -86,22 +85,18 @@ describe("PlayerPresencePanel Component", () => {
 
     renderWithRedux(<TestWrapper />);
 
-    // 1. Find and click the active player
     const activeBtn = await screen.findByText("#5");
     await act(async () => {
       fireEvent.click(activeBtn);
     });
 
-    // 2. Verify that active player is visually selected
     expect(activeBtn).toHaveClass("bg-blue-600");
 
-    // 3. Find and click the bench player
     const benchBtn = await screen.findByText("#10");
     await act(async () => {
       fireEvent.click(benchBtn);
     });
 
-    // 4. Check if executeSubstitution was called
     await waitFor(() => {
       expect(mockExecuteSubstitution).toHaveBeenCalledWith(
         "lineup-1",

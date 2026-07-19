@@ -31,21 +31,35 @@ export const PlayerPresencePanel: React.FC<{
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    let ignore = false;
+
     const load = async () => {
       try {
         const lineups = await db.matchlineups
           .where("matchid")
           .equals(matchId)
           .toArray();
-        const map: Record<string, MatchLineupLookup> = {};
-        lineups.forEach((l) => (map[l.id] = l));
-        setLineupsMap(map);
-        await refreshPresenceFromDB();
+
+        // Only update state if this request is still relevant
+        if (!ignore) {
+          const map: Record<string, MatchLineupLookup> = {};
+          lineups.forEach((l) => (map[l.id] = l));
+          setLineupsMap(map);
+          await refreshPresenceFromDB();
+        }
       } catch {
-        setErrorMessage("Failed to fetch fresh roster data.");
+        if (!ignore) {
+          setErrorMessage("Failed to fetch fresh roster data.");
+        }
       }
     };
+
     load();
+
+    // Cleanup function to invalidate outdated requests
+    return () => {
+      ignore = true;
+    };
   }, [matchId, refreshPresenceFromDB]);
 
   const handleActiveTap = (id: string) => {
