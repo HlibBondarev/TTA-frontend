@@ -20,54 +20,69 @@ export const useMatchLifecycle = () => {
     globalSequenceNumber,
   } = useAppSelector((state) => state.match);
 
-  const logTimeAnchor = async (type: number) => {
-    if (!activeMatchId) {
-      console.warn("[Lifecycle] Cancelled: activeMatchId is missing.");
-      return;
-    }
+  // Internal helper to perform atomic IndexedDB write
+  const logTimeAnchor = async (type: number, currentSeq: number) => {
+    if (!activeMatchId) throw new Error("Active match ID is missing.");
 
-    const nextSeq = globalSequenceNumber + 1;
-    dispatch(incrementSequence());
-
-    // Object maps 100% strictly to TimeAnchor interface in ttaDatabase.ts
     const anchorData = {
       id: crypto.randomUUID(),
       matchid: activeMatchId,
       periodnumber: periodnumber,
-      type, // 0: PeriodStart, 1: PeriodEnd, 2: StoppageStart, 3: StoppageEnd
+      type,
       timestamp: new Date().toISOString(),
-      sequenceNumber: nextSeq,
+      sequenceNumber: currentSeq,
       isSynced: 0,
     };
 
     await db.timeanchors.add(anchorData);
-    console.log(
-      `[IndexedDB] Stored TimeAnchor | Type: ${type} | Seq: ${nextSeq}`,
-    );
   };
 
   const startPeriod = async () => {
     if (isPeriodActive) return;
+    const nextSeq = globalSequenceNumber + 1;
+
+    // Optimistic dispatch
     dispatch(startPeriodState());
-    await logTimeAnchor(0);
+    dispatch(incrementSequence());
+
+    try {
+      await logTimeAnchor(0, nextSeq);
+    } catch (error) {
+      // Revert if DB write fails
+      dispatch(endPeriodState());
+      throw error;
+    }
   };
 
   const endPeriod = async () => {
     if (!isPeriodActive) return;
+    const nextSeq = globalSequenceNumber + 1;
+
     dispatch(endPeriodState());
-    await logTimeAnchor(1);
+    dispatch(incrementSequence());
+
+    try {
+      await logTimeAnchor(1, nextSeq);
+    } catch (error) {
+      dispatch(startPeriodState());
+      throw error;
+    }
   };
 
   const stopTime = async () => {
     if (!isPeriodActive || isInsideStoppage) return;
+    const nextSeq = globalSequenceNumber + 1;
     dispatch(startStoppageState());
-    await logTimeAnchor(2);
+    dispatch(incrementSequence());
+    await logTimeAnchor(2, nextSeq);
   };
 
   const startTime = async () => {
     if (!isPeriodActive || !isInsideStoppage) return;
+    const nextSeq = globalSequenceNumber + 1;
     dispatch(endStoppageState());
-    await logTimeAnchor(3);
+    dispatch(incrementSequence());
+    await logTimeAnchor(3, nextSeq);
   };
 
   const nextPeriod = () => {

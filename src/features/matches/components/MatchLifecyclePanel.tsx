@@ -17,15 +17,18 @@ export const MatchLifecyclePanel: React.FC = () => {
     nextPeriod,
     prevPeriod,
   } = useMatchLifecycle();
+
   const activeMatchId =
     useSelector((state: RootState) => state.match.activeMatchId) ||
     TEST_MATCH_ID;
+
   const {
     selectedStartingIds,
     activePlayersLimit,
     startPeriodWithRoster,
     endPeriodWithRoster,
   } = usePlayerPresence(activeMatchId);
+
   const [panelError, setPanelError] = useState<string | null>(null);
 
   const handleStartPeriod = async () => {
@@ -35,24 +38,24 @@ export const MatchLifecyclePanel: React.FC = () => {
       return;
     }
     try {
-      // Atomic operation: commit roster to DB first, then update lifecycle state
+      // Execute as a sequenced operation, now protected by rollbacks in hooks
       await startPeriodWithRoster(new Date().toISOString());
       await startPeriod();
-    } catch {
-      // Error handling without unused variables
-      setPanelError("Failed to start period. Please try again.");
+    } catch (err) {
+      console.error(err);
+      setPanelError("Failed to start period. Transaction reverted.");
     }
   };
 
   const handleEndPeriod = async () => {
     setPanelError(null);
     try {
-      // Atomic operation: terminate presence in DB first, then update lifecycle state
+      // Execute as a sequenced operation, now protected by rollbacks in hooks
       await endPeriodWithRoster(new Date().toISOString());
       await endPeriod();
-    } catch {
-      // Error handling without unused variables
-      setPanelError("Failed to end period. Please try again.");
+    } catch (err) {
+      console.error(err);
+      setPanelError("Failed to end period. Transaction reverted.");
     }
   };
 
