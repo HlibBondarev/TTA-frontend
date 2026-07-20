@@ -12,6 +12,7 @@ export const MatchLifecyclePanel: React.FC = () => {
     isInsideStoppage,
     startPeriod,
     endPeriod,
+    removeTimeAnchor,
     stopTime,
     startTime,
     nextPeriod,
@@ -37,23 +38,40 @@ export const MatchLifecyclePanel: React.FC = () => {
       setPanelError(`Select exactly ${activePlayersLimit} players.`);
       return;
     }
+
+    let anchorId: string | null | undefined = null;
     try {
+      // Step 1: Log time anchor first to ensure atomic coordination
+      anchorId = await startPeriod();
+
+      // Step 2: Initialize roster presence transaction
       await startPeriodWithRoster(new Date().toISOString());
-      await startPeriod();
     } catch (err) {
       console.error(err);
-      setPanelError("Failed to start period. Transaction reverted.");
+      // Compensate if second step fails after first step succeeded
+      if (anchorId) {
+        await removeTimeAnchor(anchorId);
+      }
+      setPanelError("Failed to start period. Transaction fully reverted.");
     }
   };
 
   const handleEndPeriod = async () => {
     setPanelError(null);
+    let anchorId: string | null | undefined = null;
     try {
+      // Step 1: Log time anchor first
+      anchorId = await endPeriod();
+
+      // Step 2: Terminate roster presence transaction
       await endPeriodWithRoster(new Date().toISOString());
-      await endPeriod();
     } catch (err) {
       console.error(err);
-      setPanelError("Failed to end period. Transaction reverted.");
+      // Compensate if second step fails
+      if (anchorId) {
+        await removeTimeAnchor(anchorId);
+      }
+      setPanelError("Failed to end period. Transaction fully reverted.");
     }
   };
 

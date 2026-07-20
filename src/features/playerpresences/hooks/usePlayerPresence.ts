@@ -90,7 +90,6 @@ export function usePlayerPresence(matchId: string) {
           startTimestamp,
         );
       } catch (error) {
-        // Reconcile Redux state from IndexedDB to revert failed optimistic changes
         await refreshPresenceFromDB();
         throw error;
       }
@@ -117,7 +116,6 @@ export function usePlayerPresence(matchId: string) {
           endTimestamp,
         );
       } catch (error) {
-        // Reconcile Redux state from IndexedDB to revert failed optimistic changes
         await refreshPresenceFromDB();
         throw error;
       }

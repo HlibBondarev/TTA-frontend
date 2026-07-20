@@ -20,12 +20,16 @@ export const useMatchLifecycle = () => {
     globalSequenceNumber,
   } = useAppSelector((state) => state.match);
 
-  // Internal helper to perform atomic IndexedDB write
-  const logTimeAnchor = async (type: number, currentSeq: number) => {
+  // Internal helper to perform atomic IndexedDB write with rollback support
+  const logTimeAnchor = async (
+    type: number,
+    currentSeq: number,
+  ): Promise<string> => {
     if (!activeMatchId) throw new Error("Active match ID is missing.");
 
+    const anchorId = crypto.randomUUID();
     const anchorData = {
-      id: crypto.randomUUID(),
+      id: anchorId,
       matchid: activeMatchId,
       periodnumber: periodnumber,
       type,
@@ -35,28 +39,35 @@ export const useMatchLifecycle = () => {
     };
 
     await db.timeanchors.add(anchorData);
+    return anchorId;
   };
 
-  const startPeriod = async () => {
+  // Compensating action to remove time anchor if subsequent operations fail
+  const removeTimeAnchor = async (anchorId: string) => {
+    try {
+      await db.timeanchors.delete(anchorId);
+    } catch (e) {
+      console.error("Failed to rollback time anchor:", e);
+    }
+  };
+
+  const startPeriod = async (): Promise<string | undefined> => {
     if (isPeriodActive) return;
     const nextSeq = globalSequenceNumber + 1;
 
-    // Optimistic dispatch
     dispatch(startPeriodState());
     dispatch(incrementSequence());
 
     try {
-      await logTimeAnchor(0, nextSeq);
+      const anchorId = await logTimeAnchor(0, nextSeq);
+      return anchorId;
     } catch (error) {
-      // Revert Redux state if DB write fails
       dispatch(endPeriodState());
-      // Sequence is not rolled back to prevent potential reuse of ID,
-      // ensuring strict monotonicity in the sequence
       throw error;
     }
   };
 
-  const endPeriod = async () => {
+  const endPeriod = async (): Promise<string | undefined> => {
     if (!isPeriodActive) return;
     const nextSeq = globalSequenceNumber + 1;
 
@@ -64,7 +75,8 @@ export const useMatchLifecycle = () => {
     dispatch(incrementSequence());
 
     try {
-      await logTimeAnchor(1, nextSeq);
+      const anchorId = await logTimeAnchor(1, nextSeq);
+      return anchorId;
     } catch (error) {
       dispatch(startPeriodState());
       throw error;
@@ -76,7 +88,12 @@ export const useMatchLifecycle = () => {
     const nextSeq = globalSequenceNumber + 1;
     dispatch(startStoppageState());
     dispatch(incrementSequence());
-    await logTimeAnchor(2, nextSeq);
+    try {
+      await logTimeAnchor(2, nextSeq);
+    } catch (error) {
+      dispatch(endStoppageState());
+      throw error;
+    }
   };
 
   const startTime = async () => {
@@ -84,7 +101,12 @@ export const useMatchLifecycle = () => {
     const nextSeq = globalSequenceNumber + 1;
     dispatch(endStoppageState());
     dispatch(incrementSequence());
-    await logTimeAnchor(3, nextSeq);
+    try {
+      await logTimeAnchor(3, nextSeq);
+    } catch (error) {
+      dispatch(startStoppageState());
+      throw error;
+    }
   };
 
   const nextPeriod = () => {
@@ -104,6 +126,7 @@ export const useMatchLifecycle = () => {
     globalSequenceNumber,
     startPeriod,
     endPeriod,
+    removeTimeAnchor,
     stopTime,
     startTime,
     nextPeriod,

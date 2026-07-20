@@ -1,106 +1,167 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
-import { MatchLifecyclePanel } from "../components/MatchLifecyclePanel";
+import { renderHook, act } from "@testing-library/react";
+import { Provider } from "react-redux";
+import { configureStore } from "@reduxjs/toolkit";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
-import { usePlayerPresence } from "../../../features/playerpresences/hooks/usePlayerPresence";
-import { useSelector } from "react-redux";
+import matchReducer from "../store/matchSlice";
+import { db } from "../../../db/ttaDatabase";
 
-vi.mock("../hooks/useMatchLifecycle");
-vi.mock("../../../features/playerpresences/hooks/usePlayerPresence");
-vi.mock("react-redux", () => ({ useSelector: vi.fn() }));
+vi.mock("../../../db/ttaDatabase", () => ({
+  db: {
+    timeanchors: {
+      add: vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
+    },
+  },
+}));
 
-describe("MatchLifecyclePanel Component", () => {
-  const mockStartPeriod = vi.fn();
-  const mockEndPeriod = vi.fn();
-  const mockStopTime = vi.fn();
-  const mockStartTime = vi.fn();
-  const mockNextPeriod = vi.fn();
-  const mockPrevPeriod = vi.fn();
+const createTestStore = (preloadedState = {}) => {
+  return configureStore({
+    reducer: {
+      match: matchReducer,
+    },
+    preloadedState: {
+      match: {
+        activeMatchId: "test-match-id",
+        periodnumber: 1,
+        homescore: 0,
+        guestscore: 0,
+        isPeriodActive: false,
+        isInsideStoppage: false,
+        globalSequenceNumber: 0,
+        recentActions: [],
+        ...preloadedState,
+      },
+    },
+  });
+};
 
-  const defaultLifecycleMock: ReturnType<typeof useMatchLifecycle> = {
-    periodnumber: 1,
-    isPeriodActive: false,
-    isInsideStoppage: true,
-    globalSequenceNumber: 0,
-    startPeriod: mockStartPeriod,
-    endPeriod: mockEndPeriod,
-    stopTime: mockStopTime,
-    startTime: mockStartTime,
-    nextPeriod: mockNextPeriod,
-    prevPeriod: mockPrevPeriod,
-  };
-
-  const defaultPresenceMock: ReturnType<typeof usePlayerPresence> = {
-    currentPeriod: 1,
-    activeLineupIds: [],
-    benchLineupIds: [],
-    selectedStartingIds: [],
-    activePlayersLimit: 7,
-    startPeriodWithRoster: vi.fn().mockResolvedValue(undefined),
-    endPeriodWithRoster: vi.fn().mockResolvedValue(undefined),
-    refreshPresenceFromDB: vi.fn(),
-    stageStartingLineup: vi.fn(),
-    executeSubstitution: vi.fn(),
-  };
-
+describe("useMatchLifecycle Hook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(useSelector).mockReturnValue("test-active-match");
-    vi.mocked(useMatchLifecycle).mockReturnValue(defaultLifecycleMock);
-    vi.mocked(usePlayerPresence).mockReturnValue(defaultPresenceMock);
   });
 
-  it("should render component structure properly", () => {
-    render(<MatchLifecyclePanel />);
-    // Target the specific element to avoid conflicts
-    expect(screen.getByText(/^Period$/i)).toBeInTheDocument();
-  });
-
-  it("should allow navigating periods when period is inactive", () => {
-    render(<MatchLifecyclePanel />);
-    fireEvent.click(screen.getByRole("button", { name: "<" }));
-    expect(mockPrevPeriod).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: ">" }));
-    expect(mockNextPeriod).toHaveBeenCalledTimes(1);
-  });
-
-  it("should trigger successful period start flow", async () => {
-    vi.mocked(usePlayerPresence).mockReturnValue({
-      ...defaultPresenceMock,
-      selectedStartingIds: ["p1", "p2", "p3", "p4", "p5", "p6", "p7"],
+  it("should initialize with values matched from the Redux store", () => {
+    const store = createTestStore();
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
-    render(<MatchLifecyclePanel />);
+
+    expect(result.current.periodnumber).toBe(1);
+    expect(result.current.isPeriodActive).toBe(false);
+    expect(result.current.isInsideStoppage).toBe(false);
+    expect(result.current.globalSequenceNumber).toBe(0);
+  });
+
+  it("should start a period and add a TimeAnchor to IndexedDB", async () => {
+    const store = createTestStore();
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
     await act(async () => {
-      // Updated name to "START PERIOD"
-      fireEvent.click(screen.getByRole("button", { name: /START PERIOD/i }));
+      await result.current.startPeriod();
     });
-    expect(mockStartPeriod).toHaveBeenCalledTimes(1);
+
+    expect(result.current.isPeriodActive).toBe(true);
+    expect(result.current.globalSequenceNumber).toBe(1);
+    expect(db.timeanchors.add).toHaveBeenCalledTimes(1);
   });
 
-  it("should successfully trigger period end flow", async () => {
-    vi.mocked(useMatchLifecycle).mockReturnValue({
-      ...defaultLifecycleMock,
+  it("should not start a period if it is already active", async () => {
+    const store = createTestStore({ isPeriodActive: true });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.startPeriod();
+    });
+
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  it("should end a period and add a TimeAnchor to IndexedDB", async () => {
+    const store = createTestStore({
       isPeriodActive: true,
+      globalSequenceNumber: 1,
     });
-    render(<MatchLifecyclePanel />);
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
     await act(async () => {
-      // Updated name to "END PERIOD"
-      fireEvent.click(screen.getByRole("button", { name: /END PERIOD/i }));
+      await result.current.endPeriod();
     });
-    expect(mockEndPeriod).toHaveBeenCalledTimes(1);
+
+    expect(result.current.isPeriodActive).toBe(false);
+    expect(result.current.globalSequenceNumber).toBe(2);
+    expect(db.timeanchors.add).toHaveBeenCalledTimes(1);
   });
 
-  it("should display error message on failure", async () => {
-    vi.mocked(usePlayerPresence).mockReturnValue({
-      ...defaultPresenceMock,
-      selectedStartingIds: ["p1", "p2", "p3", "p4", "p5", "p6", "p7"],
-      startPeriodWithRoster: vi.fn().mockRejectedValue(new Error("Failed")),
+  it("should stop the timer (stoppage start) and start the timer (stoppage end) properly", async () => {
+    const store = createTestStore({ isPeriodActive: true });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
-    render(<MatchLifecyclePanel />);
+
+    // Stop time (Stoppage Start)
     await act(async () => {
-      // Updated name to "START PERIOD"
-      fireEvent.click(screen.getByRole("button", { name: /START PERIOD/i }));
+      await result.current.stopTime();
     });
-    expect(screen.getByRole("alert")).toHaveTextContent("Failed");
+
+    expect(result.current.isInsideStoppage).toBe(true);
+    expect(db.timeanchors.add).toHaveBeenCalledTimes(1);
+
+    // Start time (Stoppage End)
+    await act(async () => {
+      await result.current.startTime();
+    });
+
+    expect(result.current.isInsideStoppage).toBe(false);
+    expect(db.timeanchors.add).toHaveBeenCalledTimes(2);
+  });
+
+  it("should block stoppage state triggers if current period is inactive", async () => {
+    const store = createTestStore({ isPeriodActive: false });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.stopTime();
+    });
+
+    expect(result.current.isInsideStoppage).toBe(false);
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  it("should navigate period numbers up and down safely when period is inactive", () => {
+    const store = createTestStore({ periodnumber: 2, isPeriodActive: false });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    act(() => {
+      result.current.nextPeriod();
+    });
+    expect(result.current.periodnumber).toBe(3);
+
+    act(() => {
+      result.current.prevPeriod();
+    });
+    expect(result.current.periodnumber).toBe(2);
+  });
+
+  it("should block period navigation when a period is active", () => {
+    const store = createTestStore({ periodnumber: 1, isPeriodActive: true });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    act(() => {
+      result.current.nextPeriod();
+    });
+    expect(result.current.periodnumber).toBe(1);
   });
 });

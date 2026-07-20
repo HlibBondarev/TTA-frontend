@@ -11,8 +11,8 @@ export interface ActionEntry {
 interface MatchState {
   activeMatchId: string | null;
   periodnumber: number;
-  homescore: number;
-  guestscore: number;
+  homescore?: number;
+  guestscore?: number;
   isPeriodActive: boolean;
   isInsideStoppage: boolean;
   globalSequenceNumber: number;
