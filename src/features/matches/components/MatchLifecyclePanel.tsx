@@ -12,7 +12,8 @@ export const MatchLifecyclePanel: React.FC = () => {
     isInsideStoppage,
     startPeriod,
     endPeriod,
-    removeTimeAnchor,
+    revertStartPeriod,
+    revertEndPeriod,
     stopTime,
     startTime,
     nextPeriod,
@@ -28,6 +29,7 @@ export const MatchLifecyclePanel: React.FC = () => {
     activePlayersLimit,
     startPeriodWithRoster,
     endPeriodWithRoster,
+    refreshPresenceFromDB,
   } = usePlayerPresence(activeMatchId);
 
   const [panelError, setPanelError] = useState<string | null>(null);
@@ -48,10 +50,11 @@ export const MatchLifecyclePanel: React.FC = () => {
       await startPeriodWithRoster(new Date().toISOString());
     } catch (err) {
       console.error(err);
-      // Compensate if second step fails after first step succeeded
+      // Compensate both DB and Redux state if second step fails
       if (anchorId) {
-        await removeTimeAnchor(anchorId);
+        await revertStartPeriod(anchorId);
       }
+      await refreshPresenceFromDB();
       setPanelError("Failed to start period. Transaction fully reverted.");
     }
   };
@@ -67,10 +70,11 @@ export const MatchLifecyclePanel: React.FC = () => {
       await endPeriodWithRoster(new Date().toISOString());
     } catch (err) {
       console.error(err);
-      // Compensate if second step fails
+      // Compensate both DB and Redux state if second step fails
       if (anchorId) {
-        await removeTimeAnchor(anchorId);
+        await revertEndPeriod(anchorId);
       }
+      await refreshPresenceFromDB();
       setPanelError("Failed to end period. Transaction fully reverted.");
     }
   };
