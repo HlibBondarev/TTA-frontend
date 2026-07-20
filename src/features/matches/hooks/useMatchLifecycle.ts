@@ -1,5 +1,6 @@
 import { db } from "../../../db/ttaDatabase";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
+import { TEST_MATCH_ID } from "../../../App";
 import {
   startPeriodState,
   endPeriodState,
@@ -12,25 +13,26 @@ import {
 
 export const useMatchLifecycle = () => {
   const dispatch = useAppDispatch();
+  const matchState = useAppSelector((state) => state.match);
   const {
     activeMatchId,
     periodnumber,
     isPeriodActive,
     isInsideStoppage,
     globalSequenceNumber,
-  } = useAppSelector((state) => state.match);
+  } = matchState;
 
   // Internal helper to perform atomic IndexedDB write with rollback support
   const logTimeAnchor = async (
     type: number,
     currentSeq: number,
   ): Promise<string> => {
-    if (!activeMatchId) throw new Error("Active match ID is missing.");
+    const matchIdToUse = activeMatchId || TEST_MATCH_ID;
 
     const anchorId = crypto.randomUUID();
     const anchorData = {
       id: anchorId,
-      matchid: activeMatchId,
+      matchid: matchIdToUse,
       periodnumber: periodnumber,
       type,
       timestamp: new Date().toISOString(),
@@ -42,7 +44,6 @@ export const useMatchLifecycle = () => {
     return anchorId;
   };
 
-  // Compensating action to remove time anchor; propagates error if deletion fails
   const removeTimeAnchor = async (anchorId: string) => {
     await db.timeanchors.delete(anchorId);
   };

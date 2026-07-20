@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { MatchLifecyclePanel } from "../components/MatchLifecyclePanel";
+import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
 import matchReducer from "../store/matchSlice";
 import presenceReducer from "../../../features/playerpresences/store/presenceSlice";
 import { usePlayerPresence } from "../../../features/playerpresences/hooks/usePlayerPresence";
@@ -40,7 +42,7 @@ const createTestStore = (preloadedState = {}) => {
   });
 };
 
-describe("MatchLifecyclePanel Component Integration", () => {
+describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () => {
   const defaultPresenceMock: ReturnType<typeof usePlayerPresence> = {
     currentPeriod: 1,
     activeLineupIds: [],
@@ -78,7 +80,7 @@ describe("MatchLifecyclePanel Component Integration", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "<" }));
-    expect(store.getState().match.periodnumber).toBe(1); // Blocked below 1 or handled by action
+    expect(store.getState().match.periodnumber).toBe(1);
 
     fireEvent.click(screen.getByRole("button", { name: ">" }));
     expect(store.getState().match.periodnumber).toBe(2);
@@ -166,5 +168,44 @@ describe("MatchLifecyclePanel Component Integration", () => {
     );
     expect(store.getState().match.isPeriodActive).toBe(true);
     expect(db.timeanchors.delete).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it("should roll back isPeriodActive and keep sequence incremented when startPeriod DB write rejects", async () => {
+    vi.mocked(db.timeanchors.add).mockRejectedValueOnce(new Error("DB error"));
+    const store = createTestStore();
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.startPeriod();
+      }),
+    ).rejects.toThrow("DB error");
+
+    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.globalSequenceNumber).toBe(1);
+  });
+
+  it("should roll back isPeriodActive to true and keep sequence incremented when endPeriod DB write rejects", async () => {
+    vi.mocked(db.timeanchors.add).mockRejectedValueOnce(new Error("DB error"));
+    const store = createTestStore({
+      isPeriodActive: true,
+      globalSequenceNumber: 1,
+    });
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.endPeriod();
+      }),
+    ).rejects.toThrow("DB error");
+
+    expect(store.getState().match.isPeriodActive).toBe(true);
+    expect(store.getState().match.globalSequenceNumber).toBe(2);
   });
 });
