@@ -12,12 +12,10 @@ export const App: React.FC = () => {
   const initStarted = useRef(false);
 
   useEffect(() => {
-    // Guard against concurrent double-invocation in React 18 Strict Mode
     if (initStarted.current) return;
     initStarted.current = true;
 
     const initializeApp = async () => {
-      // 1. Always initialize Redux state independently
       dispatch(
         setPresenceLimits({
           limit: 7,
@@ -26,7 +24,6 @@ export const App: React.FC = () => {
       );
       dispatch(setActiveMatch(TEST_MATCH_ID));
 
-      // 2. Try seeding test data, but don't block app initialization on failure
       try {
         await seedTestData();
       } catch (error) {

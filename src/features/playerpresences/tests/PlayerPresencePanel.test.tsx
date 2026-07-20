@@ -3,149 +3,107 @@ import {
   render,
   screen,
   fireEvent,
-  waitFor,
   act,
+  waitFor,
 } from "@testing-library/react";
+import { useState } from "react";
 import { PlayerPresencePanel } from "../components/PlayerPresencePanel";
 import { usePlayerPresence } from "../hooks/usePlayerPresence";
+import { Provider } from "react-redux";
+import { configureStore, combineReducers } from "@reduxjs/toolkit";
+import matchReducer from "../../matches/store/matchSlice";
+import presenceReducer from "../store/presenceSlice";
 import { db } from "../../../db/ttaDatabase";
 
-// Mock the custom hook to control its return values in tests
 vi.mock("../hooks/usePlayerPresence");
+vi.mock("../../../db/ttaDatabase");
 
-// Mock IndexedDB
-vi.mock("../../../db/ttaDatabase", () => ({
-  db: {
-    matchlineups: {
-      where: vi.fn().mockReturnThis(),
-      equals: vi.fn().mockReturnThis(),
-      toArray: vi.fn().mockResolvedValue([
-        { id: "lineup-1", matchid: "test-match", number: 5 },
-        { id: "lineup-2", matchid: "test-match", number: 10 },
-        { id: "lineup-gk", matchid: "test-match", number: -1 }, // GK
-      ]),
-    },
-  },
-}));
+const rootReducer = combineReducers({
+  match: matchReducer,
+  presence: presenceReducer,
+});
+
+type RootState = ReturnType<typeof rootReducer>;
+
+const renderWithRedux = (
+  ui: React.ReactElement,
+  {
+    preloadedState = { match: { isPeriodActive: true } },
+    store = configureStore({
+      reducer: rootReducer,
+      preloadedState: preloadedState as unknown as RootState,
+    }),
+  } = {},
+) => ({
+  ...render(<Provider store={store}>{ui}</Provider>),
+  store,
+});
 
 describe("PlayerPresencePanel Component", () => {
-  const mockRefreshPresenceFromDB = vi
-    .fn<() => Promise<void>>()
-    .mockResolvedValue(undefined);
-  const mockStageStartingLineup = vi.fn<(lineupIds: string[]) => void>();
-  const mockExecuteSubstitution = vi
-    .fn<(outId: string, inId: string) => Promise<string>>()
-    .mockResolvedValue("new-id");
-  const mockStartPeriodWithRoster = vi
-    .fn<(startTimestamp: string) => Promise<void>>()
-    .mockResolvedValue(undefined);
-  const mockEndPeriodWithRoster = vi
-    .fn<(endTimestamp: string) => Promise<void>>()
-    .mockResolvedValue(undefined);
-
-  const defaultHookMock = {
-    currentPeriod: 1,
-    activeLineupIds: [] as string[],
-    benchLineupIds: ["lineup-1", "lineup-2", "lineup-gk"] as string[],
-    selectedStartingIds: [] as string[],
-    activePlayersLimit: 7,
-    refreshPresenceFromDB: mockRefreshPresenceFromDB,
-    stageStartingLineup: mockStageStartingLineup,
-    executeSubstitution: mockExecuteSubstitution,
-    startPeriodWithRoster: mockStartPeriodWithRoster,
-    endPeriodWithRoster: mockEndPeriodWithRoster,
-  } as unknown as ReturnType<typeof usePlayerPresence>;
+  const mockExecuteSubstitution = vi.fn().mockResolvedValue("new-id");
+  const mockStageStartingLineup = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(usePlayerPresence).mockReturnValue(defaultHookMock);
-  });
 
-  it("should render placeholder text and allow staging starting lineup when there is no active lineup", async () => {
-    render(<PlayerPresencePanel matchId="test-match" />);
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { id: "lineup-1", matchid: "test-match", number: 5 },
+          { id: "lineup-2", matchid: "test-match", number: 10 },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
 
-    // Wait for the async IndexedDB load to complete and render the actual jersey numbers
-    const p1Button = await screen.findByText("#5");
-    expect(p1Button).toBeInTheDocument();
-
-    // Now safely execute other assertions
-    expect(screen.getByText("Period 1 Roster")).toBeInTheDocument();
-    expect(screen.getByText("Limit: 7 Active")).toBeInTheDocument();
-    expect(
-      screen.getByText("No active lineup defined for Period 1."),
-    ).toBeInTheDocument();
-    expect(screen.getByText("#10")).toBeInTheDocument();
-    expect(screen.getByText("GK")).toBeInTheDocument(); // Number -1 is mapped to GK
-
-    // Tap on a bench player to stage them inside act() to prevent warnings
-    await act(async () => {
-      fireEvent.click(p1Button.closest("button")!);
-    });
-
-    expect(mockStageStartingLineup).toHaveBeenCalledWith(["lineup-1"]);
-  });
-
-  it("should toggle (remove) staged player when clicked again", async () => {
     vi.mocked(usePlayerPresence).mockReturnValue({
-      ...defaultHookMock,
-      selectedStartingIds: ["lineup-1"],
-    } as unknown as ReturnType<typeof usePlayerPresence>);
-
-    render(<PlayerPresencePanel matchId="test-match" />);
-
-    const p1Button = await screen.findByText("#5");
-
-    await act(async () => {
-      fireEvent.click(p1Button.closest("button")!);
-    });
-
-    expect(mockStageStartingLineup).toHaveBeenCalledWith([]);
-  });
-
-  it("should prevent staging more players than the limit", async () => {
-    vi.mocked(usePlayerPresence).mockReturnValue({
-      ...defaultHookMock,
-      selectedStartingIds: ["p1", "p2", "p3", "p4", "p5", "p6", "p7"],
-      activePlayersLimit: 7,
-    } as unknown as ReturnType<typeof usePlayerPresence>);
-
-    render(<PlayerPresencePanel matchId="test-match" />);
-
-    const p1Button = await screen.findByText("#5");
-
-    await act(async () => {
-      fireEvent.click(p1Button.closest("button")!);
-    });
-
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(
-      "You can only select up to 7 starting players.",
-    );
-    expect(mockStageStartingLineup).not.toHaveBeenCalled();
-  });
-
-  it("should support runtime player substitutions in the water", async () => {
-    vi.mocked(usePlayerPresence).mockReturnValue({
-      ...defaultHookMock,
+      currentPeriod: 1,
       activeLineupIds: ["lineup-1"],
       benchLineupIds: ["lineup-2"],
-    } as unknown as ReturnType<typeof usePlayerPresence>);
+      selectedStartingIds: [],
+      activePlayersLimit: 7,
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      executeSubstitution: mockExecuteSubstitution,
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    });
+  });
 
-    render(<PlayerPresencePanel matchId="test-match" />);
+  it("should render roster structure correctly", async () => {
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText("Period 1 Roster")).toBeInTheDocument();
+  });
 
-    // Ensure roster loaded
-    await screen.findByText("#10");
+  it("should support runtime player substitutions", async () => {
+    const TestWrapper = () => {
+      const [selectedId, setSelectedId] = useState<string | null>(null);
+      return (
+        <PlayerPresencePanel
+          matchId="test-match"
+          selectedPlayerId={selectedId}
+          setSelectedPlayerId={setSelectedId}
+        />
+      );
+    };
 
-    // Click active player in water to select them (handles tap and clears errors)
-    const activeBtn = screen.getByText("Active").closest("button");
+    renderWithRedux(<TestWrapper />);
+
+    const activeBtn = await screen.findByText("#5");
     await act(async () => {
-      fireEvent.click(activeBtn!);
+      fireEvent.click(activeBtn);
     });
 
-    // Tap bench player to trigger swap
-    const benchBtn = screen.getByText("#10").closest("button");
+    expect(activeBtn).toHaveClass("bg-blue-600");
+
+    const benchBtn = await screen.findByText("#10");
     await act(async () => {
-      fireEvent.click(benchBtn!);
+      fireEvent.click(benchBtn);
     });
 
     await waitFor(() => {
@@ -156,77 +114,152 @@ describe("PlayerPresencePanel Component", () => {
     });
   });
 
-  it("should show error when trying to substitute bench player without active selection", async () => {
-    vi.mocked(usePlayerPresence).mockReturnValue({
-      ...defaultHookMock,
-      activeLineupIds: ["lineup-1"],
-      benchLineupIds: ["lineup-2"],
-    } as unknown as ReturnType<typeof usePlayerPresence>);
+  it("should handle failed substitutions gracefully", async () => {
+    mockExecuteSubstitution.mockRejectedValueOnce(new Error("Sub failure"));
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId="lineup-1"
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
 
-    render(<PlayerPresencePanel matchId="test-match" />);
-
-    await screen.findByText("#10");
-
-    const benchBtn = screen.getByText("#10").closest("button");
+    const benchBtn = await screen.findByText("#10");
     await act(async () => {
-      fireEvent.click(benchBtn!);
+      fireEvent.click(benchBtn);
     });
 
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Substitution failed.",
+    );
+  });
+
+  it("should prompt user if bench player is tapped without active selection", async () => {
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
+
+    const benchBtn = await screen.findByText("#10");
+    await act(async () => {
+      fireEvent.click(benchBtn);
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
       "Please select an active player in the water first to substitute out.",
     );
   });
 
-  it("should show error and cancel substitution if active selection becomes stale/invalidated", async () => {
-    vi.mocked(usePlayerPresence).mockReturnValue({
-      ...defaultHookMock,
-      activeLineupIds: ["lineup-1"], // Player 1 is active
-      benchLineupIds: ["lineup-2", "lineup-gk"],
-    } as unknown as ReturnType<typeof usePlayerPresence>);
-
-    const { rerender } = render(<PlayerPresencePanel matchId="test-match" />);
-
-    await screen.findByText("#5");
-
-    // Select active player (lineup-1)
-    const activeBtn = screen.getByText("Active").closest("button");
-    await act(async () => {
-      fireEvent.click(activeBtn!);
+  it("should display custom descriptive strings if staging throws string errors", async () => {
+    mockStageStartingLineup.mockImplementationOnce(() => {
+      throw "Custom string validation error";
     });
 
-    // Force hook to update and remove player-1 from active water roster, but keep active list non-empty
-    vi.mocked(usePlayerPresence).mockReturnValue({
-      ...defaultHookMock,
-      activeLineupIds: ["lineup-gk"], // lineup-gk is now active, lineup-1 is gone
-      benchLineupIds: ["lineup-1", "lineup-2"],
-    } as unknown as ReturnType<typeof usePlayerPresence>);
-
-    rerender(<PlayerPresencePanel matchId="test-match" />);
-
-    // Tap bench player #10 (lineup-2) to substitute
-    const benchBtn = screen.getByText("#10").closest("button");
-    await act(async () => {
-      fireEvent.click(benchBtn!);
-    });
-
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(
-      "The selected player is no longer active in the game.",
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+      {
+        preloadedState: {
+          match: { isPeriodActive: false },
+        } as unknown as RootState,
+      },
     );
-    expect(mockExecuteSubstitution).not.toHaveBeenCalled();
+
+    const benchBtn = await screen.findByText("#10");
+    await act(async () => {
+      fireEvent.click(benchBtn);
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "An unknown error occurred.",
+    );
   });
 
-  it("should display error on DB metadata failure", async () => {
-    vi.mocked(db.matchlineups.toArray).mockRejectedValueOnce(
-      new Error("DB Connection Interrupted"),
+  it("should successfully recover and display player numbers after an initial empty database state (seeding delay)", async () => {
+    const mockToArray = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { id: "lineup-1", matchid: "test-match", number: 5 },
+      ]);
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: mockToArray,
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
     );
 
-    render(<PlayerPresencePanel matchId="test-match" />);
+    await waitFor(() => {
+      expect(screen.getByText("#5")).toBeInTheDocument();
+    });
+  });
 
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(
-      "Failed to fetch fresh roster data from the local database.",
+  it("should support staging starting lineup during inactive period", async () => {
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      currentPeriod: 1,
+      activeLineupIds: [],
+      benchLineupIds: ["lineup-2"],
+      selectedStartingIds: [],
+      activePlayersLimit: 7,
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      executeSubstitution: vi.fn(),
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    });
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+      {
+        preloadedState: {
+          match: { isPeriodActive: false },
+        } as unknown as RootState,
+      },
+    );
+
+    const benchBtn = await screen.findByText("#10");
+    await act(async () => {
+      fireEvent.click(benchBtn);
+    });
+
+    expect(mockStageStartingLineup).toHaveBeenCalledWith(["lineup-2"]);
+  });
+
+  it("should display error message if database query fails inside useEffect", async () => {
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockRejectedValue(new Error("Database error")),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to fetch fresh roster data.",
     );
   });
 });

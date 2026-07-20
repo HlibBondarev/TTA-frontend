@@ -1,5 +1,6 @@
 import { db } from "../../../db/ttaDatabase";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
+import { TEST_MATCH_ID } from "../../../App";
 import {
   startPeriodState,
   endPeriodState,
@@ -12,62 +13,111 @@ import {
 
 export const useMatchLifecycle = () => {
   const dispatch = useAppDispatch();
+  const matchState = useAppSelector((state) => state.match);
   const {
     activeMatchId,
     periodnumber,
     isPeriodActive,
     isInsideStoppage,
     globalSequenceNumber,
-  } = useAppSelector((state) => state.match);
+  } = matchState;
 
-  const logTimeAnchor = async (type: number) => {
-    if (!activeMatchId) {
-      console.warn("[Lifecycle] Cancelled: activeMatchId is missing.");
-      return;
-    }
+  // Internal helper to perform atomic IndexedDB write with rollback support
+  const logTimeAnchor = async (
+    type: number,
+    currentSeq: number,
+  ): Promise<string> => {
+    const matchIdToUse = activeMatchId || TEST_MATCH_ID;
 
-    const nextSeq = globalSequenceNumber + 1;
-    dispatch(incrementSequence());
-
-    // Object maps 100% strictly to TimeAnchor interface in ttaDatabase.ts
+    const anchorId = crypto.randomUUID();
     const anchorData = {
-      id: crypto.randomUUID(),
-      matchid: activeMatchId,
+      id: anchorId,
+      matchid: matchIdToUse,
       periodnumber: periodnumber,
-      type, // 0: PeriodStart, 1: PeriodEnd, 2: StoppageStart, 3: StoppageEnd
+      type,
       timestamp: new Date().toISOString(),
-      sequenceNumber: nextSeq,
+      sequenceNumber: currentSeq,
       isSynced: 0,
     };
 
     await db.timeanchors.add(anchorData);
-    console.log(
-      `[IndexedDB] Stored TimeAnchor | Type: ${type} | Seq: ${nextSeq}`,
-    );
+    return anchorId;
   };
 
-  const startPeriod = async () => {
-    if (isPeriodActive) return;
-    dispatch(startPeriodState());
-    await logTimeAnchor(0);
+  const removeTimeAnchor = async (anchorId: string) => {
+    await db.timeanchors.delete(anchorId);
   };
 
-  const endPeriod = async () => {
-    if (!isPeriodActive) return;
+  const revertStartPeriod = async (anchorId?: string | null) => {
+    if (anchorId) {
+      await removeTimeAnchor(anchorId);
+    }
     dispatch(endPeriodState());
-    await logTimeAnchor(1);
+  };
+
+  const revertEndPeriod = async (anchorId?: string | null) => {
+    if (anchorId) {
+      await removeTimeAnchor(anchorId);
+    }
+    dispatch(startPeriodState());
+  };
+
+  const startPeriod = async (): Promise<string | undefined> => {
+    if (isPeriodActive) return;
+    const nextSeq = globalSequenceNumber + 1;
+
+    dispatch(startPeriodState());
+    dispatch(incrementSequence());
+
+    try {
+      const anchorId = await logTimeAnchor(0, nextSeq);
+      return anchorId;
+    } catch (error) {
+      dispatch(endPeriodState());
+      throw error;
+    }
+  };
+
+  const endPeriod = async (): Promise<string | undefined> => {
+    if (!isPeriodActive) return;
+    const nextSeq = globalSequenceNumber + 1;
+
+    dispatch(endPeriodState());
+    dispatch(incrementSequence());
+
+    try {
+      const anchorId = await logTimeAnchor(1, nextSeq);
+      return anchorId;
+    } catch (error) {
+      dispatch(startPeriodState());
+      throw error;
+    }
   };
 
   const stopTime = async () => {
     if (!isPeriodActive || isInsideStoppage) return;
+    const nextSeq = globalSequenceNumber + 1;
     dispatch(startStoppageState());
-    await logTimeAnchor(2);
+    dispatch(incrementSequence());
+    try {
+      await logTimeAnchor(2, nextSeq);
+    } catch (error) {
+      dispatch(endStoppageState());
+      throw error;
+    }
   };
 
   const startTime = async () => {
     if (!isPeriodActive || !isInsideStoppage) return;
+    const nextSeq = globalSequenceNumber + 1;
     dispatch(endStoppageState());
-    await logTimeAnchor(3);
+    dispatch(incrementSequence());
+    try {
+      await logTimeAnchor(3, nextSeq);
+    } catch (error) {
+      dispatch(startStoppageState());
+      throw error;
+    }
   };
 
   const nextPeriod = () => {
@@ -87,6 +137,9 @@ export const useMatchLifecycle = () => {
     globalSequenceNumber,
     startPeriod,
     endPeriod,
+    removeTimeAnchor,
+    revertStartPeriod,
+    revertEndPeriod,
     stopTime,
     startTime,
     nextPeriod,

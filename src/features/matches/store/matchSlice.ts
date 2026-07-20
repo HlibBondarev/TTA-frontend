@@ -1,13 +1,22 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
-interface MatchState {
+export interface ActionEntry {
+  id: string;
+  playerNumber: number;
+  actionName: string;
+  isPositive: boolean;
+  timestamp: string;
+}
+
+export interface MatchState {
   activeMatchId: string | null;
-  periodnumber: number; // Strictly matches periodnumber in IndexedDB/Postgres
-  homescore: number; // Strictly matches homescore in IndexedDB/Postgres
-  guestscore: number; // Strictly matches guestscore in IndexedDB/Postgres
-  isPeriodActive: boolean; // Runtime UI controller
-  isInsideStoppage: boolean; // Runtime UI controller
-  globalSequenceNumber: number; // Tracks sequenceNumber across actions
+  periodnumber: number;
+  homescore?: number;
+  guestscore?: number;
+  isPeriodActive: boolean;
+  isInsideStoppage: boolean;
+  globalSequenceNumber: number;
+  recentActions: ActionEntry[];
 }
 
 const initialState: MatchState = {
@@ -18,6 +27,7 @@ const initialState: MatchState = {
   isPeriodActive: false,
   isInsideStoppage: false,
   globalSequenceNumber: 0,
+  recentActions: [],
 };
 
 const matchSlice = createSlice({
@@ -32,6 +42,7 @@ const matchSlice = createSlice({
       state.isPeriodActive = false;
       state.isInsideStoppage = false;
       state.globalSequenceNumber = 0;
+      state.recentActions = [];
     },
     updateScores(
       state,
@@ -65,6 +76,12 @@ const matchSlice = createSlice({
     incrementSequence(state) {
       state.globalSequenceNumber += 1;
     },
+    addRecentAction(state, action: PayloadAction<ActionEntry>) {
+      state.recentActions = [action.payload, ...state.recentActions].slice(
+        0,
+        10,
+      );
+    },
     resetMatchState() {
       return initialState;
     },
@@ -81,6 +98,7 @@ export const {
   startStoppageState,
   endStoppageState,
   incrementSequence,
+  addRecentAction,
   resetMatchState,
 } = matchSlice.actions;
 
