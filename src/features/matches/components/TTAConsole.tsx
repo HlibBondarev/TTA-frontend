@@ -69,7 +69,6 @@ export const TTAConsole: React.FC = () => {
               matchId={activeMatchId}
               selectedPlayerId={selectedPlayerId}
               setSelectedPlayerId={setSelectedPlayerId}
-              onPlayerSelect={(id) => setSelectedPlayerId(id)}
             />
 
             <TTDActionsPanel

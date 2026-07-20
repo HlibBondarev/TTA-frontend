@@ -9,8 +9,7 @@ export const PlayerPresencePanel: React.FC<{
   matchId: string;
   selectedPlayerId: string | null;
   setSelectedPlayerId: (id: string | null) => void;
-  onPlayerSelect?: (lineupId: string | null) => void;
-}> = ({ matchId, onPlayerSelect, selectedPlayerId, setSelectedPlayerId }) => {
+}> = ({ matchId, selectedPlayerId, setSelectedPlayerId }) => {
   const {
     currentPeriod,
     activeLineupIds,
@@ -69,7 +68,6 @@ export const PlayerPresencePanel: React.FC<{
     if (isPeriodActive) {
       const newId = selectedPlayerId === id ? null : id;
       setSelectedPlayerId(newId);
-      if (onPlayerSelect) onPlayerSelect(newId);
     }
   };
 
@@ -96,9 +94,9 @@ export const PlayerPresencePanel: React.FC<{
           : [...selectedStartingIds, benchId];
         stageStartingLineup(newSelection);
       } catch (e: unknown) {
-        const errorMessage =
-          e instanceof Error ? e.message : "An unknown error occurred.";
-        setErrorMessage(errorMessage);
+        setErrorMessage(
+          e instanceof Error ? e.message : "An unknown error occurred.",
+        );
       }
     }
   };
@@ -115,12 +113,13 @@ export const PlayerPresencePanel: React.FC<{
       <h4 className="text-[10px] uppercase text-gray-400 mb-1">
         Active Players
       </h4>
-      <div className="grid grid-cols-4 gap-1 mb-2">
+      <div className="grid grid-cols-4 gap1 mb-2">
         {activeLineupIds.map((id) => (
           <button
             key={id}
             type="button"
             onClick={() => handleActiveTap(id)}
+            aria-pressed={selectedPlayerId === id}
             className={`p-2 min-h-11 rounded text-xs ${selectedPlayerId === id ? "bg-blue-600" : "bg-blue-950"}`}
           >
             {`#${lineupsMap[id]?.number || ""}`}
@@ -135,6 +134,7 @@ export const PlayerPresencePanel: React.FC<{
             key={id}
             type="button"
             onClick={() => handleBenchTap(id)}
+            aria-pressed={selectedStartingIds.includes(id)}
             className={`p-2 min-h-11 rounded text-xs ${selectedStartingIds.includes(id) ? "bg-emerald-600" : "bg-gray-800"}`}
           >
             {`#${lineupsMap[id]?.number || ""}`}
