@@ -10,20 +10,28 @@ import { useState } from "react";
 import { PlayerPresencePanel } from "../components/PlayerPresencePanel";
 import { usePlayerPresence } from "../hooks/usePlayerPresence";
 import { Provider } from "react-redux";
-import { configureStore } from "@reduxjs/toolkit";
+import { configureStore, combineReducers } from "@reduxjs/toolkit";
 import matchReducer from "../../matches/store/matchSlice";
+import presenceReducer from "../store/presenceSlice";
 import { db } from "../../../db/ttaDatabase";
 
 vi.mock("../hooks/usePlayerPresence");
 vi.mock("../../../db/ttaDatabase");
+
+const rootReducer = combineReducers({
+  match: matchReducer,
+  presence: presenceReducer,
+});
+
+type RootState = ReturnType<typeof rootReducer>;
 
 const renderWithRedux = (
   ui: React.ReactElement,
   {
     preloadedState = { match: { isPeriodActive: true } },
     store = configureStore({
-      reducer: { match: matchReducer },
-      preloadedState,
+      reducer: rootReducer,
+      preloadedState: preloadedState as unknown as RootState,
     }),
   } = {},
 ) => ({
@@ -33,6 +41,7 @@ const renderWithRedux = (
 
 describe("PlayerPresencePanel Component", () => {
   const mockExecuteSubstitution = vi.fn().mockResolvedValue("new-id");
+  const mockStageStartingLineup = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -53,7 +62,7 @@ describe("PlayerPresencePanel Component", () => {
       selectedStartingIds: [],
       activePlayersLimit: 7,
       refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
-      stageStartingLineup: vi.fn(),
+      stageStartingLineup: mockStageStartingLineup,
       executeSubstitution: mockExecuteSubstitution,
       startPeriodWithRoster: vi.fn(),
       endPeriodWithRoster: vi.fn(),
@@ -127,9 +136,63 @@ describe("PlayerPresencePanel Component", () => {
       />,
     );
 
-    // Use waitFor to cleanly wait for the retry mechanism to pick up the populated lineup data
     await waitFor(() => {
       expect(screen.getByText("#5")).toBeInTheDocument();
     });
+  });
+
+  it("should support staging starting lineup during inactive period", async () => {
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      currentPeriod: 1,
+      activeLineupIds: [],
+      benchLineupIds: ["lineup-2"],
+      selectedStartingIds: [],
+      activePlayersLimit: 7,
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      executeSubstitution: vi.fn(),
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    });
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+      {
+        preloadedState: {
+          match: { isPeriodActive: false },
+        } as unknown as RootState,
+      },
+    );
+
+    const benchBtn = await screen.findByText("#10");
+    await act(async () => {
+      fireEvent.click(benchBtn);
+    });
+
+    expect(mockStageStartingLineup).toHaveBeenCalledWith(["lineup-2"]);
+  });
+
+  it("should display error message if database query fails inside useEffect", async () => {
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockRejectedValue(new Error("Database error")),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to fetch fresh roster data.",
+    );
   });
 });
