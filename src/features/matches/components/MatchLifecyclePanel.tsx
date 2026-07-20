@@ -50,12 +50,16 @@ export const MatchLifecyclePanel: React.FC = () => {
       await startPeriodWithRoster(new Date().toISOString());
     } catch (err) {
       console.error(err);
-      // Compensate both DB and Redux state if second step fails
-      if (anchorId) {
-        await revertStartPeriod(anchorId);
+      try {
+        if (anchorId) {
+          await revertStartPeriod(anchorId);
+        }
+        await refreshPresenceFromDB();
+        setPanelError("Failed to start period. Transaction fully reverted.");
+      } catch (compensationErr) {
+        console.error("Compensation failed:", compensationErr);
+        setPanelError("Failed to start period. Compensation incomplete.");
       }
-      await refreshPresenceFromDB();
-      setPanelError("Failed to start period. Transaction fully reverted.");
     }
   };
 
@@ -70,12 +74,16 @@ export const MatchLifecyclePanel: React.FC = () => {
       await endPeriodWithRoster(new Date().toISOString());
     } catch (err) {
       console.error(err);
-      // Compensate both DB and Redux state if second step fails
-      if (anchorId) {
-        await revertEndPeriod(anchorId);
+      try {
+        if (anchorId) {
+          await revertEndPeriod(anchorId);
+        }
+        await refreshPresenceFromDB();
+        setPanelError("Failed to end period. Transaction fully reverted.");
+      } catch (compensationErr) {
+        console.error("Compensation failed:", compensationErr);
+        setPanelError("Failed to end period. Compensation incomplete.");
       }
-      await refreshPresenceFromDB();
-      setPanelError("Failed to end period. Transaction fully reverted.");
     }
   };
 

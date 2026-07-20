@@ -42,13 +42,9 @@ export const useMatchLifecycle = () => {
     return anchorId;
   };
 
-  // Compensating action to remove time anchor and restore Redux state if subsequent operations fail
+  // Compensating action to remove time anchor; propagates error if deletion fails
   const removeTimeAnchor = async (anchorId: string) => {
-    try {
-      await db.timeanchors.delete(anchorId);
-    } catch (e) {
-      console.error("Failed to rollback time anchor:", e);
-    }
+    await db.timeanchors.delete(anchorId);
   };
 
   const revertStartPeriod = async (anchorId?: string | null) => {
