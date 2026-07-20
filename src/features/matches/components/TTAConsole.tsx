@@ -3,7 +3,7 @@ import { useSelector, useDispatch } from "react-redux";
 import { MatchLifecyclePanel } from "./MatchLifecyclePanel";
 import { PlayerPresencePanel } from "../../../features/playerpresences/components/PlayerPresencePanel";
 import { ActionsLog } from "./ActionsLog";
-import { TTDActionsPanel } from "./TTDActionsPanel";
+import { TTDActionsPanel } from "./TTAPanel";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
 import { addRecentAction } from "../store/matchSlice";
 import type { RootState } from "../../../store";
