@@ -9,10 +9,12 @@ import matchReducer, {
   incrementSequence,
   resetMatchState,
   addRecentAction,
+  type ActionEntry,
+  type MatchState,
 } from "../store/matchSlice";
 
 describe("matchSlice Reducers", () => {
-  const initialState = {
+  const initialState: MatchState = {
     activeMatchId: null,
     periodnumber: 1,
     homescore: 0,
@@ -28,7 +30,7 @@ describe("matchSlice Reducers", () => {
   });
 
   it("should set the active match and reset tracking counters", () => {
-    const customState = {
+    const customState: MatchState = {
       ...initialState,
       periodnumber: 3,
       globalSequenceNumber: 15,
@@ -80,21 +82,34 @@ describe("matchSlice Reducers", () => {
     expect(state2.globalSequenceNumber).toBe(2);
   });
 
-  it("should handle adding a recent action", () => {
-    const newAction = {
-      id: "test-1",
-      playerNumber: 1,
-      actionName: "Goal",
-      isPositive: true,
-      timestamp: new Date().toISOString(),
-    };
-    const state = matchReducer(initialState, addRecentAction(newAction));
-    expect(state.recentActions).toHaveLength(1);
-    expect(state.recentActions[0].id).toBe("test-1");
+  it("should handle adding recent actions with a maximum limit of 10", () => {
+    let currentState: MatchState = initialState;
+
+    // Dispatch 11 uniquely identifiable actions
+    for (let i = 1; i <= 11; i++) {
+      const actionEntry: ActionEntry = {
+        id: `action-${i}`,
+        playerNumber: i,
+        actionName: `Action ${i}`,
+        isPositive: i % 2 === 0,
+        timestamp: new Date().toISOString(),
+      };
+      currentState = matchReducer(currentState, addRecentAction(actionEntry));
+    }
+
+    // State recentActions should contain exactly 10 entries
+    expect(currentState.recentActions).toHaveLength(10);
+    // The most recent action (action-11) should be first
+    expect(currentState.recentActions[0].id).toBe("action-11");
+    // The earliest added action within the limit (action-2) should be present at the end, while action-1 is discarded
+    expect(currentState.recentActions[9].id).toBe("action-2");
+    expect(
+      currentState.recentActions.some((act) => act.id === "action-1"),
+    ).toBe(false);
   });
 
   it("should reset the match state back to its initial state", () => {
-    const dirtyState = {
+    const dirtyState: MatchState = {
       ...initialState,
       activeMatchId: "active-session-uuid",
       periodnumber: 4,

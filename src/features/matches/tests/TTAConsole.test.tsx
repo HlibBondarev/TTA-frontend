@@ -10,15 +10,20 @@ const rootReducer = combineReducers({
   presence: presenceReducer,
 });
 
-// Define the partial state type explicitly to avoid 'any'
 type RootState = ReturnType<typeof rootReducer>;
+
+// Complete initial match state fixture to prevent partial object casting
+const initialMatchState = matchReducer(undefined, { type: "unknown" });
 
 describe("TTAConsole Component", () => {
   test("renders TTAConsole components correctly with active match", () => {
     const store = configureStore({
       reducer: rootReducer,
       preloadedState: {
-        match: { activeMatchId: "test-id" },
+        match: {
+          ...initialMatchState,
+          activeMatchId: "test-id",
+        },
       } as RootState,
     });
 
@@ -36,7 +41,10 @@ describe("TTAConsole Component", () => {
     const store = configureStore({
       reducer: rootReducer,
       preloadedState: {
-        match: { activeMatchId: null },
+        match: {
+          ...initialMatchState,
+          activeMatchId: null,
+        },
       } as RootState,
     });
 

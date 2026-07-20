@@ -8,7 +8,7 @@ export interface ActionEntry {
   timestamp: string;
 }
 
-interface MatchState {
+export interface MatchState {
   activeMatchId: string | null;
   periodnumber: number;
   homescore?: number;
