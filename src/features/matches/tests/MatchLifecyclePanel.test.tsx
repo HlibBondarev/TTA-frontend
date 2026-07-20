@@ -144,6 +144,31 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     expect(db.timeanchors.delete).toHaveBeenCalledWith(expect.any(String));
   });
 
+  it("should show compensation incomplete message if rollback fails during start period error", async () => {
+    const store = createTestStore();
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      ...defaultPresenceMock,
+      startPeriodWithRoster: vi
+        .fn()
+        .mockRejectedValue(new Error("Initial error")),
+      refreshPresenceFromDB: vi.fn().mockRejectedValue(new Error("DB failure")),
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /START PERIOD/i }));
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Failed to start period. Compensation incomplete.",
+    );
+  });
+
   it("should restore isPeriodActive to true if endPeriodWithRoster fails after anchor write", async () => {
     const store = createTestStore({ isPeriodActive: true });
     vi.mocked(usePlayerPresence).mockReturnValue({
@@ -168,6 +193,31 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     );
     expect(store.getState().match.isPeriodActive).toBe(true);
     expect(db.timeanchors.delete).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it("should show compensation incomplete message if rollback fails during end period error", async () => {
+    const store = createTestStore({ isPeriodActive: true });
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      ...defaultPresenceMock,
+      endPeriodWithRoster: vi
+        .fn()
+        .mockRejectedValue(new Error("Initial error")),
+      refreshPresenceFromDB: vi.fn().mockRejectedValue(new Error("DB failure")),
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /END PERIOD/i }));
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Failed to end period. Compensation incomplete.",
+    );
   });
 
   it("should roll back isPeriodActive and keep sequence incremented when startPeriod DB write rejects", async () => {

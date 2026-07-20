@@ -114,13 +114,80 @@ describe("PlayerPresencePanel Component", () => {
     });
   });
 
+  it("should handle failed substitutions gracefully", async () => {
+    mockExecuteSubstitution.mockRejectedValueOnce(new Error("Sub failure"));
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId="lineup-1"
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
+
+    const benchBtn = await screen.findByText("#10");
+    await act(async () => {
+      fireEvent.click(benchBtn);
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Substitution failed.",
+    );
+  });
+
+  it("should prompt user if bench player is tapped without active selection", async () => {
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
+
+    const benchBtn = await screen.findByText("#10");
+    await act(async () => {
+      fireEvent.click(benchBtn);
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Please select an active player in the water first to substitute out.",
+    );
+  });
+
+  it("should display custom descriptive strings if staging throws string errors", async () => {
+    mockStageStartingLineup.mockImplementationOnce(() => {
+      throw "Custom string validation error";
+    });
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+      {
+        preloadedState: {
+          match: { isPeriodActive: false },
+        } as unknown as RootState,
+      },
+    );
+
+    const benchBtn = await screen.findByText("#10");
+    await act(async () => {
+      fireEvent.click(benchBtn);
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "An unknown error occurred.",
+    );
+  });
+
   it("should successfully recover and display player numbers after an initial empty database state (seeding delay)", async () => {
     const mockToArray = vi
       .fn()
-      .mockResolvedValueOnce([]) // First attempt: seeding still in progress, empty
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         { id: "lineup-1", matchid: "test-match", number: 5 },
-      ]); // Second attempt: data ready
+      ]);
 
     vi.mocked(db.matchlineups.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
