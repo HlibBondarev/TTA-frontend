@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { usePlayerPresence } from "../hooks/usePlayerPresence";
 import { db } from "../../../db/ttaDatabase";
 import type { MatchLineupLookup } from "../../../db/ttaDatabase";
@@ -29,40 +29,52 @@ export const PlayerPresencePanel: React.FC<{
   >({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    let ignore = false;
-
-    const load = async () => {
+  const loadRosterData = useCallback(
+    async (ignore: boolean) => {
       try {
         const lineups = await db.matchlineups
           .where("matchid")
           .equals(matchId)
           .toArray();
 
-        // Only update state if this request is still relevant
         if (!ignore) {
           const map: Record<string, MatchLineupLookup> = {};
           lineups.forEach((l) => (map[l.id] = l));
           setLineupsMap(map);
           await refreshPresenceFromDB();
+          return lineups.length > 0;
         }
       } catch {
         if (!ignore) {
           setErrorMessage("Failed to fetch fresh roster data.");
         }
       }
+      return false;
+    },
+    [matchId, refreshPresenceFromDB],
+  );
+
+  useEffect(() => {
+    let ignore = false;
+
+    const initLoad = async () => {
+      const success = await loadRosterData(ignore);
+      // Fallback retry if DB seeding was still finishing up during a fresh database wipe
+      if (!success && !ignore) {
+        setTimeout(async () => {
+          await loadRosterData(ignore);
+        }, 300);
+      }
     };
 
-    load();
+    initLoad();
 
-    // Cleanup function to invalidate outdated requests
     return () => {
       ignore = true;
     };
-  }, [matchId, refreshPresenceFromDB]);
+  }, [matchId, loadRosterData]);
 
   const handleActiveTap = (id: string) => {
-    // Clear any previous error messages before processing the new selection
     setErrorMessage(null);
 
     if (isPeriodActive) {

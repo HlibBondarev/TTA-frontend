@@ -104,4 +104,32 @@ describe("PlayerPresencePanel Component", () => {
       );
     });
   });
+
+  it("should successfully recover and display player numbers after an initial empty database state (seeding delay)", async () => {
+    const mockToArray = vi
+      .fn()
+      .mockResolvedValueOnce([]) // First attempt: seeding still in progress, empty
+      .mockResolvedValueOnce([
+        { id: "lineup-1", matchid: "test-match", number: 5 },
+      ]); // Second attempt: data ready
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: mockToArray,
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
+
+    // Use waitFor to cleanly wait for the retry mechanism to pick up the populated lineup data
+    await waitFor(() => {
+      expect(screen.getByText("#5")).toBeInTheDocument();
+    });
+  });
 });
