@@ -113,7 +113,7 @@ export const PlayerPresencePanel: React.FC<{
       <h4 className="text-[10px] uppercase text-gray-400 mb-1">
         Active Players
       </h4>
-      <div className="grid grid-cols-4 gap1 mb-2">
+      <div className="grid grid-cols-4 gap-1 mb-2">
         {activeLineupIds.map((id) => (
           <button
             key={id}
