@@ -1,5 +1,5 @@
 import { vi, describe, test, expect, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore, combineReducers } from "@reduxjs/toolkit";
 import { TTAConsole } from "../components/TTAConsole";
@@ -141,11 +141,12 @@ describe("TTAConsole Component", () => {
     const enterBtn = screen.getByRole("button", { name: /Enter/i });
     expect(enterBtn).not.toBeDisabled();
 
-    await act(async () => {
-      fireEvent.click(enterBtn);
+    fireEvent.click(enterBtn);
+
+    await waitFor(() => {
+      expect(store.getState().match.recentActions).toHaveLength(1);
     });
 
-    expect(store.getState().match.recentActions.length).toBe(1);
     expect(store.getState().match.recentActions[0].actionName).toBe("Pass");
     expect(store.getState().match.recentActions[0].playerNumber).toBe(7);
   });
@@ -177,9 +178,7 @@ describe("TTAConsole Component", () => {
 
     const enterBtn = screen.getByRole("button", { name: /Enter/i });
 
-    await act(async () => {
-      fireEvent.click(enterBtn);
-    });
+    fireEvent.click(enterBtn);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Database write error",

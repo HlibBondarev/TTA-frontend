@@ -104,7 +104,7 @@ describe("useGameEvents Custom Hook", () => {
 
     // Check Redux state updates
     expect(store.getState().match.globalSequenceNumber).toBe(11);
-    expect(store.getState().match.recentActions.length).toBe(1);
+    expect(store.getState().match.recentActions).toHaveLength(1);
     expect(store.getState().match.recentActions[0]).toEqual({
       id: "created-event-uuid",
       playerNumber: 7,
