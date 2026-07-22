@@ -33,7 +33,7 @@ export const PlayerPresencePanel: React.FC<{
     async (ignore: boolean) => {
       try {
         const lineups = await db.matchlineups
-          .where("matchid")
+          .where("matchId")
           .equals(matchId)
           .toArray();
 

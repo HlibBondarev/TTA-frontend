@@ -17,7 +17,7 @@ export const useMatchLifecycle = () => {
   const matchState = useAppSelector((state) => state.match);
   const {
     activeMatchId,
-    periodnumber,
+    periodNumber,
     isPeriodActive,
     isInsideStoppage,
     globalSequenceNumber,
@@ -36,8 +36,8 @@ export const useMatchLifecycle = () => {
 
         const anchorData = {
           id: anchorId,
-          matchid: matchIdToUse,
-          periodnumber: periodnumber,
+          matchId: matchIdToUse,
+          periodNumber,
           type,
           timestamp: new Date().toISOString(),
           sequenceNumber: nextSeq,
@@ -136,7 +136,7 @@ export const useMatchLifecycle = () => {
   };
 
   return {
-    periodnumber,
+    periodNumber,
     isPeriodActive,
     isInsideStoppage,
     globalSequenceNumber,

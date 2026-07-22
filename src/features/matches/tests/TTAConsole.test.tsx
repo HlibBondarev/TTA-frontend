@@ -27,7 +27,7 @@ let mockPeriodNumber = 1;
 
 vi.mock("../hooks/useMatchLifecycle", () => ({
   useMatchLifecycle: () => ({
-    periodnumber: mockPeriodNumber,
+    periodNumber: mockPeriodNumber,
     isPeriodActive: mockPeriodActive,
     isInsideStoppage: false,
   }),
@@ -77,30 +77,30 @@ describe("TTAConsole Component", () => {
 
     vi.mocked(db.matchlineups.get).mockResolvedValue({
       id: "player-1",
-      matchid: "test-id",
+      matchId: "test-id",
       number: 7,
-      playerrosterid: "roster-1",
-      isinstartinglineup: true,
-      positionid: null,
+      playerRosterId: "roster-1",
+      isInStartingLineup: true,
+      positionId: null,
     });
 
     vi.mocked(getEventDefinitionByName).mockResolvedValue({
       id: "def-pass",
-      sportid: "sport-1",
+      sportId: "sport-1",
       name: "Pass",
-      shortname: "PS",
-      ispositive: true,
-      createdat: new Date().toISOString(),
+      shortName: "PS",
+      isPositive: true,
+      createdAt: new Date().toISOString(),
     });
 
     vi.mocked(createGameEventTx).mockResolvedValue({
       id: "event-uuid-1",
-      matchlineupid: "player-1",
-      eventdefinitionid: "def-pass",
-      periodnumber: 1,
-      eventtimestamp: new Date().toISOString(),
-      isleadtogoal: false,
-      createdat: new Date().toISOString(),
+      matchLineupId: "player-1",
+      eventDefinitionId: "def-pass",
+      periodNumber: 1,
+      eventTimestamp: new Date().toISOString(),
+      isLeadToGoal: false,
+      createdAt: new Date().toISOString(),
       sequenceNumber: 1,
       isSynced: 0,
     });
@@ -201,12 +201,12 @@ describe("TTAConsole Component", () => {
     await act(async () => {
       resolveEvent!({
         id: "event-uuid-1",
-        matchlineupid: "player-1",
-        eventdefinitionid: "def-pass",
-        periodnumber: 1,
-        eventtimestamp: new Date().toISOString(),
-        isleadtogoal: false,
-        createdat: new Date().toISOString(),
+        matchLineupId: "player-1",
+        eventDefinitionId: "def-pass",
+        periodNumber: 1,
+        eventTimestamp: new Date().toISOString(),
+        isLeadToGoal: false,
+        createdAt: new Date().toISOString(),
         sequenceNumber: 1,
         isSynced: 0,
       });

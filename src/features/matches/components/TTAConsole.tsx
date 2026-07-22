@@ -12,7 +12,7 @@ export const TTAConsole: React.FC = () => {
   const activeMatchId = useSelector(
     (state: RootState) => state.match.activeMatchId,
   );
-  const { periodnumber, isPeriodActive, isInsideStoppage } =
+  const { periodNumber, isPeriodActive, isInsideStoppage } =
     useMatchLifecycle();
 
   const { recordGameEvent } = useGameEvents(activeMatchId || "");
@@ -26,11 +26,11 @@ export const TTAConsole: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Use state to track the "current" period to detect changes
-  const [prevPeriod, setPrevPeriod] = useState(periodnumber);
+  const [prevPeriod, setPrevPeriod] = useState(periodNumber);
 
   // If the period from props/hooks changes, reset state and update prevPeriod
-  if (periodnumber !== prevPeriod) {
-    setPrevPeriod(periodnumber);
+  if (periodNumber !== prevPeriod) {
+    setPrevPeriod(periodNumber);
     setPendingAction(null);
     setSelectedPlayerId(null);
     setConsoleError(null);
@@ -88,7 +88,7 @@ export const TTAConsole: React.FC = () => {
             <ActionsLog />
 
             <PlayerPresencePanel
-              key={periodnumber}
+              key={periodNumber}
               matchId={activeMatchId}
               selectedPlayerId={selectedPlayerId}
               setSelectedPlayerId={setSelectedPlayerId}

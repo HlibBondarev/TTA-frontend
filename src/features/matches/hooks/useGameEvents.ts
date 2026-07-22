@@ -14,7 +14,7 @@ export interface RecordGameEventParams {
 
 export const useGameEvents = (matchId: string) => {
   const dispatch = useAppDispatch();
-  const { periodnumber } = useAppSelector((state) => state.match);
+  const { periodNumber } = useAppSelector((state) => state.match);
 
   /**
    * Resolves player jersey number, event definition ID, persists GameEvent to Dexie DB,
@@ -25,7 +25,7 @@ export const useGameEvents = (matchId: string) => {
   ): Promise<boolean> => {
     const { selectedPlayerId, actionName, isPositive } = params;
 
-    // 1. Resolve Match Lineup record to get real jersey number and matchlineupid
+    // 1. Resolve Match Lineup record to get real jersey number and matchLineupId
     const lineup = await db.matchlineups.get(selectedPlayerId);
     if (!lineup) {
       throw new Error(
@@ -33,7 +33,7 @@ export const useGameEvents = (matchId: string) => {
       );
     }
 
-    if (lineup.matchid !== matchId) {
+    if (lineup.matchId !== matchId) {
       throw new Error(
         `Player lineup ${selectedPlayerId} does not belong to match: ${matchId}`,
       );
@@ -49,11 +49,11 @@ export const useGameEvents = (matchId: string) => {
 
     // 3. Atomically persist GameEvent entity with serialized sequence reservation
     const createdEvent = await createGameEventTx({
-      matchlineupid: lineup.id,
-      eventdefinitionid: eventDef.id,
-      periodnumber,
-      eventtimestamp: timestamp,
-      isleadtogoal: actionName.trim().toLowerCase() === "goal",
+      matchLineupId: lineup.id,
+      eventDefinitionId: eventDef.id,
+      periodNumber,
+      eventTimestamp: timestamp,
+      isLeadToGoal: actionName.trim().toLowerCase() === "goal",
     });
 
     // 4. Update Redux store with transactionally computed sequence and real player jersey number

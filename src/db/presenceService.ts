@@ -20,10 +20,10 @@ export async function initializePeriodPresenceTx(
       const newPresences: PlayerPresence[] = playerLineupIds.map(
         (lineupId) => ({
           id: crypto.randomUUID(),
-          matchlineupid: lineupId,
-          periodnumber: periodNumber,
-          timein: startTimestamp,
-          timeout: null,
+          matchLineupId: lineupId,
+          periodNumber: periodNumber,
+          timeIn: startTimestamp,
+          timeOut: null,
           sequenceNumber: currentSeq++,
           isSynced: 0,
         }),
@@ -60,19 +60,19 @@ export async function terminatePeriodPresenceTx(
   endTimestamp: string,
 ): Promise<void> {
   await db.transaction("rw", [db.playerpresences, db.syncQueue], async () => {
-    // 1. Find all active presences (where timeout is null) for this period
+    // 1. Find all active presences (where timeOut is null) for this period
     const activePresences = await db.playerpresences
-      .where("periodnumber")
+      .where("periodNumber")
       .equals(periodNumber)
       .filter(
-        (p) => p.timeout === null && playerLineupIds.includes(p.matchlineupid),
+        (p) => p.timeOut === null && playerLineupIds.includes(p.matchLineupId),
       )
       .toArray();
 
     // 2. Update each active player session with the end timestamp
     for (const presence of activePresences) {
       await db.playerpresences.update(presence.id, {
-        timeout: endTimestamp,
+        timeOut: endTimestamp,
         isSynced: 0,
       });
     }
@@ -113,13 +113,13 @@ export async function substitutePlayerTx(
       const timestamp = new Date().toISOString();
 
       const activePresence = await db.playerpresences
-        .where({ matchlineupid: playerOutLineupId, periodnumber: periodNumber })
-        .filter((p) => p.timeout === null)
+        .where({ matchLineupId: playerOutLineupId, periodNumber })
+        .filter((p) => p.timeOut === null)
         .first();
 
       if (activePresence) {
         await db.playerpresences.update(activePresence.id, {
-          timeout: timestamp,
+          timeOut: timestamp,
           isSynced: 0,
         });
       } else {
@@ -131,10 +131,10 @@ export async function substitutePlayerTx(
 
       const incomingPresence: PlayerPresence = {
         id: newPresenceId,
-        matchlineupid: playerInLineupId,
-        periodnumber: periodNumber,
-        timein: timestamp,
-        timeout: null,
+        matchLineupId: playerInLineupId,
+        periodNumber: periodNumber,
+        timeIn: timestamp,
+        timeOut: null,
         sequenceNumber: nextSeq,
         isSynced: 0,
       };

@@ -61,19 +61,19 @@ describe("presenceService Database Transactions", () => {
     expect(db.playerpresences.bulkAdd).toHaveBeenCalledWith([
       {
         id: expect.any(String),
-        matchlineupid: "lineup-1",
-        periodnumber: mockPeriodNumber,
-        timein: mockStartTimestamp,
-        timeout: null,
+        matchLineupId: "lineup-1",
+        periodNumber: mockPeriodNumber,
+        timeIn: mockStartTimestamp,
+        timeOut: null,
         sequenceNumber: expect.any(Number),
         isSynced: 0,
       },
       {
         id: expect.any(String),
-        matchlineupid: "lineup-2",
-        periodnumber: mockPeriodNumber,
-        timein: mockStartTimestamp,
-        timeout: null,
+        matchLineupId: "lineup-2",
+        periodNumber: mockPeriodNumber,
+        timeIn: mockStartTimestamp,
+        timeOut: null,
         sequenceNumber: expect.any(Number),
         isSynced: 0,
       },
@@ -90,16 +90,29 @@ describe("presenceService Database Transactions", () => {
     });
   });
 
-  it("terminatePeriodPresenceTx should find and close all active player presences", async () => {
+  it("terminatePeriodPresenceTx should find and close all active player presences evaluating filter predicates", async () => {
     const mockEndTimestamp = "2026-07-22T10:08:00.000Z";
-    const mockActivePresences = [
-      { id: "pres-1", matchlineupid: "lineup-1", timeout: null },
-      { id: "pres-2", matchlineupid: "lineup-2", timeout: null },
+
+    // Dataset covering true/false branches for both timeOut and matchLineupId conditions
+    const mockPresencesDataset = [
+      { id: "pres-1", matchLineupId: "lineup-1", timeOut: null },
+      { id: "pres-2", matchLineupId: "lineup-2", timeOut: null },
+      {
+        id: "pres-closed",
+        matchLineupId: "lineup-1",
+        timeOut: "2026-07-22T10:04:00.000Z",
+      },
+      { id: "pres-other", matchLineupId: "lineup-3", timeOut: null },
     ];
 
-    const filterMock = vi.fn().mockReturnValue({
-      toArray: vi.fn().mockResolvedValue(mockActivePresences),
-    });
+    const filterMock = vi.fn(
+      (predicate: (p: (typeof mockPresencesDataset)[0]) => boolean) => {
+        const filtered = mockPresencesDataset.filter(predicate);
+        return {
+          toArray: vi.fn().mockResolvedValue(filtered),
+        };
+      },
+    );
 
     vi.mocked(db.playerpresences.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
@@ -115,13 +128,21 @@ describe("presenceService Database Transactions", () => {
     );
 
     expect(db.playerpresences.update).toHaveBeenCalledWith("pres-1", {
-      timeout: mockEndTimestamp,
+      timeOut: mockEndTimestamp,
       isSynced: 0,
     });
     expect(db.playerpresences.update).toHaveBeenCalledWith("pres-2", {
-      timeout: mockEndTimestamp,
+      timeOut: mockEndTimestamp,
       isSynced: 0,
     });
+    expect(db.playerpresences.update).not.toHaveBeenCalledWith(
+      "pres-closed",
+      expect.anything(),
+    );
+    expect(db.playerpresences.update).not.toHaveBeenCalledWith(
+      "pres-other",
+      expect.anything(),
+    );
 
     expect(db.syncQueue.add).toHaveBeenCalledWith({
       actionType: "PUT",
@@ -134,16 +155,24 @@ describe("presenceService Database Transactions", () => {
     });
   });
 
-  it("substitutePlayerTx should cleanly close active player and open a new presence for replacement", async () => {
-    const mockActivePresence = {
-      id: "pres-out",
-      matchlineupid: "lineup-out",
-      timeout: null,
-    };
+  it("substitutePlayerTx should cleanly close active player and open a new presence for replacement evaluating filter predicates", async () => {
+    const mockPresencesDataset = [
+      {
+        id: "pres-closed",
+        matchLineupId: "lineup-out",
+        timeOut: "2026-07-22T10:01:00.000Z",
+      },
+      { id: "pres-out", matchLineupId: "lineup-out", timeOut: null },
+    ];
 
-    const filterMock = vi.fn().mockReturnValue({
-      first: vi.fn().mockResolvedValue(mockActivePresence),
-    });
+    const filterMock = vi.fn(
+      (predicate: (p: (typeof mockPresencesDataset)[0]) => boolean) => {
+        const filtered = mockPresencesDataset.filter(predicate);
+        return {
+          first: vi.fn().mockResolvedValue(filtered[0]),
+        };
+      },
+    );
 
     vi.mocked(db.playerpresences.where).mockReturnValue({
       filter: filterMock,
@@ -159,16 +188,16 @@ describe("presenceService Database Transactions", () => {
     expect(newPresenceId).toBeDefined();
 
     expect(db.playerpresences.update).toHaveBeenCalledWith("pres-out", {
-      timeout: expect.any(String),
+      timeOut: expect.any(String),
       isSynced: 0,
     });
 
     expect(db.playerpresences.add).toHaveBeenCalledWith({
       id: newPresenceId,
-      matchlineupid: "lineup-in",
-      periodnumber: mockPeriodNumber,
-      timein: expect.any(String),
-      timeout: null,
+      matchLineupId: "lineup-in",
+      periodNumber: mockPeriodNumber,
+      timeIn: expect.any(String),
+      timeOut: null,
       sequenceNumber: expect.any(Number),
       isSynced: 0,
     });

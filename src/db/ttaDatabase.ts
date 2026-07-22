@@ -1,80 +1,80 @@
 import Dexie, { type Table } from "dexie";
 
-// Interfaces strictly mapped to PostgreSQL schemas from 01-Tables.sql
+// Interfaces strictly aligned with OpenAPI camelCase DTOs
 export interface TeamLookup {
-  id: string; // UUID in PostgreSQL
-  clubid: string; // UUID
-  sportid: string; // UUID
-  name: string; // VARCHAR(100)
-  minbirthyear: number | null; // INT NULL
-  gender: number; // INT (0: Male, 1: Female)
-  createdat: string; // TIMESTAMPTZ
+  id: string;
+  clubId: string;
+  sportId: string;
+  name: string;
+  minBirthYear: number | null;
+  gender: number; // 0: Male, 1: Female
+  createdAt: string;
 }
 
 export interface TournamentLookup {
-  id: string; // UUID in PostgreSQL
-  sportid: string; // UUID
-  configurationid: string; // UUID
-  cityid: string; // UUID
-  ownerid: string; // VARCHAR(64)
-  name: string; // VARCHAR(200)
-  startdate: string; // TIMESTAMPTZ
-  enddate: string | null; // TIMESTAMPTZ NULL
-  createdat: string; // TIMESTAMPTZ
+  id: string;
+  sportId: string;
+  configurationId: string;
+  cityId: string;
+  ownerId: string;
+  name: string;
+  startDate: string;
+  endDate: string | null;
+  createdAt: string;
 }
 
 export interface SportConfigurationLookup {
-  id: string; // UUID in PostgreSQL
-  sportid: string; // UUID
-  usescleantime: boolean; // BOOLEAN
-  periodscount: number; // INT
-  perioddurationminutes: number; // INT
-  fieldsize: string; // VARCHAR(50)
-  rosterlimit: number; // INT
-  lineuplimit: number; // INT
-  activeplayerslimit: number; // INT (DEFAULT 7)
+  id: string;
+  sportId: string;
+  usesCleanTime: boolean;
+  periodsCount: number;
+  periodDurationMinutes: number;
+  fieldSize: string;
+  rosterLimit: number;
+  lineupLimit: number;
+  activePlayersLimit: number;
 }
 
 export interface MatchLookup {
-  id: string; // UUID in PostgreSQL
-  tournamentid: string; // UUID
-  hometeamid: string; // UUID
-  guestteamid: string; // UUID
-  scheduledat: string; // TIMESTAMPTZ
-  matchnumber: string | null; // VARCHAR(50) NULL
-  venue: string | null; // VARCHAR(200) NULL
-  temperature: number | null; // FLOAT NULL
-  homescore: number | null; // INT NULL
-  guestscore: number | null; // INT NULL
-  createdat: string; // TIMESTAMPTZ
+  id: string;
+  tournamentId: string;
+  homeTeamId: string;
+  guestTeamId: string;
+  scheduledAt: string;
+  matchNumber: string | null;
+  venue: string | null;
+  temperature: number | null;
+  homeScore: number | null;
+  guestScore: number | null;
+  createdAt: string;
 }
 
 export interface MatchLineupLookup {
-  id: string; // UUID in PostgreSQL
-  matchid: string; // UUID
-  playerrosterid: string | null; // UUID NULL
-  number: number; // INT (Jersey number or placeholders -1/-2)
-  isinstartinglineup: boolean; // BOOLEAN
-  positionid: string | null; // UUID NULL
+  id: string;
+  matchId: string;
+  playerRosterId: string | null;
+  number: number;
+  isInStartingLineup: boolean;
+  positionId: string | null;
 }
 
 export interface EventDefinitionLookup {
-  id: string; // UUID in PostgreSQL
-  sportid: string; // UUID
-  name: string; // VARCHAR(50)
-  shortname: string; // VARCHAR(10)
-  ispositive: boolean; // BOOLEAN
-  createdat: string; // TIMESTAMPTZ
+  id: string;
+  sportId: string;
+  name: string;
+  shortName: string;
+  isPositive: boolean;
+  createdAt: string;
 }
 
 export interface GameEvent {
-  id: string; // UUID in PostgreSQL
-  matchlineupid: string; // UUID
-  eventdefinitionid: string; // UUID
-  periodnumber: number; // INT
-  eventtimestamp: string; // TIMESTAMPTZ
-  isleadtogoal: boolean; // BOOLEAN
-  createdat: string; // TIMESTAMPTZ
+  id: string;
+  matchLineupId: string;
+  eventDefinitionId: string;
+  periodNumber: number;
+  eventTimestamp: string;
+  isLeadToGoal: boolean;
+  createdAt: string;
 
   // Frontend infrastructure tracking properties for offline syncing
   sequenceNumber: number;
@@ -82,11 +82,11 @@ export interface GameEvent {
 }
 
 export interface TimeAnchor {
-  id: string; // UUID in PostgreSQL
-  matchid: string; // UUID
-  periodnumber: number; // INT
-  type: number; // INT (0:PeriodStart, 1:PeriodEnd, 2:StoppageStart, 3:StoppageEnd)
-  timestamp: string; // TIMESTAMPTZ
+  id: string;
+  matchId: string;
+  periodNumber: number;
+  type: number; // 0:PeriodStart, 1:PeriodEnd, 2:StoppageStart, 3:StoppageEnd
+  timestamp: string;
 
   // Frontend infrastructure tracking properties for offline syncing
   sequenceNumber: number;
@@ -94,11 +94,11 @@ export interface TimeAnchor {
 }
 
 export interface PlayerPresence {
-  id: string; // UUID in PostgreSQL
-  matchlineupid: string; // UUID
-  periodnumber: number; // INT
-  timein: string; // TIMESTAMPTZ
-  timeout: string | null; // TIMESTAMPTZ NULL
+  id: string;
+  matchLineupId: string;
+  periodNumber: number;
+  timeIn: string;
+  timeOut: string | null;
 
   // Frontend infrastructure tracking properties for offline syncing
   sequenceNumber: number;
@@ -110,7 +110,7 @@ export interface SyncQueueItem {
   actionType: "POST" | "PUT" | "DELETE";
   endpoint: string;
   payload: string; // JSON-serialized string of operational entity
-  createdAt: string; // TIMESTAMPTZ format
+  createdAt: string;
 }
 
 // Offline-First IndexedDB Controller using Dexie.js
@@ -129,20 +129,20 @@ export class TTADatabase extends Dexie {
   constructor() {
     super("TTADatabase");
 
-    // Schema configuration using strict database keys and query-optimized indexes
+    // Schema configuration using camelCase index paths matching API DTOs
     this.version(1).stores({
-      teams: "id, clubid, sportid",
-      matches: "id, tournamentid, hometeamid, guestteamid, scheduledat",
-      matchlineups: "id, matchid, playerrosterid, number",
-      eventdefinitions: "id, sportid, shortname",
+      teams: "id, clubId, sportId",
+      matches: "id, tournamentId, homeTeamId, guestTeamId, scheduledAt",
+      matchlineups: "id, matchId, playerRosterId, number",
+      eventdefinitions: "id, sportId, shortName",
       gameevents:
-        "id, matchlineupid, eventdefinitionid, periodnumber, sequenceNumber, isSynced",
-      timeanchors: "id, matchid, periodnumber, sequenceNumber, isSynced",
+        "id, matchLineupId, eventDefinitionId, periodNumber, sequenceNumber, isSynced",
+      timeanchors: "id, matchId, periodNumber, sequenceNumber, isSynced",
       playerpresences:
-        "id, matchlineupid, periodnumber, sequenceNumber, isSynced",
+        "id, matchLineupId, periodNumber, sequenceNumber, isSynced",
       syncQueue: "++id, actionType, createdAt",
-      tournaments: "id, sportid, configurationid",
-      sportconfigurations: "id, sportid",
+      tournaments: "id, sportId, configurationId",
+      sportconfigurations: "id, sportId",
     });
   }
 }

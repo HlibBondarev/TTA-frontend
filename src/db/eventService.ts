@@ -61,11 +61,11 @@ export const getNextSequenceNumber = async (): Promise<number> => {
 };
 
 export interface CreateGameEventParams {
-  matchlineupid: string;
-  eventdefinitionid: string;
-  periodnumber: number;
-  eventtimestamp: string;
-  isleadtogoal: boolean;
+  matchLineupId: string;
+  eventDefinitionId: string;
+  periodNumber: number;
+  eventTimestamp: string;
+  isLeadToGoal: boolean;
 }
 
 /**
@@ -84,12 +84,12 @@ export const createGameEventTx = async (
 
       createdEvent = {
         id: crypto.randomUUID(),
-        matchlineupid: params.matchlineupid,
-        eventdefinitionid: params.eventdefinitionid,
-        periodnumber: params.periodnumber,
-        eventtimestamp: params.eventtimestamp,
-        isleadtogoal: params.isleadtogoal,
-        createdat: new Date().toISOString(),
+        matchLineupId: params.matchLineupId,
+        eventDefinitionId: params.eventDefinitionId,
+        periodNumber: params.periodNumber,
+        eventTimestamp: params.eventTimestamp,
+        isLeadToGoal: params.isLeadToGoal,
+        createdAt: new Date().toISOString(),
         sequenceNumber: nextSeq,
         isSynced: 0,
       };

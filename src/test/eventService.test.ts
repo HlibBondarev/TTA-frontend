@@ -36,19 +36,19 @@ describe("Event Database Service (eventService)", () => {
   const mockDefinitions = [
     {
       id: "def-1",
-      sportid: "sport-1",
+      sportId: "sport-1",
       name: "Goal",
-      shortname: "GL",
-      ispositive: true,
-      createdat: "2026-07-22T10:00:00.000Z",
+      shortName: "GL",
+      isPositive: true,
+      createdAt: "2026-07-22T10:00:00.000Z",
     },
     {
       id: "def-2",
-      sportid: "sport-1",
+      sportId: "sport-1",
       name: "Pass",
-      shortname: "PS",
-      ispositive: true,
-      createdat: "2026-07-22T10:00:00.000Z",
+      shortName: "PS",
+      isPositive: true,
+      createdAt: "2026-07-22T10:00:00.000Z",
     },
   ];
 
@@ -103,23 +103,23 @@ describe("Event Database Service (eventService)", () => {
 
   it("should create and persist a GameEvent entity atomically with incremented sequence", async () => {
     const params = {
-      matchlineupid: "lineup-1",
-      eventdefinitionid: "def-1",
-      periodnumber: 1,
-      eventtimestamp: "2026-07-22T12:00:00.000Z",
-      isleadtogoal: true,
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: true,
     };
 
     const createdEvent = await createGameEventTx(params);
 
     expect(createdEvent).toEqual({
       id: expect.any(String),
-      matchlineupid: "lineup-1",
-      eventdefinitionid: "def-1",
-      periodnumber: 1,
-      eventtimestamp: "2026-07-22T12:00:00.000Z",
-      isleadtogoal: true,
-      createdat: expect.any(String),
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: true,
+      createdAt: expect.any(String),
       sequenceNumber: 5,
       isSynced: 0,
     });

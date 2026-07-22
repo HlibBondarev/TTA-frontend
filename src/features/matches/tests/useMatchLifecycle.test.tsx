@@ -37,9 +37,9 @@ const createTestStore = (preloadedState = {}) => {
     preloadedState: {
       match: {
         activeMatchId: "test-match-id",
-        periodnumber: 1,
-        homescore: 0,
-        guestscore: 0,
+        periodNumber: 1,
+        homeScore: 0,
+        guestScore: 0,
         isPeriodActive: false,
         isInsideStoppage: false,
         globalSequenceNumber: 0,
@@ -56,12 +56,12 @@ describe("useMatchLifecycle Hook", () => {
   });
 
   test("should initialize with values matched from the Redux store", () => {
-    const store = createTestStore({ periodnumber: 3, isPeriodActive: true });
+    const store = createTestStore({ periodNumber: 3, isPeriodActive: true });
     const { result } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
-    expect(result.current.periodnumber).toBe(3);
+    expect(result.current.periodNumber).toBe(3);
     expect(result.current.isPeriodActive).toBe(true);
   });
 
@@ -82,8 +82,8 @@ describe("useMatchLifecycle Hook", () => {
     expect(db.timeanchors.add).toHaveBeenCalledWith(
       expect.objectContaining({
         id: anchorId,
-        matchid: "test-match-id",
-        periodnumber: 1,
+        matchId: "test-match-id",
+        periodNumber: 1,
         type: 0,
         sequenceNumber: 1,
       }),
@@ -167,7 +167,7 @@ describe("useMatchLifecycle Hook", () => {
   });
 
   test("should navigate period numbers up and down safely when period is inactive", () => {
-    const store = createTestStore({ periodnumber: 1, isPeriodActive: false });
+    const store = createTestStore({ periodNumber: 1, isPeriodActive: false });
     const { result } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
@@ -175,16 +175,16 @@ describe("useMatchLifecycle Hook", () => {
     act(() => {
       result.current.nextPeriod();
     });
-    expect(store.getState().match.periodnumber).toBe(2);
+    expect(store.getState().match.periodNumber).toBe(2);
 
     act(() => {
       result.current.prevPeriod();
     });
-    expect(store.getState().match.periodnumber).toBe(1);
+    expect(store.getState().match.periodNumber).toBe(1);
   });
 
   test("should block period navigation when a period is active", () => {
-    const store = createTestStore({ periodnumber: 1, isPeriodActive: true });
+    const store = createTestStore({ periodNumber: 1, isPeriodActive: true });
     const { result } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
@@ -192,6 +192,6 @@ describe("useMatchLifecycle Hook", () => {
     act(() => {
       result.current.nextPeriod();
     });
-    expect(store.getState().match.periodnumber).toBe(1);
+    expect(store.getState().match.periodNumber).toBe(1);
   });
 });

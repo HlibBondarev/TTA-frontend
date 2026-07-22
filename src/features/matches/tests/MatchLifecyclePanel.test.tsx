@@ -93,7 +93,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const nextBtn = screen.getByRole("button", { name: ">" });
     fireEvent.click(nextBtn);
 
-    expect(store.getState().match.periodnumber).toBe(2);
+    expect(store.getState().match.periodNumber).toBe(2);
   });
 
   test("should trigger successful period start flow", async () => {
@@ -118,7 +118,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
-        periodnumber: 1,
+        periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
         globalSequenceNumber: 1,
@@ -206,7 +206,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
-        periodnumber: 1,
+        periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
         globalSequenceNumber: 1,
@@ -245,7 +245,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
-        periodnumber: 1,
+        periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
         globalSequenceNumber: 1,
@@ -297,7 +297,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
-        periodnumber: 1,
+        periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
         globalSequenceNumber: 1,
