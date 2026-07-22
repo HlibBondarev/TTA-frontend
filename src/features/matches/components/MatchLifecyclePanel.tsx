@@ -7,7 +7,7 @@ import { TEST_MATCH_ID } from "../../../App";
 
 export const MatchLifecyclePanel: React.FC = () => {
   const {
-    periodnumber,
+    periodNumber,
     isPeriodActive,
     isInsideStoppage,
     startPeriod,
@@ -110,7 +110,7 @@ export const MatchLifecyclePanel: React.FC = () => {
             &lt;
           </button>
           <span className="text-sm font-black text-emerald-400 min-w-4 text-center">
-            {periodnumber}
+            {periodNumber}
           </span>
           <button
             type="button"

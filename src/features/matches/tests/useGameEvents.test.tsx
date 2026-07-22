@@ -28,9 +28,9 @@ const createTestStore = (preloadedState = {}) => {
     preloadedState: {
       match: {
         activeMatchId: "test-match-id",
-        periodnumber: 2,
-        homescore: 0,
-        guestscore: 0,
+        periodNumber: 2,
+        homeScore: 0,
+        guestScore: 0,
         isPeriodActive: true,
         isInsideStoppage: false,
         globalSequenceNumber: 10,
@@ -51,30 +51,30 @@ describe("useGameEvents Custom Hook", () => {
 
     vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
       id: "lineup-uuid-7",
-      matchid: "test-match-id",
-      playerrosterid: "roster-7",
+      matchId: "test-match-id",
+      playerRosterId: "roster-7",
       number: 7,
-      isinstartinglineup: true,
-      positionid: null,
+      isInStartingLineup: true,
+      positionId: null,
     });
 
     vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce({
       id: "def-goal-id",
-      sportid: "waterpolo-sport-id",
+      sportId: "waterpolo-sport-id",
       name: "Goal",
-      shortname: "GL",
-      ispositive: true,
-      createdat: new Date().toISOString(),
+      shortName: "GL",
+      isPositive: true,
+      createdAt: new Date().toISOString(),
     });
 
     vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce({
       id: "created-event-uuid",
-      matchlineupid: "lineup-uuid-7",
-      eventdefinitionid: "def-goal-id",
-      periodnumber: 2,
-      eventtimestamp: new Date().toISOString(),
-      isleadtogoal: true,
-      createdat: new Date().toISOString(),
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-goal-id",
+      periodNumber: 2,
+      eventTimestamp: new Date().toISOString(),
+      isLeadToGoal: true,
+      createdAt: new Date().toISOString(),
       sequenceNumber: 11,
       isSynced: 0,
     });
@@ -94,11 +94,11 @@ describe("useGameEvents Custom Hook", () => {
 
     // Check IndexedDB transaction payload
     expect(eventService.createGameEventTx).toHaveBeenCalledWith({
-      matchlineupid: "lineup-uuid-7",
-      eventdefinitionid: "def-goal-id",
-      periodnumber: 2,
-      eventtimestamp: expect.any(String),
-      isleadtogoal: true,
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-goal-id",
+      periodNumber: 2,
+      eventTimestamp: expect.any(String),
+      isLeadToGoal: true,
     });
 
     // Check Redux state updates
@@ -136,11 +136,11 @@ describe("useGameEvents Custom Hook", () => {
     const store = createTestStore();
     vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
       id: "lineup-uuid-other",
-      matchid: "other-match-id",
-      playerrosterid: "roster-1",
+      matchId: "other-match-id",
+      playerRosterId: "roster-1",
       number: 1,
-      isinstartinglineup: true,
-      positionid: null,
+      isInStartingLineup: true,
+      positionId: null,
     });
 
     const { result } = renderHook(() => useGameEvents("test-match-id"), {
@@ -164,11 +164,11 @@ describe("useGameEvents Custom Hook", () => {
     const store = createTestStore();
     vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
       id: "lineup-uuid-1",
-      matchid: "test-match-id",
-      playerrosterid: "roster-1",
+      matchId: "test-match-id",
+      playerRosterId: "roster-1",
       number: 1,
-      isinstartinglineup: true,
-      positionid: null,
+      isInStartingLineup: true,
+      positionId: null,
     });
 
     vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce(

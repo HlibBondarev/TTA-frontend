@@ -61,19 +61,19 @@ describe("presenceService Database Transactions", () => {
     expect(db.playerpresences.bulkAdd).toHaveBeenCalledWith([
       {
         id: expect.any(String),
-        matchlineupid: "lineup-1",
-        periodnumber: mockPeriodNumber,
-        timein: mockStartTimestamp,
-        timeout: null,
+        matchLineupId: "lineup-1",
+        periodNumber: mockPeriodNumber,
+        timeIn: mockStartTimestamp,
+        timeOut: null,
         sequenceNumber: expect.any(Number),
         isSynced: 0,
       },
       {
         id: expect.any(String),
-        matchlineupid: "lineup-2",
-        periodnumber: mockPeriodNumber,
-        timein: mockStartTimestamp,
-        timeout: null,
+        matchLineupId: "lineup-2",
+        periodNumber: mockPeriodNumber,
+        timeIn: mockStartTimestamp,
+        timeOut: null,
         sequenceNumber: expect.any(Number),
         isSynced: 0,
       },
@@ -93,8 +93,8 @@ describe("presenceService Database Transactions", () => {
   it("terminatePeriodPresenceTx should find and close all active player presences", async () => {
     const mockEndTimestamp = "2026-07-22T10:08:00.000Z";
     const mockActivePresences = [
-      { id: "pres-1", matchlineupid: "lineup-1", timeout: null },
-      { id: "pres-2", matchlineupid: "lineup-2", timeout: null },
+      { id: "pres-1", matchLineupId: "lineup-1", timeOut: null },
+      { id: "pres-2", matchLineupId: "lineup-2", timeOut: null },
     ];
 
     const filterMock = vi.fn().mockReturnValue({
@@ -115,11 +115,11 @@ describe("presenceService Database Transactions", () => {
     );
 
     expect(db.playerpresences.update).toHaveBeenCalledWith("pres-1", {
-      timeout: mockEndTimestamp,
+      timeOut: mockEndTimestamp,
       isSynced: 0,
     });
     expect(db.playerpresences.update).toHaveBeenCalledWith("pres-2", {
-      timeout: mockEndTimestamp,
+      timeOut: mockEndTimestamp,
       isSynced: 0,
     });
 
@@ -137,8 +137,8 @@ describe("presenceService Database Transactions", () => {
   it("substitutePlayerTx should cleanly close active player and open a new presence for replacement", async () => {
     const mockActivePresence = {
       id: "pres-out",
-      matchlineupid: "lineup-out",
-      timeout: null,
+      matchLineupId: "lineup-out",
+      timeOut: null,
     };
 
     const filterMock = vi.fn().mockReturnValue({
@@ -159,16 +159,16 @@ describe("presenceService Database Transactions", () => {
     expect(newPresenceId).toBeDefined();
 
     expect(db.playerpresences.update).toHaveBeenCalledWith("pres-out", {
-      timeout: expect.any(String),
+      timeOut: expect.any(String),
       isSynced: 0,
     });
 
     expect(db.playerpresences.add).toHaveBeenCalledWith({
       id: newPresenceId,
-      matchlineupid: "lineup-in",
-      periodnumber: mockPeriodNumber,
-      timein: expect.any(String),
-      timeout: null,
+      matchLineupId: "lineup-in",
+      periodNumber: mockPeriodNumber,
+      timeIn: expect.any(String),
+      timeOut: null,
       sequenceNumber: expect.any(Number),
       isSynced: 0,
     });

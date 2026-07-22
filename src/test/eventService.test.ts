@@ -103,23 +103,23 @@ describe("Event Database Service (eventService)", () => {
 
   it("should create and persist a GameEvent entity atomically with incremented sequence", async () => {
     const params = {
-      matchlineupid: "lineup-1",
-      eventdefinitionid: "def-1",
-      periodnumber: 1,
-      eventtimestamp: "2026-07-22T12:00:00.000Z",
-      isleadtogoal: true,
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: true,
     };
 
     const createdEvent = await createGameEventTx(params);
 
     expect(createdEvent).toEqual({
       id: expect.any(String),
-      matchlineupid: "lineup-1",
-      eventdefinitionid: "def-1",
-      periodnumber: 1,
-      eventtimestamp: "2026-07-22T12:00:00.000Z",
-      isleadtogoal: true,
-      createdat: expect.any(String),
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: true,
+      createdAt: expect.any(String),
       sequenceNumber: 5,
       isSynced: 0,
     });

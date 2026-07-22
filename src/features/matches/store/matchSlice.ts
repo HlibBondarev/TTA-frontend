@@ -10,9 +10,9 @@ export interface ActionEntry {
 
 export interface MatchState {
   activeMatchId: string | null;
-  periodnumber: number;
-  homescore?: number;
-  guestscore?: number;
+  periodNumber: number;
+  homeScore?: number;
+  guestScore?: number;
   isPeriodActive: boolean;
   isInsideStoppage: boolean;
   globalSequenceNumber: number;
@@ -21,9 +21,9 @@ export interface MatchState {
 
 const initialState: MatchState = {
   activeMatchId: null,
-  periodnumber: 1,
-  homescore: 0,
-  guestscore: 0,
+  periodNumber: 1,
+  homeScore: 0,
+  guestScore: 0,
   isPeriodActive: false,
   isInsideStoppage: false,
   globalSequenceNumber: 0,
@@ -36,9 +36,9 @@ const matchSlice = createSlice({
   reducers: {
     setActiveMatch(state, action: PayloadAction<string | null>) {
       state.activeMatchId = action.payload;
-      state.periodnumber = 1;
-      state.homescore = 0;
-      state.guestscore = 0;
+      state.periodNumber = 1;
+      state.homeScore = 0;
+      state.guestScore = 0;
       state.isPeriodActive = false;
       state.isInsideStoppage = false;
       state.globalSequenceNumber = 0;
@@ -46,10 +46,10 @@ const matchSlice = createSlice({
     },
     updateScores(
       state,
-      action: PayloadAction<{ homescore: number; guestscore: number }>,
+      action: PayloadAction<{ homeScore: number; guestScore: number }>,
     ) {
-      state.homescore = action.payload.homescore;
-      state.guestscore = action.payload.guestscore;
+      state.homeScore = action.payload.homeScore;
+      state.guestScore = action.payload.guestScore;
     },
     startPeriodState(state) {
       state.isPeriodActive = true;
@@ -60,11 +60,11 @@ const matchSlice = createSlice({
       state.isInsideStoppage = false;
     },
     incrementPeriodNumber(state) {
-      state.periodnumber += 1;
+      state.periodNumber += 1;
     },
     decrementPeriodNumber(state) {
-      if (state.periodnumber > 1) {
-        state.periodnumber -= 1;
+      if (state.periodNumber > 1) {
+        state.periodNumber -= 1;
       }
     },
     startStoppageState(state) {

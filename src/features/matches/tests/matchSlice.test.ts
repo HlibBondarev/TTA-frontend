@@ -16,9 +16,9 @@ import matchReducer, {
 describe("matchSlice Reducers", () => {
   const initialState: MatchState = {
     activeMatchId: null,
-    periodnumber: 1,
-    homescore: 0,
-    guestscore: 0,
+    periodNumber: 1,
+    homeScore: 0,
+    guestScore: 0,
     isPeriodActive: false,
     isInsideStoppage: false,
     globalSequenceNumber: 0,
@@ -32,7 +32,7 @@ describe("matchSlice Reducers", () => {
   it("should set the active match and reset tracking counters", () => {
     const customState: MatchState = {
       ...initialState,
-      periodnumber: 3,
+      periodNumber: 3,
       globalSequenceNumber: 15,
     };
 
@@ -42,7 +42,7 @@ describe("matchSlice Reducers", () => {
     );
 
     expect(nextState.activeMatchId).toBe("test-match-uuid");
-    expect(nextState.periodnumber).toBe(1);
+    expect(nextState.periodNumber).toBe(1);
     expect(nextState.globalSequenceNumber).toBe(0);
   });
 
@@ -57,13 +57,13 @@ describe("matchSlice Reducers", () => {
 
   it("should handle period number navigation safely", () => {
     const stateInc = matchReducer(initialState, incrementPeriodNumber());
-    expect(stateInc.periodnumber).toBe(2);
+    expect(stateInc.periodNumber).toBe(2);
 
     const stateDec = matchReducer(stateInc, decrementPeriodNumber());
-    expect(stateDec.periodnumber).toBe(1);
+    expect(stateDec.periodNumber).toBe(1);
 
     const stateSafe = matchReducer(stateDec, decrementPeriodNumber());
-    expect(stateSafe.periodnumber).toBe(1);
+    expect(stateSafe.periodNumber).toBe(1);
   });
 
   it("should handle stoppage state transitions", () => {
@@ -112,9 +112,9 @@ describe("matchSlice Reducers", () => {
     const dirtyState: MatchState = {
       ...initialState,
       activeMatchId: "active-session-uuid",
-      periodnumber: 4,
-      homescore: 10,
-      guestscore: 8,
+      periodNumber: 4,
+      homeScore: 10,
+      guestScore: 8,
       isPeriodActive: true,
       isInsideStoppage: true,
       globalSequenceNumber: 42,

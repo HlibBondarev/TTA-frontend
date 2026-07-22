@@ -21,8 +21,8 @@ vi.mock("../../../db/ttaDatabase", () => {
         where: vi.fn().mockReturnThis(),
         equals: vi.fn().mockReturnThis(),
         toArray: vi.fn().mockResolvedValue([
-          { id: "lineup-1", matchid: "test-match" },
-          { id: "lineup-2", matchid: "test-match" },
+          { id: "lineup-1", matchId: "test-match" },
+          { id: "lineup-2", matchId: "test-match" },
         ]),
       },
       playerpresences: {
@@ -31,10 +31,10 @@ vi.mock("../../../db/ttaDatabase", () => {
         toArray: vi.fn().mockResolvedValue([
           {
             id: "pres-1",
-            matchlineupid: "lineup-1",
-            periodnumber: 1,
-            timein: "2026-07-16T10:00:00.000Z",
-            timeout: null,
+            matchLineupId: "lineup-1",
+            periodNumber: 1,
+            timeIn: "2026-07-16T10:00:00.000Z",
+            timeOut: null,
           },
         ]),
       },

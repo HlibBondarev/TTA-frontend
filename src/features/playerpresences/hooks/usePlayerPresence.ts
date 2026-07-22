@@ -17,7 +17,7 @@ import {
 
 export function usePlayerPresence(matchId: string) {
   const dispatch = useAppDispatch();
-  const currentPeriod = useAppSelector((state) => state.match.periodnumber);
+  const currentPeriod = useAppSelector((state) => state.match.periodNumber);
 
   const {
     activeLineupIds,
@@ -30,25 +30,25 @@ export function usePlayerPresence(matchId: string) {
     dispatch(setLoading(true));
     try {
       const matchLineups = await db.matchlineups
-        .where("matchid")
+        .where("matchId")
         .equals(matchId)
         .toArray();
 
       const lineupIds = matchLineups.map((l) => l.id);
       const rawPresences = await db.playerpresences
-        .where("periodnumber")
+        .where("periodNumber")
         .equals(currentPeriod)
         .toArray();
 
       const sortedPresences = [...rawPresences].sort((a, b) =>
-        a.timein.localeCompare(b.timein),
+        a.timeIn.localeCompare(b.timeIn),
       );
 
       const activeLineups = sortedPresences
         .filter(
-          (p) => p.timeout === null && lineupIds.includes(p.matchlineupid),
+          (p) => p.timeOut === null && lineupIds.includes(p.matchLineupId),
         )
-        .map((p) => p.matchlineupid);
+        .map((p) => p.matchLineupId);
 
       const benchLineups = lineupIds.filter(
         (id) => !activeLineups.includes(id),
