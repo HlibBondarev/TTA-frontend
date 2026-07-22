@@ -22,14 +22,24 @@ const DEFAULT_EVENT_DEFINITIONS = [
  * Seeds the local IndexedDB with minimal match, lineup, and event definition data required for offline testing.
  */
 export async function seedTestData(): Promise<void> {
-  const existingLineups = await db.matchlineups
+  const existingLineupsCount = await db.matchlineups
     .where("matchid")
     .equals(TEST_MATCH_ID)
     .count();
 
-  const existingEventDefs = await db.eventdefinitions.count();
+  // Fetch existing definitions to check against the expected water polo set
+  const existingDefs = await db.eventdefinitions.toArray();
+  const existingShortnames = new Set(
+    existingDefs.map((def) => def.shortname.toUpperCase()),
+  );
 
-  if (existingLineups > 0 && existingEventDefs > 0) {
+  // Filter out definitions that are already present in IndexedDB
+  const missingDefs = DEFAULT_EVENT_DEFINITIONS.filter(
+    (def) => !existingShortnames.has(def.shortname.toUpperCase()),
+  );
+
+  // Return early only if both test lineups and all expected event definitions exist
+  if (existingLineupsCount > 0 && missingDefs.length === 0) {
     return;
   }
 
@@ -40,20 +50,23 @@ export async function seedTestData(): Promise<void> {
     [db.matches, db.matchlineups, db.eventdefinitions],
     async () => {
       // 1. Seed Match references and Lineups if missing
-      if (existingLineups === 0) {
-        await db.matches.add({
-          id: TEST_MATCH_ID,
-          tournamentid: TEST_TOURNAMENT_ID,
-          hometeamid: "3f2e8f1a-7b3c-4d5e-8f9a-0b1c2d3e4f70",
-          guestteamid: "4f2e8f1a-7b3c-4d5e-8f9a-0b1c2d3e4f70",
-          scheduledat: new Date().toISOString(),
-          matchnumber: "M01",
-          venue: "Olympic Aquatics Arena",
-          temperature: 26.5,
-          homescore: null,
-          guestscore: null,
-          createdat: new Date().toISOString(),
-        });
+      if (existingLineupsCount === 0) {
+        const existingMatch = await db.matches.get(TEST_MATCH_ID);
+        if (!existingMatch) {
+          await db.matches.add({
+            id: TEST_MATCH_ID,
+            tournamentid: TEST_TOURNAMENT_ID,
+            hometeamid: "3f2e8f1a-7b3c-4d5e-8f9a-0b1c2d3e4f70",
+            guestteamid: "4f2e8f1a-7b3c-4d5e-8f9a-0b1c2d3e4f70",
+            scheduledat: new Date().toISOString(),
+            matchnumber: "M01",
+            venue: "Olympic Aquatics Arena",
+            temperature: 26.5,
+            homescore: null,
+            guestscore: null,
+            createdat: new Date().toISOString(),
+          });
+        }
 
         const mockLineups = Array.from({ length: 13 }, (_, i) => ({
           id: `a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c${(i + 1).toString(16).padStart(2, "0")}`,
@@ -67,10 +80,10 @@ export async function seedTestData(): Promise<void> {
         await db.matchlineups.bulkAdd(mockLineups);
       }
 
-      // 2. Seed Event Definitions if missing
-      if (existingEventDefs === 0) {
-        const eventDefsToSeed = DEFAULT_EVENT_DEFINITIONS.map((def, index) => ({
-          id: `e1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c${(index + 1).toString(16).padStart(2, "0")}`,
+      // 2. Seed missing Event Definitions only
+      if (missingDefs.length > 0) {
+        const eventDefsToSeed = missingDefs.map((def, index) => ({
+          id: `e1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c${(existingDefs.length + index + 1).toString(16).padStart(2, "0")}`,
           sportid: TEST_SPORT_ID,
           name: def.name,
           shortname: def.shortname,
