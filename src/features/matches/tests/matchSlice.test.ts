@@ -1,5 +1,6 @@
 import matchReducer, {
   setActiveMatch,
+  updateScores,
   startPeriodState,
   endPeriodState,
   incrementPeriodNumber,
@@ -7,6 +8,7 @@ import matchReducer, {
   startStoppageState,
   endStoppageState,
   incrementSequence,
+  setGlobalSequenceNumber,
   resetMatchState,
   addRecentAction,
   type ActionEntry,
@@ -46,6 +48,16 @@ describe("matchSlice Reducers", () => {
     expect(nextState.globalSequenceNumber).toBe(0);
   });
 
+  it("should handle updating match scores", () => {
+    const nextState = matchReducer(
+      initialState,
+      updateScores({ homeScore: 5, guestScore: 3 }),
+    );
+
+    expect(nextState.homeScore).toBe(5);
+    expect(nextState.guestScore).toBe(3);
+  });
+
   it("should handle starting and ending a period", () => {
     const stateStarted = matchReducer(initialState, startPeriodState());
     expect(stateStarted.isPeriodActive).toBe(true);
@@ -80,6 +92,11 @@ describe("matchSlice Reducers", () => {
 
     const state2 = matchReducer(state1, incrementSequence());
     expect(state2.globalSequenceNumber).toBe(2);
+  });
+
+  it("should explicitly set global sequence number", () => {
+    const nextState = matchReducer(initialState, setGlobalSequenceNumber(42));
+    expect(nextState.globalSequenceNumber).toBe(42);
   });
 
   it("should handle adding recent actions with a maximum limit of 10", () => {

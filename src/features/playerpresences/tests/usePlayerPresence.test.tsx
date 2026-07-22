@@ -36,6 +36,13 @@ vi.mock("../../../db/ttaDatabase", () => {
             timeIn: "2026-07-16T10:00:00.000Z",
             timeOut: null,
           },
+          {
+            id: "pres-closed",
+            matchLineupId: "lineup-1",
+            periodNumber: 1,
+            timeIn: "2026-07-16T09:50:00.000Z",
+            timeOut: "2026-07-16T09:55:00.000Z",
+          },
         ]),
       },
     },
@@ -109,7 +116,7 @@ describe("usePlayerPresence Hook", () => {
     }).toThrow("Cannot exceed the limit of 7 active players.");
   });
 
-  it("should refresh roster and load presence state from IndexedDB", async () => {
+  it("should refresh roster and load presence state from IndexedDB filtering out closed sessions", async () => {
     const { result } = renderHook(() => usePlayerPresence("test-match"), {
       wrapper,
     });
@@ -121,6 +128,27 @@ describe("usePlayerPresence Hook", () => {
     // Validated based on the mocked toArray values
     expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
     expect(result.current.benchLineupIds).toEqual(["lineup-2"]);
+  });
+
+  it("should handle error gracefully when refreshPresenceFromDB fails", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(db.matchlineups.toArray).mockRejectedValueOnce(
+      new Error("Database Read Error"),
+    );
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await result.current.refreshPresenceFromDB();
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "Failed to load local presence state:",
+      expect.any(Error),
+    );
+    consoleSpy.mockRestore();
   });
 
   it("should start a period and trigger database initialization with exactly 7 players", async () => {
@@ -147,6 +175,29 @@ describe("usePlayerPresence Hook", () => {
     );
   });
 
+  it("should refresh presence from DB and rethrow when startPeriodWithRoster fails", async () => {
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    const completeLineup = ["p1", "p2", "p3", "p4", "p5", "p6", "p7"];
+    act(() => {
+      result.current.stageStartingLineup(completeLineup);
+    });
+
+    vi.mocked(initializePeriodPresenceTx).mockRejectedValueOnce(
+      new Error("Init failed"),
+    );
+
+    await expect(
+      act(async () => {
+        await result.current.startPeriodWithRoster("2026-07-16T10:00:00.000Z");
+      }),
+    ).rejects.toThrow("Init failed");
+
+    expect(db.matchlineups.where).toHaveBeenCalled();
+  });
+
   it("should end a period and trigger database presence termination", async () => {
     const { result } = renderHook(() => usePlayerPresence("test-match"), {
       wrapper,
@@ -171,6 +222,24 @@ describe("usePlayerPresence Hook", () => {
       ["lineup-1"],
       "2026-07-16T11:00:00.000Z",
     );
+  });
+
+  it("should refresh presence from DB and rethrow when endPeriodWithRoster fails", async () => {
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    vi.mocked(terminatePeriodPresenceTx).mockRejectedValueOnce(
+      new Error("Terminate failed"),
+    );
+
+    await expect(
+      act(async () => {
+        await result.current.endPeriodWithRoster("2026-07-16T11:00:00.000Z");
+      }),
+    ).rejects.toThrow("Terminate failed");
+
+    expect(db.matchlineups.where).toHaveBeenCalled();
   });
 
   it("should reject starting a period if the roster is incomplete", async () => {
