@@ -36,19 +36,19 @@ describe("Event Database Service (eventService)", () => {
   const mockDefinitions = [
     {
       id: "def-1",
-      sportid: "sport-1",
+      sportId: "sport-1",
       name: "Goal",
-      shortname: "GL",
-      ispositive: true,
-      createdat: "2026-07-22T10:00:00.000Z",
+      shortName: "GL",
+      isPositive: true,
+      createdAt: "2026-07-22T10:00:00.000Z",
     },
     {
       id: "def-2",
-      sportid: "sport-1",
+      sportId: "sport-1",
       name: "Pass",
-      shortname: "PS",
-      ispositive: true,
-      createdat: "2026-07-22T10:00:00.000Z",
+      shortName: "PS",
+      isPositive: true,
+      createdAt: "2026-07-22T10:00:00.000Z",
     },
   ];
 
