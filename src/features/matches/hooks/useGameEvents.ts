@@ -1,5 +1,5 @@
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
-import { incrementSequence, addRecentAction } from "../store/matchSlice";
+import { setGlobalSequenceNumber, addRecentAction } from "../store/matchSlice";
 import {
   getEventDefinitionByName,
   createGameEventTx,
@@ -56,8 +56,8 @@ export const useGameEvents = (matchId: string) => {
       isleadtogoal: actionName.trim().toLowerCase() === "goal",
     });
 
-    // 4. Update Redux store with sequence increment and real player jersey number
-    dispatch(incrementSequence());
+    // 4. Update Redux store with transactionally computed sequence and real player jersey number
+    dispatch(setGlobalSequenceNumber(createdEvent.sequenceNumber));
     dispatch(
       addRecentAction({
         id: createdEvent.id,
