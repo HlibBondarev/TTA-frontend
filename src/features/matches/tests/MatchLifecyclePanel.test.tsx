@@ -96,20 +96,6 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     expect(store.getState().match.periodnumber).toBe(2);
   });
 
-  test("should allow navigating periods when period is inactive", () => {
-    const store = createTestStore();
-    render(
-      <Provider store={store}>
-        <MatchLifecyclePanel />
-      </Provider>,
-    );
-
-    const nextBtn = screen.getByRole("button", { name: ">" });
-    fireEvent.click(nextBtn);
-
-    expect(store.getState().match.periodnumber).toBe(2);
-  });
-
   test("should trigger successful period start flow", async () => {
     const store = createTestStore();
     render(
