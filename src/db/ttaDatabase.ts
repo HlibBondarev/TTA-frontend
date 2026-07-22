@@ -73,7 +73,6 @@ export interface GameEvent {
   eventdefinitionid: string; // UUID
   periodnumber: number; // INT
   eventtimestamp: string; // TIMESTAMPTZ
-  normalizedmatchtime: string | null; // INTERVAL NULL (mapped as string)
   isleadtogoal: boolean; // BOOLEAN
   createdat: string; // TIMESTAMPTZ
 
@@ -124,7 +123,6 @@ export class TTADatabase extends Dexie {
   timeanchors!: Table<TimeAnchor, string>;
   playerpresences!: Table<PlayerPresence, string>;
   syncQueue!: Table<SyncQueueItem, number>;
-  // 👇 New tables added for match rules configuration traversal
   tournaments!: Table<TournamentLookup, string>;
   sportconfigurations!: Table<SportConfigurationLookup, string>;
 
@@ -143,7 +141,6 @@ export class TTADatabase extends Dexie {
       playerpresences:
         "id, matchlineupid, periodnumber, sequenceNumber, isSynced",
       syncQueue: "++id, actionType, createdAt",
-      // 👇 Added configuration tables mapping
       tournaments: "id, sportid, configurationid",
       sportconfigurations: "id, sportid",
     });
