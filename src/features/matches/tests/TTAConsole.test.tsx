@@ -1,11 +1,17 @@
 import { vi, describe, test, expect, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore, combineReducers } from "@reduxjs/toolkit";
 import { TTAConsole } from "../components/TTAConsole";
 import matchReducer from "../store/matchSlice";
 import presenceReducer from "../../playerpresences/store/presenceSlice";
-import { db } from "../../../db/ttaDatabase";
+import { db, type GameEvent } from "../../../db/ttaDatabase";
 import {
   getEventDefinitionByName,
   createGameEventTx,
@@ -149,6 +155,64 @@ describe("TTAConsole Component", () => {
 
     expect(store.getState().match.recentActions[0].actionName).toBe("Pass");
     expect(store.getState().match.recentActions[0].playerNumber).toBe(7);
+  });
+
+  test("prevents rapid double submission when ENTER is clicked twice quickly", async () => {
+    let resolveEvent: (value: GameEvent) => void;
+    vi.mocked(createGameEventTx).mockImplementationOnce(
+      () =>
+        new Promise<GameEvent>((resolve) => {
+          resolveEvent = resolve;
+        }),
+    );
+
+    const store = configureStore({
+      reducer: rootReducer,
+      preloadedState: {
+        match: {
+          ...initialMatchState,
+          activeMatchId: "test-id",
+          isPeriodActive: true,
+        },
+      } as unknown as RootState,
+    });
+
+    render(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByText("Pass"));
+    fireEvent.click(screen.getByText("Mock Player"));
+
+    const enterBtn = screen.getByRole("button", { name: /Enter/i });
+
+    // First click initiates transaction
+    fireEvent.click(enterBtn);
+    // Rapid second click during in-flight submission
+    fireEvent.click(enterBtn);
+
+    // Wait for the async lookup chain to reach createGameEventTx
+    await waitFor(() => {
+      expect(createGameEventTx).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      resolveEvent!({
+        id: "event-uuid-1",
+        matchlineupid: "player-1",
+        eventdefinitionid: "def-pass",
+        periodnumber: 1,
+        eventtimestamp: new Date().toISOString(),
+        isleadtogoal: false,
+        createdat: new Date().toISOString(),
+        sequenceNumber: 1,
+        isSynced: 0,
+      });
+    });
+
+    expect(createGameEventTx).toHaveBeenCalledTimes(1);
   });
 
   test("displays error alert if event recording fails", async () => {

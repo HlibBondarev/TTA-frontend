@@ -14,9 +14,7 @@ export interface RecordGameEventParams {
 
 export const useGameEvents = (matchId: string) => {
   const dispatch = useAppDispatch();
-  const { periodnumber, globalSequenceNumber } = useAppSelector(
-    (state) => state.match,
-  );
+  const { periodnumber } = useAppSelector((state) => state.match);
 
   /**
    * Resolves player jersey number, event definition ID, persists GameEvent to Dexie DB,
@@ -47,17 +45,15 @@ export const useGameEvents = (matchId: string) => {
       throw new Error(`Event definition not found for action: "${actionName}"`);
     }
 
-    const nextSeq = globalSequenceNumber + 1;
     const timestamp = new Date().toISOString();
 
-    // 3. Atomically persist GameEvent entity to IndexedDB
+    // 3. Atomically persist GameEvent entity with serialized sequence reservation
     const createdEvent = await createGameEventTx({
       matchlineupid: lineup.id,
       eventdefinitionid: eventDef.id,
       periodnumber,
       eventtimestamp: timestamp,
       isleadtogoal: actionName.trim().toLowerCase() === "goal",
-      sequenceNumber: nextSeq,
     });
 
     // 4. Update Redux store with sequence increment and real player jersey number

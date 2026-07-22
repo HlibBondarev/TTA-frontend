@@ -47,30 +47,47 @@ export interface CreateGameEventParams {
   periodnumber: number;
   eventtimestamp: string;
   isleadtogoal: boolean;
-  sequenceNumber: number;
 }
 
 /**
- * Atomically persists a new GameEvent entity to IndexedDB.
+ * Atomically persists a new GameEvent entity to IndexedDB with serial sequence reservation.
  */
 export const createGameEventTx = async (
   params: CreateGameEventParams,
 ): Promise<GameEvent> => {
-  const newEvent: GameEvent = {
-    id: crypto.randomUUID(),
-    matchlineupid: params.matchlineupid,
-    eventdefinitionid: params.eventdefinitionid,
-    periodnumber: params.periodnumber,
-    eventtimestamp: params.eventtimestamp,
-    isleadtogoal: params.isleadtogoal,
-    createdat: new Date().toISOString(),
-    sequenceNumber: params.sequenceNumber,
-    isSynced: 0,
-  };
+  let createdEvent: GameEvent | null = null;
 
-  await db.transaction("rw", [db.gameevents], async () => {
-    await db.gameevents.add(newEvent);
-  });
+  await db.transaction(
+    "rw",
+    [db.gameevents, db.timeanchors, db.playerpresences],
+    async () => {
+      const lastEvent = await db.gameevents.orderBy("sequenceNumber").last();
+      const lastAnchor = await db.timeanchors.orderBy("sequenceNumber").last();
+      const lastPresence = await db.playerpresences
+        .orderBy("sequenceNumber")
+        .last();
 
-  return newEvent;
+      const maxSeq = Math.max(
+        lastEvent?.sequenceNumber ?? 0,
+        lastAnchor?.sequenceNumber ?? 0,
+        lastPresence?.sequenceNumber ?? 0,
+      );
+
+      createdEvent = {
+        id: crypto.randomUUID(),
+        matchlineupid: params.matchlineupid,
+        eventdefinitionid: params.eventdefinitionid,
+        periodnumber: params.periodnumber,
+        eventtimestamp: params.eventtimestamp,
+        isleadtogoal: params.isleadtogoal,
+        createdat: new Date().toISOString(),
+        sequenceNumber: maxSeq + 1,
+        isSynced: 0,
+      };
+
+      await db.gameevents.add(createdEvent);
+    },
+  );
+
+  return createdEvent!;
 };

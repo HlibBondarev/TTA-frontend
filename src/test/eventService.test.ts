@@ -14,6 +14,19 @@ vi.mock("../db/ttaDatabase", () => ({
     },
     gameevents: {
       add: vi.fn(),
+      orderBy: vi.fn().mockReturnValue({
+        last: vi.fn().mockResolvedValue({ sequenceNumber: 4 }),
+      }),
+    },
+    timeanchors: {
+      orderBy: vi.fn().mockReturnValue({
+        last: vi.fn().mockResolvedValue(undefined),
+      }),
+    },
+    playerpresences: {
+      orderBy: vi.fn().mockReturnValue({
+        last: vi.fn().mockResolvedValue(undefined),
+      }),
     },
     transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
@@ -88,14 +101,13 @@ describe("Event Database Service (eventService)", () => {
     expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
   });
 
-  it("should create and persist a GameEvent entity atomically", async () => {
+  it("should create and persist a GameEvent entity atomically with incremented sequence", async () => {
     const params = {
       matchlineupid: "lineup-1",
       eventdefinitionid: "def-1",
       periodnumber: 1,
       eventtimestamp: "2026-07-22T12:00:00.000Z",
       isleadtogoal: true,
-      sequenceNumber: 5,
     };
 
     const createdEvent = await createGameEventTx(params);
@@ -114,7 +126,7 @@ describe("Event Database Service (eventService)", () => {
 
     expect(db.transaction).toHaveBeenCalledWith(
       "rw",
-      [db.gameevents],
+      [db.gameevents, db.timeanchors, db.playerpresences],
       expect.any(Function),
     );
     expect(db.gameevents.add).toHaveBeenCalledWith(createdEvent);

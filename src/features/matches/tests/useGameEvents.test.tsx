@@ -99,7 +99,6 @@ describe("useGameEvents Custom Hook", () => {
       periodnumber: 2,
       eventtimestamp: expect.any(String),
       isleadtogoal: true,
-      sequenceNumber: 11,
     });
 
     // Check Redux state updates

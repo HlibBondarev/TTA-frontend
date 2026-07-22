@@ -23,6 +23,7 @@ export const TTAConsole: React.FC = () => {
   } | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [consoleError, setConsoleError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Use state to track the "current" period to detect changes
   const [prevPeriod, setPrevPeriod] = useState(periodnumber);
@@ -38,7 +39,8 @@ export const TTAConsole: React.FC = () => {
   const isRecordingEnabled = isPeriodActive && !isInsideStoppage;
 
   const handleEnter = async () => {
-    if (pendingAction && selectedPlayerId && activeMatchId) {
+    if (pendingAction && selectedPlayerId && activeMatchId && !isSubmitting) {
+      setIsSubmitting(true);
       setConsoleError(null);
       try {
         await recordGameEvent({
@@ -57,6 +59,8 @@ export const TTAConsole: React.FC = () => {
             ? err.message
             : "Failed to record action into database.",
         );
+      } finally {
+        setIsSubmitting(false);
       }
     }
   };
@@ -103,7 +107,10 @@ export const TTAConsole: React.FC = () => {
             type="button"
             onClick={handleEnter}
             disabled={
-              !isRecordingEnabled || !pendingAction || !selectedPlayerId
+              !isRecordingEnabled ||
+              !pendingAction ||
+              !selectedPlayerId ||
+              isSubmitting
             }
             className="w-full py-4 bg-blue-600 disabled:bg-gray-800 text-white font-black uppercase rounded-lg"
           >
