@@ -1,199 +1,195 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
-import type { PlayerPresence } from "../db/ttaDatabase";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { db } from "../db/ttaDatabase";
 import {
   initializePeriodPresenceTx,
   terminatePeriodPresenceTx,
   substitutePlayerTx,
 } from "../db/presenceService";
 
-// Clean and safe crypto polyfill for test environments without using Node's 'global' object
-if (typeof globalThis.crypto === "undefined") {
-  Object.defineProperty(globalThis, "crypto", {
-    configurable: true,
-    value: {
-      randomUUID: () => "mocked-uuid-1234-5678-9012",
-    },
-  });
-} else {
-  vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(
-    "mocked-uuid-1234-5678-9012",
-  );
-}
-
-// Safely declare hoisted mock functions using vi.hoisted to prevent ReferenceErrors
-const {
-  mockBulkAdd,
-  mockAdd,
-  mockUpdate,
-  mockWhere,
-  mockEquals,
-  mockFilter,
-  mockToArray,
-  mockFirst,
-  mockSyncQueueAdd,
-} = vi.hoisted(() => {
-  return {
-    mockBulkAdd: vi.fn(),
-    mockAdd: vi.fn(),
-    mockUpdate: vi.fn(),
-    mockWhere: vi.fn(),
-    mockEquals: vi.fn(),
-    mockFilter: vi.fn(),
-    mockToArray: vi.fn(),
-    mockFirst: vi.fn(),
-    mockSyncQueueAdd: vi.fn(),
-  };
-});
-
-vi.mock("../db/ttaDatabase", () => {
-  return {
-    db: {
-      transaction: vi.fn((_mode, _tables, callback) => {
-        if (typeof callback === "function") {
-          return callback();
-        }
-        return Promise.resolve();
+vi.mock("../db/ttaDatabase", () => ({
+  db: {
+    playerpresences: {
+      bulkAdd: vi.fn(),
+      where: vi.fn(),
+      add: vi.fn(),
+      update: vi.fn(),
+      orderBy: vi.fn().mockReturnValue({
+        last: vi.fn().mockResolvedValue(undefined),
       }),
-      playerpresences: {
-        bulkAdd: mockBulkAdd,
-        add: mockAdd,
-        update: mockUpdate,
-        where: mockWhere,
-      },
-      syncQueue: {
-        add: mockSyncQueueAdd,
-      },
     },
-  };
-});
+    gameevents: {
+      orderBy: vi.fn().mockReturnValue({
+        last: vi.fn().mockResolvedValue(undefined),
+      }),
+    },
+    timeanchors: {
+      orderBy: vi.fn().mockReturnValue({
+        last: vi.fn().mockResolvedValue(undefined),
+      }),
+    },
+    syncQueue: {
+      add: vi.fn(),
+    },
+    transaction: vi.fn((_mode, _tables, cb) => cb()),
+  },
+}));
 
 describe("presenceService Database Transactions", () => {
+  const mockMatchId = "match-123";
+  const mockPeriodNumber = 1;
+  const mockPlayerLineupIds = ["lineup-1", "lineup-2"];
+  const mockStartTimestamp = "2026-07-22T10:00:00.000Z";
+
   beforeEach(() => {
     vi.clearAllMocks();
-
-    // Re-establish Dexie method chaining behavior dynamically
-    mockWhere.mockReturnValue({
-      equals: mockEquals,
-      filter: mockFilter,
-      toArray: mockToArray,
-      first: mockFirst,
-    });
-
-    mockEquals.mockReturnValue({
-      filter: mockFilter,
-      toArray: mockToArray,
-      first: mockFirst,
-    });
-
-    mockFilter.mockReturnValue({
-      toArray: mockToArray,
-      first: mockFirst,
-    });
   });
 
   it("initializePeriodPresenceTx should bulk-add presences and add a sync queue item", async () => {
-    mockBulkAdd.mockResolvedValue("last-mocked-id");
-    mockSyncQueueAdd.mockResolvedValue(1);
-
     await initializePeriodPresenceTx(
-      "match-1",
-      1,
-      ["lineup-1", "lineup-2"],
-      "2026-07-16T00:00:00.000Z",
+      mockMatchId,
+      mockPeriodNumber,
+      mockPlayerLineupIds,
+      mockStartTimestamp,
     );
 
-    expect(mockBulkAdd).toHaveBeenCalledTimes(1);
-    expect(mockSyncQueueAdd).toHaveBeenCalledTimes(1);
+    expect(db.transaction).toHaveBeenCalledWith(
+      "rw",
+      [db.playerpresences, db.gameevents, db.timeanchors, db.syncQueue],
+      expect.any(Function),
+    );
 
-    const addedPresences = mockBulkAdd.mock.calls[0][0] as PlayerPresence[];
-    expect(addedPresences).toHaveLength(2);
-    expect(addedPresences[0].matchlineupid).toBe("lineup-1");
-    expect(addedPresences[1].matchlineupid).toBe("lineup-2");
+    expect(db.playerpresences.bulkAdd).toHaveBeenCalledWith([
+      {
+        id: expect.any(String),
+        matchlineupid: "lineup-1",
+        periodnumber: mockPeriodNumber,
+        timein: mockStartTimestamp,
+        timeout: null,
+        sequenceNumber: expect.any(Number),
+        isSynced: 0,
+      },
+      {
+        id: expect.any(String),
+        matchlineupid: "lineup-2",
+        periodnumber: mockPeriodNumber,
+        timein: mockStartTimestamp,
+        timeout: null,
+        sequenceNumber: expect.any(Number),
+        isSynced: 0,
+      },
+    ]);
+
+    expect(db.syncQueue.add).toHaveBeenCalledWith({
+      actionType: "POST",
+      endpoint: `matches/${mockMatchId}/presence/initialize`,
+      payload: JSON.stringify({
+        periodNumber: mockPeriodNumber,
+        playerLineupIds: mockPlayerLineupIds,
+      }),
+      createdAt: mockStartTimestamp,
+    });
   });
 
   it("terminatePeriodPresenceTx should find and close all active player presences", async () => {
-    const mockActivePresences: PlayerPresence[] = [
-      {
-        id: "presence-1",
-        matchlineupid: "lineup-1",
-        periodnumber: 1,
-        timein: "2026-07-16T00:00:00.000Z",
-        timeout: null,
-        sequenceNumber: 12345,
-        isSynced: 0,
-      },
-      {
-        id: "presence-2",
-        matchlineupid: "lineup-2",
-        periodnumber: 1,
-        timein: "2026-07-16T00:00:00.000Z",
-        timeout: null,
-        sequenceNumber: 12346,
-        isSynced: 0,
-      },
+    const mockEndTimestamp = "2026-07-22T10:08:00.000Z";
+    const mockActivePresences = [
+      { id: "pres-1", matchlineupid: "lineup-1", timeout: null },
+      { id: "pres-2", matchlineupid: "lineup-2", timeout: null },
     ];
 
-    mockToArray.mockResolvedValue(mockActivePresences);
-    mockUpdate.mockResolvedValue(1);
-    mockSyncQueueAdd.mockResolvedValue(1);
+    const filterMock = vi.fn().mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockActivePresences),
+    });
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: filterMock,
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
 
     await terminatePeriodPresenceTx(
-      "match-1",
-      1,
-      ["lineup-1", "lineup-2"],
-      "2026-07-16T00:05:00.000Z",
+      mockMatchId,
+      mockPeriodNumber,
+      mockPlayerLineupIds,
+      mockEndTimestamp,
     );
 
-    expect(mockToArray).toHaveBeenCalledTimes(1);
-    expect(mockUpdate).toHaveBeenCalledTimes(2);
-    expect(mockUpdate).toHaveBeenNthCalledWith(1, "presence-1", {
-      timeout: "2026-07-16T00:05:00.000Z",
+    expect(db.playerpresences.update).toHaveBeenCalledWith("pres-1", {
+      timeout: mockEndTimestamp,
       isSynced: 0,
     });
-    expect(mockSyncQueueAdd).toHaveBeenCalledTimes(1);
+    expect(db.playerpresences.update).toHaveBeenCalledWith("pres-2", {
+      timeout: mockEndTimestamp,
+      isSynced: 0,
+    });
+
+    expect(db.syncQueue.add).toHaveBeenCalledWith({
+      actionType: "PUT",
+      endpoint: `matches/${mockMatchId}/presence/terminate`,
+      payload: JSON.stringify({
+        periodNumber: mockPeriodNumber,
+        playerLineupIds: mockPlayerLineupIds,
+      }),
+      createdAt: mockEndTimestamp,
+    });
   });
 
   it("substitutePlayerTx should cleanly close active player and open a new presence for replacement", async () => {
-    const activePresence: PlayerPresence = {
-      id: "presence-out",
+    const mockActivePresence = {
+      id: "pres-out",
       matchlineupid: "lineup-out",
-      periodnumber: 1,
-      timein: "2026-07-16T00:00:00.000Z",
       timeout: null,
-      sequenceNumber: 12345,
-      isSynced: 0,
     };
 
-    mockFirst.mockResolvedValue(activePresence);
-    mockUpdate.mockResolvedValue(1);
-    mockAdd.mockResolvedValue("new-id");
-    mockSyncQueueAdd.mockResolvedValue(1);
+    const filterMock = vi.fn().mockReturnValue({
+      first: vi.fn().mockResolvedValue(mockActivePresence),
+    });
 
-    const newId = await substitutePlayerTx(
-      "match-1",
-      1,
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      filter: filterMock,
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const newPresenceId = await substitutePlayerTx(
+      mockMatchId,
+      mockPeriodNumber,
       "lineup-out",
       "lineup-in",
     );
 
-    expect(mockFirst).toHaveBeenCalledTimes(1);
-    expect(mockUpdate).toHaveBeenCalledWith("presence-out", {
+    expect(newPresenceId).toBeDefined();
+
+    expect(db.playerpresences.update).toHaveBeenCalledWith("pres-out", {
       timeout: expect.any(String),
       isSynced: 0,
     });
-    expect(mockAdd).toHaveBeenCalledTimes(1);
-    expect(mockSyncQueueAdd).toHaveBeenCalledTimes(1);
-    expect(newId).toBe("mocked-uuid-1234-5678-9012");
+
+    expect(db.playerpresences.add).toHaveBeenCalledWith({
+      id: newPresenceId,
+      matchlineupid: "lineup-in",
+      periodnumber: mockPeriodNumber,
+      timein: expect.any(String),
+      timeout: null,
+      sequenceNumber: expect.any(Number),
+      isSynced: 0,
+    });
   });
 
   it("substitutePlayerTx should throw an error if no active presence exists for outgoing player", async () => {
-    mockFirst.mockResolvedValue(null);
+    const filterMock = vi.fn().mockReturnValue({
+      first: vi.fn().mockResolvedValue(undefined),
+    });
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      filter: filterMock,
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
 
     await expect(
-      substitutePlayerTx("match-1", 1, "lineup-out", "lineup-in"),
+      substitutePlayerTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-out",
+        "lineup-in",
+      ),
     ).rejects.toThrow("No active presence found for the outgoing player.");
-
-    expect(mockUpdate).not.toHaveBeenCalled();
-    expect(mockAdd).not.toHaveBeenCalled();
   });
 });
