@@ -1,4 +1,5 @@
 import { db } from "../../../db/ttaDatabase";
+import { getNextSequenceNumber } from "../../../db/eventService";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import { TEST_MATCH_ID } from "../../../App";
 import {
@@ -23,24 +24,30 @@ export const useMatchLifecycle = () => {
   } = matchState;
 
   // Internal helper to perform atomic IndexedDB write with rollback support
-  const logTimeAnchor = async (
-    type: number,
-    currentSeq: number,
-  ): Promise<string> => {
+  const logTimeAnchor = async (type: number): Promise<string> => {
     const matchIdToUse = activeMatchId || TEST_MATCH_ID;
-
     const anchorId = crypto.randomUUID();
-    const anchorData = {
-      id: anchorId,
-      matchid: matchIdToUse,
-      periodnumber: periodnumber,
-      type,
-      timestamp: new Date().toISOString(),
-      sequenceNumber: currentSeq,
-      isSynced: 0,
-    };
 
-    await db.timeanchors.add(anchorData);
+    await db.transaction(
+      "rw",
+      [db.timeanchors, db.gameevents, db.playerpresences],
+      async () => {
+        const nextSeq = await getNextSequenceNumber();
+
+        const anchorData = {
+          id: anchorId,
+          matchid: matchIdToUse,
+          periodnumber: periodnumber,
+          type,
+          timestamp: new Date().toISOString(),
+          sequenceNumber: nextSeq,
+          isSynced: 0,
+        };
+
+        await db.timeanchors.add(anchorData);
+      },
+    );
+
     return anchorId;
   };
 
@@ -64,13 +71,12 @@ export const useMatchLifecycle = () => {
 
   const startPeriod = async (): Promise<string | undefined> => {
     if (isPeriodActive) return;
-    const nextSeq = globalSequenceNumber + 1;
 
     dispatch(startPeriodState());
     dispatch(incrementSequence());
 
     try {
-      const anchorId = await logTimeAnchor(0, nextSeq);
+      const anchorId = await logTimeAnchor(0);
       return anchorId;
     } catch (error) {
       dispatch(endPeriodState());
@@ -80,13 +86,12 @@ export const useMatchLifecycle = () => {
 
   const endPeriod = async (): Promise<string | undefined> => {
     if (!isPeriodActive) return;
-    const nextSeq = globalSequenceNumber + 1;
 
     dispatch(endPeriodState());
     dispatch(incrementSequence());
 
     try {
-      const anchorId = await logTimeAnchor(1, nextSeq);
+      const anchorId = await logTimeAnchor(1);
       return anchorId;
     } catch (error) {
       dispatch(startPeriodState());
@@ -96,11 +101,11 @@ export const useMatchLifecycle = () => {
 
   const stopTime = async () => {
     if (!isPeriodActive || isInsideStoppage) return;
-    const nextSeq = globalSequenceNumber + 1;
+
     dispatch(startStoppageState());
     dispatch(incrementSequence());
     try {
-      await logTimeAnchor(2, nextSeq);
+      await logTimeAnchor(2);
     } catch (error) {
       dispatch(endStoppageState());
       throw error;
@@ -109,11 +114,11 @@ export const useMatchLifecycle = () => {
 
   const startTime = async () => {
     if (!isPeriodActive || !isInsideStoppage) return;
-    const nextSeq = globalSequenceNumber + 1;
+
     dispatch(endStoppageState());
     dispatch(incrementSequence());
     try {
-      await logTimeAnchor(3, nextSeq);
+      await logTimeAnchor(3);
     } catch (error) {
       dispatch(startStoppageState());
       throw error;

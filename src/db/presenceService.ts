@@ -1,4 +1,5 @@
 import { db, type PlayerPresence, type SyncQueueItem } from "./ttaDatabase";
+import { getNextSequenceNumber } from "./eventService";
 
 /**
  * Bulk initializes active player presence at the exact moment the period starts.
@@ -10,33 +11,41 @@ export async function initializePeriodPresenceTx(
   playerLineupIds: string[],
   startTimestamp: string,
 ): Promise<void> {
-  await db.transaction("rw", [db.playerpresences, db.syncQueue], async () => {
-    const newPresences: PlayerPresence[] = playerLineupIds.map((lineupId) => ({
-      id: crypto.randomUUID(),
-      matchlineupid: lineupId,
-      periodnumber: periodNumber,
-      timein: startTimestamp,
-      timeout: null,
-      sequenceNumber: Date.now(),
-      isSynced: 0,
-    }));
+  await db.transaction(
+    "rw",
+    [db.playerpresences, db.gameevents, db.timeanchors, db.syncQueue],
+    async () => {
+      let currentSeq = await getNextSequenceNumber();
 
-    await db.playerpresences.bulkAdd(newPresences);
+      const newPresences: PlayerPresence[] = playerLineupIds.map(
+        (lineupId) => ({
+          id: crypto.randomUUID(),
+          matchlineupid: lineupId,
+          periodnumber: periodNumber,
+          timein: startTimestamp,
+          timeout: null,
+          sequenceNumber: currentSeq++,
+          isSynced: 0,
+        }),
+      );
 
-    const payload = JSON.stringify({
-      periodNumber,
-      playerLineupIds,
-    });
+      await db.playerpresences.bulkAdd(newPresences);
 
-    const syncItem: SyncQueueItem = {
-      actionType: "POST",
-      endpoint: `matches/${matchId}/presence/initialize`,
-      payload,
-      createdAt: startTimestamp,
-    };
+      const payload = JSON.stringify({
+        periodNumber,
+        playerLineupIds,
+      });
 
-    await db.syncQueue.add(syncItem);
-  });
+      const syncItem: SyncQueueItem = {
+        actionType: "POST",
+        endpoint: `matches/${matchId}/presence/initialize`,
+        payload,
+        createdAt: startTimestamp,
+      };
+
+      await db.syncQueue.add(syncItem);
+    },
+  );
 }
 
 /**
@@ -97,51 +106,57 @@ export async function substitutePlayerTx(
 ): Promise<string> {
   let newPresenceId = "";
 
-  await db.transaction("rw", [db.playerpresences, db.syncQueue], async () => {
-    const timestamp = new Date().toISOString();
+  await db.transaction(
+    "rw",
+    [db.playerpresences, db.gameevents, db.timeanchors, db.syncQueue],
+    async () => {
+      const timestamp = new Date().toISOString();
 
-    const activePresence = await db.playerpresences
-      .where({ matchlineupid: playerOutLineupId, periodnumber: periodNumber })
-      .filter((p) => p.timeout === null)
-      .first();
+      const activePresence = await db.playerpresences
+        .where({ matchlineupid: playerOutLineupId, periodnumber: periodNumber })
+        .filter((p) => p.timeout === null)
+        .first();
 
-    if (activePresence) {
-      await db.playerpresences.update(activePresence.id, {
-        timeout: timestamp,
+      if (activePresence) {
+        await db.playerpresences.update(activePresence.id, {
+          timeout: timestamp,
+          isSynced: 0,
+        });
+      } else {
+        throw new Error("No active presence found for the outgoing player.");
+      }
+
+      const nextSeq = await getNextSequenceNumber();
+      newPresenceId = crypto.randomUUID();
+
+      const incomingPresence: PlayerPresence = {
+        id: newPresenceId,
+        matchlineupid: playerInLineupId,
+        periodnumber: periodNumber,
+        timein: timestamp,
+        timeout: null,
+        sequenceNumber: nextSeq,
         isSynced: 0,
+      };
+
+      await db.playerpresences.add(incomingPresence);
+
+      const payload = JSON.stringify({
+        periodNumber,
+        playerOutLineupId,
+        playerInLineupId,
       });
-    } else {
-      throw new Error("No active presence found for the outgoing player.");
-    }
 
-    newPresenceId = crypto.randomUUID();
-    const incomingPresence: PlayerPresence = {
-      id: newPresenceId,
-      matchlineupid: playerInLineupId,
-      periodnumber: periodNumber,
-      timein: timestamp,
-      timeout: null,
-      sequenceNumber: Date.now(),
-      isSynced: 0,
-    };
+      const syncItem: SyncQueueItem = {
+        actionType: "POST",
+        endpoint: `matches/${matchId}/substitutions`,
+        payload,
+        createdAt: timestamp,
+      };
 
-    await db.playerpresences.add(incomingPresence);
-
-    const payload = JSON.stringify({
-      periodNumber,
-      playerOutLineupId,
-      playerInLineupId,
-    });
-
-    const syncItem: SyncQueueItem = {
-      actionType: "POST",
-      endpoint: `matches/${matchId}/substitutions`,
-      payload,
-      createdAt: timestamp,
-    };
-
-    await db.syncQueue.add(syncItem);
-  });
+      await db.syncQueue.add(syncItem);
+    },
+  );
 
   return newPresenceId;
 }

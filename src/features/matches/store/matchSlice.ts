@@ -76,6 +76,9 @@ const matchSlice = createSlice({
     incrementSequence(state) {
       state.globalSequenceNumber += 1;
     },
+    setGlobalSequenceNumber(state, action: PayloadAction<number>) {
+      state.globalSequenceNumber = action.payload;
+    },
     addRecentAction(state, action: PayloadAction<ActionEntry>) {
       state.recentActions = [action.payload, ...state.recentActions].slice(
         0,
@@ -98,6 +101,7 @@ export const {
   startStoppageState,
   endStoppageState,
   incrementSequence,
+  setGlobalSequenceNumber,
   addRecentAction,
   resetMatchState,
 } = matchSlice.actions;

@@ -1,9 +1,21 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { vi, describe, test, expect, beforeEach } from "vitest";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore, combineReducers } from "@reduxjs/toolkit";
 import { TTAConsole } from "../components/TTAConsole";
 import matchReducer from "../store/matchSlice";
 import presenceReducer from "../../playerpresences/store/presenceSlice";
+import { db, type GameEvent } from "../../../db/ttaDatabase";
+import {
+  getEventDefinitionByName,
+  createGameEventTx,
+} from "../../../db/eventService";
 
 interface MockPresenceProps {
   setSelectedPlayerId: (id: string | null) => void;
@@ -35,6 +47,19 @@ vi.mock("../../playerpresences/components/PlayerPresencePanel", () => ({
   ),
 }));
 
+vi.mock("../../../db/ttaDatabase", () => ({
+  db: {
+    matchlineups: {
+      get: vi.fn(),
+    },
+  },
+}));
+
+vi.mock("../../../db/eventService", () => ({
+  getEventDefinitionByName: vi.fn(),
+  createGameEventTx: vi.fn(),
+}));
+
 const rootReducer = combineReducers({
   match: matchReducer,
   presence: presenceReducer,
@@ -46,8 +71,39 @@ const initialMatchState = matchReducer(undefined, { type: "unknown" });
 
 describe("TTAConsole Component", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mockPeriodActive = true;
     mockPeriodNumber = 1;
+
+    vi.mocked(db.matchlineups.get).mockResolvedValue({
+      id: "player-1",
+      matchid: "test-id",
+      number: 7,
+      playerrosterid: "roster-1",
+      isinstartinglineup: true,
+      positionid: null,
+    });
+
+    vi.mocked(getEventDefinitionByName).mockResolvedValue({
+      id: "def-pass",
+      sportid: "sport-1",
+      name: "Pass",
+      shortname: "PS",
+      ispositive: true,
+      createdat: new Date().toISOString(),
+    });
+
+    vi.mocked(createGameEventTx).mockResolvedValue({
+      id: "event-uuid-1",
+      matchlineupid: "player-1",
+      eventdefinitionid: "def-pass",
+      periodnumber: 1,
+      eventtimestamp: new Date().toISOString(),
+      isleadtogoal: false,
+      createdat: new Date().toISOString(),
+      sequenceNumber: 1,
+      isSynced: 0,
+    });
   });
 
   test("renders TTAConsole components correctly with active match", () => {
@@ -67,7 +123,7 @@ describe("TTAConsole Component", () => {
     expect(screen.getByText(/TTA Match Recorder/i)).toBeDefined();
   });
 
-  test("successfully dispatches addRecentAction when ENTER is clicked", () => {
+  test("successfully dispatches addRecentAction when ENTER is clicked", async () => {
     const store = configureStore({
       reducer: rootReducer,
       preloadedState: {
@@ -90,10 +146,107 @@ describe("TTAConsole Component", () => {
 
     const enterBtn = screen.getByRole("button", { name: /Enter/i });
     expect(enterBtn).not.toBeDisabled();
+
     fireEvent.click(enterBtn);
 
-    expect(store.getState().match.recentActions.length).toBe(1);
+    await waitFor(() => {
+      expect(store.getState().match.recentActions).toHaveLength(1);
+    });
+
     expect(store.getState().match.recentActions[0].actionName).toBe("Pass");
+    expect(store.getState().match.recentActions[0].playerNumber).toBe(7);
+  });
+
+  test("prevents rapid double submission when ENTER is clicked twice quickly", async () => {
+    let resolveEvent: (value: GameEvent) => void;
+    vi.mocked(createGameEventTx).mockImplementationOnce(
+      () =>
+        new Promise<GameEvent>((resolve) => {
+          resolveEvent = resolve;
+        }),
+    );
+
+    const store = configureStore({
+      reducer: rootReducer,
+      preloadedState: {
+        match: {
+          ...initialMatchState,
+          activeMatchId: "test-id",
+          isPeriodActive: true,
+        },
+      } as unknown as RootState,
+    });
+
+    render(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByText("Pass"));
+    fireEvent.click(screen.getByText("Mock Player"));
+
+    const enterBtn = screen.getByRole("button", { name: /Enter/i });
+
+    // First click initiates transaction
+    fireEvent.click(enterBtn);
+    // Rapid second click during in-flight submission
+    fireEvent.click(enterBtn);
+
+    // Wait for the async lookup chain to reach createGameEventTx
+    await waitFor(() => {
+      expect(createGameEventTx).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      resolveEvent!({
+        id: "event-uuid-1",
+        matchlineupid: "player-1",
+        eventdefinitionid: "def-pass",
+        periodnumber: 1,
+        eventtimestamp: new Date().toISOString(),
+        isleadtogoal: false,
+        createdat: new Date().toISOString(),
+        sequenceNumber: 1,
+        isSynced: 0,
+      });
+    });
+
+    expect(createGameEventTx).toHaveBeenCalledTimes(1);
+  });
+
+  test("displays error alert if event recording fails", async () => {
+    vi.mocked(db.matchlineups.get).mockRejectedValueOnce(
+      new Error("Database write error"),
+    );
+
+    const store = configureStore({
+      reducer: rootReducer,
+      preloadedState: {
+        match: {
+          ...initialMatchState,
+          activeMatchId: "test-id",
+          isPeriodActive: true,
+        },
+      } as unknown as RootState,
+    });
+
+    render(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByText("Pass"));
+    fireEvent.click(screen.getByText("Mock Player"));
+
+    const enterBtn = screen.getByRole("button", { name: /Enter/i });
+
+    fireEvent.click(enterBtn);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Database write error",
+    );
   });
 
   test("resets selection and action states when period transitions", () => {
