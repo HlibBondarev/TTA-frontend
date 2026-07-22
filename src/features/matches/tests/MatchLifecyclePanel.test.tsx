@@ -118,7 +118,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
-        periodnumber: 1,
+        periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
         globalSequenceNumber: 1,
@@ -206,7 +206,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
-        periodnumber: 1,
+        periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
         globalSequenceNumber: 1,
@@ -245,7 +245,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
-        periodnumber: 1,
+        periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
         globalSequenceNumber: 1,
@@ -297,7 +297,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
-        periodnumber: 1,
+        periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
         globalSequenceNumber: 1,
