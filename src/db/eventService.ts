@@ -41,6 +41,25 @@ export const getEventDefinitionByName = async (
   return cache.get(actionName.trim().toLowerCase());
 };
 
+/**
+ * Calculates the next available global sequence number across events, anchors, and presences.
+ */
+export const getNextSequenceNumber = async (): Promise<number> => {
+  const lastEvent = await db.gameevents.orderBy("sequenceNumber").last();
+  const lastAnchor = await db.timeanchors.orderBy("sequenceNumber").last();
+  const lastPresence = await db.playerpresences
+    .orderBy("sequenceNumber")
+    .last();
+
+  return (
+    Math.max(
+      lastEvent?.sequenceNumber ?? 0,
+      lastAnchor?.sequenceNumber ?? 0,
+      lastPresence?.sequenceNumber ?? 0,
+    ) + 1
+  );
+};
+
 export interface CreateGameEventParams {
   matchlineupid: string;
   eventdefinitionid: string;
@@ -61,17 +80,7 @@ export const createGameEventTx = async (
     "rw",
     [db.gameevents, db.timeanchors, db.playerpresences],
     async () => {
-      const lastEvent = await db.gameevents.orderBy("sequenceNumber").last();
-      const lastAnchor = await db.timeanchors.orderBy("sequenceNumber").last();
-      const lastPresence = await db.playerpresences
-        .orderBy("sequenceNumber")
-        .last();
-
-      const maxSeq = Math.max(
-        lastEvent?.sequenceNumber ?? 0,
-        lastAnchor?.sequenceNumber ?? 0,
-        lastPresence?.sequenceNumber ?? 0,
-      );
+      const nextSeq = await getNextSequenceNumber();
 
       createdEvent = {
         id: crypto.randomUUID(),
@@ -81,7 +90,7 @@ export const createGameEventTx = async (
         eventtimestamp: params.eventtimestamp,
         isleadtogoal: params.isleadtogoal,
         createdat: new Date().toISOString(),
-        sequenceNumber: maxSeq + 1,
+        sequenceNumber: nextSeq,
         isSynced: 0,
       };
 

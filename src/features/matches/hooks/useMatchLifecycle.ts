@@ -1,4 +1,5 @@
 import { db } from "../../../db/ttaDatabase";
+import { getNextSequenceNumber } from "../../../db/eventService";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import { TEST_MATCH_ID } from "../../../App";
 import {
@@ -31,19 +32,7 @@ export const useMatchLifecycle = () => {
       "rw",
       [db.timeanchors, db.gameevents, db.playerpresences],
       async () => {
-        const lastEvent = await db.gameevents.orderBy("sequenceNumber").last();
-        const lastAnchor = await db.timeanchors
-          .orderBy("sequenceNumber")
-          .last();
-        const lastPresence = await db.playerpresences
-          .orderBy("sequenceNumber")
-          .last();
-
-        const maxSeq = Math.max(
-          lastEvent?.sequenceNumber ?? 0,
-          lastAnchor?.sequenceNumber ?? 0,
-          lastPresence?.sequenceNumber ?? 0,
-        );
+        const nextSeq = await getNextSequenceNumber();
 
         const anchorData = {
           id: anchorId,
@@ -51,7 +40,7 @@ export const useMatchLifecycle = () => {
           periodnumber: periodnumber,
           type,
           timestamp: new Date().toISOString(),
-          sequenceNumber: maxSeq + 1,
+          sequenceNumber: nextSeq,
           isSynced: 0,
         };
 

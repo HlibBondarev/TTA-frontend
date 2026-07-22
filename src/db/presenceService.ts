@@ -1,23 +1,5 @@
 import { db, type PlayerPresence, type SyncQueueItem } from "./ttaDatabase";
-
-/**
- * Calculates the next available global sequence number across events, anchors, and presences.
- */
-async function getNextSequenceNumber(): Promise<number> {
-  const lastEvent = await db.gameevents.orderBy("sequenceNumber").last();
-  const lastAnchor = await db.timeanchors.orderBy("sequenceNumber").last();
-  const lastPresence = await db.playerpresences
-    .orderBy("sequenceNumber")
-    .last();
-
-  return (
-    Math.max(
-      lastEvent?.sequenceNumber ?? 0,
-      lastAnchor?.sequenceNumber ?? 0,
-      lastPresence?.sequenceNumber ?? 0,
-    ) + 1
-  );
-}
+import { getNextSequenceNumber } from "./eventService";
 
 /**
  * Bulk initializes active player presence at the exact moment the period starts.
