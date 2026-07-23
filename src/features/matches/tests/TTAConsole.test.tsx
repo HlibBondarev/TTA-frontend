@@ -325,4 +325,62 @@ describe("TTAConsole Component", () => {
 
     expect(screen.getByText(/No active match/i)).toBeInTheDocument();
   });
+
+  test("handles isLeadToGoal defaults, checkbox toggling, submission, and period reset", async () => {
+    const store = configureStore({
+      reducer: rootReducer,
+      preloadedState: {
+        match: {
+          ...initialMatchState,
+          activeMatchId: "test-id",
+          isPeriodActive: true,
+        },
+      } as unknown as RootState,
+    });
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    // 1. Select "Goal" -> Checkbox should default to checked (isLeadToGoal = true)
+    const goalBtn = await screen.findByText("Goal");
+    fireEvent.click(goalBtn);
+
+    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+
+    // 2. Select "Pass" -> Checkbox should default to unchecked (isLeadToGoal = false)
+    const passBtn = await screen.findByText("Pass");
+    fireEvent.click(passBtn);
+    expect(checkbox.checked).toBe(false);
+
+    // 3. Operator manually toggles checkbox to true for "Pass"
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(true);
+
+    // 4. Select player and click Enter -> Verify createGameEventTx receives isLeadToGoal: true
+    fireEvent.click(screen.getByText("Mock Player"));
+    const enterBtn = screen.getByRole("button", { name: /Enter/i });
+    fireEvent.click(enterBtn);
+
+    await waitFor(() => {
+      expect(createGameEventTx).toHaveBeenCalledWith(
+        expect.objectContaining({
+          isLeadToGoal: true,
+        }),
+      );
+    });
+
+    // 5. Simulate period transition -> Verify isLeadToGoal resets
+    mockPeriodNumber = 2;
+    rerender(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+  });
 });
