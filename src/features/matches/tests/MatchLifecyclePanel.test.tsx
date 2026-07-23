@@ -5,6 +5,7 @@ import {
   fireEvent,
   act,
   renderHook,
+  waitFor,
 } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
@@ -105,13 +106,14 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     );
 
     const startBtn = screen.getByText("START PERIOD");
+    fireEvent.click(startBtn);
 
-    await act(async () => {
-      fireEvent.click(startBtn);
+    await waitFor(() => {
+      expect(store.getState().match.isPeriodActive).toBe(true);
+      expect(defaultPresenceMock.startPeriodWithRoster).toHaveBeenCalledTimes(
+        1,
+      );
     });
-
-    expect(store.getState().match.isPeriodActive).toBe(true);
-    expect(defaultPresenceMock.startPeriodWithRoster).toHaveBeenCalledTimes(1);
   });
 
   test("should successfully trigger period end flow", async () => {
@@ -133,13 +135,12 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     );
 
     const endBtn = screen.getByText("END PERIOD");
+    fireEvent.click(endBtn);
 
-    await act(async () => {
-      fireEvent.click(endBtn);
+    await waitFor(() => {
+      expect(store.getState().match.isPeriodActive).toBe(false);
+      expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledTimes(1);
     });
-
-    expect(store.getState().match.isPeriodActive).toBe(false);
-    expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledTimes(1);
   });
 
   test("should restore isPeriodActive to false if startPeriodWithRoster fails after anchor write", async () => {
@@ -158,13 +159,12 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     );
 
     const startBtn = screen.getByText("START PERIOD");
+    fireEvent.click(startBtn);
 
-    await act(async () => {
-      fireEvent.click(startBtn);
+    await waitFor(() => {
+      expect(store.getState().match.isPeriodActive).toBe(false);
+      expect(db.timeanchors.delete).toHaveBeenCalledWith(expect.any(String));
     });
-
-    expect(store.getState().match.isPeriodActive).toBe(false);
-    expect(db.timeanchors.delete).toHaveBeenCalledWith(expect.any(String));
   });
 
   test("should show compensation incomplete message if rollback fails during start period error", async () => {
@@ -187,12 +187,11 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     );
 
     const startBtn = screen.getByText("START PERIOD");
+    fireEvent.click(startBtn);
 
-    await act(async () => {
-      fireEvent.click(startBtn);
-    });
-
-    expect(screen.getByText(/Compensation incomplete/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Compensation incomplete/i),
+    ).toBeInTheDocument();
   });
 
   test("should restore isPeriodActive to true if endPeriodWithRoster fails after anchor write", async () => {
@@ -221,13 +220,12 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     );
 
     const endBtn = screen.getByText("END PERIOD");
+    fireEvent.click(endBtn);
 
-    await act(async () => {
-      fireEvent.click(endBtn);
+    await waitFor(() => {
+      expect(store.getState().match.isPeriodActive).toBe(true);
+      expect(db.timeanchors.delete).toHaveBeenCalledWith(expect.any(String));
     });
-
-    expect(store.getState().match.isPeriodActive).toBe(true);
-    expect(db.timeanchors.delete).toHaveBeenCalledWith(expect.any(String));
   });
 
   test("should show compensation incomplete message if rollback fails during end period error", async () => {
@@ -260,12 +258,11 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     );
 
     const endBtn = screen.getByText("END PERIOD");
+    fireEvent.click(endBtn);
 
-    await act(async () => {
-      fireEvent.click(endBtn);
-    });
-
-    expect(screen.getByText(/Compensation incomplete/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Compensation incomplete/i),
+    ).toBeInTheDocument();
   });
 
   test("should roll back isPeriodActive and keep sequence incremented when startPeriod DB write rejects", async () => {
