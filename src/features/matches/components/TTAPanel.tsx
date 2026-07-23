@@ -96,18 +96,21 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
       <div className="grid grid-cols-3 gap-2">
         {displayedActions.map((def) => {
           const isPos = checkIsPositive(def);
+          const isSelected = selectedAction === def.name;
+
+          let buttonColorStyle = "bg-gray-800 text-rose-200 hover:bg-gray-700";
+          if (isSelected) {
+            buttonColorStyle = "bg-blue-600 text-white";
+          } else if (activeTab === "positive") {
+            buttonColorStyle = "bg-gray-800 text-emerald-200 hover:bg-gray-700";
+          }
+
           return (
             <button
               type="button"
               key={def.id || def.name}
               onClick={() => onActionSelect(def.name, isPos)}
-              className={`p-2 min-h-11 rounded text-xs font-medium transition-all ${
-                selectedAction === def.name
-                  ? "bg-blue-600 text-white"
-                  : activeTab === "positive"
-                    ? "bg-gray-800 text-emerald-200 hover:bg-gray-700"
-                    : "bg-gray-800 text-rose-200 hover:bg-gray-700"
-              }`}
+              className={`p-2 min-h-11 rounded text-xs font-medium transition-all ${buttonColorStyle}`}
             >
               {def.name}
             </button>
