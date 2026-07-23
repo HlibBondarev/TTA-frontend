@@ -46,7 +46,7 @@ describe("useGameEvents Custom Hook", () => {
     vi.clearAllMocks();
   });
 
-  it("should successfully record game event, increment sequence, and add recent action with real jersey number", async () => {
+  it("should successfully record game event with explicit isLeadToGoal, increment sequence, and add recent action with real jersey number", async () => {
     const store = createTestStore();
 
     vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
@@ -88,6 +88,7 @@ describe("useGameEvents Custom Hook", () => {
         selectedPlayerId: "lineup-uuid-7",
         actionName: "Goal",
         isPositive: true,
+        isLeadToGoal: true,
       });
       expect(success).toBe(true);
     });
@@ -127,6 +128,7 @@ describe("useGameEvents Custom Hook", () => {
           selectedPlayerId: "non-existent-id",
           actionName: "Pass",
           isPositive: true,
+          isLeadToGoal: false,
         });
       }),
     ).rejects.toThrow("Player lineup record not found for ID: non-existent-id");
@@ -153,6 +155,7 @@ describe("useGameEvents Custom Hook", () => {
           selectedPlayerId: "lineup-uuid-other",
           actionName: "Pass",
           isPositive: true,
+          isLeadToGoal: false,
         });
       }),
     ).rejects.toThrow(
@@ -185,6 +188,7 @@ describe("useGameEvents Custom Hook", () => {
           selectedPlayerId: "lineup-uuid-1",
           actionName: "InvalidAction",
           isPositive: true,
+          isLeadToGoal: false,
         });
       }),
     ).rejects.toThrow('Event definition not found for action: "InvalidAction"');

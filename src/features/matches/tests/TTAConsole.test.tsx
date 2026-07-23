@@ -52,6 +52,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
     matchlineups: {
       get: vi.fn(),
     },
+    eventdefinitions: {
+      toArray: vi.fn(),
+    },
   },
 }));
 
@@ -83,6 +86,25 @@ describe("TTAConsole Component", () => {
       isInStartingLineup: true,
       positionId: null,
     });
+
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValue([
+      {
+        id: "def-pass",
+        sportId: "sport-1",
+        name: "Pass",
+        shortName: "PS",
+        isPositive: true,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: "def-goal",
+        sportId: "sport-1",
+        name: "Goal",
+        shortName: "GL",
+        isPositive: true,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
 
     vi.mocked(getEventDefinitionByName).mockResolvedValue({
       id: "def-pass",
@@ -141,7 +163,8 @@ describe("TTAConsole Component", () => {
       </Provider>,
     );
 
-    fireEvent.click(screen.getByText("Pass"));
+    const passBtn = await screen.findByText("Pass");
+    fireEvent.click(passBtn);
     fireEvent.click(screen.getByText("Mock Player"));
 
     const enterBtn = screen.getByRole("button", { name: /Enter/i });
@@ -183,7 +206,8 @@ describe("TTAConsole Component", () => {
       </Provider>,
     );
 
-    fireEvent.click(screen.getByText("Pass"));
+    const passBtn = await screen.findByText("Pass");
+    fireEvent.click(passBtn);
     fireEvent.click(screen.getByText("Mock Player"));
 
     const enterBtn = screen.getByRole("button", { name: /Enter/i });
@@ -237,7 +261,8 @@ describe("TTAConsole Component", () => {
       </Provider>,
     );
 
-    fireEvent.click(screen.getByText("Pass"));
+    const passBtn = await screen.findByText("Pass");
+    fireEvent.click(passBtn);
     fireEvent.click(screen.getByText("Mock Player"));
 
     const enterBtn = screen.getByRole("button", { name: /Enter/i });
