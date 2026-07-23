@@ -135,9 +135,13 @@ describe("TTDActionsPanel Component", () => {
       />,
     );
 
-    expect(container.firstChild).toHaveClass(
-      "opacity-50",
-      "pointer-events-none",
-    );
+    expect(container.firstChild).toHaveClass("opacity-50");
+
+    // Verify buttons and checkbox natively receive disabled state
+    const positiveTabBtn = screen.getByRole("button", { name: /Positive/i });
+    expect(positiveTabBtn).toBeDisabled();
+
+    const checkbox = screen.getByRole("checkbox");
+    expect(checkbox).toBeDisabled();
   });
 });

@@ -64,14 +64,15 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
   return (
     <div
       className={`w-full p-2 bg-gray-900 rounded-xl border border-gray-800 my-2 ${
-        disabled ? "opacity-50 pointer-events-none" : ""
+        disabled ? "opacity-50" : ""
       }`}
     >
       <div className="flex border-b border-gray-800 mb-2">
         <button
           type="button"
           onClick={() => setActiveTab("positive")}
-          className={`flex-1 py-2 min-h-11 text-xs font-bold uppercase ${
+          disabled={disabled}
+          className={`flex-1 py-2 min-h-11 text-xs font-bold uppercase transition-all disabled:cursor-not-allowed ${
             activeTab === "positive"
               ? "text-emerald-400 border-b-2 border-emerald-400"
               : "text-gray-500"
@@ -82,7 +83,8 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab("negative")}
-          className={`flex-1 py-2 min-h-11 text-xs font-bold uppercase ${
+          disabled={disabled}
+          className={`flex-1 py-2 min-h-11 text-xs font-bold uppercase transition-all disabled:cursor-not-allowed ${
             activeTab === "negative"
               ? "text-rose-400 border-b-2 border-rose-400"
               : "text-gray-500"
@@ -110,7 +112,8 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
               type="button"
               key={def.id || def.name}
               onClick={() => onActionSelect(def.name, isPos)}
-              className={`p-2 min-h-11 rounded text-xs font-medium transition-all ${buttonColorStyle}`}
+              disabled={disabled}
+              className={`p-2 min-h-11 rounded text-xs font-medium transition-all disabled:cursor-not-allowed ${buttonColorStyle}`}
             >
               {def.name}
             </button>
@@ -126,7 +129,7 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
             checked={isLeadToGoal}
             onChange={(e) => onIsLeadToGoalChange(e.target.checked)}
             disabled={disabled || !selectedAction}
-            className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-900 disabled:opacity-40"
+            className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
           />
           <span>Leads to Goal</span>
         </label>
