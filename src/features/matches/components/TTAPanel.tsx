@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { liveQuery } from "dexie";
 import { db, type EventDefinitionLookup } from "../../../db/ttaDatabase";
 
 interface TTDActionsPanelProps {
@@ -8,6 +9,13 @@ interface TTDActionsPanelProps {
   onIsLeadToGoalChange: (isLeadToGoal: boolean) => void;
   disabled: boolean;
 }
+
+// Helper to safely evaluate isPositive supporting both camelCase and legacy keys
+const checkIsPositive = (def: EventDefinitionLookup): boolean => {
+  const value =
+    def.isPositive ?? (def as unknown as Record<string, unknown>).ispositive;
+  return !!value;
+};
 
 export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
   onActionSelect,
@@ -23,27 +31,32 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
     EventDefinitionLookup[]
   >([]);
 
-  // Load dynamic event definitions from IndexedDB
+  // Reactive subscription to Dexie eventdefinitions table using liveQuery
   useEffect(() => {
-    let isMounted = true;
-    db.eventdefinitions
-      .toArray()
-      .then((definitions) => {
-        if (isMounted) {
+    const subscription = liveQuery(() =>
+      db.eventdefinitions.toArray(),
+    ).subscribe({
+      next: (definitions) => {
+        if (definitions) {
           setEventDefinitions(definitions);
         }
-      })
-      .catch((err) => {
+      },
+      error: (err) => {
         console.error("Failed to load event definitions from Dexie:", err);
-      });
+      },
+    });
 
     return () => {
-      isMounted = false;
+      subscription.unsubscribe();
     };
   }, []);
 
-  const positiveActions = eventDefinitions.filter((def) => def.isPositive);
-  const negativeActions = eventDefinitions.filter((def) => !def.isPositive);
+  const positiveActions = eventDefinitions.filter((def) =>
+    checkIsPositive(def),
+  );
+  const negativeActions = eventDefinitions.filter(
+    (def) => !checkIsPositive(def),
+  );
 
   const displayedActions =
     activeTab === "positive" ? positiveActions : negativeActions;
@@ -79,27 +92,30 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
         </button>
       </div>
 
-      {/* Dynamic Actions Grid */}
+      {/* Dynamic Actions Grid from IndexedDB */}
       <div className="grid grid-cols-3 gap-2">
-        {displayedActions.map((def) => (
-          <button
-            type="button"
-            key={def.id}
-            onClick={() => onActionSelect(def.name, def.isPositive)}
-            className={`p-2 min-h-11 rounded text-xs font-medium transition-all ${
-              selectedAction === def.name
-                ? "bg-blue-600 text-white"
-                : activeTab === "positive"
-                  ? "bg-gray-800 text-emerald-200 hover:bg-gray-700"
-                  : "bg-gray-800 text-rose-200 hover:bg-gray-700"
-            }`}
-          >
-            {def.name}
-          </button>
-        ))}
+        {displayedActions.map((def) => {
+          const isPos = checkIsPositive(def);
+          return (
+            <button
+              type="button"
+              key={def.id || def.name}
+              onClick={() => onActionSelect(def.name, isPos)}
+              className={`p-2 min-h-11 rounded text-xs font-medium transition-all ${
+                selectedAction === def.name
+                  ? "bg-blue-600 text-white"
+                  : activeTab === "positive"
+                    ? "bg-gray-800 text-emerald-200 hover:bg-gray-700"
+                    : "bg-gray-800 text-rose-200 hover:bg-gray-700"
+              }`}
+            >
+              {def.name}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Dynamic Lead To Goal Toggle */}
+      {/* Strictly English UI Text */}
       <div className="mt-3 pt-2 border-t border-gray-800 flex items-center justify-between px-1">
         <label className="flex items-center space-x-2 text-xs font-semibold text-gray-300 cursor-pointer select-none">
           <input
@@ -109,7 +125,7 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
             disabled={disabled || !selectedAction}
             className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-900 disabled:opacity-40"
           />
-          <span>Leads to Goal (Привів до голу)</span>
+          <span>Leads to Goal</span>
         </label>
       </div>
     </div>

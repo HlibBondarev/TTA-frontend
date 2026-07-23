@@ -11,6 +11,25 @@ vi.mock("../../../db/ttaDatabase", () => ({
   },
 }));
 
+// Mock dexie's liveQuery to asynchronously notify observers during unit test execution
+vi.mock("dexie", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("dexie")>();
+  return {
+    ...actual,
+    liveQuery: (fn: () => Promise<unknown>) => ({
+      subscribe: (observer: {
+        next: (val: unknown) => void;
+        error?: (err: unknown) => void;
+      }) => {
+        fn()
+          .then((data) => observer.next(data))
+          .catch((err) => observer.error?.(err));
+        return { unsubscribe: vi.fn() };
+      },
+    }),
+  };
+});
+
 describe("TTDActionsPanel Component", () => {
   const mockEventDefinitions = [
     {
@@ -68,7 +87,7 @@ describe("TTDActionsPanel Component", () => {
       />,
     );
 
-    // Wait for dynamic event definitions to load from Dexie
+    // Wait for dynamic event definitions to resolve and render
     expect(await screen.findByText("Goal")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Pass"));
@@ -99,7 +118,7 @@ describe("TTDActionsPanel Component", () => {
     expect(goalBtn).toHaveClass("bg-blue-600");
 
     const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
-    expect(checkbox).toBeChecked();
+    expect(checkbox.checked).toBe(true);
 
     fireEvent.click(checkbox);
     expect(mockOnIsLeadToGoalChange).toHaveBeenCalledWith(false);
