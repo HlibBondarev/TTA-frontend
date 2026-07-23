@@ -1,11 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import {
-  render,
-  screen,
-  fireEvent,
-  act,
-  waitFor,
-} from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { PlayerPresencePanel } from "../components/PlayerPresencePanel";
 import { usePlayerPresence } from "../hooks/usePlayerPresence";
@@ -95,16 +89,12 @@ describe("PlayerPresencePanel Component", () => {
     renderWithRedux(<TestWrapper />);
 
     const activeBtn = await screen.findByText("#5");
-    await act(async () => {
-      fireEvent.click(activeBtn);
-    });
+    fireEvent.click(activeBtn);
 
     expect(activeBtn).toHaveClass("bg-blue-600");
 
     const benchBtn = await screen.findByText("#10");
-    await act(async () => {
-      fireEvent.click(benchBtn);
-    });
+    fireEvent.click(benchBtn);
 
     await waitFor(() => {
       expect(mockExecuteSubstitution).toHaveBeenCalledWith(
@@ -125,9 +115,7 @@ describe("PlayerPresencePanel Component", () => {
     );
 
     const benchBtn = await screen.findByText("#10");
-    await act(async () => {
-      fireEvent.click(benchBtn);
-    });
+    fireEvent.click(benchBtn);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Substitution failed.",
@@ -144,9 +132,7 @@ describe("PlayerPresencePanel Component", () => {
     );
 
     const benchBtn = await screen.findByText("#10");
-    await act(async () => {
-      fireEvent.click(benchBtn);
-    });
+    fireEvent.click(benchBtn);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Please select an active player in the water first to substitute out.",
@@ -172,9 +158,7 @@ describe("PlayerPresencePanel Component", () => {
     );
 
     const benchBtn = await screen.findByText("#10");
-    await act(async () => {
-      fireEvent.click(benchBtn);
-    });
+    fireEvent.click(benchBtn);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "An unknown error occurred.",
@@ -236,9 +220,7 @@ describe("PlayerPresencePanel Component", () => {
     );
 
     const benchBtn = await screen.findByText("#10");
-    await act(async () => {
-      fireEvent.click(benchBtn);
-    });
+    fireEvent.click(benchBtn);
 
     expect(mockStageStartingLineup).toHaveBeenCalledWith(["lineup-2"]);
   });
