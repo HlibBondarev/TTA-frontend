@@ -10,6 +10,7 @@ export interface RecordGameEventParams {
   selectedPlayerId: string;
   actionName: string;
   isPositive: boolean;
+  isLeadToGoal: boolean;
 }
 
 export const useGameEvents = (matchId: string) => {
@@ -23,7 +24,7 @@ export const useGameEvents = (matchId: string) => {
   const recordGameEvent = async (
     params: RecordGameEventParams,
   ): Promise<boolean> => {
-    const { selectedPlayerId, actionName, isPositive } = params;
+    const { selectedPlayerId, actionName, isPositive, isLeadToGoal } = params;
 
     // 1. Resolve Match Lineup record to get real jersey number and matchLineupId
     const lineup = await db.matchlineups.get(selectedPlayerId);
@@ -53,7 +54,7 @@ export const useGameEvents = (matchId: string) => {
       eventDefinitionId: eventDef.id,
       periodNumber,
       eventTimestamp: timestamp,
-      isLeadToGoal: actionName.trim().toLowerCase() === "goal",
+      isLeadToGoal: isLeadToGoal,
     });
 
     // 4. Update Redux store with transactionally computed sequence and real player jersey number

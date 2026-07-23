@@ -46,7 +46,7 @@ describe("useGameEvents Custom Hook", () => {
     vi.clearAllMocks();
   });
 
-  it("should successfully record game event, increment sequence, and add recent action with real jersey number", async () => {
+  it("should successfully record game event with explicit isLeadToGoal, increment sequence, and add recent action with real jersey number", async () => {
     const store = createTestStore();
 
     vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
@@ -88,6 +88,7 @@ describe("useGameEvents Custom Hook", () => {
         selectedPlayerId: "lineup-uuid-7",
         actionName: "Goal",
         isPositive: true,
+        isLeadToGoal: true,
       });
       expect(success).toBe(true);
     });
@@ -127,6 +128,7 @@ describe("useGameEvents Custom Hook", () => {
           selectedPlayerId: "non-existent-id",
           actionName: "Pass",
           isPositive: true,
+          isLeadToGoal: false,
         });
       }),
     ).rejects.toThrow("Player lineup record not found for ID: non-existent-id");
@@ -153,6 +155,7 @@ describe("useGameEvents Custom Hook", () => {
           selectedPlayerId: "lineup-uuid-other",
           actionName: "Pass",
           isPositive: true,
+          isLeadToGoal: false,
         });
       }),
     ).rejects.toThrow(
@@ -185,8 +188,66 @@ describe("useGameEvents Custom Hook", () => {
           selectedPlayerId: "lineup-uuid-1",
           actionName: "InvalidAction",
           isPositive: true,
+          isLeadToGoal: false,
         });
       }),
     ).rejects.toThrow('Event definition not found for action: "InvalidAction"');
+  });
+
+  it("should pass custom isLeadToGoal flag to createGameEventTx regardless of action name", async () => {
+    const store = createTestStore();
+
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-7",
+      matchId: "test-match-id",
+      playerRosterId: "roster-7",
+      number: 7,
+      isInStartingLineup: true,
+      positionId: null,
+    });
+
+    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce({
+      id: "def-pass-id",
+      sportId: "waterpolo-sport-id",
+      name: "Pass",
+      shortName: "PS",
+      isPositive: true,
+      createdAt: new Date().toISOString(),
+    });
+
+    vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce({
+      id: "created-event-uuid",
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-pass-id",
+      periodNumber: 2,
+      eventTimestamp: new Date().toISOString(),
+      isLeadToGoal: true, // Pass leading directly to goal
+      createdAt: new Date().toISOString(),
+      sequenceNumber: 12,
+      isSynced: 0,
+    });
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      const success = await result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-7",
+        actionName: "Pass",
+        isPositive: true,
+        isLeadToGoal: true, // Explicit custom flag set by operator
+      });
+      expect(success).toBe(true);
+    });
+
+    // Verify createGameEventTx received the exact selected isLeadToGoal value
+    expect(eventService.createGameEventTx).toHaveBeenCalledWith({
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-pass-id",
+      periodNumber: 2,
+      eventTimestamp: expect.any(String),
+      isLeadToGoal: true,
+    });
   });
 });
