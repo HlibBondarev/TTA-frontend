@@ -70,6 +70,7 @@ export const App: React.FC = () => {
       {!isAuthenticated && (
         <div className="mb-2 flex justify-end">
           <button
+            type="button"
             onClick={() => void loginWithRedirect()}
             className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded transition-colors"
           >
