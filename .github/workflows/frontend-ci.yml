@@ -22,7 +22,7 @@ jobs:
       - name: Setup PNPM
         uses: pnpm/action-setup@v3
         with:
-          version: 9
+          version: 10
 
       # Step 3: Install Node.js environment & enable native PNPM cache
       - name: Setup Node.js
