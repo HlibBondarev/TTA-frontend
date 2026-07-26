@@ -46,7 +46,11 @@ export const hydrateMatchData = async (
 
         if (anchors && anchors.length > 0) {
           const syncedAnchors = anchors.map((a) => ({ ...a, isSynced: 1 }));
-          await db.timeanchors.where("matchId").equals(matchId).delete();
+          await db.timeanchors
+            .where("matchId")
+            .equals(matchId)
+            .and((a) => a.isSynced === 1)
+            .delete();
           await db.timeanchors.bulkPut(syncedAnchors);
         }
 
