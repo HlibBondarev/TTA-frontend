@@ -10,6 +10,71 @@ import type {
 } from "../db/ttaDatabase";
 import { seedTestData } from "../db/seed";
 
+const syncLineups = async (matchId: string, lineups?: MatchLineupLookup[]) => {
+  if (!lineups) return;
+  await db.matchlineups.where("matchId").equals(matchId).delete();
+  if (lineups.length > 0) {
+    await db.matchlineups.bulkPut(lineups);
+  }
+};
+
+const syncAnchors = async (matchId: string, anchors?: TimeAnchor[]) => {
+  if (!anchors) return;
+  await db.timeanchors
+    .where("matchId")
+    .equals(matchId)
+    .and((a) => a.isSynced === 1)
+    .delete();
+  if (anchors.length > 0) {
+    const syncedAnchors = anchors.map((a) => ({ ...a, isSynced: 1 }));
+    await db.timeanchors.bulkPut(syncedAnchors);
+  }
+};
+
+const syncPresence = async (matchId: string, presence?: PlayerPresence[]) => {
+  if (!presence) return;
+  await db.playerpresences
+    .where("matchId")
+    .equals(matchId)
+    .and((p) => p.isSynced === 1)
+    .delete();
+  if (presence.length > 0) {
+    const pendingPresenceIds = new Set(
+      (await db.playerpresences
+        .filter((p) => p.isSynced === 0)
+        .primaryKeys()) as string[],
+    );
+    const syncedPresence = presence
+      .filter((p) => !pendingPresenceIds.has(p.id))
+      .map((p) => ({ ...p, isSynced: 1 }));
+    if (syncedPresence.length > 0) {
+      await db.playerpresences.bulkPut(syncedPresence);
+    }
+  }
+};
+
+const syncEvents = async (matchId: string, events?: GameEvent[]) => {
+  if (!events) return;
+  await db.gameevents
+    .where("matchId")
+    .equals(matchId)
+    .and((e) => e.isSynced === 1)
+    .delete();
+  if (events.length > 0) {
+    const pendingEventIds = new Set(
+      (await db.gameevents
+        .filter((e) => e.isSynced === 0)
+        .primaryKeys()) as string[],
+    );
+    const syncedEvents = events
+      .filter((e) => !pendingEventIds.has(e.id))
+      .map((e) => ({ ...e, isSynced: 1 }));
+    if (syncedEvents.length > 0) {
+      await db.gameevents.bulkPut(syncedEvents);
+    }
+  }
+};
+
 export const hydrateMatchData = async (
   matchId: string,
 ): Promise<{ success: boolean; isOfflineFallback: boolean }> => {
@@ -39,66 +104,10 @@ export const hydrateMatchData = async (
       async () => {
         if (match) await db.matches.put(match);
 
-        if (lineups) {
-          await db.matchlineups.where("matchId").equals(matchId).delete();
-          if (lineups.length > 0) {
-            await db.matchlineups.bulkPut(lineups);
-          }
-        }
-
-        if (anchors) {
-          await db.timeanchors
-            .where("matchId")
-            .equals(matchId)
-            .and((a) => a.isSynced === 1)
-            .delete();
-          if (anchors.length > 0) {
-            const syncedAnchors = anchors.map((a) => ({ ...a, isSynced: 1 }));
-            await db.timeanchors.bulkPut(syncedAnchors);
-          }
-        }
-
-        if (presence) {
-          await db.playerpresences
-            .where("matchId")
-            .equals(matchId)
-            .and((p) => p.isSynced === 1)
-            .delete();
-          if (presence.length > 0) {
-            const pendingPresenceIds = new Set(
-              (await db.playerpresences
-                .filter((p) => p.isSynced === 0)
-                .primaryKeys()) as string[],
-            );
-            const syncedPresence = presence
-              .filter((p) => !pendingPresenceIds.has(p.id))
-              .map((p) => ({ ...p, isSynced: 1 }));
-            if (syncedPresence.length > 0) {
-              await db.playerpresences.bulkPut(syncedPresence);
-            }
-          }
-        }
-
-        if (events) {
-          await db.gameevents
-            .where("matchId")
-            .equals(matchId)
-            .and((e) => e.isSynced === 1)
-            .delete();
-          if (events.length > 0) {
-            const pendingEventIds = new Set(
-              (await db.gameevents
-                .filter((e) => e.isSynced === 0)
-                .primaryKeys()) as string[],
-            );
-            const syncedEvents = events
-              .filter((e) => !pendingEventIds.has(e.id))
-              .map((e) => ({ ...e, isSynced: 1 }));
-            if (syncedEvents.length > 0) {
-              await db.gameevents.bulkPut(syncedEvents);
-            }
-          }
-        }
+        await syncLineups(matchId, lineups);
+        await syncAnchors(matchId, anchors);
+        await syncPresence(matchId, presence);
+        await syncEvents(matchId, events);
 
         if (definitions && definitions.length > 0) {
           await db.eventdefinitions.bulkPut(definitions);
