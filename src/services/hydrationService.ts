@@ -55,12 +55,26 @@ export const hydrateMatchData = async (
         }
 
         if (presence && presence.length > 0) {
-          const syncedPresence = presence.map((p) => ({ ...p, isSynced: 1 }));
+          const pendingPresenceIds = new Set(
+            (await db.playerpresences
+              .filter((p) => p.isSynced === 0)
+              .primaryKeys()) as string[],
+          );
+          const syncedPresence = presence
+            .filter((p) => !pendingPresenceIds.has(p.id))
+            .map((p) => ({ ...p, isSynced: 1 }));
           await db.playerpresences.bulkPut(syncedPresence);
         }
 
         if (events && events.length > 0) {
-          const syncedEvents = events.map((e) => ({ ...e, isSynced: 1 }));
+          const pendingEventIds = new Set(
+            (await db.gameevents
+              .filter((e) => e.isSynced === 0)
+              .primaryKeys()) as string[],
+          );
+          const syncedEvents = events
+            .filter((e) => !pendingEventIds.has(e.id))
+            .map((e) => ({ ...e, isSynced: 1 }));
           await db.gameevents.bulkPut(syncedEvents);
         }
 
