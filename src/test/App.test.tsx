@@ -8,15 +8,19 @@ import { seedTestData } from "../db/seed";
 import matchReducer from "../features/matches/store/matchSlice";
 import presenceReducer from "../features/playerpresences/store/presenceSlice";
 
-const mockLoginWithRedirect = vi.fn();
-let mockIsAuthenticated = false;
-let mockIsLoading = false;
+const { mockLoginWithRedirect, mockAuthState } = vi.hoisted(() => ({
+  mockLoginWithRedirect: vi.fn(),
+  mockAuthState: {
+    isAuthenticated: false,
+    isLoading: false,
+  },
+}));
 
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
     getAccessTokenSilently: vi.fn().mockResolvedValue("mock-access-token"),
-    isAuthenticated: mockIsAuthenticated,
-    isLoading: mockIsLoading,
+    isAuthenticated: mockAuthState.isAuthenticated,
+    isLoading: mockAuthState.isLoading,
     loginWithRedirect: mockLoginWithRedirect,
   }),
 }));
@@ -44,8 +48,8 @@ describe("App Bootstrapping Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockIsAuthenticated = false;
-    mockIsLoading = false;
+    mockAuthState.isAuthenticated = false;
+    mockAuthState.isLoading = false;
     store = createTestStore();
     wrapper = ({ children }) => <Provider store={store}>{children}</Provider>;
   });
