@@ -1,2 +1,5 @@
+packages:
+  - "."
+
 allowBuilds:
   browser-tabs-lock: true
