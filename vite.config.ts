@@ -29,10 +29,9 @@ export default defineConfig({
               return "db";
             }
             if (
-              id.includes("react") ||
-              id.includes("react-dom") ||
-              id.includes("@reduxjs") ||
-              id.includes("react-redux")
+              /\/node_modules\/(react|react-dom|react-redux|@reduxjs)\//.test(
+                id,
+              )
             ) {
               return "vendor";
             }

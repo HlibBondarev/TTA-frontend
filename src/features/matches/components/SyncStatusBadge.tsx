@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { liveQuery } from "dexie";
 import { db } from "../../../db/ttaDatabase";
-import { processSyncQueue } from "../../../services/syncService";
 
 export const SyncStatusBadge: React.FC = () => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -10,7 +9,6 @@ export const SyncStatusBadge: React.FC = () => {
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
-      processSyncQueue();
     };
     const handleOffline = () => setIsOnline(false);
 

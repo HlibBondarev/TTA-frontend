@@ -37,9 +37,11 @@ export const apiClient = {
       });
 
       if (!response.ok) {
-        throw new Error(
+        const error = new Error(
           `API Request failed: ${response.status} ${response.statusText}`,
-        );
+        ) as Error & { status?: number };
+        error.status = response.status;
+        throw error;
       }
 
       // Handle 204 No Content
