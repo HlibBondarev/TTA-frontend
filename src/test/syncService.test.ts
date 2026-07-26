@@ -159,6 +159,14 @@ describe("Sync Engine Service", () => {
           timeOut: null,
         }),
       ).toBe(false);
+
+      expect(
+        filterPredicate({
+          matchLineupId: "lineup-100",
+          timeIn: null,
+          timeOut: 200,
+        }),
+      ).toBe(false);
     }
 
     expect(mockModify).toHaveBeenCalledWith({ isSynced: 1 });
