@@ -1,6 +1,6 @@
 import { getAuthToken } from "../services/tokenService";
 
-const BASE_URL = import.meta.env.VITE_API_URL || "";
+const BASE_URL = import.meta.env.VITE_API_URL || "/api";
 const DEFAULT_TIMEOUT_MS = 15000;
 
 export interface RequestOptions extends RequestInit {
