@@ -30,7 +30,6 @@ createRoot(document.getElementById("root")!).render(
         audience: audience,
       }}
       useRefreshTokens={true}
-      cacheLocation="localstorage"
     >
       <Provider store={store}>
         <App />
