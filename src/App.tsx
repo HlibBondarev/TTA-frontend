@@ -14,10 +14,16 @@ export const App: React.FC = () => {
   const dispatch = useDispatch();
   const initStarted = useRef(false);
   const [isInitializing, setIsInitializing] = useState(true);
-  const { getAccessTokenSilently, isAuthenticated, loginWithRedirect } =
-    useAuth0();
+  const {
+    getAccessTokenSilently,
+    isAuthenticated,
+    isLoading,
+    loginWithRedirect,
+  } = useAuth0();
 
   useEffect(() => {
+    if (isLoading) return;
+
     // Register Auth0 token resolver globally for apiClient and syncService
     setTokenGetter(async () => {
       try {
@@ -26,7 +32,7 @@ export const App: React.FC = () => {
         return null;
       }
     });
-  }, [getAccessTokenSilently]);
+  }, [isLoading, getAccessTokenSilently]);
 
   useEffect(() => {
     if (initStarted.current) return;
@@ -66,8 +72,8 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col justify-between p-4">
-      {/* Optional login button trigger if user is unauthenticated */}
-      {!isAuthenticated && (
+      {/* Optional login button trigger if user is unauthenticated and Auth0 is not loading */}
+      {!isLoading && !isAuthenticated && (
         <div className="mb-2 flex justify-end">
           <button
             type="button"
