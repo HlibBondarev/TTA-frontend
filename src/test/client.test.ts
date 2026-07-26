@@ -34,6 +34,10 @@ describe("API Client", () => {
   });
 
   it("uses custom explicit token if provided in options", async () => {
+    const getAuthTokenSpy = vi
+      .spyOn(tokenService, "getAuthToken")
+      .mockResolvedValue("service-token");
+
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       status: 200,
@@ -42,6 +46,7 @@ describe("API Client", () => {
 
     await apiClient.get("/test-endpoint", { token: "explicit-token" });
 
+    expect(getAuthTokenSpy).not.toHaveBeenCalled();
     expect(fetchSpy).toHaveBeenCalledWith(
       "/api/test-endpoint",
       expect.objectContaining({
@@ -69,9 +74,10 @@ describe("API Client", () => {
       statusText: "Not Found",
     } as Response);
 
-    await expect(apiClient.get("/not-found")).rejects.toThrow(
-      "API Request failed: 404 Not Found",
-    );
+    await expect(apiClient.get("/not-found")).rejects.toMatchObject({
+      message: "API Request failed: 404 Not Found",
+      status: 404,
+    });
   });
 
   it("executes post, put, and delete convenience methods with correct HTTP methods and bodies", async () => {
