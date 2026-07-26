@@ -1,24 +1,15 @@
 import { getAuthToken } from "../services/tokenService";
 
-const BASE_URL = "/api";
+const BASE_URL = import.meta.env.VITE_API_URL || "";
+const DEFAULT_TIMEOUT_MS = 15000;
 
 export interface RequestOptions extends RequestInit {
   token?: string;
 }
 
-export class ApiError extends Error {
-  status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-    this.name = "ApiError";
-  }
-}
-
 export const apiClient = {
   async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-    const { token, headers, ...rest } = options;
+    const { token, headers, signal, ...rest } = options;
 
     const requestHeaders: Record<string, string> = {
       "Content-Type": "application/json",
@@ -35,24 +26,31 @@ export const apiClient = {
       ? endpoint
       : `/${endpoint}`;
 
-    const response = await fetch(`${BASE_URL}${normalizedEndpoint}`, {
-      headers: requestHeaders,
-      ...rest,
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => response.statusText);
-      throw new ApiError(
-        response.status,
-        errorText || `HTTP Error ${response.status}`,
-      );
+    try {
+      const response = await fetch(`${BASE_URL}${normalizedEndpoint}`, {
+        headers: requestHeaders,
+        signal: signal ?? controller.signal,
+        ...rest,
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `API Request failed: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      // Handle 204 No Content
+      if (response.status === 204) {
+        return {} as T;
+      }
+
+      return (await response.json()) as T;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    if (response.status === 204) {
-      return {} as T;
-    }
-
-    return response.json();
   },
 
   get<T>(endpoint: string, options?: RequestOptions): Promise<T> {
@@ -61,7 +59,7 @@ export const apiClient = {
 
   post<T>(
     endpoint: string,
-    body: unknown,
+    body?: unknown,
     options?: RequestOptions,
   ): Promise<T> {
     return this.request<T>(endpoint, {
@@ -73,7 +71,7 @@ export const apiClient = {
 
   put<T>(
     endpoint: string,
-    body: unknown,
+    body?: unknown,
     options?: RequestOptions,
   ): Promise<T> {
     return this.request<T>(endpoint, {
