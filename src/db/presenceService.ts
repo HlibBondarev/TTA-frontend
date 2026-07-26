@@ -38,7 +38,7 @@ export async function initializePeriodPresenceTx(
 
       const syncItem: SyncQueueItem = {
         actionType: "POST",
-        endpoint: `matches/${matchId}/presence/initialize`,
+        endpoint: `/Matches/${matchId}/presence/initialize`,
         payload,
         createdAt: startTimestamp,
       };
@@ -85,7 +85,7 @@ export async function terminatePeriodPresenceTx(
 
     const syncItem: SyncQueueItem = {
       actionType: "PUT",
-      endpoint: `matches/${matchId}/presence/terminate`,
+      endpoint: `/Matches/${matchId}/presence/terminate`,
       payload,
       createdAt: endTimestamp,
     };
@@ -149,7 +149,7 @@ export async function substitutePlayerTx(
 
       const syncItem: SyncQueueItem = {
         actionType: "POST",
-        endpoint: `matches/${matchId}/substitutions`,
+        endpoint: `/Matches/${matchId}/substitutions`,
         payload,
         createdAt: timestamp,
       };
