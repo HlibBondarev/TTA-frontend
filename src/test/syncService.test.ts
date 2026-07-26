@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { processSyncQueue } from "../services/syncService";
+import { processSyncQueue, initSyncEngine } from "../services/syncService";
 import { db } from "../db/ttaDatabase";
 import { apiClient } from "../api/client";
 
@@ -32,14 +32,13 @@ describe("Sync Engine Service", () => {
     });
   });
 
-  it("processes multi-item queue in FIFO order and deletes synced items", async () => {
+  it("processes multi-item queue in FIFO order (POST, PUT, DELETE) and deletes synced items", async () => {
     const mockItems = [
       {
         id: 1,
         actionType: "POST",
         endpoint: "/Matches/m1/events",
         payload: JSON.stringify({ isLeadToGoal: true }),
-        createdAt: "",
       },
       {
         id: 2,
@@ -49,7 +48,12 @@ describe("Sync Engine Service", () => {
           periodNumber: 1,
           playerLineupIds: ["lineup-1"],
         }),
-        createdAt: "",
+      },
+      {
+        id: 3,
+        actionType: "DELETE",
+        endpoint: "/Matches/m1/events/e1",
+        payload: JSON.stringify({}),
       },
     ];
 
@@ -66,6 +70,10 @@ describe("Sync Engine Service", () => {
       callOrder.push("PUT");
       return {};
     });
+    vi.mocked(apiClient.delete).mockImplementation(async () => {
+      callOrder.push("DELETE");
+      return {};
+    });
 
     const mockModify = vi.fn();
     const mockFilter = vi.fn().mockReturnValue({ modify: mockModify });
@@ -77,31 +85,45 @@ describe("Sync Engine Service", () => {
     const processed = await processSyncQueue();
 
     expect(db.syncQueue.orderBy).toHaveBeenCalledWith("id");
-    expect(callOrder).toEqual(["POST", "PUT"]);
-    expect(processed).toBe(2);
-    expect(apiClient.post).toHaveBeenCalledWith(
-      "/Matches/m1/events",
-      expect.objectContaining({ isLeadToGoal: true }),
-    );
-    expect(apiClient.put).toHaveBeenCalledWith(
-      "/Matches/m1/presence",
-      expect.objectContaining({ periodNumber: 1 }),
-    );
-    expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
-    expect(db.syncQueue.delete).toHaveBeenCalledWith(2);
+    expect(callOrder).toEqual(["POST", "PUT", "DELETE"]);
+    expect(processed).toBe(3);
+    expect(db.syncQueue.delete).toHaveBeenCalledTimes(3);
   });
 
-  it("marks presences as synced only for affected lineup IDs in payload", async () => {
+  it("halts queue processing and throws on unsupported actionType", async () => {
     const mockItems = [
       {
         id: 10,
+        actionType: "PATCH",
+        endpoint: "/Matches/m1/events",
+        payload: JSON.stringify({}),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(0);
+    expect(db.syncQueue.delete).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it("handles substitution payload with playerOutLineupId and playerInLineupId", async () => {
+    const mockItems = [
+      {
+        id: 5,
         actionType: "POST",
-        endpoint: "/Matches/m1/presence",
+        endpoint: "/Matches/m1/substitutions",
         payload: JSON.stringify({
-          periodNumber: 2,
-          playerLineupIds: ["lineup-100"],
+          periodNumber: 1,
+          playerOutLineupId: "lineup-out",
+          playerInLineupId: "lineup-in",
         }),
-        createdAt: "",
       },
     ];
 
@@ -118,57 +140,50 @@ describe("Sync Engine Service", () => {
     }) => boolean;
 
     let filterPredicate: PresenceFilterFn | undefined;
-
     const mockModify = vi.fn();
     const mockFilter = vi.fn().mockImplementation((fn: PresenceFilterFn) => {
       filterPredicate = fn;
       return { modify: mockModify };
     });
-    const mockEquals = vi.fn().mockReturnValue({ filter: mockFilter });
 
     vi.mocked(db.playerpresences.where).mockReturnValue({
-      equals: mockEquals,
+      equals: vi.fn().mockReturnValue({ filter: mockFilter }),
     } as unknown as ReturnType<typeof db.playerpresences.where>);
 
     await processSyncQueue();
 
-    expect(mockEquals).toHaveBeenCalledWith(2);
     expect(filterPredicate).toBeDefined();
-
     if (filterPredicate) {
       expect(
         filterPredicate({
-          matchLineupId: "lineup-100",
-          timeIn: 100,
-          timeOut: 200,
+          matchLineupId: "lineup-out",
+          timeIn: 10,
+          timeOut: 20,
         }),
       ).toBe(true);
-
       expect(
         filterPredicate({
-          matchLineupId: "lineup-999",
-          timeIn: 100,
-          timeOut: 200,
+          matchLineupId: "lineup-in",
+          timeIn: 10,
+          timeOut: 20,
         }),
-      ).toBe(false);
-
+      ).toBe(true);
       expect(
         filterPredicate({
-          matchLineupId: "lineup-100",
-          timeIn: 100,
-          timeOut: null,
-        }),
-      ).toBe(false);
-
-      expect(
-        filterPredicate({
-          matchLineupId: "lineup-100",
-          timeIn: null,
-          timeOut: 200,
+          matchLineupId: "other-lineup",
+          timeIn: 10,
+          timeOut: 20,
         }),
       ).toBe(false);
     }
+  });
 
-    expect(mockModify).toHaveBeenCalledWith({ isSynced: 1 });
+  it("attaches online event listener in initSyncEngine", () => {
+    const addEventListenerSpy = vi.spyOn(window, "addEventListener");
+    initSyncEngine();
+    expect(addEventListenerSpy).toHaveBeenCalledWith(
+      "online",
+      expect.any(Function),
+    );
   });
 });

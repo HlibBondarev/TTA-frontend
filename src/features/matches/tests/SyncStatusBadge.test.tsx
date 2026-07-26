@@ -1,0 +1,59 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { SyncStatusBadge } from "../components/SyncStatusBadge";
+import { db } from "../../../db/ttaDatabase";
+
+vi.mock("../../../db/ttaDatabase", () => ({
+  db: {
+    syncQueue: {
+      count: vi.fn().mockResolvedValue(0),
+    },
+  },
+}));
+
+vi.mock("dexie", () => ({
+  liveQuery: (fn: () => Promise<number>) => ({
+    subscribe: (observer: {
+      next: (val: number) => void;
+      error: (err: unknown) => void;
+    }) => {
+      fn()
+        .then((count) => observer.next(count))
+        .catch(observer.error);
+      return { unsubscribe: vi.fn() };
+    },
+  }),
+}));
+
+describe("SyncStatusBadge Component", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: true,
+    });
+  });
+
+  it("renders Online status badge when browser is online and count is 0", async () => {
+    render(<SyncStatusBadge />);
+
+    expect(await screen.findByText("Online")).toBeInTheDocument();
+    expect(screen.queryByText(/pending/i)).not.toBeInTheDocument();
+  });
+
+  it("renders pending count tag when syncQueue contains items", async () => {
+    vi.mocked(db.syncQueue.count).mockResolvedValue(3);
+
+    render(<SyncStatusBadge />);
+
+    expect(await screen.findByText("3 pending")).toBeInTheDocument();
+  });
+
+  it("updates to Offline badge on offline window event", async () => {
+    render(<SyncStatusBadge />);
+
+    window.dispatchEvent(new Event("offline"));
+
+    expect(await screen.findByText("Offline")).toBeInTheDocument();
+  });
+});
