@@ -67,6 +67,8 @@ export const processSyncQueue = async (): Promise<number> => {
           await apiClient.put(item.endpoint, payload);
         } else if (item.actionType === "DELETE") {
           await apiClient.delete(item.endpoint);
+        } else {
+          throw new Error(`Unsupported sync actionType: ${item.actionType}`);
         }
 
         // Update local IndexedDB records according to synchronization rules
