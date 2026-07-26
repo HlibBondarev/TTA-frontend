@@ -4,6 +4,7 @@ import { MatchLifecyclePanel } from "./MatchLifecyclePanel";
 import { PlayerPresencePanel } from "../../../features/playerpresences/components/PlayerPresencePanel";
 import { ActionsLog } from "./ActionsLog";
 import { TTDActionsPanel } from "./TTAPanel";
+import { SyncStatusBadge } from "./SyncStatusBadge";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
 import { useGameEvents } from "../hooks/useGameEvents";
 import type { RootState } from "../../../store";
@@ -26,10 +27,8 @@ export const TTAConsole: React.FC = () => {
   const [consoleError, setConsoleError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Use state to track the "current" period to detect changes
   const [prevPeriod, setPrevPeriod] = useState(periodNumber);
 
-  // If the period from props/hooks changes, reset state and update prevPeriod
   if (periodNumber !== prevPeriod) {
     setPrevPeriod(periodNumber);
     setPendingAction(null);
@@ -52,7 +51,6 @@ export const TTAConsole: React.FC = () => {
           isLeadToGoal,
         });
 
-        // Clear selections only after successful DB persistence
         setPendingAction(null);
         setSelectedPlayerId(null);
         setIsLeadToGoal(false);
@@ -71,10 +69,11 @@ export const TTAConsole: React.FC = () => {
 
   return (
     <div className="w-full max-w-sm mx-auto flex flex-col h-screen pb-safe overflow-hidden">
-      <header className="text-center py-2 border-b border-gray-800">
-        <h1 className="text-xl font-black uppercase text-blue-500">
+      <header className="flex items-center justify-between px-3 py-2 border-b border-gray-800">
+        <h1 className="text-sm font-black uppercase text-blue-500">
           TTA Match Recorder
         </h1>
+        <SyncStatusBadge />
       </header>
       {activeMatchId ? (
         <div className="flex flex-col flex-1 overflow-hidden">
@@ -106,7 +105,6 @@ export const TTAConsole: React.FC = () => {
               onActionSelect={(name, isPositive) => {
                 setConsoleError(null);
                 setPendingAction({ name, isPositive });
-                // Automatically check for "Goal", default to false for others
                 setIsLeadToGoal(name.trim().toLowerCase() === "goal");
               }}
             />

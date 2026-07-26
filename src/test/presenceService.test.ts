@@ -81,7 +81,7 @@ describe("presenceService Database Transactions", () => {
 
     expect(db.syncQueue.add).toHaveBeenCalledWith({
       actionType: "POST",
-      endpoint: `matches/${mockMatchId}/presence/initialize`,
+      endpoint: `/Matches/${mockMatchId}/presence/initialize`,
       payload: JSON.stringify({
         periodNumber: mockPeriodNumber,
         playerLineupIds: mockPlayerLineupIds,
@@ -146,7 +146,7 @@ describe("presenceService Database Transactions", () => {
 
     expect(db.syncQueue.add).toHaveBeenCalledWith({
       actionType: "PUT",
-      endpoint: `matches/${mockMatchId}/presence/terminate`,
+      endpoint: `/Matches/${mockMatchId}/presence/terminate`,
       payload: JSON.stringify({
         periodNumber: mockPeriodNumber,
         playerLineupIds: mockPlayerLineupIds,

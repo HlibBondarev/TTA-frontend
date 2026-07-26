@@ -1,0 +1,89 @@
+import { getAuthToken } from "../services/tokenService";
+
+const BASE_URL = import.meta.env.VITE_API_URL || "/api";
+const DEFAULT_TIMEOUT_MS = 15000;
+
+export interface RequestOptions extends RequestInit {
+  token?: string;
+}
+
+export const apiClient = {
+  async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+    const { token, headers, signal, ...rest } = options;
+
+    const requestHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(headers as Record<string, string>),
+    };
+
+    // Use passed token or resolve dynamically via tokenService
+    const authToken = token || (await getAuthToken());
+    if (authToken) {
+      requestHeaders["Authorization"] = `Bearer ${authToken}`;
+    }
+
+    const normalizedEndpoint = endpoint.startsWith("/")
+      ? endpoint
+      : `/${endpoint}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(`${BASE_URL}${normalizedEndpoint}`, {
+        headers: requestHeaders,
+        signal: signal ?? controller.signal,
+        ...rest,
+      });
+
+      if (!response.ok) {
+        const error = new Error(
+          `API Request failed: ${response.status} ${response.statusText}`,
+        ) as Error & { status?: number };
+        error.status = response.status;
+        throw error;
+      }
+
+      // Handle 204 No Content
+      if (response.status === 204) {
+        return {} as T;
+      }
+
+      return (await response.json()) as T;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  },
+
+  get<T>(endpoint: string, options?: RequestOptions): Promise<T> {
+    return this.request<T>(endpoint, { ...options, method: "GET" });
+  },
+
+  post<T>(
+    endpoint: string,
+    body?: unknown,
+    options?: RequestOptions,
+  ): Promise<T> {
+    return this.request<T>(endpoint, {
+      ...options,
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  put<T>(
+    endpoint: string,
+    body?: unknown,
+    options?: RequestOptions,
+  ): Promise<T> {
+    return this.request<T>(endpoint, {
+      ...options,
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  },
+
+  delete<T>(endpoint: string, options?: RequestOptions): Promise<T> {
+    return this.request<T>(endpoint, { ...options, method: "DELETE" });
+  },
+};

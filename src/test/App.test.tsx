@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import React from "react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
@@ -7,6 +7,23 @@ import { App, TEST_MATCH_ID } from "../App";
 import { seedTestData } from "../db/seed";
 import matchReducer from "../features/matches/store/matchSlice";
 import presenceReducer from "../features/playerpresences/store/presenceSlice";
+
+const { mockLoginWithRedirect, mockAuthState } = vi.hoisted(() => ({
+  mockLoginWithRedirect: vi.fn(),
+  mockAuthState: {
+    isAuthenticated: false,
+    isLoading: false,
+  },
+}));
+
+vi.mock("@auth0/auth0-react", () => ({
+  useAuth0: () => ({
+    getAccessTokenSilently: vi.fn().mockResolvedValue("mock-access-token"),
+    isAuthenticated: mockAuthState.isAuthenticated,
+    isLoading: mockAuthState.isLoading,
+    loginWithRedirect: mockLoginWithRedirect,
+  }),
+}));
 
 vi.mock("../db/seed", () => ({
   seedTestData: vi.fn().mockResolvedValue(undefined),
@@ -31,6 +48,8 @@ describe("App Bootstrapping Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAuthState.isAuthenticated = false;
+    mockAuthState.isLoading = false;
     store = createTestStore();
     wrapper = ({ children }) => <Provider store={store}>{children}</Provider>;
   });
@@ -40,7 +59,6 @@ describe("App Bootstrapping Component", () => {
 
     await waitFor(() => {
       expect(seedTestData).toHaveBeenCalledTimes(1);
-      // Assert Redux state initialization
       expect(store.getState().match.activeMatchId).toBe(TEST_MATCH_ID);
       expect(store.getState().presence.activePlayersLimit).toBe(7);
     });
@@ -55,11 +73,20 @@ describe("App Bootstrapping Component", () => {
 
     await waitFor(() => {
       expect(seedTestData).toHaveBeenCalled();
-      // Assert Redux state is initialized despite seeding failure
       expect(store.getState().match.activeMatchId).toBe(TEST_MATCH_ID);
       expect(store.getState().presence.activePlayersLimit).toBe(7);
     });
 
     expect(screen.getByTestId("tta-console")).toBeInTheDocument();
+  });
+
+  it("renders login button when unauthenticated and triggers loginWithRedirect", async () => {
+    render(<App />, { wrapper });
+
+    const loginButton = await screen.findByRole("button", { name: /Log In/i });
+    expect(loginButton).toBeInTheDocument();
+
+    fireEvent.click(loginButton);
+    expect(mockLoginWithRedirect).toHaveBeenCalledTimes(1);
   });
 });

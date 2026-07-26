@@ -18,51 +18,36 @@ jobs:
         with:
           fetch-depth: 0 # Required for SonarCloud analysis accuracy
 
-      # Step 2: Install Node.js environment
+      # Step 2: Enable PNPM package manager (must be placed before setup-node for caching)
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      # Step 3: Install Node.js environment & enable native PNPM cache
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: "pnpm"
 
-      # Step 3: Enable PNPM package manager
-      - name: Setup PNPM
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
-
-      # Step 4: Resolve PNPM cache path for faster builds
-      - name: Get PNPM Cache Directory
-        id: pnpm-cache
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-      # Step 5: Restore cache to speed up dependency installation
-      - name: Setup Cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
-      # Step 6: Install locked production & development packages
+      # Step 4: Install locked production & development packages
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      # Step 7: Check code compliance using ESLint rules
+      # Step 5: Check code compliance using ESLint rules
       - name: Run Linter
         run: pnpm lint
 
-      # Step 8: Compile TypeScript to verify types are correct
+      # Step 6: Compile TypeScript to verify types are correct
       - name: Compile TypeScript
         run: pnpm build
 
-      # Step 9: Run Vitest with coverage report output
+      # Step 7: Run Vitest with coverage report output
       - name: Run Unit Tests & Generate Coverage
         run: pnpm test:coverage
 
-      # Step 10: Trigger static code analysis via SonarCloud
+      # Step 8: Trigger static code analysis via SonarCloud
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3
         env:
