@@ -5,7 +5,8 @@ let isSyncing = false;
 
 /**
  * Updates local IndexedDB player presences to isSynced = 1 upon successful server sync.
- * Strictly adheres to the rule: presences are marked synced only if both timeIn and timeOut are set.
+ * Strictly adheres to the rule: presences are marked synced only if both timeIn and timeOut are set
+ * and match the lineup IDs involved in the synced payload.
  */
 const markPresencesSynced = async (
   endpoint: string,
@@ -23,10 +24,23 @@ const markPresencesSynced = async (
     return;
   }
 
+  const affectedLineupIds = new Set<string>(
+    Array.isArray(payload.playerLineupIds)
+      ? (payload.playerLineupIds as string[])
+      : ([payload.playerOutLineupId, payload.playerInLineupId].filter(
+          Boolean,
+        ) as string[]),
+  );
+
   await db.playerpresences
     .where("periodNumber")
     .equals(payload.periodNumber)
-    .filter((p) => p.timeIn !== null && p.timeOut !== null)
+    .filter(
+      (p) =>
+        affectedLineupIds.has(p.matchLineupId) &&
+        p.timeIn !== null &&
+        p.timeOut !== null,
+    )
     .modify({ isSynced: 1 });
 };
 
