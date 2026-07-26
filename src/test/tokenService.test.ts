@@ -3,10 +3,18 @@ import { setTokenGetter, getAuthToken } from "../services/tokenService";
 
 describe("Token Service", () => {
   beforeEach(() => {
-    setTokenGetter(async () => null);
+    vi.clearAllMocks();
   });
 
-  it("returns null when no token getter is set or when getter returns null", async () => {
+  it("returns null before setTokenGetter is called (unset getter state)", async () => {
+    vi.resetModules();
+    const freshTokenService = await import("../services/tokenService");
+    const token = await freshTokenService.getAuthToken();
+    expect(token).toBeNull();
+  });
+
+  it("returns null when token getter is set to return null", async () => {
+    setTokenGetter(async () => null);
     const token = await getAuthToken();
     expect(token).toBeNull();
   });
