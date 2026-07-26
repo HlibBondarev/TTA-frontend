@@ -57,8 +57,15 @@ describe("Sync Engine Service", () => {
       toArray: vi.fn().mockResolvedValue(mockItems),
     } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
 
-    vi.mocked(apiClient.post).mockResolvedValue({});
-    vi.mocked(apiClient.put).mockResolvedValue({});
+    const callOrder: string[] = [];
+    vi.mocked(apiClient.post).mockImplementation(async () => {
+      callOrder.push("POST");
+      return {};
+    });
+    vi.mocked(apiClient.put).mockImplementation(async () => {
+      callOrder.push("PUT");
+      return {};
+    });
 
     const mockModify = vi.fn();
     const mockFilter = vi.fn().mockReturnValue({ modify: mockModify });
@@ -69,6 +76,8 @@ describe("Sync Engine Service", () => {
 
     const processed = await processSyncQueue();
 
+    expect(db.syncQueue.orderBy).toHaveBeenCalledWith("id");
+    expect(callOrder).toEqual(["POST", "PUT"]);
     expect(processed).toBe(2);
     expect(apiClient.post).toHaveBeenCalledWith(
       "/Matches/m1/events",
