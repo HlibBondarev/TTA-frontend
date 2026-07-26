@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { SyncStatusBadge } from "../components/SyncStatusBadge";
 import { db } from "../../../db/ttaDatabase";
@@ -32,6 +32,10 @@ describe("SyncStatusBadge Component", () => {
       configurable: true,
       value: true,
     });
+  });
+
+  afterEach(() => {
+    vi.mocked(db.syncQueue.count).mockResolvedValue(0);
   });
 
   it("renders Online status badge when browser is online and count is 0", async () => {
