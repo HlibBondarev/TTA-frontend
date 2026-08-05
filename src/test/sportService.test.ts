@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { sportService } from "../services/sportService";
 import { apiClient } from "../api/client";
+import type { SportConfigurationLookup } from "../db/ttaDatabase";
 
 // Mock the centralized API client to isolate service tests
 vi.mock("../api/client", () => ({
@@ -56,5 +57,18 @@ describe("Sport Service (sportService)", () => {
       `/Sports/${sportId}/configurations`,
     );
     expect(result).toEqual(mockConfigurations);
+  });
+
+  it("should URL-encode sportId when fetching sport configurations containing special characters", async () => {
+    const sportId = "sport/1";
+    const mockConfigurations: SportConfigurationLookup[] = [];
+
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockConfigurations);
+
+    await sportService.getSportConfigurations(sportId);
+
+    expect(apiClient.get).toHaveBeenCalledWith(
+      "/Sports/sport%2F1/configurations",
+    );
   });
 });

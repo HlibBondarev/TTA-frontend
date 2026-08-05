@@ -24,7 +24,7 @@ export const sportService = {
     sportId: string,
   ): Promise<SportConfigurationLookup[]> {
     return await apiClient.get<SportConfigurationLookup[]>(
-      `/Sports/${sportId}/configurations`,
+      `/Sports/${encodeURIComponent(sportId)}/configurations`,
     );
   },
 };
