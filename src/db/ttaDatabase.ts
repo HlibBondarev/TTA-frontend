@@ -1,6 +1,34 @@
 import Dexie, { type Table } from "dexie";
 
-// Interfaces strictly aligned with OpenAPI camelCase DTOs
+// Interfaces strictly aligned with OpenAPI camelCase DTOs and PostgreSQL schema definitions
+
+export interface SportLookup {
+  id: string;
+  name: string;
+  shortName: string;
+  defaultConfigId: string;
+}
+
+export interface PlayerLookup {
+  id: string;
+  homeClubId: string;
+  firstName: string;
+  lastName: string;
+  birthDate: string;
+  gender: number; // 0: Male, 1: Female
+  createdAt: string;
+}
+
+export interface PlayerRosterLookup {
+  id: string;
+  playerId: string;
+  tournamentId: string;
+  teamId: string;
+  number: number;
+  positionId: string;
+  createdAt: string;
+}
+
 export interface TeamLookup {
   id: string;
   clubId: string;
@@ -54,7 +82,6 @@ export interface MatchLineupLookup {
   matchId: string;
   playerRosterId: string | null;
   number: number;
-  isInStartingLineup: boolean;
   positionId: string | null;
 }
 
@@ -115,6 +142,9 @@ export interface SyncQueueItem {
 
 // Offline-First IndexedDB Controller using Dexie.js
 export class TTADatabase extends Dexie {
+  sports!: Table<SportLookup, string>;
+  players!: Table<PlayerLookup, string>;
+  playerrosters!: Table<PlayerRosterLookup, string>;
   teams!: Table<TeamLookup, string>;
   matches!: Table<MatchLookup, string>;
   matchlineups!: Table<MatchLineupLookup, string>;
@@ -129,8 +159,11 @@ export class TTADatabase extends Dexie {
   constructor() {
     super("TTADatabase");
 
-    // Schema configuration using camelCase index paths matching API DTOs
+    // Schema configuration using camelCase index paths matching API DTOs and database constraints
     this.version(1).stores({
+      sports: "id, name, shortName",
+      players: "id, homeClubId, lastName",
+      playerrosters: "id, playerId, tournamentId, teamId, number",
       teams: "id, clubId, sportId",
       matches: "id, tournamentId, homeTeamId, guestTeamId, scheduledAt",
       matchlineups: "id, matchId, playerRosterId, number",
