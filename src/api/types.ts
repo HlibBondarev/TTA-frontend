@@ -410,7 +410,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/Matches/{matchId}/lineups": {
+    "/api/Matches/{matchId}/teams/{teamId}/lineup": {
         parameters: {
             query?: never;
             header?: never;
@@ -423,6 +423,7 @@ export interface paths {
                 header?: never;
                 path: {
                     matchId: string;
+                    teamId: string;
                 };
                 cookie?: never;
             };
@@ -823,6 +824,110 @@ export interface paths {
                 };
             };
         };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/Matches/quick": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["CreateQuickMatchRequest"];
+                    "text/json": components["schemas"]["CreateQuickMatchRequest"];
+                    "application/*+json": components["schemas"]["CreateQuickMatchRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["QuickMatchResponse"];
+                        "application/json": components["schemas"]["QuickMatchResponse"];
+                        "text/json": components["schemas"]["QuickMatchResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/Matches/{matchId}/eventdefinitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    matchId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["EventDefinitionForMatchResponse"][];
+                        "application/json": components["schemas"]["EventDefinitionForMatchResponse"][];
+                        "text/json": components["schemas"]["EventDefinitionForMatchResponse"][];
+                    };
+                };
+            };
+        };
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -2387,6 +2492,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/Sports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SportResponse"][];
+                        "application/json": components["schemas"]["SportResponse"][];
+                        "text/json": components["schemas"]["SportResponse"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/Sports/{sportId}/configurations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    sportId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SportConfigurationResponse"][];
+                        "application/json": components["schemas"]["SportConfigurationResponse"][];
+                        "text/json": components["schemas"]["SportConfigurationResponse"][];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/Teams/{teamId}/members": {
         parameters: {
             query?: never;
@@ -2994,7 +3186,6 @@ export interface components {
         AddPlayerToMatchLineupRequest: {
             /** Format: int32 */
             number?: number;
-            isInStartingLineup?: boolean;
             /** Format: uuid */
             positionId?: string;
         };
@@ -3035,6 +3226,12 @@ export interface components {
             birthDate?: string;
             gender?: components["schemas"]["Gender"];
         };
+        CreateQuickMatchRequest: {
+            /** Format: uuid */
+            sportId?: string;
+            /** Format: uuid */
+            configurationId?: string | null;
+        };
         CreateTeamRequest: {
             name?: string | null;
             /** Format: uuid */
@@ -3060,6 +3257,17 @@ export interface components {
             startDate?: string;
             /** Format: date-time */
             endDate?: string | null;
+        };
+        EventDefinitionForMatchResponse: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            sportId?: string;
+            name?: string | null;
+            shortName?: string | null;
+            isPositive?: boolean;
+            /** Format: date-time */
+            createdAt?: string;
         };
         GameEventResponse: {
             /** Format: uuid */
@@ -3089,7 +3297,9 @@ export interface components {
         InitializePresenceRequest: {
             /** Format: int32 */
             periodNumber?: number;
-            playerLineupIds?: string[] | null;
+            /** Format: date-time */
+            timeIn?: string;
+            presenceItems?: components["schemas"]["PlayerPresenceItemDto"][] | null;
         };
         MatchLineupResponse: {
             /** Format: uuid */
@@ -3104,7 +3314,6 @@ export interface components {
             lastName?: string | null;
             /** Format: int32 */
             number?: number;
-            isInStartingLineup?: boolean;
             /** Format: uuid */
             positionId?: string;
             positionName?: string | null;
@@ -3133,6 +3342,12 @@ export interface components {
             guestScore?: number | null;
             /** Format: date-time */
             createdAt?: string;
+        };
+        PlayerPresenceItemDto: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            matchLineupId?: string;
         };
         PlayerPresenceResponse: {
             /** Format: uuid */
@@ -3163,6 +3378,20 @@ export interface components {
             instance?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        QuickMatchResponse: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            tournamentId?: string;
+            /** Format: uuid */
+            homeTeamId?: string;
+            /** Format: uuid */
+            guestTeamId?: string;
+            /** Format: date-time */
+            scheduledAt?: string;
+            /** Format: date-time */
+            createdAt?: string;
         };
         RecordMatchResultRequest: {
             /** Format: int32 */
@@ -3195,6 +3424,32 @@ export interface components {
             matchNumber?: string | null;
             venue?: string | null;
         };
+        SportConfigurationResponse: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            sportId?: string;
+            usesCleanTime?: boolean;
+            /** Format: int32 */
+            periodsCount?: number;
+            /** Format: int32 */
+            periodDurationMinutes?: number;
+            fieldSize?: string | null;
+            /** Format: int32 */
+            rosterLimit?: number;
+            /** Format: int32 */
+            lineupLimit?: number;
+            /** Format: int32 */
+            activePlayersLimit?: number;
+        };
+        SportResponse: {
+            /** Format: uuid */
+            id?: string;
+            name?: string | null;
+            shortName?: string | null;
+            /** Format: uuid */
+            defaultConfigId?: string;
+        };
         SubstitutePlayerRequest: {
             /** Format: int32 */
             periodNumber?: number;
@@ -3202,6 +3457,10 @@ export interface components {
             playerOutLineupId?: string;
             /** Format: uuid */
             playerInLineupId?: string;
+            /** Format: uuid */
+            incomingPresenceId?: string;
+            /** Format: date-time */
+            substitutionTime?: string;
         };
         TeamMemberResponse: {
             /** Format: uuid */
@@ -3279,7 +3538,6 @@ export interface components {
         UpdatePlayerInMatchLineupRequest: {
             /** Format: int32 */
             number?: number;
-            isInStartingLineup?: boolean;
             /** Format: uuid */
             positionId?: string;
         };
