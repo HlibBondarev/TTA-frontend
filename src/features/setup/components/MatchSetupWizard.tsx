@@ -215,13 +215,10 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       )}
 
       {/* Step 1: Sport Discipline Selection */}
-      <div className="mb-4" role="group" aria-labelledby="sport-step-label">
-        <span
-          id="sport-step-label"
-          className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold"
-        >
+      <fieldset className="mb-4 min-w-0 border-0 p-0 m-0">
+        <legend className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold p-0">
           1. Select Sport Discipline
-        </span>
+        </legend>
         <div className="grid grid-cols-1 gap-2">
           {sports.map((sport) => (
             <button
@@ -242,22 +239,15 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
             </button>
           ))}
         </div>
-      </div>
+      </fieldset>
 
       {/* Step 2: Sport Configuration Selection */}
-      <div
-        className="mb-6 flex-1"
-        role="group"
-        aria-labelledby="config-step-label"
-      >
-        <span
-          id="config-step-label"
-          className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold"
-        >
+      <fieldset className="mb-6 flex-1 min-w-0 border-0 p-0 m-0">
+        <legend className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold p-0">
           2. Select Configuration Profile
-        </span>
+        </legend>
         {renderConfigurationsContent()}
-      </div>
+      </fieldset>
 
       {/* Step 3: Quick Start Action */}
       <button
