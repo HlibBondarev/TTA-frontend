@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MatchSetupWizard } from "../components/MatchSetupWizard";
 import { sportService } from "../../../services/sportService";
 
@@ -17,6 +17,12 @@ describe("MatchSetupWizard Component", () => {
       name: "Water Polo",
       shortName: "WP",
       defaultConfigId: "config-1",
+    },
+    {
+      id: "sport-2",
+      name: "Swimming",
+      shortName: "SW",
+      defaultConfigId: "config-99",
     },
   ];
 
@@ -63,5 +69,72 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(quickStartButton);
 
     expect(handleQuickStart).toHaveBeenCalledWith("sport-1", "config-1");
+  });
+
+  it("should handle error when fetching sports fails", async () => {
+    vi.mocked(sportService.getSports).mockRejectedValueOnce(
+      new Error("Network error"),
+    );
+
+    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    expect(await screen.findByText("Network error")).toBeDefined();
+  });
+
+  it("should handle error when fetching sport configurations fails", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockRejectedValueOnce(
+      new Error("Config fetch error"),
+    );
+
+    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    expect(await screen.findByText("Config fetch error")).toBeDefined();
+    expect(
+      screen.getByText("No configurations available for this sport."),
+    ).toBeDefined();
+  });
+
+  it("should handle sport selection change and empty configurations gracefully", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    // Initial fetch for sport-1 returns configs
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    // Subsequent fetch for sport-2 returns empty list
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([]);
+
+    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    expect(await screen.findByText("Swimming")).toBeDefined();
+
+    // Click on the second sport to trigger handleSelectSport
+    fireEvent.click(screen.getByText("Swimming"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("No configurations available for this sport."),
+      ).toBeDefined();
+    });
+  });
+
+  it("should handle error during quick start submission", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    const handleQuickStart = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Submission error"));
+
+    render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    const quickStartButton = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartButton);
+
+    expect(await screen.findByText("Submission error")).toBeDefined();
   });
 });
