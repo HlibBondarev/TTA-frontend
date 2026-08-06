@@ -257,6 +257,16 @@ describe("useMatchLifecycle Hook", () => {
     expect(store.getState().match.isInsideStoppage).toBe(false);
     expect(store.getState().match.globalSequenceNumber).toBe(0);
     expect(db.timeanchors.add).not.toHaveBeenCalled();
+
+    await expect(
+      act(async () => {
+        await result.current.startTime();
+      }),
+    ).rejects.toThrow("No active match ID found for logging time anchor.");
+
+    expect(store.getState().match.isInsideStoppage).toBe(false);
+    expect(store.getState().match.globalSequenceNumber).toBe(0);
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
   });
 
   test("should block timer start (resume) if not inside stoppage or period is inactive", async () => {
