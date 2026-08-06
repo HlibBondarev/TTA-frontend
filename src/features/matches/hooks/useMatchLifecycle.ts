@@ -1,7 +1,6 @@
 import { db } from "../../../db/ttaDatabase";
 import { getNextSequenceNumber } from "../../../db/eventService";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
-import { TEST_MATCH_ID } from "../../../App";
 import {
   startPeriodState,
   endPeriodState,
@@ -25,7 +24,9 @@ export const useMatchLifecycle = () => {
 
   // Internal helper to perform atomic IndexedDB write with rollback support
   const logTimeAnchor = async (type: number): Promise<string> => {
-    const matchIdToUse = activeMatchId || TEST_MATCH_ID;
+    if (!activeMatchId) {
+      throw new Error("No active match ID found for logging time anchor.");
+    }
     const anchorId = crypto.randomUUID();
 
     await db.transaction(
@@ -36,7 +37,7 @@ export const useMatchLifecycle = () => {
 
         const anchorData = {
           id: anchorId,
-          matchId: matchIdToUse,
+          matchId: activeMatchId,
           periodNumber,
           type,
           timestamp: new Date().toISOString(),

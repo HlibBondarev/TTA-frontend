@@ -1,19 +1,25 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 import { TTAConsole } from "./features/matches/components/TTAConsole";
+import { MatchSetupWizard } from "./features/setup/components/MatchSetupWizard";
 import { setPresenceLimits } from "./features/playerpresences/store/presenceSlice";
 import { setActiveMatch } from "./features/matches/store/matchSlice";
 import { hydrateMatchData } from "./services/hydrationService";
 import { initSyncEngine } from "./services/syncService";
 import { setTokenGetter } from "./services/tokenService";
-
-export const TEST_MATCH_ID = "33333333-3333-0000-0000-333333333001";
+import { apiClient } from "./api/client";
+import type { RootState } from "./store";
 
 export const App: React.FC = () => {
   const dispatch = useDispatch();
   const initStarted = useRef(false);
   const [isInitializing, setIsInitializing] = useState(true);
+
+  const activeMatchId = useSelector(
+    (state: RootState) => state.match.activeMatchId,
+  );
+
   const {
     getAccessTokenSilently,
     isAuthenticated,
@@ -48,24 +54,35 @@ export const App: React.FC = () => {
           period: 1,
         }),
       );
-      dispatch(setActiveMatch(TEST_MATCH_ID));
 
-      try {
-        await hydrateMatchData(TEST_MATCH_ID);
-      } catch (error) {
-        console.error("Hydration failed (non-critical):", error);
-      } finally {
-        setIsInitializing(false);
-      }
+      // Note: activeMatchId is now initialized via MatchSetupWizard workflow rather than hardcoded TEST_MATCH_ID
+      setIsInitializing(false);
     };
 
     initializeApp();
   }, [dispatch]);
 
-  if (isInitializing) {
+  // Handle quick start workflow: create match via API, set active match in store, and hydrate data
+  const handleQuickStart = async (sportId: string, configurationId: string) => {
+    const response = await apiClient.post<{ id: string }>("/Matches/quick", {
+      sportId,
+      configurationId,
+    });
+
+    const matchId = response.id;
+    dispatch(setActiveMatch(matchId));
+
+    try {
+      await hydrateMatchData(matchId);
+    } catch (error) {
+      console.error("Hydration failed (non-critical):", error);
+    }
+  };
+
+  if (isInitializing || isLoading) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-gray-950 text-gray-100 font-medium text-sm">
-        Hydrating match data...
+        Initializing application...
       </div>
     );
   }
@@ -84,7 +101,12 @@ export const App: React.FC = () => {
           </button>
         </div>
       )}
-      <TTAConsole />
+
+      {activeMatchId ? (
+        <TTAConsole />
+      ) : (
+        <MatchSetupWizard onQuickStart={handleQuickStart} />
+      )}
     </div>
   );
 };

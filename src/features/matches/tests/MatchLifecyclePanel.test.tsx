@@ -45,7 +45,19 @@ const createTestStore = (preloadedState = {}) => {
       match: matchReducer,
       presence: presenceReducer,
     },
-    preloadedState,
+    preloadedState: {
+      match: {
+        activeMatchId: "test-match",
+        periodNumber: 1,
+        homeScore: 0,
+        guestScore: 0,
+        isPeriodActive: false,
+        isInsideStoppage: false,
+        globalSequenceNumber: 0,
+        recentActions: [],
+      },
+      ...preloadedState,
+    },
   });
 };
 

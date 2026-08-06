@@ -3,7 +3,6 @@ import { useSelector } from "react-redux";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
 import { usePlayerPresence } from "../../../features/playerpresences/hooks/usePlayerPresence";
 import type { RootState } from "../../../store";
-import { TEST_MATCH_ID } from "../../../App";
 
 export const MatchLifecyclePanel: React.FC = () => {
   const {
@@ -20,9 +19,9 @@ export const MatchLifecyclePanel: React.FC = () => {
     prevPeriod,
   } = useMatchLifecycle();
 
-  const activeMatchId =
-    useSelector((state: RootState) => state.match.activeMatchId) ||
-    TEST_MATCH_ID;
+  const activeMatchId = useSelector(
+    (state: RootState) => state.match.activeMatchId || "",
+  );
 
   const {
     selectedStartingIds,
