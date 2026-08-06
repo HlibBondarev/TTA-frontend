@@ -116,6 +116,10 @@ describe("MatchSetupWizard Component", () => {
         screen.getByText("No configurations available for this sport."),
       ).toBeDefined();
     });
+
+    expect(sportService.getSportConfigurations).toHaveBeenLastCalledWith(
+      "sport-2",
+    );
   });
 
   it("should handle error during quick start submission", async () => {
