@@ -126,9 +126,7 @@ export const MatchLifecyclePanel: React.FC = () => {
         <button
           type="button"
           onClick={handleStartPeriod}
-          disabled={
-            isPeriodActive || selectedStartingIds.length !== activePlayersLimit
-          }
+          disabled={isPeriodActive}
           className="py-1 min-h-11 bg-emerald-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
         >
           START PERIOD

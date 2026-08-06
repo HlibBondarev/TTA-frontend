@@ -198,4 +198,55 @@ describe("MatchSetupWizard Component", () => {
     // Button should be enabled again after error handling
     expect(quickStartButton).not.toBeDisabled();
   });
+
+  it("should allow selecting a different configuration when multiple configurations are available", async () => {
+    const multipleConfigs = [
+      {
+        id: "config-1",
+        sportId: "sport-1",
+        usesCleanTime: true,
+        periodsCount: 4,
+        periodDurationMinutes: 8,
+        fieldSize: "30x20",
+        rosterLimit: 13,
+        lineupLimit: 7,
+        activePlayersLimit: 7,
+      },
+      {
+        id: "config-2",
+        sportId: "sport-1",
+        usesCleanTime: false,
+        periodsCount: 2,
+        periodDurationMinutes: 20,
+        fieldSize: "40x25",
+        rosterLimit: 15,
+        lineupLimit: 5,
+        activePlayersLimit: 5,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      multipleConfigs,
+    );
+
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+
+    render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    // Wait for configurations to load
+    expect(await screen.findByText(/Periods: 4/i)).toBeDefined();
+    expect(screen.getByText(/Periods: 2/i)).toBeDefined();
+
+    // Click the second configuration button
+    fireEvent.click(screen.getByText(/Periods: 2/i));
+
+    // Click Quick Start button
+    const quickStartButton = screen.getByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartButton);
+
+    expect(handleQuickStart).toHaveBeenCalledWith("sport-1", "config-2", 5);
+  });
 });

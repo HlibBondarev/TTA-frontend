@@ -382,4 +382,27 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
       expect(store.getState().match.isInsideStoppage).toBe(true);
     });
   });
+
+  test("should show error message if selected starting ids length does not match active players limit", async () => {
+    vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
+      ...defaultPresenceMock,
+      selectedStartingIds: ["p1", "p2"], // Only 2 players instead of 7
+      activePlayersLimit: 7,
+    });
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const startBtn = screen.getByText("START PERIOD");
+    fireEvent.click(startBtn);
+
+    expect(
+      await screen.findByText(/Select exactly 7 players\./i),
+    ).toBeInTheDocument();
+    expect(defaultPresenceMock.startPeriodWithRoster).not.toHaveBeenCalled();
+  });
 });

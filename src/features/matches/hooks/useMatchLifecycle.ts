@@ -24,9 +24,6 @@ export const useMatchLifecycle = () => {
 
   // Internal helper to perform atomic IndexedDB write with rollback support
   const logTimeAnchor = async (type: number): Promise<string> => {
-    if (!activeMatchId) {
-      throw new Error("No active match ID found for logging time anchor.");
-    }
     const anchorId = crypto.randomUUID();
 
     await db.transaction(
@@ -37,7 +34,7 @@ export const useMatchLifecycle = () => {
 
         const anchorData = {
           id: anchorId,
-          matchId: activeMatchId,
+          matchId: activeMatchId!,
           periodNumber,
           type,
           timestamp: new Date().toISOString(),
