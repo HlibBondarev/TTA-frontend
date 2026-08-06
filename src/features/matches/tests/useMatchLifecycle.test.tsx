@@ -258,4 +258,38 @@ describe("useMatchLifecycle Hook", () => {
     expect(store.getState().match.globalSequenceNumber).toBe(0);
     expect(db.timeanchors.add).not.toHaveBeenCalled();
   });
+
+  test("should block timer start (resume) if not inside stoppage or period is inactive", async () => {
+    const store = createTestStore({
+      isPeriodActive: true,
+      isInsideStoppage: false,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.startTime();
+    });
+
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  test("should safely decrement period number down when period is inactive and greater than 1", () => {
+    const store = createTestStore({ periodNumber: 2, isPeriodActive: false });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    act(() => {
+      result.current.prevPeriod();
+    });
+    expect(store.getState().match.periodNumber).toBe(1);
+
+    // Should not go below 1 or handle minimum bounds depending on slice logic
+    act(() => {
+      result.current.prevPeriod();
+    });
+    expect(store.getState().match.periodNumber).toBe(1);
+  });
 });

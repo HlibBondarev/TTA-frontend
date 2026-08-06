@@ -141,4 +141,61 @@ describe("MatchSetupWizard Component", () => {
 
     expect(await screen.findByText("Submission error")).toBeDefined();
   });
+
+  it("should select the first available configuration if defaultConfigId does not match any config", async () => {
+    const modifiedSports = [
+      {
+        id: "sport-1",
+        name: "Water Polo",
+        shortName: "WP",
+        defaultConfigId: "non-existent-config",
+      },
+    ];
+
+    const multipleConfigs = [
+      {
+        id: "config-fallback",
+        sportId: "sport-1",
+        usesCleanTime: false,
+        periodsCount: 2,
+        periodDurationMinutes: 15,
+        fieldSize: "20x10",
+        rosterLimit: 10,
+        lineupLimit: 5,
+        activePlayersLimit: 5,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(modifiedSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      multipleConfigs,
+    );
+
+    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    expect(await screen.findByText(/Periods: 2/i)).toBeDefined();
+  });
+
+  it("should handle submission error gracefully and reset submitting state", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    const handleQuickStart = vi
+      .fn()
+      .mockImplementation(() => Promise.reject(new Error("API Timeout")));
+
+    render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    const quickStartButton = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+
+    fireEvent.click(quickStartButton);
+
+    expect(await screen.findByText("API Timeout")).toBeDefined();
+    // Button should be enabled again after error handling
+    expect(quickStartButton).not.toBeDisabled();
+  });
 });

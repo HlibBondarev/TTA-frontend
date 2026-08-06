@@ -326,4 +326,60 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
 
     expect(store.getState().match.isPeriodActive).toBe(true);
   });
+
+  test("should successfully trigger timer start/resume flow when inside stoppage", async () => {
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        periodNumber: 1,
+        isPeriodActive: true,
+        isInsideStoppage: true,
+        globalSequenceNumber: 1,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const resumeBtn = screen.getByRole("button", { name: /Resume/i });
+    expect(resumeBtn).not.toBeDisabled();
+
+    fireEvent.click(resumeBtn);
+
+    await waitFor(() => {
+      expect(store.getState().match.isInsideStoppage).toBe(false);
+    });
+  });
+
+  test("should successfully trigger stop time flow when period is active and not in stoppage", async () => {
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        periodNumber: 1,
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        globalSequenceNumber: 1,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const stopBtn = screen.getByRole("button", { name: /^Stop$/i });
+    expect(stopBtn).not.toBeDisabled();
+
+    fireEvent.click(stopBtn);
+
+    await waitFor(() => {
+      expect(store.getState().match.isInsideStoppage).toBe(true);
+    });
+  });
 });
