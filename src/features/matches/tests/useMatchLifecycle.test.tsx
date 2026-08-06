@@ -194,4 +194,68 @@ describe("useMatchLifecycle Hook", () => {
     });
     expect(store.getState().match.periodNumber).toBe(1);
   });
+
+  test("should throw and leave state unchanged if starting period without active match ID", async () => {
+    const store = createTestStore({
+      activeMatchId: null,
+      globalSequenceNumber: 0,
+      isPeriodActive: false,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.startPeriod();
+      }),
+    ).rejects.toThrow("No active match ID found for logging time anchor.");
+
+    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.globalSequenceNumber).toBe(0);
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  test("should throw and leave state unchanged if ending period without active match ID", async () => {
+    const store = createTestStore({
+      activeMatchId: null,
+      globalSequenceNumber: 0,
+      isPeriodActive: true,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.endPeriod();
+      }),
+    ).rejects.toThrow("No active match ID found for logging time anchor.");
+
+    expect(store.getState().match.isPeriodActive).toBe(true);
+    expect(store.getState().match.globalSequenceNumber).toBe(0);
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  test("should throw and leave state unchanged if stopping/resuming time without active match ID", async () => {
+    const store = createTestStore({
+      activeMatchId: null,
+      globalSequenceNumber: 0,
+      isPeriodActive: true,
+      isInsideStoppage: false,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.stopTime();
+      }),
+    ).rejects.toThrow("No active match ID found for logging time anchor.");
+
+    expect(store.getState().match.isInsideStoppage).toBe(false);
+    expect(store.getState().match.globalSequenceNumber).toBe(0);
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
 });

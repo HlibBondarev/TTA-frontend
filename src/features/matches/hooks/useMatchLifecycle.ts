@@ -71,6 +71,9 @@ export const useMatchLifecycle = () => {
   };
 
   const startPeriod = async (): Promise<string | undefined> => {
+    if (!activeMatchId) {
+      throw new Error("No active match ID found for logging time anchor.");
+    }
     if (isPeriodActive) return;
 
     dispatch(startPeriodState());
@@ -86,6 +89,9 @@ export const useMatchLifecycle = () => {
   };
 
   const endPeriod = async (): Promise<string | undefined> => {
+    if (!activeMatchId) {
+      throw new Error("No active match ID found for logging time anchor.");
+    }
     if (!isPeriodActive) return;
 
     dispatch(endPeriodState());
@@ -101,6 +107,9 @@ export const useMatchLifecycle = () => {
   };
 
   const stopTime = async () => {
+    if (!activeMatchId) {
+      throw new Error("No active match ID found for logging time anchor.");
+    }
     if (!isPeriodActive || isInsideStoppage) return;
 
     dispatch(startStoppageState());
@@ -114,6 +123,9 @@ export const useMatchLifecycle = () => {
   };
 
   const startTime = async () => {
+    if (!activeMatchId) {
+      throw new Error("No active match ID found for logging time anchor.");
+    }
     if (!isPeriodActive || !isInsideStoppage) return;
 
     dispatch(endStoppageState());
