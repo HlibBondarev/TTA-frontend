@@ -129,6 +129,57 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     }
   };
 
+  // Helper method to render configurations content avoiding nested ternaries in JSX
+  const renderConfigurationsContent = () => {
+    if (isLoadingConfigs) {
+      return (
+        <div className="p-4 text-center text-xs text-gray-500 bg-gray-900 rounded-xl border border-gray-800">
+          Loading configurations...
+        </div>
+      );
+    }
+
+    if (configurations.length === 0) {
+      return (
+        <div className="p-4 text-center text-xs text-gray-500 bg-gray-900 rounded-xl border border-gray-800">
+          No configurations available for this sport.
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 gap-2">
+        {configurations.map((config) => (
+          <button
+            key={config.id}
+            type="button"
+            onClick={() => setSelectedConfigId(config.id)}
+            aria-pressed={selectedConfigId === config.id}
+            className={`p-3 rounded-xl text-xs text-left transition-colors border ${
+              selectedConfigId === config.id
+                ? "bg-emerald-600 border-emerald-500 text-white font-bold"
+                : "bg-gray-900 border-gray-800 text-gray-300 hover:bg-gray-800"
+            }`}
+          >
+            <div className="flex justify-between items-center mb-1">
+              <span>
+                Periods: {config.periodsCount} ({config.periodDurationMinutes}{" "}
+                min)
+              </span>
+              <span className="text-[10px] opacity-75">
+                {config.usesCleanTime ? "Clean Time" : "Running Time"}
+              </span>
+            </div>
+            <div className="text-[10px] opacity-75">
+              Field: {config.fieldSize} | Active Players:{" "}
+              {config.activePlayersLimit}
+            </div>
+          </button>
+        ))}
+      </div>
+    );
+  };
+
   if (isLoadingSports) {
     return (
       <div className="flex flex-col items-center justify-center flex-1 p-6 text-gray-400 text-sm">
@@ -154,9 +205,9 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
       {/* Step 1: Sport Discipline Selection */}
       <div className="mb-4">
-        <label className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold">
+        <div className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold">
           1. Select Sport Discipline
-        </label>
+        </div>
         <div className="grid grid-cols-1 gap-2">
           {sports.map((sport) => (
             <button
@@ -181,48 +232,10 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
       {/* Step 2: Sport Configuration Selection */}
       <div className="mb-6 flex-1">
-        <label className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold">
+        <div className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold">
           2. Select Configuration Profile
-        </label>
-        {isLoadingConfigs ? (
-          <div className="p-4 text-center text-xs text-gray-500 bg-gray-900 rounded-xl border border-gray-800">
-            Loading configurations...
-          </div>
-        ) : configurations.length === 0 ? (
-          <div className="p-4 text-center text-xs text-gray-500 bg-gray-900 rounded-xl border border-gray-800">
-            No configurations available for this sport.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-2">
-            {configurations.map((config) => (
-              <button
-                key={config.id}
-                type="button"
-                onClick={() => setSelectedConfigId(config.id)}
-                aria-pressed={selectedConfigId === config.id}
-                className={`p-3 rounded-xl text-xs text-left transition-colors border ${
-                  selectedConfigId === config.id
-                    ? "bg-emerald-600 border-emerald-500 text-white font-bold"
-                    : "bg-gray-900 border-gray-800 text-gray-300 hover:bg-gray-800"
-                }`}
-              >
-                <div className="flex justify-between items-center mb-1">
-                  <span>
-                    Periods: {config.periodsCount} (
-                    {config.periodDurationMinutes} min)
-                  </span>
-                  <span className="text-[10px] opacity-75">
-                    {config.usesCleanTime ? "Clean Time" : "Running Time"}
-                  </span>
-                </div>
-                <div className="text-[10px] opacity-75">
-                  Field: {config.fieldSize} | Active Players:{" "}
-                  {config.activePlayersLimit}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
+        </div>
+        {renderConfigurationsContent()}
       </div>
 
       {/* Step 3: Quick Start Action */}
