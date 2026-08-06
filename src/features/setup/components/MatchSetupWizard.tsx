@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { sportService } from "../../../services/sportService";
 import type {
   SportLookup,
@@ -29,13 +29,20 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Request sequence ref to prevent race conditions during rapid configuration fetches
+  const configRequestRef = useRef(0);
+
   // Function to fetch configurations for a specific sport id
   const loadConfigurations = useCallback(
     async (sportId: string, sportList: SportLookup[]) => {
+      const requestId = ++configRequestRef.current;
       try {
         setIsLoadingConfigs(true);
         setErrorMessage(null);
         const data = await sportService.getSportConfigurations(sportId);
+
+        if (requestId !== configRequestRef.current) return;
+
         setConfigurations(data);
 
         const currentSport = sportList.find((s) => s.id === sportId);
@@ -51,6 +58,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           setSelectedConfigId(null);
         }
       } catch (err) {
+        if (requestId !== configRequestRef.current) return;
         setErrorMessage(
           err instanceof Error
             ? err.message
@@ -59,7 +67,9 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         setConfigurations([]);
         setSelectedConfigId(null);
       } finally {
-        setIsLoadingConfigs(false);
+        if (requestId === configRequestRef.current) {
+          setIsLoadingConfigs(false);
+        }
       }
     },
     [],
