@@ -135,6 +135,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           ? err.message
           : "Failed to initialize quick match session.",
       );
+    } finally {
       setIsSubmitting(false);
     }
   };
