@@ -45,7 +45,19 @@ const createTestStore = (preloadedState = {}) => {
       match: matchReducer,
       presence: presenceReducer,
     },
-    preloadedState,
+    preloadedState: {
+      match: {
+        activeMatchId: "test-match",
+        periodNumber: 1,
+        homeScore: 0,
+        guestScore: 0,
+        isPeriodActive: false,
+        isInsideStoppage: false,
+        globalSequenceNumber: 0,
+        recentActions: [],
+      },
+      ...preloadedState,
+    },
   });
 };
 
@@ -313,5 +325,84 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     ).rejects.toThrow("DB error");
 
     expect(store.getState().match.isPeriodActive).toBe(true);
+  });
+
+  test("should successfully trigger timer start/resume flow when inside stoppage", async () => {
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        periodNumber: 1,
+        isPeriodActive: true,
+        isInsideStoppage: true,
+        globalSequenceNumber: 1,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const resumeBtn = screen.getByRole("button", { name: /Resume/i });
+    expect(resumeBtn).not.toBeDisabled();
+
+    fireEvent.click(resumeBtn);
+
+    await waitFor(() => {
+      expect(store.getState().match.isInsideStoppage).toBe(false);
+    });
+  });
+
+  test("should successfully trigger stop time flow when period is active and not in stoppage", async () => {
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        periodNumber: 1,
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        globalSequenceNumber: 1,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const stopBtn = screen.getByRole("button", { name: /^Stop$/i });
+    expect(stopBtn).not.toBeDisabled();
+
+    fireEvent.click(stopBtn);
+
+    await waitFor(() => {
+      expect(store.getState().match.isInsideStoppage).toBe(true);
+    });
+  });
+
+  test("should show error message if selected starting ids length does not match active players limit", async () => {
+    vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
+      ...defaultPresenceMock,
+      selectedStartingIds: ["p1", "p2"], // Only 2 players instead of 7
+      activePlayersLimit: 7,
+    });
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const startBtn = screen.getByText("START PERIOD");
+    fireEvent.click(startBtn);
+
+    expect(
+      await screen.findByText(/Select exactly 7 players\./i),
+    ).toBeInTheDocument();
+    expect(defaultPresenceMock.startPeriodWithRoster).not.toHaveBeenCalled();
   });
 });

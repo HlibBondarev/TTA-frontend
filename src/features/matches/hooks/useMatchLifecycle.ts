@@ -1,7 +1,6 @@
 import { db } from "../../../db/ttaDatabase";
 import { getNextSequenceNumber } from "../../../db/eventService";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
-import { TEST_MATCH_ID } from "../../../App";
 import {
   startPeriodState,
   endPeriodState,
@@ -25,7 +24,6 @@ export const useMatchLifecycle = () => {
 
   // Internal helper to perform atomic IndexedDB write with rollback support
   const logTimeAnchor = async (type: number): Promise<string> => {
-    const matchIdToUse = activeMatchId || TEST_MATCH_ID;
     const anchorId = crypto.randomUUID();
 
     await db.transaction(
@@ -36,7 +34,7 @@ export const useMatchLifecycle = () => {
 
         const anchorData = {
           id: anchorId,
-          matchId: matchIdToUse,
+          matchId: activeMatchId!,
           periodNumber,
           type,
           timestamp: new Date().toISOString(),
@@ -70,6 +68,9 @@ export const useMatchLifecycle = () => {
   };
 
   const startPeriod = async (): Promise<string | undefined> => {
+    if (!activeMatchId) {
+      throw new Error("No active match ID found for logging time anchor.");
+    }
     if (isPeriodActive) return;
 
     dispatch(startPeriodState());
@@ -85,6 +86,9 @@ export const useMatchLifecycle = () => {
   };
 
   const endPeriod = async (): Promise<string | undefined> => {
+    if (!activeMatchId) {
+      throw new Error("No active match ID found for logging time anchor.");
+    }
     if (!isPeriodActive) return;
 
     dispatch(endPeriodState());
@@ -100,6 +104,9 @@ export const useMatchLifecycle = () => {
   };
 
   const stopTime = async () => {
+    if (!activeMatchId) {
+      throw new Error("No active match ID found for logging time anchor.");
+    }
     if (!isPeriodActive || isInsideStoppage) return;
 
     dispatch(startStoppageState());
@@ -113,6 +120,9 @@ export const useMatchLifecycle = () => {
   };
 
   const startTime = async () => {
+    if (!activeMatchId) {
+      throw new Error("No active match ID found for logging time anchor.");
+    }
     if (!isPeriodActive || !isInsideStoppage) return;
 
     dispatch(endStoppageState());

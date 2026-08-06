@@ -194,4 +194,112 @@ describe("useMatchLifecycle Hook", () => {
     });
     expect(store.getState().match.periodNumber).toBe(1);
   });
+
+  test("should throw and leave state unchanged if starting period without active match ID", async () => {
+    const store = createTestStore({
+      activeMatchId: null,
+      globalSequenceNumber: 0,
+      isPeriodActive: false,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.startPeriod();
+      }),
+    ).rejects.toThrow("No active match ID found for logging time anchor.");
+
+    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.globalSequenceNumber).toBe(0);
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  test("should throw and leave state unchanged if ending period without active match ID", async () => {
+    const store = createTestStore({
+      activeMatchId: null,
+      globalSequenceNumber: 0,
+      isPeriodActive: true,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.endPeriod();
+      }),
+    ).rejects.toThrow("No active match ID found for logging time anchor.");
+
+    expect(store.getState().match.isPeriodActive).toBe(true);
+    expect(store.getState().match.globalSequenceNumber).toBe(0);
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  test("should throw and leave state unchanged if stopping/resuming time without active match ID", async () => {
+    const store = createTestStore({
+      activeMatchId: null,
+      globalSequenceNumber: 0,
+      isPeriodActive: true,
+      isInsideStoppage: false,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.stopTime();
+      }),
+    ).rejects.toThrow("No active match ID found for logging time anchor.");
+
+    expect(store.getState().match.isInsideStoppage).toBe(false);
+    expect(store.getState().match.globalSequenceNumber).toBe(0);
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+
+    await expect(
+      act(async () => {
+        await result.current.startTime();
+      }),
+    ).rejects.toThrow("No active match ID found for logging time anchor.");
+
+    expect(store.getState().match.isInsideStoppage).toBe(false);
+    expect(store.getState().match.globalSequenceNumber).toBe(0);
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  test("should block timer start (resume) if not inside stoppage or period is inactive", async () => {
+    const store = createTestStore({
+      isPeriodActive: true,
+      isInsideStoppage: false,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.startTime();
+    });
+
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  test("should safely decrement period number down when period is inactive and greater than 1", () => {
+    const store = createTestStore({ periodNumber: 2, isPeriodActive: false });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    act(() => {
+      result.current.prevPeriod();
+    });
+    expect(store.getState().match.periodNumber).toBe(1);
+
+    // Should not go below 1 or handle minimum bounds depending on slice logic
+    act(() => {
+      result.current.prevPeriod();
+    });
+    expect(store.getState().match.periodNumber).toBe(1);
+  });
 });
