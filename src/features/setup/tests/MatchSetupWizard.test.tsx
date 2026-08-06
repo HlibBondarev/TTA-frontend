@@ -171,9 +171,18 @@ describe("MatchSetupWizard Component", () => {
       multipleConfigs,
     );
 
-    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+    render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
     expect(await screen.findByText(/Periods: 2/i)).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
+
+    expect(handleQuickStart).toHaveBeenCalledWith(
+      "sport-1",
+      "config-fallback",
+      5,
+    );
   });
 
   it("should handle submission error gracefully and reset submitting state", async () => {
