@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import App from "../App";
@@ -72,7 +72,7 @@ describe("App Bootstrapping Component", () => {
       fieldSize: "30x20",
       rosterLimit: 13,
       lineupLimit: 7,
-      activePlayersLimit: 7,
+      activePlayersLimit: 5, // Non-7 limit config coverage
     },
   ];
 
@@ -109,7 +109,7 @@ describe("App Bootstrapping Component", () => {
     expect(await screen.findByText("Water Polo")).toBeDefined();
   });
 
-  it("should execute quick start and render TTAConsole when quick start button is clicked", async () => {
+  it("should execute quick start with dynamic activePlayersLimit and render TTAConsole", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -135,14 +135,28 @@ describe("App Bootstrapping Component", () => {
       </Provider>,
     );
 
-    expect(await screen.findByText("Quick Start Match")).toBeDefined();
+    // Wait until the configuration profile button/element is fully loaded and rendered
+    const configButton = await screen.findByRole("button", {
+      name: /Periods: 4/i,
+    });
+    expect(configButton).toBeDefined();
 
-    fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
+    const quickStartButton = screen.getByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    expect(quickStartButton).not.toBeDisabled();
+
+    fireEvent.click(quickStartButton);
 
     // Verify API call for quick start
     expect(apiClient.post).toHaveBeenCalledWith("/Matches/quick", {
       sportId: "sport-1",
       configurationId: "config-1",
+    });
+
+    // Verify that presence limits were correctly updated in store with the configuration's limit (5)
+    await waitFor(() => {
+      expect(store.getState().presence.activePlayersLimit).toBe(5);
     });
 
     // After quick start, TTAConsole should be rendered

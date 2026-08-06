@@ -36,7 +36,7 @@ describe("MatchSetupWizard Component", () => {
       fieldSize: "30x20",
       rosterLimit: 13,
       lineupLimit: 7,
-      activePlayersLimit: 7,
+      activePlayersLimit: 5, // Non-7 limit config for testing dynamic passing
     },
   ];
 
@@ -44,7 +44,7 @@ describe("MatchSetupWizard Component", () => {
     vi.clearAllMocks();
   });
 
-  it("should render sports and configurations correctly and allow quick starting", async () => {
+  it("should render sports and configurations correctly and allow quick starting with activePlayersLimit", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -68,7 +68,7 @@ describe("MatchSetupWizard Component", () => {
 
     fireEvent.click(quickStartButton);
 
-    expect(handleQuickStart).toHaveBeenCalledWith("sport-1", "config-1");
+    expect(handleQuickStart).toHaveBeenCalledWith("sport-1", "config-1", 5);
   });
 
   it("should handle error when fetching sports fails", async () => {

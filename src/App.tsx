@@ -48,28 +48,31 @@ export const App: React.FC = () => {
     initSyncEngine();
 
     const initializeApp = async () => {
-      dispatch(
-        setPresenceLimits({
-          limit: 7,
-          period: 1,
-        }),
-      );
-
-      // Note: activeMatchId is now initialized via MatchSetupWizard workflow rather than hardcoded TEST_MATCH_ID
+      // Note: activeMatchId and presence limits are initialized via MatchSetupWizard workflow
       setIsInitializing(false);
     };
 
     initializeApp();
   }, [dispatch]);
 
-  // Handle quick start workflow: create match via API, set active match in store, and hydrate data
-  const handleQuickStart = async (sportId: string, configurationId: string) => {
+  // Handle quick start workflow: create match via API, set presence limits and active match in store, and hydrate data
+  const handleQuickStart = async (
+    sportId: string,
+    configurationId: string,
+    activePlayersLimit: number,
+  ) => {
     const response = await apiClient.post<{ id: string }>("/Matches/quick", {
       sportId,
       configurationId,
     });
 
     const matchId = response.id;
+    dispatch(
+      setPresenceLimits({
+        limit: activePlayersLimit,
+        period: 1,
+      }),
+    );
     dispatch(setActiveMatch(matchId));
 
     try {

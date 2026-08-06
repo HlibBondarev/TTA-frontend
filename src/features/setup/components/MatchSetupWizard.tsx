@@ -6,7 +6,11 @@ import type {
 } from "../../../db/ttaDatabase";
 
 interface MatchSetupWizardProps {
-  onQuickStart: (sportId: string, configurationId: string) => Promise<void>;
+  onQuickStart: (
+    sportId: string,
+    configurationId: string,
+    activePlayersLimit: number,
+  ) => Promise<void>;
 }
 
 /**
@@ -125,10 +129,15 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   const handleQuickStart = async () => {
     if (!selectedSportId || !selectedConfigId || isSubmitting) return;
 
+    const selectedConfig = configurations.find(
+      (c) => c.id === selectedConfigId,
+    );
+    const activePlayersLimit = selectedConfig?.activePlayersLimit ?? 7;
+
     try {
       setIsSubmitting(true);
       setErrorMessage(null);
-      await onQuickStart(selectedSportId, selectedConfigId);
+      await onQuickStart(selectedSportId, selectedConfigId, activePlayersLimit);
     } catch (err) {
       setErrorMessage(
         err instanceof Error
