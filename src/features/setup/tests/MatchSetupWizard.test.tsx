@@ -2,11 +2,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MatchSetupWizard } from "../components/MatchSetupWizard";
 import { sportService } from "../../../services/sportService";
+import { teamService } from "../../../services/teamService";
+import { apiClient } from "../../../api/client";
+import type { TeamLookup } from "../../../db/ttaDatabase";
 
 vi.mock("../../../services/sportService", () => ({
   sportService: {
     getSports: vi.fn(),
     getSportConfigurations: vi.fn(),
+  },
+}));
+
+vi.mock("../../../services/teamService", () => ({
+  teamService: {
+    getTeamById: vi.fn(),
+  },
+}));
+
+vi.mock("../../../api/client", () => ({
+  apiClient: {
+    get: vi.fn(),
+    post: vi.fn(),
   },
 }));
 
@@ -20,8 +36,8 @@ describe("MatchSetupWizard Component", () => {
     },
     {
       id: "sport-2",
-      name: "Swimming",
-      shortName: "SW",
+      name: "Basketball",
+      shortName: "BB",
       defaultConfigId: "config-99",
     },
   ];
@@ -36,39 +52,191 @@ describe("MatchSetupWizard Component", () => {
       fieldSize: "30x20",
       rosterLimit: 13,
       lineupLimit: 7,
-      activePlayersLimit: 5, // Non-7 limit config for testing dynamic passing
+      activePlayersLimit: 5,
     },
   ];
+
+  const mockMatch = {
+    id: "match-123",
+    homeTeamId: "team-home",
+    guestTeamId: "team-guest",
+  };
+
+  const mockHomeTeam: TeamLookup = {
+    id: "team-home",
+    clubId: "club-1",
+    sportId: "sport-1",
+    name: "Home Squad",
+    minBirthYear: null,
+    gender: 0,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  const mockGuestTeam: TeamLookup = {
+    id: "team-guest",
+    clubId: "club-1",
+    sportId: "sport-1",
+    name: "Opponent Squad",
+    minBirthYear: null,
+    gender: 0,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("should render sports and configurations correctly and allow quick starting with activePlayersLimit", async () => {
+  it("should render wizard steps, load teams on Quick Start, allow team selection and trigger onQuickStart", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
     );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
 
     render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
-    // Wait for sports to load
     expect(await screen.findByText("Water Polo")).toBeDefined();
-
-    // Wait for configurations to load
     expect(await screen.findByText(/Periods: 4/i)).toBeDefined();
 
-    // Click Quick Start button using fireEvent
-    const quickStartButton = screen.getByRole("button", {
+    const quickStartBtn = screen.getByRole("button", {
       name: /Quick Start Match/i,
     });
-    expect(quickStartButton).not.toBeDisabled();
+    fireEvent.click(quickStartBtn);
 
-    fireEvent.click(quickStartButton);
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(screen.getByText("Home Squad")).toBeDefined();
+    expect(screen.getByText("Opponent Squad")).toBeDefined();
 
-    expect(handleQuickStart).toHaveBeenCalledWith("sport-1", "config-1", 5);
+    // Select Guest Team
+    fireEvent.click(screen.getByText("Opponent Squad"));
+
+    // Confirm tracking session
+    const confirmBtn = screen.getByRole("button", {
+      name: /Confirm & Start Tracking/i,
+    });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(handleQuickStart).toHaveBeenCalledWith(
+        "match-123",
+        "sport-1",
+        "config-1",
+        5,
+        "team-guest",
+      );
+    });
+  });
+
+  it("should reuse pendingMatchId and post to /Matches/quick only once on retry when team loading fails", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get)
+      .mockRejectedValueOnce(new Error("Failed to load match details"))
+      .mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+
+    // First attempt: POST succeeds, GET fails
+    fireEvent.click(quickStartBtn);
+
+    expect(
+      await screen.findByText("Failed to load match details"),
+    ).toBeDefined();
+
+    // Retry initialization
+    fireEvent.click(quickStartBtn);
+
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    // Verify /Matches/quick POST was only executed once
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("should prevent changing configuration after match initialization and preserve original configuration on confirm", async () => {
+    const multipleConfigs = [
+      {
+        id: "config-1",
+        sportId: "sport-1",
+        usesCleanTime: true,
+        periodsCount: 4,
+        periodDurationMinutes: 8,
+        fieldSize: "30x20",
+        rosterLimit: 13,
+        lineupLimit: 7,
+        activePlayersLimit: 7,
+      },
+      {
+        id: "config-2",
+        sportId: "sport-1",
+        usesCleanTime: false,
+        periodsCount: 2,
+        periodDurationMinutes: 20,
+        fieldSize: "40x25",
+        rosterLimit: 15,
+        lineupLimit: 5,
+        activePlayersLimit: 5,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      multipleConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+
+    render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    expect(await screen.findByText(/Periods: 4/i)).toBeDefined();
+
+    // Initialize quick match (pendingMatchId is now set)
+    fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
+
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    // Attempt to click second configuration button
+    const config2Btn = screen.getByText(/Periods: 2/i).closest("button");
+    expect(config2Btn).toBeDisabled();
+    if (config2Btn) {
+      fireEvent.click(config2Btn);
+    }
+
+    // Confirm tracking session
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    // Should still use config-1 and activePlayersLimit: 7
+    await waitFor(() => {
+      expect(handleQuickStart).toHaveBeenCalledWith(
+        "match-123",
+        "sport-1",
+        "config-1",
+        7,
+        "team-home",
+      );
+    });
   });
 
   it("should handle error when fetching sports fails", async () => {
@@ -95,21 +263,18 @@ describe("MatchSetupWizard Component", () => {
     ).toBeDefined();
   });
 
-  it("should handle sport selection change and empty configurations gracefully", async () => {
+  it("should handle sport selection change and reset draft state", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
-    // Initial fetch for sport-1 returns configs
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
     );
-    // Subsequent fetch for sport-2 returns empty list
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([]);
 
     render(<MatchSetupWizard onQuickStart={vi.fn()} />);
 
-    expect(await screen.findByText("Swimming")).toBeDefined();
+    expect(await screen.findByText("Basketball")).toBeDefined();
 
-    // Click on the second sport to trigger handleSelectSport
-    fireEvent.click(screen.getByText("Swimming"));
+    fireEvent.click(screen.getByText("Basketball"));
 
     await waitFor(() => {
       expect(
@@ -122,24 +287,25 @@ describe("MatchSetupWizard Component", () => {
     );
   });
 
-  it("should handle error during quick start submission", async () => {
+  it("should handle error during match initialization step", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
     );
+    vi.mocked(apiClient.post).mockRejectedValueOnce(
+      new Error("Quick match creation failed"),
+    );
 
-    const handleQuickStart = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("Submission error"));
+    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
 
-    render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
-
-    const quickStartButton = await screen.findByRole("button", {
+    const quickStartBtn = await screen.findByRole("button", {
       name: /Quick Start Match/i,
     });
-    fireEvent.click(quickStartButton);
+    fireEvent.click(quickStartBtn);
 
-    expect(await screen.findByText("Submission error")).toBeDefined();
+    expect(
+      await screen.findByText("Quick match creation failed"),
+    ).toBeDefined();
   });
 
   it("should select the first available configuration if defaultConfigId does not match any config", async () => {
@@ -170,6 +336,11 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       multipleConfigs,
     );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
     render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
@@ -177,19 +348,31 @@ describe("MatchSetupWizard Component", () => {
     expect(await screen.findByText(/Periods: 2/i)).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
-
-    expect(handleQuickStart).toHaveBeenCalledWith(
-      "sport-1",
-      "config-fallback",
-      5,
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
     );
+
+    await waitFor(() => {
+      expect(handleQuickStart).toHaveBeenCalledWith(
+        "match-123",
+        "sport-1",
+        "config-fallback",
+        5,
+        "team-home",
+      );
+    });
   });
 
-  it("should handle submission error gracefully and reset submitting state", async () => {
+  it("should handle submission error during final confirmation gracefully and reset submitting state", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
     );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     const handleQuickStart = vi
       .fn()
@@ -197,15 +380,17 @@ describe("MatchSetupWizard Component", () => {
 
     render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
-    const quickStartButton = await screen.findByRole("button", {
-      name: /Quick Start Match/i,
-    });
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
 
-    fireEvent.click(quickStartButton);
+    const confirmBtn = await screen.findByRole("button", {
+      name: /Confirm & Start Tracking/i,
+    });
+    fireEvent.click(confirmBtn);
 
     expect(await screen.findByText("API Timeout")).toBeDefined();
-    // Button should be enabled again after error handling
-    expect(quickStartButton).not.toBeDisabled();
+    expect(confirmBtn).not.toBeDisabled();
   });
 
   it("should allow selecting a different configuration when multiple configurations are available", async () => {
@@ -238,24 +423,35 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       multipleConfigs,
     );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
 
     render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
-    // Wait for configurations to load
     expect(await screen.findByText(/Periods: 4/i)).toBeDefined();
     expect(screen.getByText(/Periods: 2/i)).toBeDefined();
 
-    // Click the second configuration button
+    // Select second configuration
     fireEvent.click(screen.getByText(/Periods: 2/i));
 
-    // Click Quick Start button
-    const quickStartButton = screen.getByRole("button", {
-      name: /Quick Start Match/i,
-    });
-    fireEvent.click(quickStartButton);
+    fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
 
-    expect(handleQuickStart).toHaveBeenCalledWith("sport-1", "config-2", 5);
+    await waitFor(() => {
+      expect(handleQuickStart).toHaveBeenCalledWith(
+        "match-123",
+        "sport-1",
+        "config-2",
+        5,
+        "team-home",
+      );
+    });
   });
 });

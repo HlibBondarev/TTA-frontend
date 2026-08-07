@@ -1,22 +1,24 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { sportService } from "../../../services/sportService";
+import { teamService } from "../../../services/teamService";
+import { apiClient } from "../../../api/client";
 import type {
   SportLookup,
   SportConfigurationLookup,
+  MatchLookup,
+  TeamLookup,
 } from "../../../db/ttaDatabase";
 
 interface MatchSetupWizardProps {
   onQuickStart: (
+    matchId: string,
     sportId: string,
     configurationId: string,
     activePlayersLimit: number,
+    selectedTeamId: string,
   ) => Promise<void>;
 }
 
-/**
- * Mobile-optimized setup wizard component for Step-1 (Sport Selection)
- * and Step-2 (Configuration Selection) of the User Initial Application Workflow.
- */
 export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   onQuickStart,
 }) => {
@@ -28,15 +30,22 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   >([]);
   const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null);
 
+  // Quick match draft context for team selection
+  const [pendingMatchId, setPendingMatchId] = useState<string | null>(null);
+  const [teams, setTeams] = useState<{
+    home: TeamLookup;
+    guest: TeamLookup;
+  } | null>(null);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+
   const [isLoadingSports, setIsLoadingSports] = useState<boolean>(true);
   const [isLoadingConfigs, setIsLoadingConfigs] = useState<boolean>(false);
+  const [isLoadingTeams, setIsLoadingTeams] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Request sequence ref to prevent race conditions during rapid configuration fetches
   const configRequestRef = useRef(0);
 
-  // Function to fetch configurations for a specific sport id
   const loadConfigurations = useCallback(
     async (sportId: string, sportList: SportLookup[]) => {
       const requestId = ++configRequestRef.current;
@@ -79,7 +88,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     [],
   );
 
-  // Step 1: Fetch available sports on mount and initialize default selection
   useEffect(() => {
     let isMounted = true;
 
@@ -118,16 +126,69 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     };
   }, [loadConfigurations]);
 
-  // Handle sport selection change explicitly from user interaction
   const handleSelectSport = async (sportId: string) => {
-    if (selectedSportId === sportId) return;
+    if (selectedSportId === sportId || pendingMatchId) return;
     setSelectedSportId(sportId);
     setSelectedConfigId(null);
+    setPendingMatchId(null);
+    setTeams(null);
+    setSelectedTeamId(null);
     await loadConfigurations(sportId, sports);
   };
 
-  const handleQuickStart = async () => {
+  // Step A: Create quick match (or reuse pendingMatchId) and load participating teams
+  const handleInitMatch = async () => {
     if (!selectedSportId || !selectedConfigId || isSubmitting) return;
+
+    try {
+      setIsSubmitting(true);
+      setIsLoadingTeams(true);
+      setErrorMessage(null);
+
+      let matchId = pendingMatchId;
+
+      if (!matchId) {
+        const response = await apiClient.post<{ id: string }>(
+          "/Matches/quick",
+          {
+            sportId: selectedSportId,
+            configurationId: selectedConfigId,
+          },
+        );
+        matchId = response.id;
+        setPendingMatchId(matchId);
+      }
+
+      const match = await apiClient.get<MatchLookup>(`/Matches/${matchId}`);
+      const [home, guest] = await Promise.all([
+        teamService.getTeamById(match.homeTeamId),
+        teamService.getTeamById(match.guestTeamId),
+      ]);
+
+      setTeams({ home, guest });
+      setSelectedTeamId((prev) => prev ?? home.id);
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error
+          ? err.message
+          : "Failed to initialize quick match session.",
+      );
+    } finally {
+      setIsSubmitting(false);
+      setIsLoadingTeams(false);
+    }
+  };
+
+  // Step B: Confirm team selection and proceed to console
+  const handleConfirmQuickStart = async () => {
+    if (
+      !pendingMatchId ||
+      !selectedSportId ||
+      !selectedConfigId ||
+      !selectedTeamId ||
+      isSubmitting
+    )
+      return;
 
     const selectedConfig = configurations.find(
       (c) => c.id === selectedConfigId,
@@ -137,19 +198,22 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     try {
       setIsSubmitting(true);
       setErrorMessage(null);
-      await onQuickStart(selectedSportId, selectedConfigId, activePlayersLimit);
+      await onQuickStart(
+        pendingMatchId,
+        selectedSportId,
+        selectedConfigId,
+        activePlayersLimit,
+        selectedTeamId,
+      );
     } catch (err) {
       setErrorMessage(
-        err instanceof Error
-          ? err.message
-          : "Failed to initialize quick match session.",
+        err instanceof Error ? err.message : "Failed to complete match setup.",
       );
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Helper method to render configurations content avoiding nested ternaries in JSX
   const renderConfigurationsContent = () => {
     if (isLoadingConfigs) {
       return (
@@ -173,7 +237,12 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           <button
             key={config.id}
             type="button"
-            onClick={() => setSelectedConfigId(config.id)}
+            disabled={!!pendingMatchId}
+            onClick={() => {
+              if (!pendingMatchId) {
+                setSelectedConfigId(config.id);
+              }
+            }}
             aria-pressed={selectedConfigId === config.id}
             className={`p-3 rounded-xl text-xs text-left transition-colors border ${
               selectedConfigId === config.id
@@ -233,6 +302,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
             <button
               key={sport.id}
               type="button"
+              disabled={!!pendingMatchId}
               onClick={() => void handleSelectSport(sport.id)}
               aria-pressed={selectedSportId === sport.id}
               className={`p-3 rounded-xl text-xs font-semibold text-left transition-colors flex items-center justify-between border ${
@@ -258,15 +328,74 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         {renderConfigurationsContent()}
       </fieldset>
 
-      {/* Step 3: Quick Start Action */}
-      <button
-        type="button"
-        disabled={!selectedSportId || !selectedConfigId || isSubmitting}
-        onClick={handleQuickStart}
-        className="w-full py-4 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-black uppercase rounded-xl transition-colors tracking-wider text-xs shadow-lg"
-      >
-        {isSubmitting ? "Initializing Match..." : "Quick Start Match"}
-      </button>
+      {/* Step 3: Team Selection (Revealed once match is initialized) */}
+      {teams && (
+        <fieldset className="mb-6 min-w-0 border-0 p-0 m-0">
+          <legend className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold p-0">
+            3. Select Team to Track
+          </legend>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedTeamId(teams.home.id)}
+              aria-pressed={selectedTeamId === teams.home.id}
+              className={`p-3 rounded-xl text-xs font-bold text-center border transition-colors ${
+                selectedTeamId === teams.home.id
+                  ? "bg-indigo-600 border-indigo-500 text-white"
+                  : "bg-gray-900 border-gray-800 text-gray-300 hover:bg-gray-800"
+              }`}
+            >
+              <div className="text-[10px] uppercase opacity-60 mb-0.5">
+                Home
+              </div>
+              {teams.home.name}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedTeamId(teams.guest.id)}
+              aria-pressed={selectedTeamId === teams.guest.id}
+              className={`p-3 rounded-xl text-xs font-bold text-center border transition-colors ${
+                selectedTeamId === teams.guest.id
+                  ? "bg-indigo-600 border-indigo-500 text-white"
+                  : "bg-gray-900 border-gray-800 text-gray-300 hover:bg-gray-800"
+              }`}
+            >
+              <div className="text-[10px] uppercase opacity-60 mb-0.5">
+                Guest
+              </div>
+              {teams.guest.name}
+            </button>
+          </div>
+        </fieldset>
+      )}
+
+      {/* Action Button */}
+      {!teams ? (
+        <button
+          type="button"
+          disabled={
+            !selectedSportId ||
+            !selectedConfigId ||
+            isSubmitting ||
+            isLoadingTeams
+          }
+          onClick={() => void handleInitMatch()}
+          className="w-full py-4 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-black uppercase rounded-xl transition-colors tracking-wider text-xs shadow-lg"
+        >
+          {isSubmitting || isLoadingTeams
+            ? "Initializing Match..."
+            : "Quick Start Match"}
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled={!selectedTeamId || isSubmitting}
+          onClick={() => void handleConfirmQuickStart()}
+          className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-black uppercase rounded-xl transition-colors tracking-wider text-xs shadow-lg"
+        >
+          {isSubmitting ? "Loading Roster..." : "Confirm & Start Tracking"}
+        </button>
+      )}
     </div>
   );
 };

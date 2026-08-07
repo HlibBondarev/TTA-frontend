@@ -8,7 +8,6 @@ import { setActiveMatch } from "./features/matches/store/matchSlice";
 import { hydrateMatchData } from "./services/hydrationService";
 import { initSyncEngine } from "./services/syncService";
 import { setTokenGetter } from "./services/tokenService";
-import { apiClient } from "./api/client";
 import type { RootState } from "./store";
 
 export const App: React.FC = () => {
@@ -30,7 +29,6 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (isLoading) return;
 
-    // Register Auth0 token resolver globally for apiClient and syncService
     setTokenGetter(async () => {
       try {
         return await getAccessTokenSilently();
@@ -44,42 +42,37 @@ export const App: React.FC = () => {
     if (initStarted.current) return;
     initStarted.current = true;
 
-    // Initialize background sync engine listener
     initSyncEngine();
 
     const initializeApp = async () => {
-      // Note: activeMatchId and presence limits are initialized via MatchSetupWizard workflow
       setIsInitializing(false);
     };
 
     initializeApp();
   }, [dispatch]);
 
-  // Handle quick start workflow: create match via API, set presence limits and active match in store, and hydrate data
   const handleQuickStart = async (
-    sportId: string,
-    configurationId: string,
+    matchId: string,
+    _sportId: string,
+    _configurationId: string,
     activePlayersLimit: number,
+    selectedTeamId: string,
   ) => {
-    const response = await apiClient.post<{ id: string }>("/Matches/quick", {
-      sportId,
-      configurationId,
-    });
-
-    const matchId = response.id;
     dispatch(
       setPresenceLimits({
         limit: activePlayersLimit,
         period: 1,
       }),
     );
-    dispatch(setActiveMatch(matchId));
 
     try {
-      await hydrateMatchData(matchId);
+      await hydrateMatchData(matchId, selectedTeamId);
     } catch (error) {
       console.error("Hydration failed (non-critical):", error);
+      return;
     }
+
+    dispatch(setActiveMatch(matchId));
   };
 
   if (isInitializing || isLoading) {
@@ -92,7 +85,6 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col justify-between p-4">
-      {/* Optional login button trigger if user is unauthenticated and Auth0 is not loading */}
       {!isLoading && !isAuthenticated && (
         <div className="mb-2 flex justify-end">
           <button

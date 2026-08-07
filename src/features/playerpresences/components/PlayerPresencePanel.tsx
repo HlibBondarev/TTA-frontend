@@ -59,7 +59,6 @@ export const PlayerPresencePanel: React.FC<{
 
     const initLoad = async () => {
       const success = await loadRosterData(ignore);
-      // Fallback retry if DB seeding was still finishing up during a fresh database wipe
       if (!success && !ignore) {
         setTimeout(async () => {
           await loadRosterData(ignore);
@@ -132,7 +131,9 @@ export const PlayerPresencePanel: React.FC<{
             type="button"
             onClick={() => handleActiveTap(id)}
             aria-pressed={selectedPlayerId === id}
-            className={`p-2 min-h-11 rounded text-xs ${selectedPlayerId === id ? "bg-blue-600" : "bg-blue-950"}`}
+            className={`p-2 min-h-11 rounded text-xs font-bold transition-colors ${
+              selectedPlayerId === id ? "bg-blue-600" : "bg-blue-950"
+            }`}
           >
             {`#${lineupsMap[id]?.number || ""}`}
           </button>
@@ -145,9 +146,13 @@ export const PlayerPresencePanel: React.FC<{
           <button
             key={id}
             type="button"
-            onClick={() => handleBenchTap(id)}
+            onClick={() => void handleBenchTap(id)}
             aria-pressed={selectedStartingIds.includes(id)}
-            className={`p-2 min-h-11 rounded text-xs ${selectedStartingIds.includes(id) ? "bg-emerald-600" : "bg-gray-800"}`}
+            className={`p-2 min-h-11 rounded text-xs font-bold transition-colors ${
+              selectedStartingIds.includes(id)
+                ? "bg-emerald-600 text-white"
+                : "bg-gray-800 text-gray-300"
+            }`}
           >
             {`#${lineupsMap[id]?.number || ""}`}
           </button>
