@@ -231,6 +231,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           <button
             key={config.id}
             type="button"
+            disabled={!!pendingMatchId}
             onClick={() => setSelectedConfigId(config.id)}
             aria-pressed={selectedConfigId === config.id}
             className={`p-3 rounded-xl text-xs text-left transition-colors border ${

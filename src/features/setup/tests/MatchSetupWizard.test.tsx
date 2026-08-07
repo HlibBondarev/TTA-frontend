@@ -113,6 +113,30 @@ describe("MatchSetupWizard Component", () => {
     );
   });
 
+  it("should disable configuration buttons once match draft is initialized", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam as never)
+      .mockResolvedValueOnce(mockGuestTeam as never);
+
+    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const configBtn = await screen.findByRole("button", {
+      name: /Periods: 4/i,
+    });
+    expect(configBtn).not.toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
+
+    await screen.findByText("3. Select Team to Track");
+    expect(configBtn).toBeDisabled();
+  });
+
   it("should handle error when fetching sports fails", async () => {
     vi.mocked(sportService.getSports).mockRejectedValueOnce(
       new Error("Network error"),
