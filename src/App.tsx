@@ -76,6 +76,7 @@ export const App: React.FC = () => {
       await hydrateMatchData(matchId, selectedTeamId);
     } catch (error) {
       console.error("Hydration failed (non-critical):", error);
+      return;
     }
 
     dispatch(setActiveMatch(matchId));

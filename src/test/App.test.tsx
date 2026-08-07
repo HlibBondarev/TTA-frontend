@@ -192,4 +192,54 @@ describe("App Bootstrapping Component", () => {
     // Render TTAConsole upon successful match selection
     expect(await screen.findByText("TTA Match Recorder")).toBeDefined();
   });
+
+  it("should not set active match if hydration throws an error", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "new-match-id-123" })
+      .mockResolvedValueOnce({ id: "new-match-id-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam as never)
+      .mockResolvedValueOnce(mockGuestTeam as never);
+
+    vi.mocked(hydrateMatchData).mockRejectedValueOnce(
+      new Error("401 Unauthorized"),
+    );
+
+    const store = createTestStore({
+      match: {
+        activeMatchId: null,
+        periodNumber: 1,
+        homeScore: 0,
+        guestScore: 0,
+        isPeriodActive: false,
+        isInsideStoppage: false,
+        globalSequenceNumber: 0,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(hydrateMatchData).toHaveBeenCalled();
+      // Match ID should NOT be updated in Redux store on hydration rejection
+      expect(store.getState().match.activeMatchId).toBeNull();
+    });
+  });
 });
