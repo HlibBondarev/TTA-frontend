@@ -30,17 +30,21 @@ const markPresencesSynced = async (
     return;
   }
 
-  const lineupIds: string[] = Array.isArray(payload.presenceItems)
-    ? (payload.presenceItems as PresenceItemPayload[]).map(
+  const extractLineupIds = (): string[] => {
+    if (Array.isArray(payload.presenceItems)) {
+      return (payload.presenceItems as PresenceItemPayload[]).map(
         (item) => item.matchLineupId,
-      )
-    : Array.isArray(payload.playerLineupIds)
-      ? (payload.playerLineupIds as string[])
-      : ([payload.playerOutLineupId, payload.playerInLineupId].filter(
-          Boolean,
-        ) as string[]);
+      );
+    }
+    if (Array.isArray(payload.playerLineupIds)) {
+      return payload.playerLineupIds as string[];
+    }
+    return [payload.playerOutLineupId, payload.playerInLineupId].filter(
+      Boolean,
+    ) as string[];
+  };
 
-  const affectedLineupIds = new Set<string>(lineupIds);
+  const affectedLineupIds = new Set<string>(extractLineupIds());
 
   await db.playerpresences
     .where("periodNumber")
