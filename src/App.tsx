@@ -8,7 +8,6 @@ import { setActiveMatch } from "./features/matches/store/matchSlice";
 import { hydrateMatchData } from "./services/hydrationService";
 import { initSyncEngine } from "./services/syncService";
 import { setTokenGetter } from "./services/tokenService";
-import { apiClient } from "./api/client";
 import type { RootState } from "./store";
 
 export const App: React.FC = () => {
@@ -53,18 +52,12 @@ export const App: React.FC = () => {
   }, [dispatch]);
 
   const handleQuickStart = async (
-    sportId: string,
-    configurationId: string,
+    matchId: string,
+    _sportId: string,
+    _configurationId: string,
     activePlayersLimit: number,
     selectedTeamId: string,
   ) => {
-    const response = await apiClient.post<{ id: string }>("/Matches/quick", {
-      sportId,
-      configurationId,
-    });
-
-    const matchId = response.id;
-
     dispatch(
       setPresenceLimits({
         limit: activePlayersLimit,

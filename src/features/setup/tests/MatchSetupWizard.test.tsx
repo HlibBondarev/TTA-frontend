@@ -105,6 +105,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(confirmBtn);
 
     expect(handleQuickStart).toHaveBeenCalledWith(
+      "match-123",
       "sport-1",
       "config-1",
       5,
@@ -226,6 +227,7 @@ describe("MatchSetupWizard Component", () => {
     );
 
     expect(handleQuickStart).toHaveBeenCalledWith(
+      "match-123",
       "sport-1",
       "config-fallback",
       5,
@@ -315,6 +317,7 @@ describe("MatchSetupWizard Component", () => {
     );
 
     expect(handleQuickStart).toHaveBeenCalledWith(
+      "match-123",
       "sport-1",
       "config-2",
       5,

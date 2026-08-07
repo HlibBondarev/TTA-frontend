@@ -131,11 +131,8 @@ describe("App Bootstrapping Component", () => {
       mockConfigs,
     );
 
-    // 1st POST call inside Wizard's handleInitMatch
-    // 2nd POST call inside App's handleQuickStart
-    vi.mocked(apiClient.post)
-      .mockResolvedValueOnce({ id: "new-match-id-123" })
-      .mockResolvedValueOnce({ id: "new-match-id-123" });
+    // Single POST call inside Wizard's handleInitMatch
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "new-match-id-123" });
 
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
@@ -198,9 +195,7 @@ describe("App Bootstrapping Component", () => {
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
     );
-    vi.mocked(apiClient.post)
-      .mockResolvedValueOnce({ id: "new-match-id-123" })
-      .mockResolvedValueOnce({ id: "new-match-id-123" });
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "new-match-id-123" });
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
       .mockResolvedValueOnce(mockHomeTeam as never)

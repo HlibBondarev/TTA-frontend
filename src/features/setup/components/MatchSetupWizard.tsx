@@ -11,6 +11,7 @@ import type {
 
 interface MatchSetupWizardProps {
   onQuickStart: (
+    matchId: string,
     sportId: string,
     configurationId: string,
     activePlayersLimit: number,
@@ -175,6 +176,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   // Step B: Confirm team selection and proceed to console
   const handleConfirmQuickStart = async () => {
     if (
+      !pendingMatchId ||
       !selectedSportId ||
       !selectedConfigId ||
       !selectedTeamId ||
@@ -191,6 +193,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       setIsSubmitting(true);
       setErrorMessage(null);
       await onQuickStart(
+        pendingMatchId,
         selectedSportId,
         selectedConfigId,
         activePlayersLimit,
