@@ -4,6 +4,7 @@ import { getNextSequenceNumber } from "./eventService";
 /**
  * Bulk initializes active player presence at the exact moment the period starts.
  * Uses the timestamp provided by the match lifecycle timer.
+ * Align sync queue payload with backend InitializePresenceRequest DTO contract.
  */
 export async function initializePeriodPresenceTx(
   matchId: string,
@@ -33,7 +34,11 @@ export async function initializePeriodPresenceTx(
 
       const payload = JSON.stringify({
         periodNumber,
-        playerLineupIds,
+        timeIn: startTimestamp,
+        presenceItems: newPresences.map((p) => ({
+          id: p.id,
+          matchLineupId: p.matchLineupId,
+        })),
       });
 
       const syncItem: SyncQueueItem = {

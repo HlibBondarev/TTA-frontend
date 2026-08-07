@@ -44,7 +44,7 @@ describe("presenceService Database Transactions", () => {
     vi.clearAllMocks();
   });
 
-  it("initializePeriodPresenceTx should bulk-add presences and add a sync queue item", async () => {
+  it("initializePeriodPresenceTx should bulk-add presences and add a sync queue item matching InitializePresenceRequest DTO contract", async () => {
     await initializePeriodPresenceTx(
       mockMatchId,
       mockPeriodNumber,
@@ -79,12 +79,28 @@ describe("presenceService Database Transactions", () => {
       },
     ]);
 
+    const bulkAddCall = vi.mocked(db.playerpresences.bulkAdd).mock.calls[0][0];
+    const presences = bulkAddCall as unknown as Array<{
+      id: string;
+      matchLineupId: string;
+    }>;
+
     expect(db.syncQueue.add).toHaveBeenCalledWith({
       actionType: "POST",
       endpoint: `/Matches/${mockMatchId}/presence/initialize`,
       payload: JSON.stringify({
         periodNumber: mockPeriodNumber,
-        playerLineupIds: mockPlayerLineupIds,
+        timeIn: mockStartTimestamp,
+        presenceItems: [
+          {
+            id: presences[0].id,
+            matchLineupId: "lineup-1",
+          },
+          {
+            id: presences[1].id,
+            matchLineupId: "lineup-2",
+          },
+        ],
       }),
       createdAt: mockStartTimestamp,
     });
@@ -93,7 +109,6 @@ describe("presenceService Database Transactions", () => {
   it("terminatePeriodPresenceTx should find and close all active player presences evaluating filter predicates", async () => {
     const mockEndTimestamp = "2026-07-22T10:08:00.000Z";
 
-    // Dataset covering true/false branches for both timeOut and matchLineupId conditions
     const mockPresencesDataset = [
       { id: "pres-1", matchLineupId: "lineup-1", timeOut: null },
       { id: "pres-2", matchLineupId: "lineup-2", timeOut: null },

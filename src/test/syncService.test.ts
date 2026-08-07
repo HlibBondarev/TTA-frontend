@@ -42,11 +42,12 @@ describe("Sync Engine Service", () => {
       },
       {
         id: 2,
-        actionType: "PUT",
-        endpoint: "/Matches/m1/presence",
+        actionType: "POST",
+        endpoint: "/Matches/m1/presence/initialize",
         payload: JSON.stringify({
           periodNumber: 1,
-          playerLineupIds: ["lineup-1"],
+          timeIn: "2026-08-07T10:00:00.000Z",
+          presenceItems: [{ id: "p1", matchLineupId: "lineup-1" }],
         }),
       },
       {
@@ -66,10 +67,6 @@ describe("Sync Engine Service", () => {
       callOrder.push("POST");
       return {};
     });
-    vi.mocked(apiClient.put).mockImplementation(async () => {
-      callOrder.push("PUT");
-      return {};
-    });
     vi.mocked(apiClient.delete).mockImplementation(async () => {
       callOrder.push("DELETE");
       return {};
@@ -85,7 +82,7 @@ describe("Sync Engine Service", () => {
     const processed = await processSyncQueue();
 
     expect(db.syncQueue.orderBy).toHaveBeenCalledWith("id");
-    expect(callOrder).toEqual(["POST", "PUT", "DELETE"]);
+    expect(callOrder).toEqual(["POST", "POST", "DELETE"]);
     expect(processed).toBe(3);
     expect(db.syncQueue.delete).toHaveBeenCalledTimes(3);
   });
@@ -111,6 +108,74 @@ describe("Sync Engine Service", () => {
     expect(processed).toBe(0);
     expect(db.syncQueue.delete).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
+  });
+
+  it("handles initialization payload with presenceItems array", async () => {
+    const mockItems = [
+      {
+        id: 4,
+        actionType: "POST",
+        endpoint: "/Matches/m1/presence/initialize",
+        payload: JSON.stringify({
+          periodNumber: 1,
+          timeIn: "2026-08-07T10:00:00.000Z",
+          presenceItems: [
+            { id: "pres-1", matchLineupId: "lineup-1" },
+            { id: "pres-2", matchLineupId: "lineup-2" },
+          ],
+        }),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({});
+
+    type PresenceFilterFn = (p: {
+      matchLineupId: string;
+      timeIn: number | null;
+      timeOut: number | null;
+    }) => boolean;
+
+    let filterPredicate: PresenceFilterFn | undefined;
+    const mockModify = vi.fn();
+    const mockFilter = vi.fn().mockImplementation((fn: PresenceFilterFn) => {
+      filterPredicate = fn;
+      return { modify: mockModify };
+    });
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({ filter: mockFilter }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    await processSyncQueue();
+
+    expect(filterPredicate).toBeDefined();
+    if (filterPredicate) {
+      expect(
+        filterPredicate({
+          matchLineupId: "lineup-1",
+          timeIn: 10,
+          timeOut: 20,
+        }),
+      ).toBe(true);
+      expect(
+        filterPredicate({
+          matchLineupId: "lineup-2",
+          timeIn: 10,
+          timeOut: 20,
+        }),
+      ).toBe(true);
+      expect(
+        filterPredicate({
+          matchLineupId: "other-lineup",
+          timeIn: 10,
+          timeOut: 20,
+        }),
+      ).toBe(false);
+    }
   });
 
   it("handles substitution payload with playerOutLineupId and playerInLineupId", async () => {

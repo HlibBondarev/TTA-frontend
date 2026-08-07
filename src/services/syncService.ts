@@ -3,10 +3,16 @@ import { db } from "../db/ttaDatabase";
 
 let isSyncing = false;
 
+interface PresenceItemPayload {
+  id: string;
+  matchLineupId: string;
+}
+
 /**
  * Updates local IndexedDB player presences to isSynced = 1 upon successful server sync.
  * Strictly adheres to the rule: presences are marked synced only if both timeIn and timeOut are set
  * and match the lineup IDs involved in the synced payload.
+ * Supports both playerLineupIds/presenceItems and substitution payloads.
  */
 const markPresencesSynced = async (
   endpoint: string,
@@ -24,13 +30,21 @@ const markPresencesSynced = async (
     return;
   }
 
-  const affectedLineupIds = new Set<string>(
-    Array.isArray(payload.playerLineupIds)
-      ? (payload.playerLineupIds as string[])
-      : ([payload.playerOutLineupId, payload.playerInLineupId].filter(
-          Boolean,
-        ) as string[]),
-  );
+  const extractLineupIds = (): string[] => {
+    if (Array.isArray(payload.presenceItems)) {
+      return (payload.presenceItems as PresenceItemPayload[]).map(
+        (item) => item.matchLineupId,
+      );
+    }
+    if (Array.isArray(payload.playerLineupIds)) {
+      return payload.playerLineupIds as string[];
+    }
+    return [payload.playerOutLineupId, payload.playerInLineupId].filter(
+      Boolean,
+    ) as string[];
+  };
+
+  const affectedLineupIds = new Set<string>(extractLineupIds());
 
   await db.playerpresences
     .where("periodNumber")
