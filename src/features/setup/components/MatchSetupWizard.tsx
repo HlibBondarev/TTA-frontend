@@ -127,7 +127,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   }, [loadConfigurations]);
 
   const handleSelectSport = async (sportId: string) => {
-    if (selectedSportId === sportId) return;
+    if (selectedSportId === sportId || pendingMatchId) return;
     setSelectedSportId(sportId);
     setSelectedConfigId(null);
     setPendingMatchId(null);
@@ -136,7 +136,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     await loadConfigurations(sportId, sports);
   };
 
-  // Step A: Create quick match and load participating teams
+  // Step A: Create quick match (or reuse pendingMatchId) and load participating teams
   const handleInitMatch = async () => {
     if (!selectedSportId || !selectedConfigId || isSubmitting) return;
 
@@ -145,13 +145,19 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       setIsLoadingTeams(true);
       setErrorMessage(null);
 
-      const response = await apiClient.post<{ id: string }>("/Matches/quick", {
-        sportId: selectedSportId,
-        configurationId: selectedConfigId,
-      });
+      let matchId = pendingMatchId;
 
-      const matchId = response.id;
-      setPendingMatchId(matchId);
+      if (!matchId) {
+        const response = await apiClient.post<{ id: string }>(
+          "/Matches/quick",
+          {
+            sportId: selectedSportId,
+            configurationId: selectedConfigId,
+          },
+        );
+        matchId = response.id;
+        setPendingMatchId(matchId);
+      }
 
       const match = await apiClient.get<MatchLookup>(`/Matches/${matchId}`);
       const [home, guest] = await Promise.all([
@@ -160,7 +166,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       ]);
 
       setTeams({ home, guest });
-      setSelectedTeamId(home.id);
+      setSelectedTeamId((prev) => prev ?? home.id);
     } catch (err) {
       setErrorMessage(
         err instanceof Error
@@ -232,7 +238,11 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
             key={config.id}
             type="button"
             disabled={!!pendingMatchId}
-            onClick={() => setSelectedConfigId(config.id)}
+            onClick={() => {
+              if (!pendingMatchId) {
+                setSelectedConfigId(config.id);
+              }
+            }}
             aria-pressed={selectedConfigId === config.id}
             className={`p-3 rounded-xl text-xs text-left transition-colors border ${
               selectedConfigId === config.id

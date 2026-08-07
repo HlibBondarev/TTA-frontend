@@ -113,10 +113,70 @@ describe("MatchSetupWizard Component", () => {
     );
   });
 
-  it("should disable configuration buttons once match draft is initialized", async () => {
+  it("should reuse pendingMatchId and post to /Matches/quick only once on retry when team loading fails", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get)
+      .mockRejectedValueOnce(new Error("Failed to load match details"))
+      .mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam as never)
+      .mockResolvedValueOnce(mockGuestTeam as never);
+
+    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+
+    // First attempt: POST succeeds, GET fails
+    fireEvent.click(quickStartBtn);
+
+    expect(
+      await screen.findByText("Failed to load match details"),
+    ).toBeDefined();
+
+    // Retry initialization
+    fireEvent.click(quickStartBtn);
+
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    // Verify /Matches/quick POST was only executed once
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("should prevent changing configuration after match initialization and preserve original configuration on confirm", async () => {
+    const multipleConfigs = [
+      {
+        id: "config-1",
+        sportId: "sport-1",
+        usesCleanTime: true,
+        periodsCount: 4,
+        periodDurationMinutes: 8,
+        fieldSize: "30x20",
+        rosterLimit: 13,
+        lineupLimit: 7,
+        activePlayersLimit: 7,
+      },
+      {
+        id: "config-2",
+        sportId: "sport-1",
+        usesCleanTime: false,
+        periodsCount: 2,
+        periodDurationMinutes: 20,
+        fieldSize: "40x25",
+        rosterLimit: 15,
+        lineupLimit: 5,
+        activePlayersLimit: 5,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      multipleConfigs,
     );
     vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
@@ -124,17 +184,37 @@ describe("MatchSetupWizard Component", () => {
       .mockResolvedValueOnce(mockHomeTeam as never)
       .mockResolvedValueOnce(mockGuestTeam as never);
 
-    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
 
-    const configBtn = await screen.findByRole("button", {
-      name: /Periods: 4/i,
-    });
-    expect(configBtn).not.toBeDisabled();
+    render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
+    expect(await screen.findByText(/Periods: 4/i)).toBeDefined();
+
+    // Initialize quick match (pendingMatchId is now set)
     fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
 
-    await screen.findByText("3. Select Team to Track");
-    expect(configBtn).toBeDisabled();
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    // Attempt to click second configuration button
+    const config2Btn = screen.getByText(/Periods: 2/i).closest("button");
+    expect(config2Btn).toBeDisabled();
+    if (config2Btn) {
+      fireEvent.click(config2Btn);
+    }
+
+    // Confirm tracking session
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    // Should still use config-1 and activePlayersLimit: 7
+    expect(handleQuickStart).toHaveBeenCalledWith(
+      "match-123",
+      "sport-1",
+      "config-1",
+      7,
+      "team-home",
+    );
   });
 
   it("should handle error when fetching sports fails", async () => {
