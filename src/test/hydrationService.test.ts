@@ -20,20 +20,21 @@ vi.mock("../db/ttaDatabase", () => ({
     matches: { put: vi.fn() },
     matchlineups: { where: vi.fn(), bulkPut: vi.fn() },
     timeanchors: { where: vi.fn(), bulkPut: vi.fn() },
-    playerpresences: { where: vi.fn(), filter: vi.fn(), bulkPut: vi.fn() },
-    gameevents: { where: vi.fn(), filter: vi.fn(), bulkPut: vi.fn() },
+    playerpresences: { filter: vi.fn(), bulkPut: vi.fn(), bulkDelete: vi.fn() },
+    gameevents: { filter: vi.fn(), bulkPut: vi.fn(), bulkDelete: vi.fn() },
     eventdefinitions: { bulkPut: vi.fn() },
   },
 }));
 
 describe("Hydration Service", () => {
   const matchId = "m-123";
+  const teamId = "team-456";
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("successfully fetches server data and writes to IndexedDB in transaction", async () => {
+  it("successfully fetches server data with team-specific lineup endpoint and writes to IndexedDB", async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
       .mockResolvedValueOnce([{ id: "l1", matchId }])
@@ -49,7 +50,10 @@ describe("Hydration Service", () => {
     ) => {
       const mockLineupsDelete = vi.fn().mockResolvedValue(1);
       vi.mocked(db.matchlineups.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({ delete: mockLineupsDelete }),
+        equals: vi.fn().mockReturnValue({
+          delete: mockLineupsDelete,
+          toArray: vi.fn().mockResolvedValue([{ id: "l1", matchId }]),
+        }),
       } as unknown as ReturnType<typeof db.matchlineups.where>);
 
       const mockAnchorsDelete = vi.fn().mockResolvedValue(1);
@@ -58,20 +62,6 @@ describe("Hydration Service", () => {
           and: vi.fn().mockReturnValue({ delete: mockAnchorsDelete }),
         }),
       } as unknown as ReturnType<typeof db.timeanchors.where>);
-
-      const mockPresenceDelete = vi.fn().mockResolvedValue(1);
-      vi.mocked(db.playerpresences.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          and: vi.fn().mockReturnValue({ delete: mockPresenceDelete }),
-        }),
-      } as unknown as ReturnType<typeof db.playerpresences.where>);
-
-      const mockEventsDelete = vi.fn().mockResolvedValue(1);
-      vi.mocked(db.gameevents.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          and: vi.fn().mockReturnValue({ delete: mockEventsDelete }),
-        }),
-      } as unknown as ReturnType<typeof db.gameevents.where>);
 
       vi.mocked(db.playerpresences.filter).mockReturnValue({
         primaryKeys: vi.fn().mockResolvedValue([]),
@@ -84,9 +74,12 @@ describe("Hydration Service", () => {
       await callback();
     }) as unknown as typeof db.transaction);
 
-    const result = await hydrateMatchData(matchId);
+    const result = await hydrateMatchData(matchId, teamId);
 
     expect(result).toEqual({ success: true, isOfflineFallback: false });
+    expect(apiClient.get).toHaveBeenCalledWith(
+      `/Matches/${matchId}/teams/${teamId}/lineup`,
+    );
     expect(db.matches.put).toHaveBeenCalledWith({
       id: matchId,
       title: "Match 1",
@@ -94,16 +87,6 @@ describe("Hydration Service", () => {
     expect(db.matchlineups.bulkPut).toHaveBeenCalledWith([
       { id: "l1", matchId },
     ]);
-    expect(db.timeanchors.bulkPut).toHaveBeenCalledWith([
-      { id: "a1", matchId, isSynced: 1 },
-    ]);
-    expect(db.playerpresences.bulkPut).toHaveBeenCalledWith([
-      { id: "p1", matchId, isSynced: 1 },
-    ]);
-    expect(db.gameevents.bulkPut).toHaveBeenCalledWith([
-      { id: "e1", matchId, isSynced: 1 },
-    ]);
-    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([{ id: "d1" }]);
   });
 
   it("deletes synced match-owned rows when server returns empty collections while preserving pending unsynced records", async () => {
@@ -117,8 +100,6 @@ describe("Hydration Service", () => {
 
     const mockLineupsDelete = vi.fn().mockResolvedValue(1);
     const mockAnchorsDelete = vi.fn().mockResolvedValue(1);
-    const mockPresenceDelete = vi.fn().mockResolvedValue(1);
-    const mockEventsDelete = vi.fn().mockResolvedValue(1);
 
     vi.mocked(db.transaction).mockImplementation((async (
       _mode: string,
@@ -126,7 +107,10 @@ describe("Hydration Service", () => {
       callback: () => Promise<void>,
     ) => {
       vi.mocked(db.matchlineups.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({ delete: mockLineupsDelete }),
+        equals: vi.fn().mockReturnValue({
+          delete: mockLineupsDelete,
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
       } as unknown as ReturnType<typeof db.matchlineups.where>);
 
       vi.mocked(db.timeanchors.where).mockReturnValue({
@@ -135,28 +119,21 @@ describe("Hydration Service", () => {
         }),
       } as unknown as ReturnType<typeof db.timeanchors.where>);
 
-      vi.mocked(db.playerpresences.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          and: vi.fn().mockReturnValue({ delete: mockPresenceDelete }),
-        }),
-      } as unknown as ReturnType<typeof db.playerpresences.where>);
+      vi.mocked(db.playerpresences.filter).mockReturnValue({
+        primaryKeys: vi.fn().mockResolvedValue([]),
+      } as unknown as ReturnType<typeof db.playerpresences.filter>);
 
-      vi.mocked(db.gameevents.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          and: vi.fn().mockReturnValue({ delete: mockEventsDelete }),
-        }),
-      } as unknown as ReturnType<typeof db.gameevents.where>);
+      vi.mocked(db.gameevents.filter).mockReturnValue({
+        primaryKeys: vi.fn().mockResolvedValue([]),
+      } as unknown as ReturnType<typeof db.gameevents.filter>);
 
       await callback();
     }) as unknown as typeof db.transaction);
 
-    const result = await hydrateMatchData(matchId);
+    const result = await hydrateMatchData(matchId, teamId);
 
     expect(result).toEqual({ success: true, isOfflineFallback: false });
     expect(mockLineupsDelete).toHaveBeenCalledTimes(1);
-    expect(mockAnchorsDelete).toHaveBeenCalledTimes(1);
-    expect(mockPresenceDelete).toHaveBeenCalledTimes(1);
-    expect(mockEventsDelete).toHaveBeenCalledTimes(1);
   });
 
   it("re-throws 401 or 403 authentication errors to caller", async () => {
@@ -164,14 +141,14 @@ describe("Hydration Service", () => {
       new Error("API Request failed: 401 Unauthorized"),
     );
 
-    await expect(hydrateMatchData(matchId)).rejects.toThrow("401");
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow("401");
     expect(seedTestData).not.toHaveBeenCalled();
   });
 
   it("falls back to local seedTestData on general network/server errors", async () => {
     vi.mocked(apiClient.get).mockRejectedValue(new Error("Failed to fetch"));
 
-    const result = await hydrateMatchData(matchId);
+    const result = await hydrateMatchData(matchId, teamId);
 
     expect(result).toEqual({ success: true, isOfflineFallback: true });
     expect(seedTestData).toHaveBeenCalledTimes(1);

@@ -31,13 +31,20 @@ const syncAnchors = async (matchId: string, anchors?: TimeAnchor[]) => {
   }
 };
 
-const syncPresence = async (matchId: string, presence?: PlayerPresence[]) => {
+const syncPresence = async (
+  matchLineupIds: Set<string>,
+  presence?: PlayerPresence[],
+) => {
   if (!presence) return;
-  await db.playerpresences
-    .where("matchId")
-    .equals(matchId)
-    .and((p) => p.isSynced === 1)
-    .delete();
+
+  const syncedKeys = await db.playerpresences
+    .filter((p) => matchLineupIds.has(p.matchLineupId) && p.isSynced === 1)
+    .primaryKeys();
+
+  if (syncedKeys.length > 0) {
+    await db.playerpresences.bulkDelete(syncedKeys as string[]);
+  }
+
   if (presence.length > 0) {
     const pendingPresenceIds = new Set(
       (await db.playerpresences
@@ -53,13 +60,20 @@ const syncPresence = async (matchId: string, presence?: PlayerPresence[]) => {
   }
 };
 
-const syncEvents = async (matchId: string, events?: GameEvent[]) => {
+const syncEvents = async (
+  matchLineupIds: Set<string>,
+  events?: GameEvent[],
+) => {
   if (!events) return;
-  await db.gameevents
-    .where("matchId")
-    .equals(matchId)
-    .and((e) => e.isSynced === 1)
-    .delete();
+
+  const syncedKeys = await db.gameevents
+    .filter((e) => matchLineupIds.has(e.matchLineupId) && e.isSynced === 1)
+    .primaryKeys();
+
+  if (syncedKeys.length > 0) {
+    await db.gameevents.bulkDelete(syncedKeys as string[]);
+  }
+
   if (events.length > 0) {
     const pendingEventIds = new Set(
       (await db.gameevents
@@ -77,12 +91,15 @@ const syncEvents = async (matchId: string, events?: GameEvent[]) => {
 
 export const hydrateMatchData = async (
   matchId: string,
+  teamId: string,
 ): Promise<{ success: boolean; isOfflineFallback: boolean }> => {
   try {
     const [match, lineups, anchors, presence, events, definitions] =
       await Promise.all([
         apiClient.get<MatchLookup>(`/Matches/${matchId}`),
-        apiClient.get<MatchLineupLookup[]>(`/Matches/${matchId}/lineups`),
+        apiClient.get<MatchLineupLookup[]>(
+          `/Matches/${matchId}/teams/${teamId}/lineup`,
+        ),
         apiClient.get<TimeAnchor[]>(`/Matches/${matchId}/anchors`),
         apiClient.get<PlayerPresence[]>(`/Matches/${matchId}/presence`),
         apiClient.get<GameEvent[]>(`/Matches/${matchId}/events`),
@@ -105,9 +122,16 @@ export const hydrateMatchData = async (
         if (match) await db.matches.put(match);
 
         await syncLineups(matchId, lineups);
+
+        const currentLineups = await db.matchlineups
+          .where("matchId")
+          .equals(matchId)
+          .toArray();
+        const matchLineupIds = new Set(currentLineups.map((l) => l.id));
+
         await syncAnchors(matchId, anchors);
-        await syncPresence(matchId, presence);
-        await syncEvents(matchId, events);
+        await syncPresence(matchLineupIds, presence);
+        await syncEvents(matchLineupIds, events);
 
         if (definitions && definitions.length > 0) {
           await db.eventdefinitions.bulkPut(definitions);
