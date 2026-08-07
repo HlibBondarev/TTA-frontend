@@ -121,14 +121,17 @@ export const hydrateMatchData = async (
       async () => {
         if (match) await db.matches.put(match);
 
-        await syncLineups(matchId, lineups);
-
-        const currentLineups = await db.matchlineups
+        const existingLineups = await db.matchlineups
           .where("matchId")
           .equals(matchId)
           .toArray();
-        const matchLineupIds = new Set(currentLineups.map((l) => l.id));
 
+        const matchLineupIds = new Set([
+          ...existingLineups.map((lineup) => lineup.id),
+          ...(lineups ?? []).map((lineup) => lineup.id),
+        ]);
+
+        await syncLineups(matchId, lineups);
         await syncAnchors(matchId, anchors);
         await syncPresence(matchLineupIds, presence);
         await syncEvents(matchLineupIds, events);
