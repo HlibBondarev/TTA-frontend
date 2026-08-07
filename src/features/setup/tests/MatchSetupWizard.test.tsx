@@ -4,6 +4,7 @@ import { MatchSetupWizard } from "../components/MatchSetupWizard";
 import { sportService } from "../../../services/sportService";
 import { teamService } from "../../../services/teamService";
 import { apiClient } from "../../../api/client";
+import type { TeamLookup } from "../../../db/ttaDatabase";
 
 vi.mock("../../../services/sportService", () => ({
   sportService: {
@@ -61,8 +62,25 @@ describe("MatchSetupWizard Component", () => {
     guestTeamId: "team-guest",
   };
 
-  const mockHomeTeam = { id: "team-home", name: "Home Squad" };
-  const mockGuestTeam = { id: "team-guest", name: "Opponent Squad" };
+  const mockHomeTeam: TeamLookup = {
+    id: "team-home",
+    clubId: "club-1",
+    sportId: "sport-1",
+    name: "Home Squad",
+    minBirthYear: null,
+    gender: 0,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  const mockGuestTeam: TeamLookup = {
+    id: "team-guest",
+    clubId: "club-1",
+    sportId: "sport-1",
+    name: "Opponent Squad",
+    minBirthYear: null,
+    gender: 0,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -76,8 +94,8 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
-      .mockResolvedValueOnce(mockHomeTeam as never)
-      .mockResolvedValueOnce(mockGuestTeam as never);
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
 
@@ -104,13 +122,15 @@ describe("MatchSetupWizard Component", () => {
     });
     fireEvent.click(confirmBtn);
 
-    expect(handleQuickStart).toHaveBeenCalledWith(
-      "match-123",
-      "sport-1",
-      "config-1",
-      5,
-      "team-guest",
-    );
+    await waitFor(() => {
+      expect(handleQuickStart).toHaveBeenCalledWith(
+        "match-123",
+        "sport-1",
+        "config-1",
+        5,
+        "team-guest",
+      );
+    });
   });
 
   it("should reuse pendingMatchId and post to /Matches/quick only once on retry when team loading fails", async () => {
@@ -123,8 +143,8 @@ describe("MatchSetupWizard Component", () => {
       .mockRejectedValueOnce(new Error("Failed to load match details"))
       .mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
-      .mockResolvedValueOnce(mockHomeTeam as never)
-      .mockResolvedValueOnce(mockGuestTeam as never);
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     render(<MatchSetupWizard onQuickStart={vi.fn()} />);
 
@@ -181,8 +201,8 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
-      .mockResolvedValueOnce(mockHomeTeam as never)
-      .mockResolvedValueOnce(mockGuestTeam as never);
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
 
@@ -208,13 +228,15 @@ describe("MatchSetupWizard Component", () => {
     );
 
     // Should still use config-1 and activePlayersLimit: 7
-    expect(handleQuickStart).toHaveBeenCalledWith(
-      "match-123",
-      "sport-1",
-      "config-1",
-      7,
-      "team-home",
-    );
+    await waitFor(() => {
+      expect(handleQuickStart).toHaveBeenCalledWith(
+        "match-123",
+        "sport-1",
+        "config-1",
+        7,
+        "team-home",
+      );
+    });
   });
 
   it("should handle error when fetching sports fails", async () => {
@@ -317,8 +339,8 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
-      .mockResolvedValueOnce(mockHomeTeam as never)
-      .mockResolvedValueOnce(mockGuestTeam as never);
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
     render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
@@ -330,13 +352,15 @@ describe("MatchSetupWizard Component", () => {
       await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
     );
 
-    expect(handleQuickStart).toHaveBeenCalledWith(
-      "match-123",
-      "sport-1",
-      "config-fallback",
-      5,
-      "team-home",
-    );
+    await waitFor(() => {
+      expect(handleQuickStart).toHaveBeenCalledWith(
+        "match-123",
+        "sport-1",
+        "config-fallback",
+        5,
+        "team-home",
+      );
+    });
   });
 
   it("should handle submission error during final confirmation gracefully and reset submitting state", async () => {
@@ -347,8 +371,8 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
-      .mockResolvedValueOnce(mockHomeTeam as never)
-      .mockResolvedValueOnce(mockGuestTeam as never);
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     const handleQuickStart = vi
       .fn()
@@ -402,8 +426,8 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
-      .mockResolvedValueOnce(mockHomeTeam as never)
-      .mockResolvedValueOnce(mockGuestTeam as never);
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
 
@@ -420,12 +444,14 @@ describe("MatchSetupWizard Component", () => {
       await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
     );
 
-    expect(handleQuickStart).toHaveBeenCalledWith(
-      "match-123",
-      "sport-1",
-      "config-2",
-      5,
-      "team-home",
-    );
+    await waitFor(() => {
+      expect(handleQuickStart).toHaveBeenCalledWith(
+        "match-123",
+        "sport-1",
+        "config-2",
+        5,
+        "team-home",
+      );
+    });
   });
 });
