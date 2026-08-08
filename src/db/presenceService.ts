@@ -102,6 +102,7 @@ export async function terminatePeriodPresenceTx(
 /**
  * Executes an atomic player substitution.
  * Throws an error if no active presence is found for the outgoing player.
+ * Aligned with the backend SubstitutePlayerRequest DTO contract.
  */
 export async function substitutePlayerTx(
   matchId: string,
@@ -150,6 +151,8 @@ export async function substitutePlayerTx(
         periodNumber,
         playerOutLineupId,
         playerInLineupId,
+        incomingPresenceId: newPresenceId,
+        substitutionTime: timestamp,
       });
 
       const syncItem: SyncQueueItem = {
