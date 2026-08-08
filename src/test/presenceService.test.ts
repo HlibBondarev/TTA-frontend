@@ -217,11 +217,22 @@ describe("presenceService Database Transactions", () => {
       isSynced: 0,
     });
 
-    expect(db.syncQueue.add).toHaveBeenCalledWith({
+    expect(db.syncQueue.add).toHaveBeenCalledTimes(1);
+    const syncCall = vi.mocked(db.syncQueue.add).mock.calls[0][0];
+
+    expect(syncCall).toMatchObject({
       actionType: "POST",
       endpoint: `/Matches/${mockMatchId}/substitutions`,
-      payload: expect.stringContaining(newPresenceId),
       createdAt: expect.any(String),
+    });
+
+    const parsedPayload = JSON.parse(syncCall.payload);
+    expect(parsedPayload).toEqual({
+      periodNumber: mockPeriodNumber,
+      playerOutLineupId: "lineup-out",
+      playerInLineupId: "lineup-in",
+      incomingPresenceId: newPresenceId,
+      substitutionTime: syncCall.createdAt,
     });
   });
 
