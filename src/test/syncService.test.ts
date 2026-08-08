@@ -178,7 +178,7 @@ describe("Sync Engine Service", () => {
     }
   });
 
-  it("handles substitution payload with playerOutLineupId and playerInLineupId", async () => {
+  it("handles substitution payload matching SubstitutePlayerRequest DTO with incomingPresenceId and substitutionTime", async () => {
     const mockItems = [
       {
         id: 5,
@@ -188,6 +188,8 @@ describe("Sync Engine Service", () => {
           periodNumber: 1,
           playerOutLineupId: "lineup-out",
           playerInLineupId: "lineup-in",
+          incomingPresenceId: "pres-new-123",
+          substitutionTime: "2026-08-07T11:36:30.493Z",
         }),
       },
     ];
@@ -216,6 +218,14 @@ describe("Sync Engine Service", () => {
     } as unknown as ReturnType<typeof db.playerpresences.where>);
 
     await processSyncQueue();
+
+    expect(apiClient.post).toHaveBeenCalledWith("/Matches/m1/substitutions", {
+      periodNumber: 1,
+      playerOutLineupId: "lineup-out",
+      playerInLineupId: "lineup-in",
+      incomingPresenceId: "pres-new-123",
+      substitutionTime: "2026-08-07T11:36:30.493Z",
+    });
 
     expect(filterPredicate).toBeDefined();
     if (filterPredicate) {

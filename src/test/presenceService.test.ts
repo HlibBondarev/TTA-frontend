@@ -170,7 +170,7 @@ describe("presenceService Database Transactions", () => {
     });
   });
 
-  it("substitutePlayerTx should cleanly close active player and open a new presence for replacement evaluating filter predicates", async () => {
+  it("substitutePlayerTx should cleanly close active player and open a new presence with matching substitution payload contract", async () => {
     const mockPresencesDataset = [
       {
         id: "pres-closed",
@@ -215,6 +215,24 @@ describe("presenceService Database Transactions", () => {
       timeOut: null,
       sequenceNumber: expect.any(Number),
       isSynced: 0,
+    });
+
+    expect(db.syncQueue.add).toHaveBeenCalledTimes(1);
+    const syncCall = vi.mocked(db.syncQueue.add).mock.calls[0][0];
+
+    expect(syncCall).toMatchObject({
+      actionType: "POST",
+      endpoint: `/Matches/${mockMatchId}/substitutions`,
+      createdAt: expect.any(String),
+    });
+
+    const parsedPayload = JSON.parse(syncCall.payload);
+    expect(parsedPayload).toEqual({
+      periodNumber: mockPeriodNumber,
+      playerOutLineupId: "lineup-out",
+      playerInLineupId: "lineup-in",
+      incomingPresenceId: newPresenceId,
+      substitutionTime: syncCall.createdAt,
     });
   });
 
