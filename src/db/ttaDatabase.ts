@@ -172,7 +172,7 @@ export class TTADatabase extends Dexie {
         "id, matchLineupId, eventDefinitionId, periodNumber, sequenceNumber, isSynced",
       timeanchors: "id, matchId, periodNumber, sequenceNumber, isSynced",
       playerpresences:
-        "id, matchLineupId, periodNumber, sequenceNumber, isSynced",
+        "id, matchLineupId, periodNumber, [matchLineupId+periodNumber], sequenceNumber, isSynced",
       syncQueue: "++id, actionType, createdAt",
       tournaments: "id, sportId, configurationId",
       sportconfigurations: "id, sportId",
