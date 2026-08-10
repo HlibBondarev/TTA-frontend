@@ -81,11 +81,11 @@ export interface CreateGameEventParams {
 export const createGameEventTx = async (
   params: CreateGameEventParams,
 ): Promise<GameEvent> => {
-  if (!params.matchId || !params.matchId.trim()) {
+  if (!params.matchId?.trim()) {
     throw new Error("Missing or empty matchId for creating game event.");
   }
 
-  if (!params.teamId || !params.teamId.trim()) {
+  if (!params.teamId?.trim()) {
     throw new Error("Missing or empty teamId for creating game event.");
   }
 
