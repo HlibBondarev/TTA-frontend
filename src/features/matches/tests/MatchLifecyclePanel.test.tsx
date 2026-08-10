@@ -42,6 +42,10 @@ vi.mock("../../../db/ttaDatabase", () => ({
     },
     syncQueue: {
       add: vi.fn(),
+      delete: vi.fn(),
+      filter: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
     },
     transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
@@ -431,7 +435,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
   test("should show error message if selected starting ids length does not match active players limit", async () => {
     vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
       ...defaultPresenceMock,
-      selectedStartingIds: ["p1", "p2"], // Only 2 players instead of 7
+      selectedStartingIds: ["p1", "p2"],
       activePlayersLimit: 7,
     });
 

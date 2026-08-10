@@ -27,6 +27,10 @@ vi.mock("../../../db/ttaDatabase", () => ({
     },
     syncQueue: {
       add: vi.fn(),
+      delete: vi.fn(),
+      filter: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
     },
     transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
@@ -139,6 +143,66 @@ describe("useMatchLifecycle Hook", () => {
         endpoint: "/Matches/test-match-id/anchors",
       }),
     );
+  });
+
+  test("should remove both time anchor and associated sync queue item atomically in removeTimeAnchor", async () => {
+    const mockSyncItem = {
+      id: 101,
+      actionType: "POST",
+      endpoint: "/Matches/test-match-id/anchors",
+      payload: JSON.stringify([{ id: "target-anchor-id", type: 0 }]),
+      createdAt: new Date().toISOString(),
+    };
+
+    vi.mocked(db.syncQueue.filter).mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([mockSyncItem]),
+    } as unknown as ReturnType<typeof db.syncQueue.filter>);
+
+    const store = createTestStore();
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.removeTimeAnchor("target-anchor-id");
+    });
+
+    expect(db.timeanchors.delete).toHaveBeenCalledWith("target-anchor-id");
+    expect(db.syncQueue.filter).toHaveBeenCalled();
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(101);
+  });
+
+  test("should remove time anchor and queue item when revertStartPeriod and revertEndPeriod are called", async () => {
+    const mockSyncItem = {
+      id: 202,
+      actionType: "POST",
+      endpoint: "/Matches/test-match-id/anchors",
+      payload: JSON.stringify([{ id: "revert-anchor-id", type: 0 }]),
+      createdAt: new Date().toISOString(),
+    };
+
+    vi.mocked(db.syncQueue.filter).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([mockSyncItem]),
+    } as unknown as ReturnType<typeof db.syncQueue.filter>);
+
+    const store = createTestStore({ isPeriodActive: true });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.revertStartPeriod("revert-anchor-id");
+    });
+
+    expect(db.timeanchors.delete).toHaveBeenCalledWith("revert-anchor-id");
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(202);
+    expect(store.getState().match.isPeriodActive).toBe(false);
+
+    await act(async () => {
+      await result.current.revertEndPeriod("revert-anchor-id");
+    });
+
+    expect(store.getState().match.isPeriodActive).toBe(true);
   });
 
   test("should stop the timer (stoppage start) and start the timer (stoppage end) properly", async () => {
@@ -312,7 +376,6 @@ describe("useMatchLifecycle Hook", () => {
     });
     expect(store.getState().match.periodNumber).toBe(1);
 
-    // Should not go below 1 or handle minimum bounds depending on slice logic
     act(() => {
       result.current.prevPeriod();
     });

@@ -69,8 +69,22 @@ export const useMatchLifecycle = () => {
     return anchorId;
   };
 
+  /**
+   * Atomically deletes the time anchor record from IndexedDB and purges its unsent sync queue payload.
+   */
   const removeTimeAnchor = async (anchorId: string) => {
-    await db.timeanchors.delete(anchorId);
+    await db.transaction("rw", [db.timeanchors, db.syncQueue], async () => {
+      await db.timeanchors.delete(anchorId);
+      const matchingQueueItems = await db.syncQueue
+        .filter((item) => item.payload.includes(anchorId))
+        .toArray();
+
+      for (const item of matchingQueueItems) {
+        if (item.id !== undefined) {
+          await db.syncQueue.delete(item.id);
+        }
+      }
+    });
   };
 
   const revertStartPeriod = async (anchorId?: string | null) => {
