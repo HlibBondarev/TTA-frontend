@@ -26,7 +26,7 @@ export const useGameEvents = (matchId: string) => {
   ): Promise<boolean> => {
     const { selectedPlayerId, actionName, isPositive, isLeadToGoal } = params;
 
-    if (!matchId || !matchId.trim()) {
+    if (!matchId?.trim()) {
       throw new Error("Active match ID is missing or empty.");
     }
 
@@ -52,7 +52,7 @@ export const useGameEvents = (matchId: string) => {
     }
 
     const roster = await db.playerrosters.get(lineup.playerRosterId);
-    if (!roster || !roster.teamId) {
+    if (!roster?.teamId) {
       throw new Error(
         `Player roster or team ID not found for roster ID: ${lineup.playerRosterId}`,
       );
