@@ -22,27 +22,47 @@ export const useMatchLifecycle = () => {
     globalSequenceNumber,
   } = matchState;
 
-  // Internal helper to perform atomic IndexedDB write with rollback support
+  // Internal helper to perform atomic IndexedDB write with rollback support and sync queue enqueuing
   const logTimeAnchor = async (type: number): Promise<string> => {
     const anchorId = crypto.randomUUID();
 
     await db.transaction(
       "rw",
-      [db.timeanchors, db.gameevents, db.playerpresences],
+      [db.timeanchors, db.gameevents, db.playerpresences, db.syncQueue],
       async () => {
         const nextSeq = await getNextSequenceNumber();
+        const timestamp = new Date().toISOString();
 
         const anchorData = {
           id: anchorId,
           matchId: activeMatchId!,
           periodNumber,
           type,
-          timestamp: new Date().toISOString(),
+          timestamp,
           sequenceNumber: nextSeq,
           isSynced: 0,
         };
 
         await db.timeanchors.add(anchorData);
+
+        // Array batch payload containing client-generated anchor ID
+        const payload = JSON.stringify([
+          {
+            id: anchorData.id,
+            periodNumber: anchorData.periodNumber,
+            type: anchorData.type,
+            timestamp: anchorData.timestamp,
+          },
+        ]);
+
+        const syncItem = {
+          actionType: "POST" as const,
+          endpoint: `/Matches/${activeMatchId}/anchors`,
+          payload,
+          createdAt: timestamp,
+        };
+
+        await db.syncQueue.add(syncItem);
       },
     );
 

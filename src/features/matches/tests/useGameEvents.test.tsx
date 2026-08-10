@@ -12,6 +12,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
     matchlineups: {
       get: vi.fn(),
     },
+    playerrosters: {
+      get: vi.fn(),
+    },
   },
 }));
 
@@ -58,6 +61,14 @@ describe("useGameEvents Custom Hook", () => {
       positionId: null,
     });
 
+    vi.mocked(db.playerrosters.get).mockResolvedValueOnce({
+      id: "roster-7",
+      teamId: "team-456",
+      personId: "person-7",
+      tournamentId: "t-1",
+      number: 7,
+    });
+
     vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce({
       id: "def-goal-id",
       sportId: "waterpolo-sport-id",
@@ -93,8 +104,10 @@ describe("useGameEvents Custom Hook", () => {
       expect(success).toBe(true);
     });
 
-    // Check IndexedDB transaction payload
+    // Check IndexedDB transaction payload with matchId and teamId
     expect(eventService.createGameEventTx).toHaveBeenCalledWith({
+      matchId: "test-match-id",
+      teamId: "team-456",
       matchLineupId: "lineup-uuid-7",
       eventDefinitionId: "def-goal-id",
       periodNumber: 2,
@@ -174,6 +187,14 @@ describe("useGameEvents Custom Hook", () => {
       positionId: null,
     });
 
+    vi.mocked(db.playerrosters.get).mockResolvedValueOnce({
+      id: "roster-1",
+      teamId: "team-456",
+      personId: "person-1",
+      tournamentId: "t-1",
+      number: 1,
+    });
+
     vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce(
       undefined,
     );
@@ -206,6 +227,14 @@ describe("useGameEvents Custom Hook", () => {
       positionId: null,
     });
 
+    vi.mocked(db.playerrosters.get).mockResolvedValueOnce({
+      id: "roster-7",
+      teamId: "team-456",
+      personId: "person-7",
+      tournamentId: "t-1",
+      number: 7,
+    });
+
     vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce({
       id: "def-pass-id",
       sportId: "waterpolo-sport-id",
@@ -221,7 +250,7 @@ describe("useGameEvents Custom Hook", () => {
       eventDefinitionId: "def-pass-id",
       periodNumber: 2,
       eventTimestamp: new Date().toISOString(),
-      isLeadToGoal: true, // Pass leading directly to goal
+      isLeadToGoal: true,
       createdAt: new Date().toISOString(),
       sequenceNumber: 12,
       isSynced: 0,
@@ -236,13 +265,15 @@ describe("useGameEvents Custom Hook", () => {
         selectedPlayerId: "lineup-uuid-7",
         actionName: "Pass",
         isPositive: true,
-        isLeadToGoal: true, // Explicit custom flag set by operator
+        isLeadToGoal: true,
       });
       expect(success).toBe(true);
     });
 
-    // Verify createGameEventTx received the exact selected isLeadToGoal value
+    // Verify createGameEventTx received matchId, teamId and exact selected isLeadToGoal value
     expect(eventService.createGameEventTx).toHaveBeenCalledWith({
+      matchId: "test-match-id",
+      teamId: "team-456",
       matchLineupId: "lineup-uuid-7",
       eventDefinitionId: "def-pass-id",
       periodNumber: 2,

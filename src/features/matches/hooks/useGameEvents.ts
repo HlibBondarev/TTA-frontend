@@ -40,7 +40,13 @@ export const useGameEvents = (matchId: string) => {
       );
     }
 
-    // 2. Resolve Event Definition by action name
+    // 2. Resolve target team ID from player roster association
+    const roster = lineup.playerRosterId
+      ? await db.playerrosters.get(lineup.playerRosterId)
+      : null;
+    const teamId = roster?.teamId || "";
+
+    // 3. Resolve Event Definition by action name
     const eventDef = await getEventDefinitionByName(actionName);
     if (!eventDef) {
       throw new Error(`Event definition not found for action: "${actionName}"`);
@@ -48,8 +54,10 @@ export const useGameEvents = (matchId: string) => {
 
     const timestamp = new Date().toISOString();
 
-    // 3. Atomically persist GameEvent entity with serialized sequence reservation
+    // 4. Atomically persist GameEvent entity with serialized sequence reservation and sync queue payload
     const createdEvent = await createGameEventTx({
+      matchId,
+      teamId,
       matchLineupId: lineup.id,
       eventDefinitionId: eventDef.id,
       periodNumber,
@@ -57,7 +65,7 @@ export const useGameEvents = (matchId: string) => {
       isLeadToGoal: isLeadToGoal,
     });
 
-    // 4. Update Redux store with transactionally computed sequence and real player jersey number
+    // 5. Update Redux store with transactionally computed sequence and real player jersey number
     dispatch(setGlobalSequenceNumber(createdEvent.sequenceNumber));
     dispatch(
       addRecentAction({

@@ -25,6 +25,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
         last: vi.fn().mockResolvedValue(undefined),
       }),
     },
+    syncQueue: {
+      add: vi.fn(),
+    },
     transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
 }));
@@ -65,7 +68,7 @@ describe("useMatchLifecycle Hook", () => {
     expect(result.current.isPeriodActive).toBe(true);
   });
 
-  test("should start a period and add a TimeAnchor to IndexedDB", async () => {
+  test("should start a period, add a TimeAnchor and push item to syncQueue in IndexedDB", async () => {
     const store = createTestStore({ isPeriodActive: false });
     const { result } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
@@ -88,6 +91,13 @@ describe("useMatchLifecycle Hook", () => {
         sequenceNumber: 1,
       }),
     );
+    expect(db.syncQueue.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "POST",
+        endpoint: "/Matches/test-match-id/anchors",
+        payload: expect.stringContaining(anchorId!),
+      }),
+    );
   });
 
   test("should not start a period if it is already active", async () => {
@@ -103,7 +113,7 @@ describe("useMatchLifecycle Hook", () => {
     expect(db.timeanchors.add).not.toHaveBeenCalled();
   });
 
-  test("should end a period and add a TimeAnchor to IndexedDB", async () => {
+  test("should end a period, add a TimeAnchor and push item to syncQueue in IndexedDB", async () => {
     const store = createTestStore({ isPeriodActive: true });
     const { result } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
@@ -121,6 +131,12 @@ describe("useMatchLifecycle Hook", () => {
       expect.objectContaining({
         type: 1,
         sequenceNumber: 1,
+      }),
+    );
+    expect(db.syncQueue.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "POST",
+        endpoint: "/Matches/test-match-id/anchors",
       }),
     );
   });

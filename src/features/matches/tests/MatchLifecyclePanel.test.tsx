@@ -15,6 +15,11 @@ import presenceReducer from "../../playerpresences/store/presenceSlice";
 import { db } from "../../../db/ttaDatabase";
 import * as usePlayerPresenceModule from "../../playerpresences/hooks/usePlayerPresence";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
+import { processSyncQueue } from "../../../services/syncService";
+
+vi.mock("../../../services/syncService", () => ({
+  processSyncQueue: vi.fn().mockResolvedValue(0),
+}));
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
@@ -34,6 +39,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
       orderBy: vi.fn().mockReturnValue({
         last: vi.fn().mockResolvedValue(undefined),
       }),
+    },
+    syncQueue: {
+      add: vi.fn(),
     },
     transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
@@ -128,7 +136,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     });
   });
 
-  test("should successfully trigger period end flow", async () => {
+  test("should successfully trigger period end flow and trigger processSyncQueue", async () => {
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
@@ -152,6 +160,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     await waitFor(() => {
       expect(store.getState().match.isPeriodActive).toBe(false);
       expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledTimes(1);
+      expect(processSyncQueue).toHaveBeenCalledTimes(1);
     });
   });
 

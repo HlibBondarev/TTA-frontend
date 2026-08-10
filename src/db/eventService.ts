@@ -1,4 +1,9 @@
-import { db, type GameEvent, type EventDefinitionLookup } from "./ttaDatabase";
+import {
+  db,
+  type GameEvent,
+  type EventDefinitionLookup,
+  type SyncQueueItem,
+} from "./ttaDatabase";
 
 // In-memory cache for event definitions to avoid repeated IndexedDB reads during rapid recording
 let eventDefinitionsCache: Map<string, EventDefinitionLookup> | null = null;
@@ -61,6 +66,8 @@ export const getNextSequenceNumber = async (): Promise<number> => {
 };
 
 export interface CreateGameEventParams {
+  matchId?: string;
+  teamId?: string;
   matchLineupId: string;
   eventDefinitionId: string;
   periodNumber: number;
@@ -69,7 +76,7 @@ export interface CreateGameEventParams {
 }
 
 /**
- * Atomically persists a new GameEvent entity to IndexedDB with serial sequence reservation.
+ * Atomically persists a new GameEvent entity to IndexedDB and enqueues the team-scoped sync payload.
  */
 export const createGameEventTx = async (
   params: CreateGameEventParams,
@@ -78,7 +85,7 @@ export const createGameEventTx = async (
 
   await db.transaction(
     "rw",
-    [db.gameevents, db.timeanchors, db.playerpresences],
+    [db.gameevents, db.timeanchors, db.playerpresences, db.syncQueue],
     async () => {
       const nextSeq = await getNextSequenceNumber();
 
@@ -95,6 +102,30 @@ export const createGameEventTx = async (
       };
 
       await db.gameevents.add(createdEvent);
+
+      const matchId = params.matchId || "unknown-match";
+      const teamId = params.teamId || "unknown-team";
+
+      // Array batch payload containing client-generated event ID
+      const payload = JSON.stringify([
+        {
+          id: createdEvent.id,
+          matchLineupId: params.matchLineupId,
+          eventDefinitionId: params.eventDefinitionId,
+          periodNumber: params.periodNumber,
+          isLeadToGoal: params.isLeadToGoal,
+          eventTimestamp: params.eventTimestamp,
+        },
+      ]);
+
+      const syncItem: SyncQueueItem = {
+        actionType: "POST",
+        endpoint: `/Matches/${matchId}/teams/${teamId}/events`,
+        payload,
+        createdAt: params.eventTimestamp,
+      };
+
+      await db.syncQueue.add(syncItem);
     },
   );
 

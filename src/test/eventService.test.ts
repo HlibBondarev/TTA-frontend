@@ -28,6 +28,9 @@ vi.mock("../db/ttaDatabase", () => ({
         last: vi.fn().mockResolvedValue(undefined),
       }),
     },
+    syncQueue: {
+      add: vi.fn(),
+    },
     transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
 }));
@@ -101,8 +104,10 @@ describe("Event Database Service (eventService)", () => {
     expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
   });
 
-  it("should create and persist a GameEvent entity atomically with incremented sequence", async () => {
+  it("should create and persist a GameEvent entity atomically with incremented sequence and sync queue item", async () => {
     const params = {
+      matchId: "match-123",
+      teamId: "team-456",
       matchLineupId: "lineup-1",
       eventDefinitionId: "def-1",
       periodNumber: 1,
@@ -126,9 +131,25 @@ describe("Event Database Service (eventService)", () => {
 
     expect(db.transaction).toHaveBeenCalledWith(
       "rw",
-      [db.gameevents, db.timeanchors, db.playerpresences],
+      [db.gameevents, db.timeanchors, db.playerpresences, db.syncQueue],
       expect.any(Function),
     );
     expect(db.gameevents.add).toHaveBeenCalledWith(createdEvent);
+
+    expect(db.syncQueue.add).toHaveBeenCalledWith({
+      actionType: "POST",
+      endpoint: "/Matches/match-123/teams/team-456/events",
+      payload: JSON.stringify([
+        {
+          id: createdEvent.id,
+          matchLineupId: "lineup-1",
+          eventDefinitionId: "def-1",
+          periodNumber: 1,
+          isLeadToGoal: true,
+          eventTimestamp: "2026-07-22T12:00:00.000Z",
+        },
+      ]),
+      createdAt: "2026-07-22T12:00:00.000Z",
+    });
   });
 });

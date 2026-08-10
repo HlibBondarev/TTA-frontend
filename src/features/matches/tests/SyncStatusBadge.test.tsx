@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { SyncStatusBadge } from "../components/SyncStatusBadge";
 import { db } from "../../../db/ttaDatabase";
+import { processSyncQueue } from "../../../services/syncService";
+
+vi.mock("../../../services/syncService", () => ({
+  processSyncQueue: vi.fn().mockResolvedValue(0),
+}));
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
@@ -59,5 +64,30 @@ describe("SyncStatusBadge Component", () => {
     window.dispatchEvent(new Event("offline"));
 
     expect(await screen.findByText("Offline")).toBeInTheDocument();
+  });
+
+  it("triggers processSyncQueue on click when online", async () => {
+    render(<SyncStatusBadge />);
+
+    const badgeButton = await screen.findByRole("button");
+    fireEvent.click(badgeButton);
+
+    expect(processSyncQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not trigger processSyncQueue on click when offline", async () => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: false,
+    });
+
+    render(<SyncStatusBadge />);
+
+    window.dispatchEvent(new Event("offline"));
+
+    const badgeButton = await screen.findByRole("button");
+    fireEvent.click(badgeButton);
+
+    expect(processSyncQueue).not.toHaveBeenCalled();
   });
 });
