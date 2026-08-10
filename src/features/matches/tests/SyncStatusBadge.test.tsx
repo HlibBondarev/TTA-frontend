@@ -1,4 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  afterAll,
+} from "vitest";
 import {
   render,
   screen,
@@ -37,6 +45,11 @@ vi.mock("dexie", () => ({
 }));
 
 describe("SyncStatusBadge Component", () => {
+  const originalOnLineDescriptor = Object.getOwnPropertyDescriptor(
+    navigator,
+    "onLine",
+  );
+
   beforeEach(() => {
     vi.clearAllMocks();
     Object.defineProperty(navigator, "onLine", {
@@ -47,6 +60,15 @@ describe("SyncStatusBadge Component", () => {
 
   afterEach(() => {
     vi.mocked(db.syncQueue.count).mockResolvedValue(0);
+  });
+
+  afterAll(() => {
+    if (originalOnLineDescriptor) {
+      Object.defineProperty(navigator, "onLine", originalOnLineDescriptor);
+    } else {
+      // @ts-expect-error - Remove mocked instance property if descriptor didn't exist
+      delete navigator.onLine;
+    }
   });
 
   it("renders Online status badge when browser is online and count is 0", async () => {
@@ -110,22 +132,33 @@ describe("SyncStatusBadge Component", () => {
   });
 
   it("does not trigger processSyncQueue on click when offline and button is disabled", async () => {
-    Object.defineProperty(navigator, "onLine", {
-      configurable: true,
-      value: false,
-    });
+    const previousDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "onLine",
+    );
 
-    render(<SyncStatusBadge />);
+    try {
+      Object.defineProperty(navigator, "onLine", {
+        configurable: true,
+        value: false,
+      });
 
-    act(() => {
-      window.dispatchEvent(new Event("offline"));
-    });
+      render(<SyncStatusBadge />);
 
-    const badgeButton = await screen.findByRole("button");
-    expect(badgeButton).toBeDisabled();
+      act(() => {
+        window.dispatchEvent(new Event("offline"));
+      });
 
-    fireEvent.click(badgeButton);
+      const badgeButton = await screen.findByRole("button");
+      expect(badgeButton).toBeDisabled();
 
-    expect(processSyncQueue).not.toHaveBeenCalled();
+      fireEvent.click(badgeButton);
+
+      expect(processSyncQueue).not.toHaveBeenCalled();
+    } finally {
+      if (previousDescriptor) {
+        Object.defineProperty(navigator, "onLine", previousDescriptor);
+      }
+    }
   });
 });
