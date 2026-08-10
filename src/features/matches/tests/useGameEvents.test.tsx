@@ -104,7 +104,6 @@ describe("useGameEvents Custom Hook", () => {
       expect(success).toBe(true);
     });
 
-    // Check IndexedDB transaction payload with matchId and teamId
     expect(eventService.createGameEventTx).toHaveBeenCalledWith({
       matchId: "test-match-id",
       teamId: "team-456",
@@ -115,7 +114,6 @@ describe("useGameEvents Custom Hook", () => {
       isLeadToGoal: true,
     });
 
-    // Check Redux state updates
     expect(store.getState().match.globalSequenceNumber).toBe(11);
     expect(store.getState().match.recentActions).toHaveLength(1);
     expect(store.getState().match.recentActions[0]).toEqual({
@@ -173,6 +171,37 @@ describe("useGameEvents Custom Hook", () => {
       }),
     ).rejects.toThrow(
       "Player lineup lineup-uuid-other does not belong to match: test-match-id",
+    );
+  });
+
+  it("should throw an error if player roster or roster teamId is missing", async () => {
+    const store = createTestStore();
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-no-roster",
+      matchId: "test-match-id",
+      playerRosterId: "roster-missing",
+      number: 10,
+      isInStartingLineup: true,
+      positionId: null,
+    });
+
+    vi.mocked(db.playerrosters.get).mockResolvedValueOnce(undefined);
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.recordGameEvent({
+          selectedPlayerId: "lineup-uuid-no-roster",
+          actionName: "Pass",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow(
+      "Player roster or team ID not found for roster ID: roster-missing",
     );
   });
 
@@ -270,7 +299,6 @@ describe("useGameEvents Custom Hook", () => {
       expect(success).toBe(true);
     });
 
-    // Verify createGameEventTx received matchId, teamId and exact selected isLeadToGoal value
     expect(eventService.createGameEventTx).toHaveBeenCalledWith({
       matchId: "test-match-id",
       teamId: "team-456",

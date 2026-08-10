@@ -69,7 +69,6 @@ describe("Event Database Service (eventService)", () => {
     expect(firstLoad.size).toBe(2);
     expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(1);
 
-    // Second load should use cache and not hit DB again
     const secondLoad = await loadEventDefinitionsCache();
     expect(secondLoad.size).toBe(2);
     expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(1);
@@ -102,6 +101,40 @@ describe("Event Database Service (eventService)", () => {
 
     await loadEventDefinitionsCache();
     expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
+  });
+
+  it("should throw an error and prevent persistence if matchId or teamId is missing or empty", async () => {
+    const invalidParamsMissingMatch = {
+      matchId: "",
+      teamId: "team-456",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: true,
+    };
+
+    await expect(createGameEventTx(invalidParamsMissingMatch)).rejects.toThrow(
+      "Missing or empty matchId for creating game event.",
+    );
+
+    const invalidParamsMissingTeam = {
+      matchId: "match-123",
+      teamId: "  ",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: true,
+    };
+
+    await expect(createGameEventTx(invalidParamsMissingTeam)).rejects.toThrow(
+      "Missing or empty teamId for creating game event.",
+    );
+
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(db.gameevents.add).not.toHaveBeenCalled();
+    expect(db.syncQueue.add).not.toHaveBeenCalled();
   });
 
   it("should create and persist a GameEvent entity atomically with incremented sequence and sync queue item", async () => {

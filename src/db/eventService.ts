@@ -66,8 +66,8 @@ export const getNextSequenceNumber = async (): Promise<number> => {
 };
 
 export interface CreateGameEventParams {
-  matchId?: string;
-  teamId?: string;
+  matchId: string;
+  teamId: string;
   matchLineupId: string;
   eventDefinitionId: string;
   periodNumber: number;
@@ -81,6 +81,14 @@ export interface CreateGameEventParams {
 export const createGameEventTx = async (
   params: CreateGameEventParams,
 ): Promise<GameEvent> => {
+  if (!params.matchId || !params.matchId.trim()) {
+    throw new Error("Missing or empty matchId for creating game event.");
+  }
+
+  if (!params.teamId || !params.teamId.trim()) {
+    throw new Error("Missing or empty teamId for creating game event.");
+  }
+
   let createdEvent: GameEvent | null = null;
 
   await db.transaction(
@@ -103,9 +111,6 @@ export const createGameEventTx = async (
 
       await db.gameevents.add(createdEvent);
 
-      const matchId = params.matchId || "unknown-match";
-      const teamId = params.teamId || "unknown-team";
-
       // Array batch payload containing client-generated event ID
       const payload = JSON.stringify([
         {
@@ -120,7 +125,7 @@ export const createGameEventTx = async (
 
       const syncItem: SyncQueueItem = {
         actionType: "POST",
-        endpoint: `/Matches/${matchId}/teams/${teamId}/events`,
+        endpoint: `/Matches/${params.matchId}/teams/${params.teamId}/events`,
         payload,
         createdAt: params.eventTimestamp,
       };

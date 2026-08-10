@@ -26,6 +26,10 @@ export const useGameEvents = (matchId: string) => {
   ): Promise<boolean> => {
     const { selectedPlayerId, actionName, isPositive, isLeadToGoal } = params;
 
+    if (!matchId || !matchId.trim()) {
+      throw new Error("Active match ID is missing or empty.");
+    }
+
     // 1. Resolve Match Lineup record to get real jersey number and matchLineupId
     const lineup = await db.matchlineups.get(selectedPlayerId);
     if (!lineup) {
@@ -41,10 +45,19 @@ export const useGameEvents = (matchId: string) => {
     }
 
     // 2. Resolve target team ID from player roster association
-    const roster = lineup.playerRosterId
-      ? await db.playerrosters.get(lineup.playerRosterId)
-      : null;
-    const teamId = roster?.teamId || "";
+    if (!lineup.playerRosterId) {
+      throw new Error(
+        `Player lineup ${selectedPlayerId} does not have an associated playerRosterId.`,
+      );
+    }
+
+    const roster = await db.playerrosters.get(lineup.playerRosterId);
+    if (!roster || !roster.teamId) {
+      throw new Error(
+        `Player roster or team ID not found for roster ID: ${lineup.playerRosterId}`,
+      );
+    }
+    const teamId = roster.teamId;
 
     // 3. Resolve Event Definition by action name
     const eventDef = await getEventDefinitionByName(actionName);
