@@ -356,4 +356,70 @@ describe("useGameEvents Custom Hook", () => {
       isLeadToGoal: true,
     });
   });
+
+  it("should normalize padded matchId and teamId before validating lineup and passing to createGameEventTx", async () => {
+    const store = createTestStore();
+
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-padded",
+      matchId: "  test-match-id  ",
+      playerRosterId: "roster-padded",
+      number: 9,
+      isInStartingLineup: true,
+      positionId: null,
+    });
+
+    vi.mocked(db.playerrosters.get).mockResolvedValueOnce({
+      id: "roster-padded",
+      teamId: "  team-padded-999  ",
+      personId: "person-9",
+      tournamentId: "t-1",
+      number: 9,
+    });
+
+    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce({
+      id: "def-foul-id",
+      sportId: "waterpolo-sport-id",
+      name: "Foul",
+      shortName: "FL",
+      isPositive: false,
+      createdAt: new Date().toISOString(),
+    });
+
+    vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce({
+      id: "created-foul-uuid",
+      matchLineupId: "lineup-uuid-padded",
+      eventDefinitionId: "def-foul-id",
+      periodNumber: 2,
+      eventTimestamp: new Date().toISOString(),
+      isLeadToGoal: false,
+      createdAt: new Date().toISOString(),
+      sequenceNumber: 15,
+      isSynced: 0,
+    });
+
+    const { result } = renderHook(() => useGameEvents("  test-match-id  "), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      const success = await result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-padded",
+        actionName: "Foul",
+        isPositive: false,
+        isLeadToGoal: false,
+      });
+      expect(success).toBe(true);
+    });
+
+    expect(eventService.createGameEventTx).toHaveBeenCalledWith({
+      matchId: "test-match-id",
+      teamId: "team-padded-999",
+      matchLineupId: "lineup-uuid-padded",
+      eventDefinitionId: "def-foul-id",
+      periodNumber: 2,
+      eventTimestamp: expect.any(String),
+      isLeadToGoal: false,
+    });
+  });
 });

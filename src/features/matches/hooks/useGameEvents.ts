@@ -26,7 +26,8 @@ export const useGameEvents = (matchId: string) => {
   ): Promise<boolean> => {
     const { selectedPlayerId, actionName, isPositive, isLeadToGoal } = params;
 
-    if (!matchId?.trim()) {
+    const normalizedMatchId = matchId?.trim();
+    if (!normalizedMatchId) {
       throw new Error("Active match ID is missing or empty.");
     }
 
@@ -38,7 +39,7 @@ export const useGameEvents = (matchId: string) => {
       );
     }
 
-    if (lineup.matchId !== matchId) {
+    if (lineup.matchId?.trim() !== normalizedMatchId) {
       throw new Error(
         `Player lineup ${selectedPlayerId} does not belong to match: ${matchId}`,
       );
@@ -52,12 +53,12 @@ export const useGameEvents = (matchId: string) => {
     }
 
     const roster = await db.playerrosters.get(lineup.playerRosterId);
-    if (!roster?.teamId) {
+    const teamId = roster?.teamId?.trim();
+    if (!teamId) {
       throw new Error(
         `Player roster or team ID not found for roster ID: ${lineup.playerRosterId}`,
       );
     }
-    const teamId = roster.teamId;
 
     // 3. Resolve Event Definition by action name
     const eventDef = await getEventDefinitionByName(actionName);
@@ -69,7 +70,7 @@ export const useGameEvents = (matchId: string) => {
 
     // 4. Atomically persist GameEvent entity with serialized sequence reservation and sync queue payload
     const createdEvent = await createGameEventTx({
-      matchId,
+      matchId: normalizedMatchId,
       teamId,
       matchLineupId: lineup.id,
       eventDefinitionId: eventDef.id,
