@@ -9,6 +9,7 @@ import {
   incrementSequence,
   incrementPeriodNumber,
   decrementPeriodNumber,
+  setGlobalSequenceNumber,
 } from "../store/matchSlice";
 
 export const useMatchLifecycle = () => {
@@ -112,6 +113,7 @@ export const useMatchLifecycle = () => {
     }
     if (isPeriodActive) return;
 
+    const priorSequence = globalSequenceNumber;
     dispatch(startPeriodState());
     dispatch(incrementSequence());
 
@@ -120,6 +122,7 @@ export const useMatchLifecycle = () => {
       return anchorId;
     } catch (error) {
       dispatch(endPeriodState());
+      dispatch(setGlobalSequenceNumber(priorSequence));
       throw error;
     }
   };
@@ -130,6 +133,7 @@ export const useMatchLifecycle = () => {
     }
     if (!isPeriodActive) return;
 
+    const priorSequence = globalSequenceNumber;
     dispatch(endPeriodState());
     dispatch(incrementSequence());
 
@@ -138,6 +142,7 @@ export const useMatchLifecycle = () => {
       return anchorId;
     } catch (error) {
       dispatch(startPeriodState());
+      dispatch(setGlobalSequenceNumber(priorSequence));
       throw error;
     }
   };
@@ -148,12 +153,14 @@ export const useMatchLifecycle = () => {
     }
     if (!isPeriodActive || isInsideStoppage) return;
 
+    const priorSequence = globalSequenceNumber;
     dispatch(startStoppageState());
     dispatch(incrementSequence());
     try {
       await logTimeAnchor(2);
     } catch (error) {
       dispatch(endStoppageState());
+      dispatch(setGlobalSequenceNumber(priorSequence));
       throw error;
     }
   };
@@ -164,12 +171,14 @@ export const useMatchLifecycle = () => {
     }
     if (!isPeriodActive || !isInsideStoppage) return;
 
+    const priorSequence = globalSequenceNumber;
     dispatch(endStoppageState());
     dispatch(incrementSequence());
     try {
       await logTimeAnchor(3);
     } catch (error) {
       dispatch(startStoppageState());
+      dispatch(setGlobalSequenceNumber(priorSequence));
       throw error;
     }
   };

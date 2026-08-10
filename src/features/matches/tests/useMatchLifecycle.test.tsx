@@ -250,9 +250,11 @@ describe("useMatchLifecycle Hook", () => {
       new Error("IndexedDB transaction failure"),
     );
 
+    const initialSeq = 5;
     const store = createTestStore({
       isPeriodActive: false,
       isInsideStoppage: false,
+      globalSequenceNumber: initialSeq,
     });
     const { result } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
@@ -265,6 +267,7 @@ describe("useMatchLifecycle Hook", () => {
       }),
     ).rejects.toThrow("IndexedDB transaction failure");
     expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.globalSequenceNumber).toBe(initialSeq);
 
     // Set state to active period for endPeriod and stopTime tests
     act(() => {
@@ -278,6 +281,7 @@ describe("useMatchLifecycle Hook", () => {
       }),
     ).rejects.toThrow("IndexedDB transaction failure");
     expect(store.getState().match.isPeriodActive).toBe(true);
+    expect(store.getState().match.globalSequenceNumber).toBe(initialSeq);
 
     // 3. stopTime failure
     await expect(
@@ -286,6 +290,7 @@ describe("useMatchLifecycle Hook", () => {
       }),
     ).rejects.toThrow("IndexedDB transaction failure");
     expect(store.getState().match.isInsideStoppage).toBe(false);
+    expect(store.getState().match.globalSequenceNumber).toBe(initialSeq);
 
     // Set stoppage state for startTime test
     act(() => {
@@ -299,6 +304,7 @@ describe("useMatchLifecycle Hook", () => {
       }),
     ).rejects.toThrow("IndexedDB transaction failure");
     expect(store.getState().match.isInsideStoppage).toBe(true);
+    expect(store.getState().match.globalSequenceNumber).toBe(initialSeq);
   });
 
   test("should stop the timer (stoppage start) and start the timer (stoppage end) properly", async () => {
