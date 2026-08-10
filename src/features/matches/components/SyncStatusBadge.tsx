@@ -33,7 +33,9 @@ export const SyncStatusBadge: React.FC = () => {
 
   const handleManualSync = () => {
     if (isOnline) {
-      void processSyncQueue();
+      void processSyncQueue().catch((syncErr) => {
+        console.error("Manual background sync failed:", syncErr);
+      });
     }
   };
 

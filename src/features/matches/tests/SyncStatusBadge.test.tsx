@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import { SyncStatusBadge } from "../components/SyncStatusBadge";
 import { db } from "../../../db/ttaDatabase";
 import { processSyncQueue } from "../../../services/syncService";
@@ -61,7 +67,9 @@ describe("SyncStatusBadge Component", () => {
   it("updates to Offline badge on offline window event", async () => {
     render(<SyncStatusBadge />);
 
-    window.dispatchEvent(new Event("offline"));
+    act(() => {
+      window.dispatchEvent(new Event("offline"));
+    });
 
     expect(await screen.findByText("Offline")).toBeInTheDocument();
   });
@@ -75,6 +83,28 @@ describe("SyncStatusBadge Component", () => {
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
   });
 
+  it("handles processSyncQueue rejection gracefully on manual sync click", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(processSyncQueue).mockRejectedValueOnce(
+      new Error("Network fail"),
+    );
+
+    render(<SyncStatusBadge />);
+
+    const badgeButton = await screen.findByRole("button");
+    fireEvent.click(badgeButton);
+
+    await waitFor(() => {
+      expect(processSyncQueue).toHaveBeenCalledTimes(1);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Manual background sync failed:",
+        expect.any(Error),
+      );
+    });
+
+    consoleSpy.mockRestore();
+  });
+
   it("does not trigger processSyncQueue on click when offline", async () => {
     Object.defineProperty(navigator, "onLine", {
       configurable: true,
@@ -83,7 +113,9 @@ describe("SyncStatusBadge Component", () => {
 
     render(<SyncStatusBadge />);
 
-    window.dispatchEvent(new Event("offline"));
+    act(() => {
+      window.dispatchEvent(new Event("offline"));
+    });
 
     const badgeButton = await screen.findByRole("button");
     fireEvent.click(badgeButton);

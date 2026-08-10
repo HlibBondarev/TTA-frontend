@@ -164,6 +164,42 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     });
   });
 
+  test("should handle processSyncQueue rejection gracefully without rolling back ended period", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(processSyncQueue).mockRejectedValueOnce(new Error("Sync error"));
+
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        periodNumber: 1,
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        globalSequenceNumber: 1,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const endBtn = screen.getByText("END PERIOD");
+    fireEvent.click(endBtn);
+
+    await waitFor(() => {
+      expect(store.getState().match.isPeriodActive).toBe(false);
+      expect(processSyncQueue).toHaveBeenCalledTimes(1);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Background sync after ending period failed:",
+        expect.any(Error),
+      );
+    });
+
+    consoleSpy.mockRestore();
+  });
+
   test("should restore isPeriodActive to false if startPeriodWithRoster fails after anchor write", async () => {
     vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
       ...defaultPresenceMock,
