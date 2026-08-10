@@ -20,6 +20,12 @@ vi.mock("../db/ttaDatabase", () => ({
     playerpresences: {
       where: vi.fn(),
     },
+    gameevents: {
+      where: vi.fn(),
+    },
+    timeanchors: {
+      where: vi.fn(),
+    },
   },
 }));
 
@@ -251,6 +257,64 @@ describe("Sync Engine Service", () => {
         }),
       ).toBe(false);
     }
+  });
+
+  it("updates gameevents to isSynced = 1 when event sync item is processed", async () => {
+    const mockItems = [
+      {
+        id: 6,
+        actionType: "POST",
+        endpoint: "/Matches/m1/teams/t1/events",
+        payload: JSON.stringify([{ id: "event-1", isLeadToGoal: true }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({});
+
+    const mockModify = vi.fn();
+    const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
+    vi.mocked(db.gameevents.where).mockReturnValue({
+      anyOf: mockAnyOf,
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    await processSyncQueue();
+
+    expect(db.gameevents.where).toHaveBeenCalledWith("id");
+    expect(mockAnyOf).toHaveBeenCalledWith(["event-1"]);
+    expect(mockModify).toHaveBeenCalledWith({ isSynced: 1 });
+  });
+
+  it("updates timeanchors to isSynced = 1 when anchor sync item is processed", async () => {
+    const mockItems = [
+      {
+        id: 7,
+        actionType: "POST",
+        endpoint: "/Matches/m1/anchors",
+        payload: JSON.stringify([{ id: "anchor-1", type: 0 }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({});
+
+    const mockModify = vi.fn();
+    const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      anyOf: mockAnyOf,
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    await processSyncQueue();
+
+    expect(db.timeanchors.where).toHaveBeenCalledWith("id");
+    expect(mockAnyOf).toHaveBeenCalledWith(["anchor-1"]);
+    expect(mockModify).toHaveBeenCalledWith({ isSynced: 1 });
   });
 
   it("attaches online event listener in initSyncEngine", () => {

@@ -52,6 +52,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
     matchlineups: {
       get: vi.fn(),
     },
+    playerrosters: {
+      get: vi.fn(),
+    },
     eventdefinitions: {
       toArray: vi.fn(),
     },
@@ -85,6 +88,14 @@ describe("TTAConsole Component", () => {
       playerRosterId: "roster-1",
       isInStartingLineup: true,
       positionId: null,
+    });
+
+    vi.mocked(db.playerrosters.get).mockResolvedValue({
+      id: "roster-1",
+      teamId: "team-123",
+      personId: "person-1",
+      tournamentId: "t-1",
+      number: 7,
     });
 
     vi.mocked(db.eventdefinitions.toArray).mockResolvedValue([

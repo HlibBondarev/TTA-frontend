@@ -8,47 +8,39 @@ interface PresenceItemPayload {
   matchLineupId: string;
 }
 
-/**
- * Updates local IndexedDB player presences to isSynced = 1 upon successful server sync.
- * Strictly adheres to the rule: presences are marked synced only if both timeIn and timeOut are set
- * and match the lineup IDs involved in the synced payload.
- * Supports both playerLineupIds/presenceItems and substitution payloads.
- */
-const markPresencesSynced = async (
-  endpoint: string,
-  payload: Record<string, unknown>,
-): Promise<void> => {
-  const isPresenceEndpoint =
-    endpoint.includes("/presence") || endpoint.includes("/substitutions");
+const extractPresenceLineupIds = (
+  presencePayload: Record<string, unknown>,
+): string[] => {
+  if (Array.isArray(presencePayload.presenceItems)) {
+    return (presencePayload.presenceItems as PresenceItemPayload[]).map(
+      (item) => item.matchLineupId,
+    );
+  }
+  if (Array.isArray(presencePayload.playerLineupIds)) {
+    return presencePayload.playerLineupIds as string[];
+  }
+  return [
+    presencePayload.playerOutLineupId,
+    presencePayload.playerInLineupId,
+  ].filter(Boolean) as string[];
+};
 
+const syncPresences = async (payload: unknown): Promise<void> => {
+  const presencePayload = payload as Record<string, unknown>;
   if (
-    !isPresenceEndpoint ||
-    !payload ||
-    typeof payload.periodNumber !== "number" ||
+    typeof presencePayload.periodNumber !== "number" ||
     !db?.playerpresences
   ) {
     return;
   }
 
-  const extractLineupIds = (): string[] => {
-    if (Array.isArray(payload.presenceItems)) {
-      return (payload.presenceItems as PresenceItemPayload[]).map(
-        (item) => item.matchLineupId,
-      );
-    }
-    if (Array.isArray(payload.playerLineupIds)) {
-      return payload.playerLineupIds as string[];
-    }
-    return [payload.playerOutLineupId, payload.playerInLineupId].filter(
-      Boolean,
-    ) as string[];
-  };
-
-  const affectedLineupIds = new Set<string>(extractLineupIds());
+  const affectedLineupIds = new Set<string>(
+    extractPresenceLineupIds(presencePayload),
+  );
 
   await db.playerpresences
     .where("periodNumber")
-    .equals(payload.periodNumber)
+    .equals(presencePayload.periodNumber)
     .filter(
       (p) =>
         affectedLineupIds.has(p.matchLineupId) &&
@@ -57,6 +49,55 @@ const markPresencesSynced = async (
     )
     .modify({ isSynced: 1 });
 };
+
+const syncEvents = async (payload: unknown): Promise<void> => {
+  if (!db?.gameevents) return;
+
+  const eventsList = Array.isArray(payload) ? payload : [payload];
+  const eventIds = eventsList
+    .map((item) => (item as { id?: string })?.id)
+    .filter((id): id is string => Boolean(id));
+
+  if (eventIds.length > 0) {
+    await db.gameevents.where("id").anyOf(eventIds).modify({ isSynced: 1 });
+  }
+};
+
+const syncAnchors = async (payload: unknown): Promise<void> => {
+  if (!db?.timeanchors) return;
+
+  const anchorsList = Array.isArray(payload) ? payload : [payload];
+  const anchorIds = anchorsList
+    .map((item) => (item as { id?: string })?.id)
+    .filter((id): id is string => Boolean(id));
+
+  if (anchorIds.length > 0) {
+    await db.timeanchors.where("id").anyOf(anchorIds).modify({ isSynced: 1 });
+  }
+};
+
+/**
+ * Updates local IndexedDB entities (playerpresences, gameevents, timeanchors) to isSynced = 1 upon successful server sync.
+ */
+export const markEntitiesSynced = async (
+  endpoint: string,
+  payload: unknown,
+): Promise<void> => {
+  if (!endpoint || !payload) return;
+
+  if (endpoint.includes("/presence") || endpoint.includes("/substitutions")) {
+    await syncPresences(payload);
+  } else if (endpoint.includes("/events")) {
+    await syncEvents(payload);
+  } else if (endpoint.includes("/anchors")) {
+    await syncAnchors(payload);
+  }
+};
+
+/**
+ * Backward-compatible alias for presences sync marker.
+ */
+export const markPresencesSynced = markEntitiesSynced;
 
 export const processSyncQueue = async (): Promise<number> => {
   if (isSyncing || !navigator.onLine || !db?.syncQueue) {
@@ -85,8 +126,8 @@ export const processSyncQueue = async (): Promise<number> => {
           throw new Error(`Unsupported sync actionType: ${item.actionType}`);
         }
 
-        // Update local IndexedDB records according to synchronization rules
-        await markPresencesSynced(item.endpoint, payload);
+        // Update local IndexedDB records according to entity-specific synchronization rules
+        await markEntitiesSynced(item.endpoint, payload);
 
         if (item.id !== undefined) {
           await db.syncQueue.delete(item.id);

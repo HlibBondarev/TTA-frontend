@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { liveQuery } from "dexie";
 import { db } from "../../../db/ttaDatabase";
+import { processSyncQueue } from "../../../services/syncService";
 
 export const SyncStatusBadge: React.FC = () => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -30,8 +31,26 @@ export const SyncStatusBadge: React.FC = () => {
     };
   }, []);
 
+  const handleManualSync = () => {
+    if (isOnline) {
+      void processSyncQueue().catch((syncErr) => {
+        console.error("Manual background sync failed:", syncErr);
+      });
+    }
+  };
+
   return (
-    <div className="flex items-center gap-1.5 text-[11px] font-semibold select-none">
+    <button
+      type="button"
+      disabled={!isOnline}
+      onClick={handleManualSync}
+      title={
+        isOnline
+          ? "Click to sync pending changes"
+          : "Offline - sync unavailable"
+      }
+      className="flex items-center gap-1.5 text-[11px] font-semibold select-none cursor-pointer hover:opacity-80 transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+    >
       <span
         className={`inline-block w-2 h-2 rounded-full ${
           isOnline ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
@@ -45,6 +64,6 @@ export const SyncStatusBadge: React.FC = () => {
           {pendingCount} pending
         </span>
       )}
-    </div>
+    </button>
   );
 };

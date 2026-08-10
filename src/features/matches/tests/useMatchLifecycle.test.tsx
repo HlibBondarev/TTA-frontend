@@ -25,7 +25,17 @@ vi.mock("../../../db/ttaDatabase", () => ({
         last: vi.fn().mockResolvedValue(undefined),
       }),
     },
-    transaction: vi.fn((_mode, _tables, cb) => cb()),
+    syncQueue: {
+      add: vi.fn(),
+      delete: vi.fn(),
+      filter: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+    },
+    transaction: vi.fn((...args: unknown[]) => {
+      const cb = args[args.length - 1];
+      return typeof cb === "function" ? cb() : undefined;
+    }),
   },
 }));
 
@@ -53,6 +63,12 @@ const createTestStore = (preloadedState = {}) => {
 describe("useMatchLifecycle Hook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(db.transaction).mockImplementation((...args: unknown[]) => {
+      const cb = args[args.length - 1];
+      return typeof cb === "function"
+        ? (cb() as ReturnType<typeof db.transaction>)
+        : (Promise.resolve() as ReturnType<typeof db.transaction>);
+    });
   });
 
   test("should initialize with values matched from the Redux store", () => {
@@ -65,7 +81,7 @@ describe("useMatchLifecycle Hook", () => {
     expect(result.current.isPeriodActive).toBe(true);
   });
 
-  test("should start a period and add a TimeAnchor to IndexedDB", async () => {
+  test("should start a period, add a TimeAnchor and push item to syncQueue in IndexedDB", async () => {
     const store = createTestStore({ isPeriodActive: false });
     const { result } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
@@ -88,6 +104,13 @@ describe("useMatchLifecycle Hook", () => {
         sequenceNumber: 1,
       }),
     );
+    expect(db.syncQueue.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "POST",
+        endpoint: "/Matches/test-match-id/anchors",
+        payload: expect.stringContaining(anchorId!),
+      }),
+    );
   });
 
   test("should not start a period if it is already active", async () => {
@@ -103,7 +126,7 @@ describe("useMatchLifecycle Hook", () => {
     expect(db.timeanchors.add).not.toHaveBeenCalled();
   });
 
-  test("should end a period and add a TimeAnchor to IndexedDB", async () => {
+  test("should end a period, add a TimeAnchor and push item to syncQueue in IndexedDB", async () => {
     const store = createTestStore({ isPeriodActive: true });
     const { result } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
@@ -123,6 +146,165 @@ describe("useMatchLifecycle Hook", () => {
         sequenceNumber: 1,
       }),
     );
+    expect(db.syncQueue.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "POST",
+        endpoint: "/Matches/test-match-id/anchors",
+      }),
+    );
+  });
+
+  test("should remove both time anchor and associated sync queue item atomically in removeTimeAnchor", async () => {
+    const mockSyncItemWithId = {
+      id: 101,
+      actionType: "POST",
+      endpoint: "/Matches/test-match-id/anchors",
+      payload: JSON.stringify([{ id: "target-anchor-id", type: 0 }]),
+      createdAt: new Date().toISOString(),
+    };
+    const mockSyncItemWithoutId = {
+      id: undefined,
+      actionType: "POST",
+      endpoint: "/Matches/test-match-id/anchors",
+      payload: JSON.stringify([{ id: "target-anchor-id", type: 0 }]),
+      createdAt: new Date().toISOString(),
+    };
+
+    vi.mocked(db.syncQueue.filter).mockReturnValueOnce({
+      toArray: vi
+        .fn()
+        .mockResolvedValue([mockSyncItemWithId, mockSyncItemWithoutId]),
+    } as unknown as ReturnType<typeof db.syncQueue.filter>);
+
+    const store = createTestStore();
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.removeTimeAnchor("target-anchor-id");
+    });
+
+    expect(db.timeanchors.delete).toHaveBeenCalledWith("target-anchor-id");
+    expect(db.syncQueue.filter).toHaveBeenCalled();
+    expect(db.syncQueue.delete).toHaveBeenCalledTimes(1);
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(101);
+  });
+
+  test("should remove time anchor and queue item when revertStartPeriod and revertEndPeriod are called with anchorId", async () => {
+    const mockSyncItem = {
+      id: 202,
+      actionType: "POST",
+      endpoint: "/Matches/test-match-id/anchors",
+      payload: JSON.stringify([{ id: "revert-anchor-id", type: 0 }]),
+      createdAt: new Date().toISOString(),
+    };
+
+    vi.mocked(db.syncQueue.filter).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([mockSyncItem]),
+    } as unknown as ReturnType<typeof db.syncQueue.filter>);
+
+    const store = createTestStore({ isPeriodActive: true });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.revertStartPeriod("revert-anchor-id");
+    });
+
+    expect(db.timeanchors.delete).toHaveBeenCalledWith("revert-anchor-id");
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(202);
+    expect(store.getState().match.isPeriodActive).toBe(false);
+
+    await act(async () => {
+      await result.current.revertEndPeriod("revert-anchor-id");
+    });
+
+    expect(store.getState().match.isPeriodActive).toBe(true);
+  });
+
+  test("should handle revertStartPeriod and revertEndPeriod safely when anchorId is null or undefined", async () => {
+    const store = createTestStore({ isPeriodActive: true });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.revertStartPeriod(null);
+    });
+
+    expect(db.timeanchors.delete).not.toHaveBeenCalled();
+    expect(store.getState().match.isPeriodActive).toBe(false);
+
+    await act(async () => {
+      await result.current.revertEndPeriod(undefined);
+    });
+
+    expect(db.timeanchors.delete).not.toHaveBeenCalled();
+    expect(store.getState().match.isPeriodActive).toBe(true);
+  });
+
+  test("should roll back Redux state and rethrow error when logTimeAnchor fails inside startPeriod, endPeriod, stopTime, or startTime", async () => {
+    vi.mocked(db.transaction).mockRejectedValue(
+      new Error("IndexedDB transaction failure"),
+    );
+
+    const initialSeq = 5;
+    const store = createTestStore({
+      isPeriodActive: false,
+      isInsideStoppage: false,
+      globalSequenceNumber: initialSeq,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    // 1. startPeriod failure
+    await expect(
+      act(async () => {
+        await result.current.startPeriod();
+      }),
+    ).rejects.toThrow("IndexedDB transaction failure");
+    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.globalSequenceNumber).toBe(initialSeq);
+
+    // Set state to active period for endPeriod and stopTime tests
+    act(() => {
+      store.dispatch({ type: "match/startPeriodState" });
+    });
+
+    // 2. endPeriod failure
+    await expect(
+      act(async () => {
+        await result.current.endPeriod();
+      }),
+    ).rejects.toThrow("IndexedDB transaction failure");
+    expect(store.getState().match.isPeriodActive).toBe(true);
+    expect(store.getState().match.globalSequenceNumber).toBe(initialSeq);
+
+    // 3. stopTime failure
+    await expect(
+      act(async () => {
+        await result.current.stopTime();
+      }),
+    ).rejects.toThrow("IndexedDB transaction failure");
+    expect(store.getState().match.isInsideStoppage).toBe(false);
+    expect(store.getState().match.globalSequenceNumber).toBe(initialSeq);
+
+    // Set stoppage state for startTime test
+    act(() => {
+      store.dispatch({ type: "match/startStoppageState" });
+    });
+
+    // 4. startTime failure
+    await expect(
+      act(async () => {
+        await result.current.startTime();
+      }),
+    ).rejects.toThrow("IndexedDB transaction failure");
+    expect(store.getState().match.isInsideStoppage).toBe(true);
+    expect(store.getState().match.globalSequenceNumber).toBe(initialSeq);
   });
 
   test("should stop the timer (stoppage start) and start the timer (stoppage end) properly", async () => {
@@ -296,10 +478,55 @@ describe("useMatchLifecycle Hook", () => {
     });
     expect(store.getState().match.periodNumber).toBe(1);
 
-    // Should not go below 1 or handle minimum bounds depending on slice logic
     act(() => {
       result.current.prevPeriod();
     });
     expect(store.getState().match.periodNumber).toBe(1);
+  });
+
+  test("should throw and validate if activeMatchId is whitespace-only when starting a period", async () => {
+    const store = createTestStore({
+      activeMatchId: "   ",
+      globalSequenceNumber: 0,
+      isPeriodActive: false,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.startPeriod();
+      }),
+    ).rejects.toThrow("No active match ID found for logging time anchor.");
+
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  test("should normalize padded activeMatchId when logging time anchor", async () => {
+    const store = createTestStore({
+      activeMatchId: "  match-padded-id  ",
+      isPeriodActive: false,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    let anchorId: string | undefined;
+    await act(async () => {
+      anchorId = await result.current.startPeriod();
+    });
+
+    expect(anchorId).toBeDefined();
+    expect(db.timeanchors.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        matchId: "match-padded-id",
+      }),
+    );
+    expect(db.syncQueue.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: "/Matches/match-padded-id/anchors",
+      }),
+    );
   });
 });

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useSelector } from "react-redux";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
 import { usePlayerPresence } from "../../../features/playerpresences/hooks/usePlayerPresence";
+import { processSyncQueue } from "../../../services/syncService";
 import type { RootState } from "../../../store";
 
 export const MatchLifecyclePanel: React.FC = () => {
@@ -71,6 +72,11 @@ export const MatchLifecyclePanel: React.FC = () => {
 
       // Step 2: Terminate roster presence transaction
       await endPeriodWithRoster(new Date().toISOString());
+
+      // Step 3: Trigger queue processing on period end with error handling
+      void processSyncQueue().catch((syncErr) => {
+        console.error("Background sync after ending period failed:", syncErr);
+      });
     } catch (err) {
       console.error(err);
       try {

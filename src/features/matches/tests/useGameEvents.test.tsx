@@ -12,6 +12,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
     matchlineups: {
       get: vi.fn(),
     },
+    playerrosters: {
+      get: vi.fn(),
+    },
   },
 }));
 
@@ -58,6 +61,14 @@ describe("useGameEvents Custom Hook", () => {
       positionId: null,
     });
 
+    vi.mocked(db.playerrosters.get).mockResolvedValueOnce({
+      id: "roster-7",
+      teamId: "team-456",
+      personId: "person-7",
+      tournamentId: "t-1",
+      number: 7,
+    });
+
     vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce({
       id: "def-goal-id",
       sportId: "waterpolo-sport-id",
@@ -93,8 +104,9 @@ describe("useGameEvents Custom Hook", () => {
       expect(success).toBe(true);
     });
 
-    // Check IndexedDB transaction payload
     expect(eventService.createGameEventTx).toHaveBeenCalledWith({
+      matchId: "test-match-id",
+      teamId: "team-456",
       matchLineupId: "lineup-uuid-7",
       eventDefinitionId: "def-goal-id",
       periodNumber: 2,
@@ -102,7 +114,6 @@ describe("useGameEvents Custom Hook", () => {
       isLeadToGoal: true,
     });
 
-    // Check Redux state updates
     expect(store.getState().match.globalSequenceNumber).toBe(11);
     expect(store.getState().match.recentActions).toHaveLength(1);
     expect(store.getState().match.recentActions[0]).toEqual({
@@ -112,6 +123,24 @@ describe("useGameEvents Custom Hook", () => {
       isPositive: true,
       timestamp: expect.any(String),
     });
+  });
+
+  it("should throw an error if matchId is missing or empty", async () => {
+    const store = createTestStore();
+    const { result } = renderHook(() => useGameEvents("   "), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.recordGameEvent({
+          selectedPlayerId: "lineup-uuid-1",
+          actionName: "Pass",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow("Active match ID is missing or empty.");
   });
 
   it("should throw an error if player lineup record is not found in Dexie DB", async () => {
@@ -163,6 +192,66 @@ describe("useGameEvents Custom Hook", () => {
     );
   });
 
+  it("should throw an error if player lineup does not have an associated playerRosterId", async () => {
+    const store = createTestStore();
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-no-roster-id",
+      matchId: "test-match-id",
+      playerRosterId: null as unknown as string,
+      number: 5,
+      isInStartingLineup: true,
+      positionId: null,
+    });
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.recordGameEvent({
+          selectedPlayerId: "lineup-no-roster-id",
+          actionName: "Pass",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow(
+      "Player lineup lineup-no-roster-id does not have an associated playerRosterId.",
+    );
+  });
+
+  it("should throw an error if player roster or roster teamId is missing", async () => {
+    const store = createTestStore();
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-no-roster",
+      matchId: "test-match-id",
+      playerRosterId: "roster-missing",
+      number: 10,
+      isInStartingLineup: true,
+      positionId: null,
+    });
+
+    vi.mocked(db.playerrosters.get).mockResolvedValueOnce(undefined);
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.recordGameEvent({
+          selectedPlayerId: "lineup-uuid-no-roster",
+          actionName: "Pass",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow(
+      "Player roster or team ID not found for roster ID: roster-missing",
+    );
+  });
+
   it("should throw an error if event definition cannot be resolved by action name", async () => {
     const store = createTestStore();
     vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
@@ -172,6 +261,14 @@ describe("useGameEvents Custom Hook", () => {
       number: 1,
       isInStartingLineup: true,
       positionId: null,
+    });
+
+    vi.mocked(db.playerrosters.get).mockResolvedValueOnce({
+      id: "roster-1",
+      teamId: "team-456",
+      personId: "person-1",
+      tournamentId: "t-1",
+      number: 1,
     });
 
     vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce(
@@ -206,6 +303,14 @@ describe("useGameEvents Custom Hook", () => {
       positionId: null,
     });
 
+    vi.mocked(db.playerrosters.get).mockResolvedValueOnce({
+      id: "roster-7",
+      teamId: "team-456",
+      personId: "person-7",
+      tournamentId: "t-1",
+      number: 7,
+    });
+
     vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce({
       id: "def-pass-id",
       sportId: "waterpolo-sport-id",
@@ -221,7 +326,7 @@ describe("useGameEvents Custom Hook", () => {
       eventDefinitionId: "def-pass-id",
       periodNumber: 2,
       eventTimestamp: new Date().toISOString(),
-      isLeadToGoal: true, // Pass leading directly to goal
+      isLeadToGoal: true,
       createdAt: new Date().toISOString(),
       sequenceNumber: 12,
       isSynced: 0,
@@ -236,18 +341,85 @@ describe("useGameEvents Custom Hook", () => {
         selectedPlayerId: "lineup-uuid-7",
         actionName: "Pass",
         isPositive: true,
-        isLeadToGoal: true, // Explicit custom flag set by operator
+        isLeadToGoal: true,
       });
       expect(success).toBe(true);
     });
 
-    // Verify createGameEventTx received the exact selected isLeadToGoal value
     expect(eventService.createGameEventTx).toHaveBeenCalledWith({
+      matchId: "test-match-id",
+      teamId: "team-456",
       matchLineupId: "lineup-uuid-7",
       eventDefinitionId: "def-pass-id",
       periodNumber: 2,
       eventTimestamp: expect.any(String),
       isLeadToGoal: true,
+    });
+  });
+
+  it("should normalize padded matchId and teamId before validating lineup and passing to createGameEventTx", async () => {
+    const store = createTestStore();
+
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-padded",
+      matchId: "  test-match-id  ",
+      playerRosterId: "roster-padded",
+      number: 9,
+      isInStartingLineup: true,
+      positionId: null,
+    });
+
+    vi.mocked(db.playerrosters.get).mockResolvedValueOnce({
+      id: "roster-padded",
+      teamId: "  team-padded-999  ",
+      personId: "person-9",
+      tournamentId: "t-1",
+      number: 9,
+    });
+
+    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce({
+      id: "def-foul-id",
+      sportId: "waterpolo-sport-id",
+      name: "Foul",
+      shortName: "FL",
+      isPositive: false,
+      createdAt: new Date().toISOString(),
+    });
+
+    vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce({
+      id: "created-foul-uuid",
+      matchLineupId: "lineup-uuid-padded",
+      eventDefinitionId: "def-foul-id",
+      periodNumber: 2,
+      eventTimestamp: new Date().toISOString(),
+      isLeadToGoal: false,
+      createdAt: new Date().toISOString(),
+      sequenceNumber: 15,
+      isSynced: 0,
+    });
+
+    const { result } = renderHook(() => useGameEvents("  test-match-id  "), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      const success = await result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-padded",
+        actionName: "Foul",
+        isPositive: false,
+        isLeadToGoal: false,
+      });
+      expect(success).toBe(true);
+    });
+
+    expect(eventService.createGameEventTx).toHaveBeenCalledWith({
+      matchId: "test-match-id",
+      teamId: "team-padded-999",
+      matchLineupId: "lineup-uuid-padded",
+      eventDefinitionId: "def-foul-id",
+      periodNumber: 2,
+      eventTimestamp: expect.any(String),
+      isLeadToGoal: false,
     });
   });
 });

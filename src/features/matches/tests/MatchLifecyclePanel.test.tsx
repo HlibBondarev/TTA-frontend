@@ -15,6 +15,11 @@ import presenceReducer from "../../playerpresences/store/presenceSlice";
 import { db } from "../../../db/ttaDatabase";
 import * as usePlayerPresenceModule from "../../playerpresences/hooks/usePlayerPresence";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
+import { processSyncQueue } from "../../../services/syncService";
+
+vi.mock("../../../services/syncService", () => ({
+  processSyncQueue: vi.fn().mockResolvedValue(0),
+}));
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
@@ -33,6 +38,13 @@ vi.mock("../../../db/ttaDatabase", () => ({
     playerpresences: {
       orderBy: vi.fn().mockReturnValue({
         last: vi.fn().mockResolvedValue(undefined),
+      }),
+    },
+    syncQueue: {
+      add: vi.fn(),
+      delete: vi.fn(),
+      filter: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
       }),
     },
     transaction: vi.fn((_mode, _tables, cb) => cb()),
@@ -128,7 +140,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     });
   });
 
-  test("should successfully trigger period end flow", async () => {
+  test("should successfully trigger period end flow and trigger processSyncQueue", async () => {
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
@@ -152,7 +164,44 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     await waitFor(() => {
       expect(store.getState().match.isPeriodActive).toBe(false);
       expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledTimes(1);
+      expect(processSyncQueue).toHaveBeenCalledTimes(1);
     });
+  });
+
+  test("should handle processSyncQueue rejection gracefully without rolling back ended period", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(processSyncQueue).mockRejectedValueOnce(new Error("Sync error"));
+
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        periodNumber: 1,
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        globalSequenceNumber: 1,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const endBtn = screen.getByText("END PERIOD");
+    fireEvent.click(endBtn);
+
+    await waitFor(() => {
+      expect(store.getState().match.isPeriodActive).toBe(false);
+      expect(processSyncQueue).toHaveBeenCalledTimes(1);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Background sync after ending period failed:",
+        expect.any(Error),
+      );
+    });
+
+    consoleSpy.mockRestore();
   });
 
   test("should restore isPeriodActive to false if startPeriodWithRoster fails after anchor write", async () => {
@@ -386,7 +435,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
   test("should show error message if selected starting ids length does not match active players limit", async () => {
     vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
       ...defaultPresenceMock,
-      selectedStartingIds: ["p1", "p2"], // Only 2 players instead of 7
+      selectedStartingIds: ["p1", "p2"],
       activePlayersLimit: 7,
     });
 
