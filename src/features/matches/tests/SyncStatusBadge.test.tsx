@@ -52,7 +52,9 @@ describe("SyncStatusBadge Component", () => {
   it("renders Online status badge when browser is online and count is 0", async () => {
     render(<SyncStatusBadge />);
 
-    expect(await screen.findByText("Online")).toBeInTheDocument();
+    const badgeButton = await screen.findByRole("button");
+    expect(badgeButton).not.toBeDisabled();
+    expect(screen.getByText("Online")).toBeInTheDocument();
     expect(screen.queryByText(/pending/i)).not.toBeInTheDocument();
   });
 
@@ -64,14 +66,16 @@ describe("SyncStatusBadge Component", () => {
     expect(await screen.findByText("3 pending")).toBeInTheDocument();
   });
 
-  it("updates to Offline badge on offline window event", async () => {
+  it("updates to Offline badge on offline window event and disables button", async () => {
     render(<SyncStatusBadge />);
 
     act(() => {
       window.dispatchEvent(new Event("offline"));
     });
 
-    expect(await screen.findByText("Offline")).toBeInTheDocument();
+    const badgeButton = await screen.findByRole("button");
+    expect(badgeButton).toBeDisabled();
+    expect(screen.getByText("Offline")).toBeInTheDocument();
   });
 
   it("triggers processSyncQueue on click when online", async () => {
@@ -105,7 +109,7 @@ describe("SyncStatusBadge Component", () => {
     consoleSpy.mockRestore();
   });
 
-  it("does not trigger processSyncQueue on click when offline", async () => {
+  it("does not trigger processSyncQueue on click when offline and button is disabled", async () => {
     Object.defineProperty(navigator, "onLine", {
       configurable: true,
       value: false,
@@ -118,6 +122,8 @@ describe("SyncStatusBadge Component", () => {
     });
 
     const badgeButton = await screen.findByRole("button");
+    expect(badgeButton).toBeDisabled();
+
     fireEvent.click(badgeButton);
 
     expect(processSyncQueue).not.toHaveBeenCalled();

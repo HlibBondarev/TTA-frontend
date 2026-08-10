@@ -42,9 +42,14 @@ export const SyncStatusBadge: React.FC = () => {
   return (
     <button
       type="button"
+      disabled={!isOnline}
       onClick={handleManualSync}
-      title="Click to sync pending changes"
-      className="flex items-center gap-1.5 text-[11px] font-semibold select-none cursor-pointer hover:opacity-80 transition-opacity"
+      title={
+        isOnline
+          ? "Click to sync pending changes"
+          : "Offline - sync unavailable"
+      }
+      className="flex items-center gap-1.5 text-[11px] font-semibold select-none cursor-pointer hover:opacity-80 transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
     >
       <span
         className={`inline-block w-2 h-2 rounded-full ${
