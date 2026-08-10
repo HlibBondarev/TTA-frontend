@@ -82,10 +82,11 @@ export async function terminatePeriodPresenceTx(
       });
     }
 
-    // 3. Enqueue the period-end synchronization payload
+    // 3. Enqueue the period-end synchronization payload matching TerminatePresenceRequest DTO
     const payload = JSON.stringify({
       periodNumber,
       playerLineupIds,
+      timeOut: endTimestamp,
     });
 
     const syncItem: SyncQueueItem = {

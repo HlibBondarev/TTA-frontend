@@ -165,6 +165,7 @@ describe("presenceService Database Transactions", () => {
       payload: JSON.stringify({
         periodNumber: mockPeriodNumber,
         playerLineupIds: mockPlayerLineupIds,
+        timeOut: mockEndTimestamp,
       }),
       createdAt: mockEndTimestamp,
     });
