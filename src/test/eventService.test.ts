@@ -185,4 +185,24 @@ describe("Event Database Service (eventService)", () => {
       createdAt: "2026-07-22T12:00:00.000Z",
     });
   });
+
+  it("should normalize padded matchId and teamId before constructing sync queue endpoint", async () => {
+    const params = {
+      matchId: "  match-padded-123  ",
+      teamId: "  team-padded-456  ",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: false,
+    };
+
+    await createGameEventTx(params);
+
+    expect(db.syncQueue.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: "/Matches/match-padded-123/teams/team-padded-456/events",
+      }),
+    );
+  });
 });

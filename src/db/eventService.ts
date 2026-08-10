@@ -81,11 +81,13 @@ export interface CreateGameEventParams {
 export const createGameEventTx = async (
   params: CreateGameEventParams,
 ): Promise<GameEvent> => {
-  if (!params.matchId?.trim()) {
+  const normalizedMatchId = params.matchId?.trim();
+  if (!normalizedMatchId) {
     throw new Error("Missing or empty matchId for creating game event.");
   }
 
-  if (!params.teamId?.trim()) {
+  const normalizedTeamId = params.teamId?.trim();
+  if (!normalizedTeamId) {
     throw new Error("Missing or empty teamId for creating game event.");
   }
 
@@ -125,7 +127,7 @@ export const createGameEventTx = async (
 
       const syncItem: SyncQueueItem = {
         actionType: "POST",
-        endpoint: `/Matches/${params.matchId}/teams/${params.teamId}/events`,
+        endpoint: `/Matches/${normalizedMatchId}/teams/${normalizedTeamId}/events`,
         payload,
         createdAt: params.eventTimestamp,
       };

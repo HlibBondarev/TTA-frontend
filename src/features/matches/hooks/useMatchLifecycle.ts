@@ -24,6 +24,11 @@ export const useMatchLifecycle = () => {
 
   // Internal helper to perform atomic IndexedDB write with rollback support and sync queue enqueuing
   const logTimeAnchor = async (type: number): Promise<string> => {
+    const normalizedMatchId = activeMatchId?.trim();
+    if (!normalizedMatchId) {
+      throw new Error("No active match ID found for logging time anchor.");
+    }
+
     const anchorId = crypto.randomUUID();
 
     await db.transaction(
@@ -35,7 +40,7 @@ export const useMatchLifecycle = () => {
 
         const anchorData = {
           id: anchorId,
-          matchId: activeMatchId!,
+          matchId: normalizedMatchId,
           periodNumber,
           type,
           timestamp,
@@ -57,7 +62,7 @@ export const useMatchLifecycle = () => {
 
         const syncItem = {
           actionType: "POST" as const,
-          endpoint: `/Matches/${activeMatchId}/anchors`,
+          endpoint: `/Matches/${normalizedMatchId}/anchors`,
           payload,
           createdAt: timestamp,
         };
@@ -102,7 +107,7 @@ export const useMatchLifecycle = () => {
   };
 
   const startPeriod = async (): Promise<string | undefined> => {
-    if (!activeMatchId) {
+    if (!activeMatchId?.trim()) {
       throw new Error("No active match ID found for logging time anchor.");
     }
     if (isPeriodActive) return;
@@ -120,7 +125,7 @@ export const useMatchLifecycle = () => {
   };
 
   const endPeriod = async (): Promise<string | undefined> => {
-    if (!activeMatchId) {
+    if (!activeMatchId?.trim()) {
       throw new Error("No active match ID found for logging time anchor.");
     }
     if (!isPeriodActive) return;
@@ -138,7 +143,7 @@ export const useMatchLifecycle = () => {
   };
 
   const stopTime = async () => {
-    if (!activeMatchId) {
+    if (!activeMatchId?.trim()) {
       throw new Error("No active match ID found for logging time anchor.");
     }
     if (!isPeriodActive || isInsideStoppage) return;
@@ -154,7 +159,7 @@ export const useMatchLifecycle = () => {
   };
 
   const startTime = async () => {
-    if (!activeMatchId) {
+    if (!activeMatchId?.trim()) {
       throw new Error("No active match ID found for logging time anchor.");
     }
     if (!isPeriodActive || !isInsideStoppage) return;

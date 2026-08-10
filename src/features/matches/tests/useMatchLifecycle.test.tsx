@@ -477,4 +477,50 @@ describe("useMatchLifecycle Hook", () => {
     });
     expect(store.getState().match.periodNumber).toBe(1);
   });
+
+  test("should throw and validate if activeMatchId is whitespace-only when starting a period", async () => {
+    const store = createTestStore({
+      activeMatchId: "   ",
+      globalSequenceNumber: 0,
+      isPeriodActive: false,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.startPeriod();
+      }),
+    ).rejects.toThrow("No active match ID found for logging time anchor.");
+
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  test("should normalize padded activeMatchId when logging time anchor", async () => {
+    const store = createTestStore({
+      activeMatchId: "  match-padded-id  ",
+      isPeriodActive: false,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    let anchorId: string | undefined;
+    await act(async () => {
+      anchorId = await result.current.startPeriod();
+    });
+
+    expect(anchorId).toBeDefined();
+    expect(db.timeanchors.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        matchId: "match-padded-id",
+      }),
+    );
+    expect(db.syncQueue.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: "/Matches/match-padded-id/anchors",
+      }),
+    );
+  });
 });
