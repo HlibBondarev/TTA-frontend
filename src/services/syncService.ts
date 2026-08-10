@@ -8,6 +8,74 @@ interface PresenceItemPayload {
   matchLineupId: string;
 }
 
+const extractPresenceLineupIds = (
+  presencePayload: Record<string, unknown>,
+): string[] => {
+  if (Array.isArray(presencePayload.presenceItems)) {
+    return (presencePayload.presenceItems as PresenceItemPayload[]).map(
+      (item) => item.matchLineupId,
+    );
+  }
+  if (Array.isArray(presencePayload.playerLineupIds)) {
+    return presencePayload.playerLineupIds as string[];
+  }
+  return [
+    presencePayload.playerOutLineupId,
+    presencePayload.playerInLineupId,
+  ].filter(Boolean) as string[];
+};
+
+const syncPresences = async (payload: unknown): Promise<void> => {
+  const presencePayload = payload as Record<string, unknown>;
+  if (
+    typeof presencePayload.periodNumber !== "number" ||
+    !db?.playerpresences
+  ) {
+    return;
+  }
+
+  const affectedLineupIds = new Set<string>(
+    extractPresenceLineupIds(presencePayload),
+  );
+
+  await db.playerpresences
+    .where("periodNumber")
+    .equals(presencePayload.periodNumber)
+    .filter(
+      (p) =>
+        affectedLineupIds.has(p.matchLineupId) &&
+        p.timeIn !== null &&
+        p.timeOut !== null,
+    )
+    .modify({ isSynced: 1 });
+};
+
+const syncEvents = async (payload: unknown): Promise<void> => {
+  if (!db?.gameevents) return;
+
+  const eventsList = Array.isArray(payload) ? payload : [payload];
+  const eventIds = eventsList
+    .map((item) => (item as { id?: string })?.id)
+    .filter((id): id is string => Boolean(id));
+
+  if (eventIds.length > 0) {
+    await db.gameevents.where("id").anyOf(eventIds).modify({ isSynced: 1 });
+  }
+};
+
+const syncAnchors = async (payload: unknown): Promise<void> => {
+  if (!db?.timeanchors) return;
+
+  const anchorsList = Array.isArray(payload) ? payload : [payload];
+  const anchorIds = anchorsList
+    .map((item) => (item as { id?: string })?.id)
+    .filter((id): id is string => Boolean(id));
+
+  if (anchorIds.length > 0) {
+    await db.timeanchors.where("id").anyOf(anchorIds).modify({ isSynced: 1 });
+  }
+};
+
 /**
  * Updates local IndexedDB entities (playerpresences, gameevents, timeanchors) to isSynced = 1 upon successful server sync.
  */
@@ -17,68 +85,12 @@ export const markEntitiesSynced = async (
 ): Promise<void> => {
   if (!endpoint || !payload) return;
 
-  // 1. Handle player presences and substitutions
   if (endpoint.includes("/presence") || endpoint.includes("/substitutions")) {
-    const presencePayload = payload as Record<string, unknown>;
-    if (
-      typeof presencePayload.periodNumber === "number" &&
-      db?.playerpresences
-    ) {
-      const extractLineupIds = (): string[] => {
-        if (Array.isArray(presencePayload.presenceItems)) {
-          return (presencePayload.presenceItems as PresenceItemPayload[]).map(
-            (item) => item.matchLineupId,
-          );
-        }
-        if (Array.isArray(presencePayload.playerLineupIds)) {
-          return presencePayload.playerLineupIds as string[];
-        }
-        return [
-          presencePayload.playerOutLineupId,
-          presencePayload.playerInLineupId,
-        ].filter(Boolean) as string[];
-      };
-
-      const affectedLineupIds = new Set<string>(extractLineupIds());
-
-      await db.playerpresences
-        .where("periodNumber")
-        .equals(presencePayload.periodNumber)
-        .filter(
-          (p) =>
-            affectedLineupIds.has(p.matchLineupId) &&
-            p.timeIn !== null &&
-            p.timeOut !== null,
-        )
-        .modify({ isSynced: 1 });
-    }
-    return;
-  }
-
-  // 2. Handle game events
-  if (endpoint.includes("/events") && db?.gameevents) {
-    const eventsList = Array.isArray(payload) ? payload : [payload];
-    const eventIds = eventsList
-      .map((item) => (item as { id?: string })?.id)
-      .filter((id): id is string => Boolean(id));
-
-    if (eventIds.length > 0) {
-      await db.gameevents.where("id").anyOf(eventIds).modify({ isSynced: 1 });
-    }
-    return;
-  }
-
-  // 3. Handle time anchors
-  if (endpoint.includes("/anchors") && db?.timeanchors) {
-    const anchorsList = Array.isArray(payload) ? payload : [payload];
-    const anchorIds = anchorsList
-      .map((item) => (item as { id?: string })?.id)
-      .filter((id): id is string => Boolean(id));
-
-    if (anchorIds.length > 0) {
-      await db.timeanchors.where("id").anyOf(anchorIds).modify({ isSynced: 1 });
-    }
-    return;
+    await syncPresences(payload);
+  } else if (endpoint.includes("/events")) {
+    await syncEvents(payload);
+  } else if (endpoint.includes("/anchors")) {
+    await syncAnchors(payload);
   }
 };
 
