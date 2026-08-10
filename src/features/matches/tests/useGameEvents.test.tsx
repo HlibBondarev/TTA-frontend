@@ -125,6 +125,24 @@ describe("useGameEvents Custom Hook", () => {
     });
   });
 
+  it("should throw an error if matchId is missing or empty", async () => {
+    const store = createTestStore();
+    const { result } = renderHook(() => useGameEvents("   "), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.recordGameEvent({
+          selectedPlayerId: "lineup-uuid-1",
+          actionName: "Pass",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow("Active match ID is missing or empty.");
+  });
+
   it("should throw an error if player lineup record is not found in Dexie DB", async () => {
     const store = createTestStore();
     vi.mocked(db.matchlineups.get).mockResolvedValueOnce(undefined);
@@ -171,6 +189,35 @@ describe("useGameEvents Custom Hook", () => {
       }),
     ).rejects.toThrow(
       "Player lineup lineup-uuid-other does not belong to match: test-match-id",
+    );
+  });
+
+  it("should throw an error if player lineup does not have an associated playerRosterId", async () => {
+    const store = createTestStore();
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-no-roster-id",
+      matchId: "test-match-id",
+      playerRosterId: null as unknown as string,
+      number: 5,
+      isInStartingLineup: true,
+      positionId: null,
+    });
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.recordGameEvent({
+          selectedPlayerId: "lineup-no-roster-id",
+          actionName: "Pass",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow(
+      "Player lineup lineup-no-roster-id does not have an associated playerRosterId.",
     );
   });
 

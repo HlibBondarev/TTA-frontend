@@ -32,7 +32,10 @@ vi.mock("../../../db/ttaDatabase", () => ({
         toArray: vi.fn().mockResolvedValue([]),
       }),
     },
-    transaction: vi.fn((_mode, _tables, cb) => cb()),
+    transaction: vi.fn((...args: unknown[]) => {
+      const cb = args[args.length - 1];
+      return typeof cb === "function" ? cb() : undefined;
+    }),
   },
 }));
 
@@ -60,6 +63,12 @@ const createTestStore = (preloadedState = {}) => {
 describe("useMatchLifecycle Hook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(db.transaction).mockImplementation((...args: unknown[]) => {
+      const cb = args[args.length - 1];
+      return typeof cb === "function"
+        ? (cb() as ReturnType<typeof db.transaction>)
+        : (Promise.resolve() as ReturnType<typeof db.transaction>);
+    });
   });
 
   test("should initialize with values matched from the Redux store", () => {
@@ -146,8 +155,15 @@ describe("useMatchLifecycle Hook", () => {
   });
 
   test("should remove both time anchor and associated sync queue item atomically in removeTimeAnchor", async () => {
-    const mockSyncItem = {
+    const mockSyncItemWithId = {
       id: 101,
+      actionType: "POST",
+      endpoint: "/Matches/test-match-id/anchors",
+      payload: JSON.stringify([{ id: "target-anchor-id", type: 0 }]),
+      createdAt: new Date().toISOString(),
+    };
+    const mockSyncItemWithoutId = {
+      id: undefined,
       actionType: "POST",
       endpoint: "/Matches/test-match-id/anchors",
       payload: JSON.stringify([{ id: "target-anchor-id", type: 0 }]),
@@ -155,7 +171,9 @@ describe("useMatchLifecycle Hook", () => {
     };
 
     vi.mocked(db.syncQueue.filter).mockReturnValueOnce({
-      toArray: vi.fn().mockResolvedValue([mockSyncItem]),
+      toArray: vi
+        .fn()
+        .mockResolvedValue([mockSyncItemWithId, mockSyncItemWithoutId]),
     } as unknown as ReturnType<typeof db.syncQueue.filter>);
 
     const store = createTestStore();
@@ -169,10 +187,11 @@ describe("useMatchLifecycle Hook", () => {
 
     expect(db.timeanchors.delete).toHaveBeenCalledWith("target-anchor-id");
     expect(db.syncQueue.filter).toHaveBeenCalled();
+    expect(db.syncQueue.delete).toHaveBeenCalledTimes(1);
     expect(db.syncQueue.delete).toHaveBeenCalledWith(101);
   });
 
-  test("should remove time anchor and queue item when revertStartPeriod and revertEndPeriod are called", async () => {
+  test("should remove time anchor and queue item when revertStartPeriod and revertEndPeriod are called with anchorId", async () => {
     const mockSyncItem = {
       id: 202,
       actionType: "POST",
@@ -203,6 +222,83 @@ describe("useMatchLifecycle Hook", () => {
     });
 
     expect(store.getState().match.isPeriodActive).toBe(true);
+  });
+
+  test("should handle revertStartPeriod and revertEndPeriod safely when anchorId is null or undefined", async () => {
+    const store = createTestStore({ isPeriodActive: true });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.revertStartPeriod(null);
+    });
+
+    expect(db.timeanchors.delete).not.toHaveBeenCalled();
+    expect(store.getState().match.isPeriodActive).toBe(false);
+
+    await act(async () => {
+      await result.current.revertEndPeriod(undefined);
+    });
+
+    expect(db.timeanchors.delete).not.toHaveBeenCalled();
+    expect(store.getState().match.isPeriodActive).toBe(true);
+  });
+
+  test("should roll back Redux state and rethrow error when logTimeAnchor fails inside startPeriod, endPeriod, stopTime, or startTime", async () => {
+    vi.mocked(db.transaction).mockRejectedValue(
+      new Error("IndexedDB transaction failure"),
+    );
+
+    const store = createTestStore({
+      isPeriodActive: false,
+      isInsideStoppage: false,
+    });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    // 1. startPeriod failure
+    await expect(
+      act(async () => {
+        await result.current.startPeriod();
+      }),
+    ).rejects.toThrow("IndexedDB transaction failure");
+    expect(store.getState().match.isPeriodActive).toBe(false);
+
+    // Set state to active period for endPeriod and stopTime tests
+    act(() => {
+      store.dispatch({ type: "match/startPeriodState" });
+    });
+
+    // 2. endPeriod failure
+    await expect(
+      act(async () => {
+        await result.current.endPeriod();
+      }),
+    ).rejects.toThrow("IndexedDB transaction failure");
+    expect(store.getState().match.isPeriodActive).toBe(true);
+
+    // 3. stopTime failure
+    await expect(
+      act(async () => {
+        await result.current.stopTime();
+      }),
+    ).rejects.toThrow("IndexedDB transaction failure");
+    expect(store.getState().match.isInsideStoppage).toBe(false);
+
+    // Set stoppage state for startTime test
+    act(() => {
+      store.dispatch({ type: "match/startStoppageState" });
+    });
+
+    // 4. startTime failure
+    await expect(
+      act(async () => {
+        await result.current.startTime();
+      }),
+    ).rejects.toThrow("IndexedDB transaction failure");
+    expect(store.getState().match.isInsideStoppage).toBe(true);
   });
 
   test("should stop the timer (stoppage start) and start the timer (stoppage end) properly", async () => {
