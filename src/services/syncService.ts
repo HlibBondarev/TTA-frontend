@@ -192,6 +192,14 @@ const executeHttpRequest = async (
 };
 
 /**
+ * Validates whether an HTTP response status represents a successful execution (2xx range or unwrapped response).
+ */
+const isSuccessStatus = (status?: number): boolean => {
+  if (status === undefined) return true;
+  return status >= 200 && status < 300;
+};
+
+/**
  * Marks local entities as synced and deletes successfully processed queue items.
  */
 const finalizeBatchSync = async (
@@ -254,7 +262,7 @@ export const processSyncQueue = async (): Promise<number> => {
           effectivePayload,
         );
 
-        if (response?.status === 200 || response?.status === 201) {
+        if (isSuccessStatus(response?.status)) {
           const syncedCount = await finalizeBatchSync(
             currentItem.endpoint,
             effectivePayload,
