@@ -150,13 +150,23 @@ describe("Sync Engine Service", () => {
       { id: "anchor-2", periodNumber: 1, type: 1 },
       { id: "anchor-3", periodNumber: 1, type: 2 },
     ]);
+
+    // Assertions added per CodeRabbit review
+    expect(db.timeanchors.where).toHaveBeenCalledWith("id");
+    expect(mockAnyOf).toHaveBeenCalledWith([
+      "anchor-1",
+      "anchor-2",
+      "anchor-3",
+    ]);
+    expect(mockModify).toHaveBeenCalledWith({ isSynced: 1 });
+
     expect(db.syncQueue.delete).toHaveBeenCalledTimes(3);
     expect(db.syncQueue.delete).toHaveBeenNthCalledWith(1, 1);
     expect(db.syncQueue.delete).toHaveBeenNthCalledWith(2, 2);
     expect(db.syncQueue.delete).toHaveBeenNthCalledWith(3, 3);
   });
 
-  it("does not batch items when endpoints or actionTypes differ", async () => {
+  it("does not batch items when endpoints differ", async () => {
     const mockItems = [
       {
         id: 1,
@@ -190,6 +200,42 @@ describe("Sync Engine Service", () => {
       "/Matches/m1/teams/t1/events",
       [{ id: "event-1", isLeadToGoal: true }],
     );
+  });
+
+  it("does not batch items when actionTypes differ for the same endpoint", async () => {
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/anchors",
+        payload: JSON.stringify([{ id: "anchor-1", type: 0 }]),
+      },
+      {
+        id: 2,
+        actionType: "PUT",
+        endpoint: "/Matches/m1/anchors",
+        payload: JSON.stringify([{ id: "anchor-1", type: 1 }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+    vi.mocked(apiClient.put).mockResolvedValue({ status: 200 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(2);
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    expect(apiClient.post).toHaveBeenCalledWith("/Matches/m1/anchors", [
+      { id: "anchor-1", type: 0 },
+    ]);
+    expect(apiClient.put).toHaveBeenCalledTimes(1);
+    expect(apiClient.put).toHaveBeenCalledWith("/Matches/m1/anchors", [
+      { id: "anchor-1", type: 1 },
+    ]);
   });
 
   it("retains items in syncQueue when response status is not 200 or 201", async () => {

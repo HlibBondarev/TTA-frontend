@@ -198,9 +198,8 @@ export const processSyncQueue = async (): Promise<number> => {
         }
 
         if (response?.status === 200 || response?.status === 201) {
+          await markEntitiesSynced(currentItem.endpoint, effectivePayload);
           for (const item of batchItems) {
-            const itemPayload = JSON.parse(item.payload);
-            await markEntitiesSynced(item.endpoint, itemPayload);
             if (item.id !== undefined) {
               await db.syncQueue.delete(item.id);
               processedCount++;
