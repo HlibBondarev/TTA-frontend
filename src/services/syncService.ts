@@ -99,6 +99,17 @@ export const markEntitiesSynced = async (
  */
 export const markPresencesSynced = markEntitiesSynced;
 
+/**
+ * Determines whether an HTTP operation endpoint supports array payload batching.
+ */
+const isBatchableEndpoint = (actionType: string, endpoint: string): boolean => {
+  if (actionType !== "POST") return false;
+  return endpoint.endsWith("/events") || endpoint.endsWith("/anchors");
+};
+
+/**
+ * Processes pending syncQueue items with batching for consecutive identical POST endpoints.
+ */
 export const processSyncQueue = async (): Promise<number> => {
   if (isSyncing || !navigator.onLine || !db?.syncQueue) {
     return 0;
@@ -109,32 +120,90 @@ export const processSyncQueue = async (): Promise<number> => {
 
   try {
     const pendingItems = await db.syncQueue.orderBy("id").toArray();
+    let i = 0;
 
-    for (const item of pendingItems) {
+    while (i < pendingItems.length) {
       if (!navigator.onLine) break;
 
+      const currentItem = pendingItems[i];
+      let currentPayload: unknown;
+
       try {
-        const payload = JSON.parse(item.payload);
-
-        if (item.actionType === "POST") {
-          await apiClient.post(item.endpoint, payload);
-        } else if (item.actionType === "PUT") {
-          await apiClient.put(item.endpoint, payload);
-        } else if (item.actionType === "DELETE") {
-          await apiClient.delete(item.endpoint);
-        } else {
-          throw new Error(`Unsupported sync actionType: ${item.actionType}`);
-        }
-
-        // Update local IndexedDB records according to entity-specific synchronization rules
-        await markEntitiesSynced(item.endpoint, payload);
-
-        if (item.id !== undefined) {
-          await db.syncQueue.delete(item.id);
-          processedCount++;
-        }
+        currentPayload = JSON.parse(currentItem.payload);
       } catch (err) {
-        console.error(`Sync item ${item.id} execution failed:`, err);
+        console.error(
+          `Invalid JSON payload in syncQueue item ${currentItem.id}:`,
+          err,
+        );
+        break;
+      }
+
+      const batchable = isBatchableEndpoint(
+        currentItem.actionType,
+        currentItem.endpoint,
+      );
+      const batchItems = [currentItem];
+      let effectivePayload: unknown = currentPayload;
+
+      if (batchable) {
+        const aggregatedArray: unknown[] = Array.isArray(currentPayload)
+          ? [...currentPayload]
+          : [currentPayload];
+
+        let j = i + 1;
+        while (j < pendingItems.length) {
+          const nextItem = pendingItems[j];
+          if (
+            nextItem.actionType === currentItem.actionType &&
+            nextItem.endpoint === currentItem.endpoint
+          ) {
+            try {
+              const nextPayload = JSON.parse(nextItem.payload);
+              if (Array.isArray(nextPayload)) {
+                aggregatedArray.push(...nextPayload);
+              } else {
+                aggregatedArray.push(nextPayload);
+              }
+              batchItems.push(nextItem);
+              j++;
+            } catch {
+              break;
+            }
+          } else {
+            break;
+          }
+        }
+        effectivePayload = aggregatedArray;
+      }
+
+      try {
+        if (currentItem.actionType === "POST") {
+          await apiClient.post(currentItem.endpoint, effectivePayload);
+        } else if (currentItem.actionType === "PUT") {
+          await apiClient.put(currentItem.endpoint, effectivePayload);
+        } else if (currentItem.actionType === "DELETE") {
+          await apiClient.delete(currentItem.endpoint);
+        } else {
+          throw new Error(
+            `Unsupported sync actionType: ${currentItem.actionType}`,
+          );
+        }
+
+        for (const item of batchItems) {
+          const itemPayload = JSON.parse(item.payload);
+          await markEntitiesSynced(item.endpoint, itemPayload);
+          if (item.id !== undefined) {
+            await db.syncQueue.delete(item.id);
+            processedCount++;
+          }
+        }
+
+        i += batchItems.length;
+      } catch (err) {
+        console.error(
+          `Sync batch execution failed for endpoint ${currentItem.endpoint}:`,
+          err,
+        );
         break;
       }
     }
