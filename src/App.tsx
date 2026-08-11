@@ -72,7 +72,12 @@ export const App: React.FC = () => {
       return;
     }
 
-    dispatch(setActiveMatch(matchId));
+    dispatch(
+      setActiveMatch({
+        matchId,
+        teamId: selectedTeamId,
+      }),
+    );
   };
 
   if (isInitializing || isLoading) {

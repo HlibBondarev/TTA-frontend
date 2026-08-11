@@ -47,6 +47,7 @@ const createTestStore = (preloadedState = {}) => {
     preloadedState: {
       match: {
         activeMatchId: "test-match-id",
+        activeTeamId: "test-team-id",
         periodNumber: 1,
         homeScore: 0,
         guestScore: 0,

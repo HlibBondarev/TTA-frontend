@@ -105,6 +105,7 @@ describe("App Bootstrapping Component", () => {
     const store = createTestStore({
       match: {
         activeMatchId: null,
+        activeTeamId: null,
         periodNumber: 1,
         homeScore: 0,
         guestScore: 0,
@@ -125,15 +126,13 @@ describe("App Bootstrapping Component", () => {
     expect(await screen.findByText("Water Polo")).toBeDefined();
   });
 
-  it("should execute quick start flow with team selection, hydrate data and render TTAConsole", async () => {
+  it("should execute quick start flow with team selection, hydrate data, set match and team IDs in Redux, and render TTAConsole", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
     );
 
-    // Single POST call inside Wizard's handleInitMatch
     vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "new-match-id-123" });
-
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
       .mockResolvedValueOnce(mockHomeTeam as never)
@@ -142,6 +141,7 @@ describe("App Bootstrapping Component", () => {
     const store = createTestStore({
       match: {
         activeMatchId: null,
+        activeTeamId: null,
         periodNumber: 1,
         homeScore: 0,
         guestScore: 0,
@@ -162,35 +162,32 @@ describe("App Bootstrapping Component", () => {
       await screen.findByRole("button", { name: /Periods: 4/i }),
     ).toBeDefined();
 
-    // Click Step 1: Quick Start Match
     const quickStartButton = screen.getByRole("button", {
       name: /Quick Start Match/i,
     });
     fireEvent.click(quickStartButton);
 
-    // Wait for team selection step
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
 
-    // Click Step 2: Confirm & Start Tracking
     const confirmButton = screen.getByRole("button", {
       name: /Confirm & Start Tracking/i,
     });
     fireEvent.click(confirmButton);
 
     await waitFor(() => {
-      // Verify hydration was triggered with match ID and selected team ID (defaults to home team)
       expect(hydrateMatchData).toHaveBeenCalledWith(
         "new-match-id-123",
         "team-home-1",
       );
       expect(store.getState().presence.activePlayersLimit).toBe(5);
+      expect(store.getState().match.activeMatchId).toBe("new-match-id-123");
+      expect(store.getState().match.activeTeamId).toBe("team-home-1");
     });
 
-    // Render TTAConsole upon successful match selection
     expect(await screen.findByText("TTA Match Recorder")).toBeDefined();
   });
 
-  it("should not set active match if hydration throws an error", async () => {
+  it("should not set active match or team in Redux if hydration throws an error", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -208,6 +205,7 @@ describe("App Bootstrapping Component", () => {
     const store = createTestStore({
       match: {
         activeMatchId: null,
+        activeTeamId: null,
         periodNumber: 1,
         homeScore: 0,
         guestScore: 0,
@@ -233,8 +231,8 @@ describe("App Bootstrapping Component", () => {
 
     await waitFor(() => {
       expect(hydrateMatchData).toHaveBeenCalled();
-      // Match ID should NOT be updated in Redux store on hydration rejection
       expect(store.getState().match.activeMatchId).toBeNull();
+      expect(store.getState().match.activeTeamId).toBeNull();
     });
   });
 });

@@ -18,6 +18,7 @@ import matchReducer, {
 describe("matchSlice Reducers", () => {
   const initialState: MatchState = {
     activeMatchId: null,
+    activeTeamId: null,
     periodNumber: 1,
     homeScore: 0,
     guestScore: 0,
@@ -31,7 +32,7 @@ describe("matchSlice Reducers", () => {
     expect(matchReducer(undefined, { type: "unknown" })).toEqual(initialState);
   });
 
-  it("should set the active match and reset tracking counters", () => {
+  it("should set the active match and active team, and reset tracking counters", () => {
     const customState: MatchState = {
       ...initialState,
       periodNumber: 3,
@@ -40,12 +41,29 @@ describe("matchSlice Reducers", () => {
 
     const nextState = matchReducer(
       customState,
-      setActiveMatch("test-match-uuid"),
+      setActiveMatch({
+        matchId: "test-match-uuid",
+        teamId: "test-team-uuid",
+      }),
     );
 
     expect(nextState.activeMatchId).toBe("test-match-uuid");
+    expect(nextState.activeTeamId).toBe("test-team-uuid");
     expect(nextState.periodNumber).toBe(1);
     expect(nextState.globalSequenceNumber).toBe(0);
+  });
+
+  it("should reset active match and active team when passing null payload", () => {
+    const populatedState: MatchState = {
+      ...initialState,
+      activeMatchId: "active-match-123",
+      activeTeamId: "active-team-456",
+    };
+
+    const nextState = matchReducer(populatedState, setActiveMatch(null));
+
+    expect(nextState.activeMatchId).toBeNull();
+    expect(nextState.activeTeamId).toBeNull();
   });
 
   it("should handle updating match scores", () => {
@@ -102,7 +120,6 @@ describe("matchSlice Reducers", () => {
   it("should handle adding recent actions with a maximum limit of 10", () => {
     let currentState: MatchState = initialState;
 
-    // Dispatch 11 uniquely identifiable actions
     for (let i = 1; i <= 11; i++) {
       const actionEntry: ActionEntry = {
         id: `action-${i}`,
@@ -114,11 +131,8 @@ describe("matchSlice Reducers", () => {
       currentState = matchReducer(currentState, addRecentAction(actionEntry));
     }
 
-    // State recentActions should contain exactly 10 entries
     expect(currentState.recentActions).toHaveLength(10);
-    // The most recent action (action-11) should be first
     expect(currentState.recentActions[0].id).toBe("action-11");
-    // The earliest added action within the limit (action-2) should be present at the end, while action-1 is discarded
     expect(currentState.recentActions[9].id).toBe("action-2");
     expect(
       currentState.recentActions.some((act) => act.id === "action-1"),
@@ -129,6 +143,7 @@ describe("matchSlice Reducers", () => {
     const dirtyState: MatchState = {
       ...initialState,
       activeMatchId: "active-session-uuid",
+      activeTeamId: "active-team-uuid",
       periodNumber: 4,
       homeScore: 10,
       guestScore: 8,
