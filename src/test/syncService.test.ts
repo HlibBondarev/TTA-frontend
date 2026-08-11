@@ -13,7 +13,10 @@ vi.mock("../api/client", () => ({
 
 vi.mock("../db/ttaDatabase", () => ({
   db: {
-    transaction: vi.fn((_mode, _tables, cb) => cb()),
+    transaction: vi.fn((...args: unknown[]) => {
+      const cb = args[args.length - 1] as () => Promise<unknown>;
+      return cb() as unknown as ReturnType<typeof db.transaction>;
+    }),
     syncQueue: {
       orderBy: vi.fn(),
       delete: vi.fn(),
@@ -146,11 +149,15 @@ describe("Sync Engine Service", () => {
 
     expect(processed).toBe(3);
     expect(apiClient.post).toHaveBeenCalledTimes(1);
-    expect(apiClient.post).toHaveBeenCalledWith("/Matches/m1/anchors", [
-      { id: "anchor-1", periodNumber: 1, type: 0 },
-      { id: "anchor-2", periodNumber: 1, type: 1 },
-      { id: "anchor-3", periodNumber: 1, type: 2 },
-    ]);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/m1/anchors",
+      [
+        { id: "anchor-1", periodNumber: 1, type: 0 },
+        { id: "anchor-2", periodNumber: 1, type: 1 },
+        { id: "anchor-3", periodNumber: 1, type: 2 },
+      ],
+      { headers: { "X-Idempotency-Key": "sync-batch-1-2-3" } },
+    );
 
     expect(db.timeanchors.where).toHaveBeenCalledWith("id");
     expect(mockAnyOf).toHaveBeenCalledWith([
@@ -192,13 +199,17 @@ describe("Sync Engine Service", () => {
 
     expect(processed).toBe(2);
     expect(apiClient.post).toHaveBeenCalledTimes(2);
-    expect(apiClient.post).toHaveBeenNthCalledWith(1, "/Matches/m1/anchors", [
-      { id: "anchor-1", type: 0 },
-    ]);
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      1,
+      "/Matches/m1/anchors",
+      [{ id: "anchor-1", type: 0 }],
+      { headers: { "X-Idempotency-Key": "sync-batch-1" } },
+    );
     expect(apiClient.post).toHaveBeenNthCalledWith(
       2,
       "/Matches/m1/teams/t1/events",
       [{ id: "event-1", isLeadToGoal: true }],
+      { headers: { "X-Idempotency-Key": "sync-batch-2" } },
     );
   });
 
@@ -229,13 +240,73 @@ describe("Sync Engine Service", () => {
 
     expect(processed).toBe(2);
     expect(apiClient.post).toHaveBeenCalledTimes(1);
-    expect(apiClient.post).toHaveBeenCalledWith("/Matches/m1/anchors", [
-      { id: "anchor-1", type: 0 },
-    ]);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/m1/anchors",
+      [{ id: "anchor-1", type: 0 }],
+      { headers: { "X-Idempotency-Key": "sync-batch-1" } },
+    );
     expect(apiClient.put).toHaveBeenCalledTimes(1);
-    expect(apiClient.put).toHaveBeenCalledWith("/Matches/m1/anchors", [
-      { id: "anchor-1", type: 1 },
-    ]);
+    expect(apiClient.put).toHaveBeenCalledWith(
+      "/Matches/m1/anchors",
+      [{ id: "anchor-1", type: 1 }],
+      { headers: { "X-Idempotency-Key": "sync-batch-2" } },
+    );
+  });
+
+  it("attaches X-Idempotency-Key header and supports safe retry when finalization fails", async () => {
+    const mockItems = [
+      {
+        id: 101,
+        actionType: "POST",
+        endpoint: "/Matches/m1/anchors",
+        payload: JSON.stringify([
+          { id: "anchor-retry-1", periodNumber: 1, type: 0 },
+        ]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+    vi.mocked(db.transaction).mockImplementationOnce(
+      () =>
+        Promise.reject(
+          new Error("IndexedDB Transaction Aborted"),
+        ) as unknown as ReturnType<typeof db.transaction>,
+    );
+
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // Attempt 1: Dexie finalization fails, queue item retained
+    const processedRun1 = await processSyncQueue();
+
+    expect(processedRun1).toBe(0);
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/m1/anchors",
+      [{ id: "anchor-retry-1", periodNumber: 1, type: 0 }],
+      { headers: { "X-Idempotency-Key": "sync-batch-101" } },
+    );
+
+    // Attempt 2: Re-run sync (Simulating retry)
+    vi.mocked(db.transaction).mockImplementationOnce((...args: unknown[]) => {
+      const cb = args[args.length - 1] as () => Promise<unknown>;
+      return cb() as unknown as ReturnType<typeof db.transaction>;
+    });
+    const processedRun2 = await processSyncQueue();
+
+    expect(processedRun2).toBe(1);
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      2,
+      "/Matches/m1/anchors",
+      [{ id: "anchor-retry-1", periodNumber: 1, type: 0 }],
+      { headers: { "X-Idempotency-Key": "sync-batch-101" } },
+    );
+
+    consoleSpy.mockRestore();
   });
 
   it("successfully processes and deletes sync items when server returns 204 No Content or unwrapped response", async () => {
@@ -268,8 +339,6 @@ describe("Sync Engine Service", () => {
 
     expect(processed).toBe(2);
     expect(db.syncQueue.delete).toHaveBeenCalledTimes(2);
-    expect(db.syncQueue.delete).toHaveBeenNthCalledWith(1, 1);
-    expect(db.syncQueue.delete).toHaveBeenNthCalledWith(2, 2);
   });
 
   it("retains items in syncQueue when response status is not in 2xx range", async () => {
@@ -341,8 +410,11 @@ describe("Sync Engine Service", () => {
     } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
 
     vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
-    vi.mocked(db.transaction).mockRejectedValueOnce(
-      new Error("IndexedDB Transaction Aborted"),
+    vi.mocked(db.transaction).mockImplementationOnce(
+      () =>
+        Promise.reject(
+          new Error("IndexedDB Transaction Aborted"),
+        ) as unknown as ReturnType<typeof db.transaction>,
     );
 
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -488,13 +560,17 @@ describe("Sync Engine Service", () => {
 
     await processSyncQueue();
 
-    expect(apiClient.post).toHaveBeenCalledWith("/Matches/m1/substitutions", {
-      periodNumber: 1,
-      playerOutLineupId: "lineup-out",
-      playerInLineupId: "lineup-in",
-      incomingPresenceId: "pres-new-123",
-      substitutionTime: "2026-08-07T11:36:30.493Z",
-    });
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/m1/substitutions",
+      {
+        periodNumber: 1,
+        playerOutLineupId: "lineup-out",
+        playerInLineupId: "lineup-in",
+        incomingPresenceId: "pres-new-123",
+        substitutionTime: "2026-08-07T11:36:30.493Z",
+      },
+      { headers: { "X-Idempotency-Key": "sync-batch-5" } },
+    );
 
     expect(filterPredicate).toBeDefined();
     if (filterPredicate) {

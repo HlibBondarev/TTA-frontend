@@ -172,21 +172,31 @@ const collectBatch = (
 };
 
 /**
- * Executes the appropriate HTTP method for a sync queue batch/item.
+ * Executes the appropriate HTTP method for a sync queue batch/item with an X-Idempotency-Key header.
  */
 const executeHttpRequest = async (
   actionType: string,
   endpoint: string,
   payload: unknown,
+  batchItems: SyncQueueItem[],
 ): Promise<{ status?: number }> => {
+  const batchIds = batchItems
+    .map((item) => item.id)
+    .filter((id): id is number => id !== undefined)
+    .join("-");
+
+  const config = batchIds
+    ? { headers: { "X-Idempotency-Key": `sync-batch-${batchIds}` } }
+    : undefined;
+
   if (actionType === "POST") {
-    return apiClient.post(endpoint, payload);
+    return apiClient.post(endpoint, payload, config);
   }
   if (actionType === "PUT") {
-    return apiClient.put(endpoint, payload);
+    return apiClient.put(endpoint, payload, config);
   }
   if (actionType === "DELETE") {
-    return apiClient.delete(endpoint);
+    return apiClient.delete(endpoint, config);
   }
   throw new Error(`Unsupported sync actionType: ${actionType}`);
 };
@@ -276,6 +286,7 @@ export const processSyncQueue = async (): Promise<number> => {
           currentItem.actionType,
           currentItem.endpoint,
           effectivePayload,
+          batchItems,
         );
 
         if (isSuccessStatus(response?.status)) {
