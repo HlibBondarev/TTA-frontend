@@ -143,7 +143,11 @@ describe("TTAConsole Component", () => {
     const store = configureStore({
       reducer: rootReducer,
       preloadedState: {
-        match: { ...initialMatchState, activeMatchId: "test-id" },
+        match: {
+          ...initialMatchState,
+          activeMatchId: "test-id",
+          activeTeamId: "team-123",
+        },
       } as unknown as RootState,
     });
 
@@ -163,6 +167,7 @@ describe("TTAConsole Component", () => {
         match: {
           ...initialMatchState,
           activeMatchId: "test-id",
+          activeTeamId: "team-123",
           isPeriodActive: true,
         },
       } as unknown as RootState,
@@ -206,6 +211,7 @@ describe("TTAConsole Component", () => {
         match: {
           ...initialMatchState,
           activeMatchId: "test-id",
+          activeTeamId: "team-123",
           isPeriodActive: true,
         },
       } as unknown as RootState,
@@ -261,6 +267,7 @@ describe("TTAConsole Component", () => {
         match: {
           ...initialMatchState,
           activeMatchId: "test-id",
+          activeTeamId: "team-123",
           isPeriodActive: true,
         },
       } as unknown as RootState,
@@ -292,6 +299,7 @@ describe("TTAConsole Component", () => {
         match: {
           ...initialMatchState,
           activeMatchId: "test-id",
+          activeTeamId: "team-123",
           isPeriodActive: true,
         },
       } as unknown as RootState,
@@ -324,7 +332,11 @@ describe("TTAConsole Component", () => {
     const store = configureStore({
       reducer: rootReducer,
       preloadedState: {
-        match: { ...initialMatchState, activeMatchId: null },
+        match: {
+          ...initialMatchState,
+          activeMatchId: null,
+          activeTeamId: null,
+        },
       } as unknown as RootState,
     });
 
@@ -344,6 +356,7 @@ describe("TTAConsole Component", () => {
         match: {
           ...initialMatchState,
           activeMatchId: "test-id",
+          activeTeamId: "team-123",
           isPeriodActive: true,
         },
       } as unknown as RootState,

@@ -60,6 +60,7 @@ const createTestStore = (preloadedState = {}) => {
     preloadedState: {
       match: {
         activeMatchId: "test-match",
+        activeTeamId: "test-team",
         periodNumber: 1,
         homeScore: 0,
         guestScore: 0,
@@ -144,6 +145,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
+        activeTeamId: "test-team",
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
@@ -175,6 +177,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
+        activeTeamId: "test-team",
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
@@ -266,6 +269,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
+        activeTeamId: "test-team",
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
@@ -304,6 +308,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
+        activeTeamId: "test-team",
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
@@ -355,6 +360,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
+        activeTeamId: "test-team",
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
@@ -380,6 +386,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
+        activeTeamId: "test-team",
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: true,
@@ -408,6 +415,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
+        activeTeamId: "test-team",
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,

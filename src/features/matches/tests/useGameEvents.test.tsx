@@ -12,9 +12,6 @@ vi.mock("../../../db/ttaDatabase", () => ({
     matchlineups: {
       get: vi.fn(),
     },
-    playerrosters: {
-      get: vi.fn(),
-    },
   },
 }));
 
@@ -31,6 +28,7 @@ const createTestStore = (preloadedState = {}) => {
     preloadedState: {
       match: {
         activeMatchId: "test-match-id",
+        activeTeamId: "team-456",
         periodNumber: 2,
         homeScore: 0,
         guestScore: 0,
@@ -57,16 +55,7 @@ describe("useGameEvents Custom Hook", () => {
       matchId: "test-match-id",
       playerRosterId: "roster-7",
       number: 7,
-      isInStartingLineup: true,
       positionId: null,
-    });
-
-    vi.mocked(db.playerrosters.get).mockResolvedValueOnce({
-      id: "roster-7",
-      teamId: "team-456",
-      personId: "person-7",
-      tournamentId: "t-1",
-      number: 7,
     });
 
     vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce({
@@ -143,6 +132,27 @@ describe("useGameEvents Custom Hook", () => {
     ).rejects.toThrow("Active match ID is missing or empty.");
   });
 
+  it("should throw an error if activeTeamId in Redux store is missing or empty", async () => {
+    const store = createTestStore({
+      activeTeamId: "   ",
+    });
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.recordGameEvent({
+          selectedPlayerId: "lineup-uuid-1",
+          actionName: "Pass",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow("Active team ID is missing or empty in Redux store.");
+  });
+
   it("should throw an error if player lineup record is not found in Dexie DB", async () => {
     const store = createTestStore();
     vi.mocked(db.matchlineups.get).mockResolvedValueOnce(undefined);
@@ -170,7 +180,6 @@ describe("useGameEvents Custom Hook", () => {
       matchId: "other-match-id",
       playerRosterId: "roster-1",
       number: 1,
-      isInStartingLineup: true,
       positionId: null,
     });
 
@@ -192,66 +201,6 @@ describe("useGameEvents Custom Hook", () => {
     );
   });
 
-  it("should throw an error if player lineup does not have an associated playerRosterId", async () => {
-    const store = createTestStore();
-    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
-      id: "lineup-no-roster-id",
-      matchId: "test-match-id",
-      playerRosterId: null as unknown as string,
-      number: 5,
-      isInStartingLineup: true,
-      positionId: null,
-    });
-
-    const { result } = renderHook(() => useGameEvents("test-match-id"), {
-      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
-    });
-
-    await expect(
-      act(async () => {
-        await result.current.recordGameEvent({
-          selectedPlayerId: "lineup-no-roster-id",
-          actionName: "Pass",
-          isPositive: true,
-          isLeadToGoal: false,
-        });
-      }),
-    ).rejects.toThrow(
-      "Player lineup lineup-no-roster-id does not have an associated playerRosterId.",
-    );
-  });
-
-  it("should throw an error if player roster or roster teamId is missing", async () => {
-    const store = createTestStore();
-    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
-      id: "lineup-uuid-no-roster",
-      matchId: "test-match-id",
-      playerRosterId: "roster-missing",
-      number: 10,
-      isInStartingLineup: true,
-      positionId: null,
-    });
-
-    vi.mocked(db.playerrosters.get).mockResolvedValueOnce(undefined);
-
-    const { result } = renderHook(() => useGameEvents("test-match-id"), {
-      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
-    });
-
-    await expect(
-      act(async () => {
-        await result.current.recordGameEvent({
-          selectedPlayerId: "lineup-uuid-no-roster",
-          actionName: "Pass",
-          isPositive: true,
-          isLeadToGoal: false,
-        });
-      }),
-    ).rejects.toThrow(
-      "Player roster or team ID not found for roster ID: roster-missing",
-    );
-  });
-
   it("should throw an error if event definition cannot be resolved by action name", async () => {
     const store = createTestStore();
     vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
@@ -259,16 +208,7 @@ describe("useGameEvents Custom Hook", () => {
       matchId: "test-match-id",
       playerRosterId: "roster-1",
       number: 1,
-      isInStartingLineup: true,
       positionId: null,
-    });
-
-    vi.mocked(db.playerrosters.get).mockResolvedValueOnce({
-      id: "roster-1",
-      teamId: "team-456",
-      personId: "person-1",
-      tournamentId: "t-1",
-      number: 1,
     });
 
     vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce(
@@ -299,16 +239,7 @@ describe("useGameEvents Custom Hook", () => {
       matchId: "test-match-id",
       playerRosterId: "roster-7",
       number: 7,
-      isInStartingLineup: true,
       positionId: null,
-    });
-
-    vi.mocked(db.playerrosters.get).mockResolvedValueOnce({
-      id: "roster-7",
-      teamId: "team-456",
-      personId: "person-7",
-      tournamentId: "t-1",
-      number: 7,
     });
 
     vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce({
@@ -357,24 +288,17 @@ describe("useGameEvents Custom Hook", () => {
     });
   });
 
-  it("should normalize padded matchId and teamId before validating lineup and passing to createGameEventTx", async () => {
-    const store = createTestStore();
+  it("should normalize padded matchId and activeTeamId before validating lineup and passing to createGameEventTx", async () => {
+    const store = createTestStore({
+      activeTeamId: "  team-padded-999  ",
+    });
 
     vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
       id: "lineup-uuid-padded",
       matchId: "  test-match-id  ",
       playerRosterId: "roster-padded",
       number: 9,
-      isInStartingLineup: true,
       positionId: null,
-    });
-
-    vi.mocked(db.playerrosters.get).mockResolvedValueOnce({
-      id: "roster-padded",
-      teamId: "  team-padded-999  ",
-      personId: "person-9",
-      tournamentId: "t-1",
-      number: 9,
     });
 
     vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce({

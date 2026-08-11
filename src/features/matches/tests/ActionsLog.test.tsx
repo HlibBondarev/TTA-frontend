@@ -11,6 +11,7 @@ describe("ActionsLog Component", () => {
       preloadedState: {
         match: {
           activeMatchId: "test-match",
+          activeTeamId: "test-team",
           periodNumber: 1,
           homeScore: 0,
           guestScore: 0,

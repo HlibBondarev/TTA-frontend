@@ -10,6 +10,7 @@ export interface ActionEntry {
 
 export interface MatchState {
   activeMatchId: string | null;
+  activeTeamId: string | null;
   periodNumber: number;
   homeScore?: number;
   guestScore?: number;
@@ -19,8 +20,14 @@ export interface MatchState {
   recentActions: ActionEntry[];
 }
 
+export interface SetActiveMatchPayload {
+  matchId: string;
+  teamId: string;
+}
+
 const initialState: MatchState = {
   activeMatchId: null,
+  activeTeamId: null,
   periodNumber: 1,
   homeScore: 0,
   guestScore: 0,
@@ -34,8 +41,14 @@ const matchSlice = createSlice({
   name: "match",
   initialState,
   reducers: {
-    setActiveMatch(state, action: PayloadAction<string | null>) {
-      state.activeMatchId = action.payload;
+    setActiveMatch(state, action: PayloadAction<SetActiveMatchPayload | null>) {
+      if (!action.payload) {
+        state.activeMatchId = null;
+        state.activeTeamId = null;
+      } else {
+        state.activeMatchId = action.payload.matchId;
+        state.activeTeamId = action.payload.teamId;
+      }
       state.periodNumber = 1;
       state.homeScore = 0;
       state.guestScore = 0;
