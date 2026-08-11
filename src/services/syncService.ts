@@ -3,6 +3,13 @@ import { db } from "../db/ttaDatabase";
 
 let isSyncing = false;
 
+interface SyncQueueItem {
+  id?: number;
+  actionType: string;
+  endpoint: string;
+  payload: string;
+}
+
 interface PresenceItemPayload {
   id: string;
   matchLineupId: string;
@@ -108,6 +115,102 @@ const isBatchableEndpoint = (actionType: string, endpoint: string): boolean => {
 };
 
 /**
+ * Safely parses a JSON payload string, returning null on error.
+ */
+const parsePayload = (payloadStr: string): unknown | null => {
+  try {
+    return JSON.parse(payloadStr);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Aggregates consecutive batchable POST queue items targeting the same endpoint.
+ */
+const collectBatch = (
+  pendingItems: SyncQueueItem[],
+  startIndex: number,
+  currentItem: SyncQueueItem,
+  currentPayload: unknown,
+): { batchItems: SyncQueueItem[]; effectivePayload: unknown } => {
+  const batchable = isBatchableEndpoint(
+    currentItem.actionType,
+    currentItem.endpoint,
+  );
+
+  if (!batchable) {
+    return { batchItems: [currentItem], effectivePayload: currentPayload };
+  }
+
+  const aggregatedArray: unknown[] = Array.isArray(currentPayload)
+    ? [...currentPayload]
+    : [currentPayload];
+  const batchItems = [currentItem];
+
+  for (let j = startIndex + 1; j < pendingItems.length; j++) {
+    const nextItem = pendingItems[j];
+    if (
+      nextItem.actionType !== currentItem.actionType ||
+      nextItem.endpoint !== currentItem.endpoint
+    ) {
+      break;
+    }
+
+    const nextPayload = parsePayload(nextItem.payload);
+    if (nextPayload === null) break;
+
+    if (Array.isArray(nextPayload)) {
+      aggregatedArray.push(...nextPayload);
+    } else {
+      aggregatedArray.push(nextPayload);
+    }
+    batchItems.push(nextItem);
+  }
+
+  return { batchItems, effectivePayload: aggregatedArray };
+};
+
+/**
+ * Executes the appropriate HTTP method for a sync queue batch/item.
+ */
+const executeHttpRequest = async (
+  actionType: string,
+  endpoint: string,
+  payload: unknown,
+): Promise<{ status?: number }> => {
+  if (actionType === "POST") {
+    return apiClient.post(endpoint, payload);
+  }
+  if (actionType === "PUT") {
+    return apiClient.put(endpoint, payload);
+  }
+  if (actionType === "DELETE") {
+    return apiClient.delete(endpoint);
+  }
+  throw new Error(`Unsupported sync actionType: ${actionType}`);
+};
+
+/**
+ * Marks local entities as synced and deletes successfully processed queue items.
+ */
+const finalizeBatchSync = async (
+  endpoint: string,
+  payload: unknown,
+  batchItems: SyncQueueItem[],
+): Promise<number> => {
+  await markEntitiesSynced(endpoint, payload);
+  let count = 0;
+  for (const item of batchItems) {
+    if (item.id !== undefined && db?.syncQueue) {
+      await db.syncQueue.delete(item.id);
+      count++;
+    }
+  }
+  return count;
+};
+
+/**
  * Processes pending syncQueue items with batching for consecutive identical POST endpoints.
  */
 export const processSyncQueue = async (): Promise<number> => {
@@ -119,92 +222,45 @@ export const processSyncQueue = async (): Promise<number> => {
   let processedCount = 0;
 
   try {
-    const pendingItems = await db.syncQueue.orderBy("id").toArray();
+    const pendingItems = (await db.syncQueue
+      .orderBy("id")
+      .toArray()) as SyncQueueItem[];
     let i = 0;
 
     while (i < pendingItems.length) {
       if (!navigator.onLine) break;
 
       const currentItem = pendingItems[i];
-      let currentPayload: unknown;
+      const currentPayload = parsePayload(currentItem.payload);
 
-      try {
-        currentPayload = JSON.parse(currentItem.payload);
-      } catch (err) {
+      if (currentPayload === null) {
         console.error(
-          `Invalid JSON payload in syncQueue item ${currentItem.id}:`,
-          err,
+          `Invalid JSON payload in syncQueue item ${currentItem.id}`,
         );
         break;
       }
 
-      const batchable = isBatchableEndpoint(
-        currentItem.actionType,
-        currentItem.endpoint,
+      const { batchItems, effectivePayload } = collectBatch(
+        pendingItems,
+        i,
+        currentItem,
+        currentPayload,
       );
-      const batchItems = [currentItem];
-      let effectivePayload: unknown = currentPayload;
-
-      if (batchable) {
-        const aggregatedArray: unknown[] = Array.isArray(currentPayload)
-          ? [...currentPayload]
-          : [currentPayload];
-
-        let j = i + 1;
-        while (j < pendingItems.length) {
-          const nextItem = pendingItems[j];
-          if (
-            nextItem.actionType === currentItem.actionType &&
-            nextItem.endpoint === currentItem.endpoint
-          ) {
-            try {
-              const nextPayload = JSON.parse(nextItem.payload);
-              if (Array.isArray(nextPayload)) {
-                aggregatedArray.push(...nextPayload);
-              } else {
-                aggregatedArray.push(nextPayload);
-              }
-              batchItems.push(nextItem);
-              j++;
-            } catch {
-              break;
-            }
-          } else {
-            break;
-          }
-        }
-        effectivePayload = aggregatedArray;
-      }
 
       try {
-        let response: { status?: number } | undefined;
-
-        if (currentItem.actionType === "POST") {
-          response = await apiClient.post(
-            currentItem.endpoint,
-            effectivePayload,
-          );
-        } else if (currentItem.actionType === "PUT") {
-          response = await apiClient.put(
-            currentItem.endpoint,
-            effectivePayload,
-          );
-        } else if (currentItem.actionType === "DELETE") {
-          response = await apiClient.delete(currentItem.endpoint);
-        } else {
-          throw new Error(
-            `Unsupported sync actionType: ${currentItem.actionType}`,
-          );
-        }
+        const response = await executeHttpRequest(
+          currentItem.actionType,
+          currentItem.endpoint,
+          effectivePayload,
+        );
 
         if (response?.status === 200 || response?.status === 201) {
-          await markEntitiesSynced(currentItem.endpoint, effectivePayload);
-          for (const item of batchItems) {
-            if (item.id !== undefined) {
-              await db.syncQueue.delete(item.id);
-              processedCount++;
-            }
-          }
+          const syncedCount = await finalizeBatchSync(
+            currentItem.endpoint,
+            effectivePayload,
+            batchItems,
+          );
+          processedCount += syncedCount;
           i += batchItems.length;
         } else {
           break;
