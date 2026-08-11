@@ -270,19 +270,21 @@ describe("Sync Engine Service", () => {
     } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
 
     vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
-    vi.mocked(db.transaction).mockImplementationOnce(
-      () =>
-        Promise.reject(
-          new Error("IndexedDB Transaction Aborted"),
-        ) as unknown as ReturnType<typeof db.transaction>,
+    vi.mocked(db.syncQueue.delete).mockRejectedValueOnce(
+      new Error("IndexedDB Finalization Write Error"),
     );
 
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    // Attempt 1: Dexie finalization fails, queue item retained
+    // Attempt 1: Dexie finalization write fails inside transaction callback
     const processedRun1 = await processSyncQueue();
 
     expect(processedRun1).toBe(0);
+    expect(db.transaction).toHaveBeenCalledWith(
+      "rw",
+      expect.any(Array),
+      expect.any(Function),
+    );
     expect(apiClient.post).toHaveBeenCalledTimes(1);
     expect(apiClient.post).toHaveBeenCalledWith(
       "/Matches/m1/anchors",
@@ -291,10 +293,7 @@ describe("Sync Engine Service", () => {
     );
 
     // Attempt 2: Re-run sync (Simulating retry)
-    vi.mocked(db.transaction).mockImplementationOnce((...args: unknown[]) => {
-      const cb = args[args.length - 1] as () => Promise<unknown>;
-      return cb() as unknown as ReturnType<typeof db.transaction>;
-    });
+    vi.mocked(db.syncQueue.delete).mockResolvedValueOnce(undefined);
     const processedRun2 = await processSyncQueue();
 
     expect(processedRun2).toBe(1);
@@ -410,11 +409,15 @@ describe("Sync Engine Service", () => {
     } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
 
     vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
-    vi.mocked(db.transaction).mockImplementationOnce(
-      () =>
-        Promise.reject(
-          new Error("IndexedDB Transaction Aborted"),
-        ) as unknown as ReturnType<typeof db.transaction>,
+
+    const mockModify = vi.fn();
+    const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      anyOf: mockAnyOf,
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.syncQueue.delete).mockRejectedValueOnce(
+      new Error("IndexedDB Finalization Write Error"),
     );
 
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -422,7 +425,15 @@ describe("Sync Engine Service", () => {
     const processed = await processSyncQueue();
 
     expect(processed).toBe(0);
-    expect(db.syncQueue.delete).not.toHaveBeenCalled();
+    expect(db.transaction).toHaveBeenCalledWith(
+      "rw",
+      expect.any(Array),
+      expect.any(Function),
+    );
+    expect(db.timeanchors.where).toHaveBeenCalledWith("id");
+    expect(mockAnyOf).toHaveBeenCalledWith(["anchor-retry-1"]);
+    expect(mockModify).toHaveBeenCalledWith({ isSynced: 1 });
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
 
     consoleSpy.mockRestore();
   });
