@@ -200,22 +200,38 @@ const isSuccessStatus = (status?: number): boolean => {
 };
 
 /**
- * Marks local entities as synced and deletes successfully processed queue items.
+ * Marks local entities as synced and deletes successfully processed queue items within an atomic Dexie transaction.
  */
 const finalizeBatchSync = async (
   endpoint: string,
   payload: unknown,
   batchItems: SyncQueueItem[],
 ): Promise<number> => {
-  await markEntitiesSynced(endpoint, payload);
-  let count = 0;
-  for (const item of batchItems) {
-    if (item.id !== undefined && db?.syncQueue) {
-      await db.syncQueue.delete(item.id);
-      count++;
+  if (!db) return 0;
+
+  const performFinalization = async (): Promise<number> => {
+    await markEntitiesSynced(endpoint, payload);
+    let count = 0;
+    for (const item of batchItems) {
+      if (item.id !== undefined && db.syncQueue) {
+        await db.syncQueue.delete(item.id);
+        count++;
+      }
     }
+    return count;
+  };
+
+  if (typeof db.transaction === "function") {
+    const tables = [
+      db.playerpresences,
+      db.gameevents,
+      db.timeanchors,
+      db.syncQueue,
+    ].filter(Boolean);
+    return db.transaction("rw", tables, performFinalization);
   }
-  return count;
+
+  return performFinalization();
 };
 
 /**

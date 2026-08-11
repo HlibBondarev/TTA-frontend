@@ -13,6 +13,7 @@ vi.mock("../api/client", () => ({
 
 vi.mock("../db/ttaDatabase", () => ({
   db: {
+    transaction: vi.fn((_mode, _tables, cb) => cb()),
     syncQueue: {
       orderBy: vi.fn(),
       delete: vi.fn(),
@@ -320,6 +321,37 @@ describe("Sync Engine Service", () => {
 
     expect(processed).toBe(0);
     expect(db.syncQueue.delete).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it("halts execution and retains queue items when local Dexie finalization transaction fails", async () => {
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/anchors",
+        payload: JSON.stringify([
+          { id: "anchor-retry-1", periodNumber: 1, type: 0 },
+        ]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+    vi.mocked(db.transaction).mockRejectedValueOnce(
+      new Error("IndexedDB Transaction Aborted"),
+    );
+
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(0);
+    expect(db.syncQueue.delete).not.toHaveBeenCalled();
+
     consoleSpy.mockRestore();
   });
 
