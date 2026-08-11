@@ -85,11 +85,11 @@ describe("Sync Engine Service", () => {
     const callOrder: string[] = [];
     vi.mocked(apiClient.post).mockImplementation(async () => {
       callOrder.push("POST");
-      return {};
+      return { status: 201 };
     });
     vi.mocked(apiClient.delete).mockImplementation(async () => {
       callOrder.push("DELETE");
-      return {};
+      return { status: 200 };
     });
 
     const mockModify = vi.fn();
@@ -133,7 +133,7 @@ describe("Sync Engine Service", () => {
       toArray: vi.fn().mockResolvedValue(mockItems),
     } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
 
-    vi.mocked(apiClient.post).mockResolvedValue({});
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
 
     const mockModify = vi.fn();
     const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
@@ -176,7 +176,7 @@ describe("Sync Engine Service", () => {
       toArray: vi.fn().mockResolvedValue(mockItems),
     } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
 
-    vi.mocked(apiClient.post).mockResolvedValue({});
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
 
     const processed = await processSyncQueue();
 
@@ -190,6 +190,28 @@ describe("Sync Engine Service", () => {
       "/Matches/m1/teams/t1/events",
       [{ id: "event-1", isLeadToGoal: true }],
     );
+  });
+
+  it("retains items in syncQueue when response status is not 200 or 201", async () => {
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/anchors",
+        payload: JSON.stringify([{ id: "anchor-1", type: 0 }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 400 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(0);
+    expect(db.syncQueue.delete).not.toHaveBeenCalled();
   });
 
   it("retains items in syncQueue and halts execution when batched HTTP request fails", async () => {
@@ -266,7 +288,7 @@ describe("Sync Engine Service", () => {
       toArray: vi.fn().mockResolvedValue(mockItems),
     } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
 
-    vi.mocked(apiClient.post).mockResolvedValue({});
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
 
     type PresenceFilterFn = (p: {
       matchLineupId: string;
@@ -287,6 +309,7 @@ describe("Sync Engine Service", () => {
 
     await processSyncQueue();
 
+    expect(apiClient.post).toHaveBeenCalled();
     expect(filterPredicate).toBeDefined();
     if (filterPredicate) {
       expect(
@@ -333,7 +356,7 @@ describe("Sync Engine Service", () => {
       toArray: vi.fn().mockResolvedValue(mockItems),
     } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
 
-    vi.mocked(apiClient.post).mockResolvedValue({});
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
 
     type PresenceFilterFn = (p: {
       matchLineupId: string;
@@ -402,7 +425,7 @@ describe("Sync Engine Service", () => {
       toArray: vi.fn().mockResolvedValue(mockItems),
     } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
 
-    vi.mocked(apiClient.post).mockResolvedValue({});
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
 
     const mockModify = vi.fn();
     const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
@@ -431,7 +454,7 @@ describe("Sync Engine Service", () => {
       toArray: vi.fn().mockResolvedValue(mockItems),
     } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
 
-    vi.mocked(apiClient.post).mockResolvedValue({});
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
 
     const mockModify = vi.fn();
     const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });

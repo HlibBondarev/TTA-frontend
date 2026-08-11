@@ -177,28 +177,39 @@ export const processSyncQueue = async (): Promise<number> => {
       }
 
       try {
+        let response: { status?: number } | undefined;
+
         if (currentItem.actionType === "POST") {
-          await apiClient.post(currentItem.endpoint, effectivePayload);
+          response = await apiClient.post(
+            currentItem.endpoint,
+            effectivePayload,
+          );
         } else if (currentItem.actionType === "PUT") {
-          await apiClient.put(currentItem.endpoint, effectivePayload);
+          response = await apiClient.put(
+            currentItem.endpoint,
+            effectivePayload,
+          );
         } else if (currentItem.actionType === "DELETE") {
-          await apiClient.delete(currentItem.endpoint);
+          response = await apiClient.delete(currentItem.endpoint);
         } else {
           throw new Error(
             `Unsupported sync actionType: ${currentItem.actionType}`,
           );
         }
 
-        for (const item of batchItems) {
-          const itemPayload = JSON.parse(item.payload);
-          await markEntitiesSynced(item.endpoint, itemPayload);
-          if (item.id !== undefined) {
-            await db.syncQueue.delete(item.id);
-            processedCount++;
+        if (response?.status === 200 || response?.status === 201) {
+          for (const item of batchItems) {
+            const itemPayload = JSON.parse(item.payload);
+            await markEntitiesSynced(item.endpoint, itemPayload);
+            if (item.id !== undefined) {
+              await db.syncQueue.delete(item.id);
+              processedCount++;
+            }
           }
+          i += batchItems.length;
+        } else {
+          break;
         }
-
-        i += batchItems.length;
       } catch (err) {
         console.error(
           `Sync batch execution failed for endpoint ${currentItem.endpoint}:`,
