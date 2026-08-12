@@ -117,7 +117,7 @@ const isBatchableEndpoint = (actionType: string, endpoint: string): boolean => {
 /**
  * Safely parses a JSON payload string, returning null on error.
  */
-const parsePayload = (payloadStr: string): unknown | null => {
+const parsePayload = (payloadStr: string): unknown => {
   try {
     return JSON.parse(payloadStr);
   } catch {
