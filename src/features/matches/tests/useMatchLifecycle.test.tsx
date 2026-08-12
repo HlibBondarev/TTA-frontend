@@ -1091,7 +1091,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(store.getState().match.isPeriodActive).toBe(false);
   });
 
-  test("should ignore syncPeriodStateWithDB when period transitions from 1 to 2 during an async operation", async () => {
+  test("should preserve new period state when delayed endPeriod transaction completes after period switch", async () => {
     let resolveAddAnchor: () => void = () => {};
     const addAnchorPromise = new Promise<void>((resolve) => {
       resolveAddAnchor = resolve;
@@ -1118,7 +1118,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     });
 
     // Initiate period 1 end (which deactivates period 1 and calls logTimeAnchor)
-    let endPromise: Promise<string | undefined>;
+    let endPromise!: Promise<string | undefined>;
     act(() => {
       endPromise = result.current.endPeriod();
     });
