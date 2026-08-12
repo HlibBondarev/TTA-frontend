@@ -17,6 +17,7 @@ describe("ActionsLog Component", () => {
           guestScore: 0,
           isPeriodActive: true,
           isInsideStoppage: false,
+          isPeriodEnded: false,
           globalSequenceNumber: 2,
           recentActions: [
             {

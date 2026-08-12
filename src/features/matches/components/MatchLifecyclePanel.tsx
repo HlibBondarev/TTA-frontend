@@ -10,6 +10,7 @@ export const MatchLifecyclePanel: React.FC = () => {
     periodNumber,
     isPeriodActive,
     isInsideStoppage,
+    isPeriodEnded,
     startPeriod,
     endPeriod,
     revertStartPeriod,
@@ -77,6 +78,12 @@ export const MatchLifecyclePanel: React.FC = () => {
       void processSyncQueue().catch((syncErr) => {
         console.error("Background sync after ending period failed:", syncErr);
       });
+
+      // Step 4: Auto-advance to next period if not at maximum period limit (default: 4)
+      const maxPeriods = 4;
+      if (periodNumber < maxPeriods) {
+        nextPeriod();
+      }
     } catch (err) {
       console.error(err);
       try {
@@ -132,7 +139,7 @@ export const MatchLifecyclePanel: React.FC = () => {
         <button
           type="button"
           onClick={handleStartPeriod}
-          disabled={isPeriodActive}
+          disabled={isPeriodActive || isPeriodEnded}
           className="py-1 min-h-11 bg-emerald-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
         >
           START PERIOD
@@ -140,7 +147,7 @@ export const MatchLifecyclePanel: React.FC = () => {
         <button
           type="button"
           onClick={handleEndPeriod}
-          disabled={!isPeriodActive}
+          disabled={!isPeriodActive || isInsideStoppage}
           className="py-1 min-h-11 bg-rose-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
         >
           END PERIOD

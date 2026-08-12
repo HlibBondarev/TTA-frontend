@@ -1,4 +1,5 @@
-import { db } from "../../../db/ttaDatabase";
+import { useEffect, useCallback } from "react";
+import { db, type TimeAnchor } from "../../../db/ttaDatabase";
 import { getNextSequenceNumber } from "../../../db/eventService";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import {
@@ -6,11 +7,66 @@ import {
   endPeriodState,
   startStoppageState,
   endStoppageState,
+  setPeriodStatePayload,
   incrementSequence,
   incrementPeriodNumber,
   decrementPeriodNumber,
   setGlobalSequenceNumber,
 } from "../store/matchSlice";
+
+export interface CalculatedPeriodState {
+  isPeriodActive: boolean;
+  isInsideStoppage: boolean;
+  isPeriodEnded: boolean;
+}
+
+/**
+ * Calculates period flags from a list of period time anchors according to state machine transition rules.
+ */
+export const calculatePeriodState = (
+  anchors: TimeAnchor[],
+): CalculatedPeriodState => {
+  let isStarted = false;
+  let isEnded = false;
+  let isStoppageActive = false;
+
+  const sortedAnchors = [...anchors].sort((a, b) => {
+    if (a.sequenceNumber !== b.sequenceNumber) {
+      return a.sequenceNumber - b.sequenceNumber;
+    }
+    return a.timestamp.localeCompare(b.timestamp);
+  });
+
+  for (const anchor of sortedAnchors) {
+    switch (anchor.type) {
+      case 0: // PeriodStart
+        isStarted = true;
+        isEnded = false;
+        break;
+      case 1: // PeriodEnd
+        isStarted = false;
+        isEnded = true;
+        isStoppageActive = false;
+        break;
+      case 2: // StoppageStart
+        if (isStarted && !isEnded) {
+          isStoppageActive = true;
+        }
+        break;
+      case 3: // StoppageEnd
+        if (isStarted && !isEnded) {
+          isStoppageActive = false;
+        }
+        break;
+    }
+  }
+
+  return {
+    isPeriodActive: isStarted && !isEnded,
+    isInsideStoppage: isStoppageActive,
+    isPeriodEnded: isEnded,
+  };
+};
 
 export const useMatchLifecycle = () => {
   const dispatch = useAppDispatch();
@@ -20,8 +76,34 @@ export const useMatchLifecycle = () => {
     periodNumber,
     isPeriodActive,
     isInsideStoppage,
+    isPeriodEnded,
     globalSequenceNumber,
   } = matchState;
+
+  const syncPeriodStateWithDB = useCallback(async () => {
+    const normalizedMatchId = activeMatchId?.trim();
+    if (!normalizedMatchId || !db?.timeanchors) return;
+
+    try {
+      const anchors = await db.timeanchors
+        .where("matchId")
+        .equals(normalizedMatchId)
+        .filter((a) => a.periodNumber === periodNumber)
+        .toArray();
+
+      const computedState = calculatePeriodState(anchors);
+      dispatch(setPeriodStatePayload(computedState));
+    } catch (err) {
+      console.error(
+        "Failed to sync period state with IndexedDB timeanchors:",
+        err,
+      );
+    }
+  }, [activeMatchId, periodNumber, dispatch]);
+
+  useEffect(() => {
+    void syncPeriodStateWithDB();
+  }, [syncPeriodStateWithDB]);
 
   // Internal helper to perform atomic IndexedDB write with rollback support and sync queue enqueuing
   const logTimeAnchor = async (type: number): Promise<string> => {
@@ -51,7 +133,6 @@ export const useMatchLifecycle = () => {
 
         await db.timeanchors.add(anchorData);
 
-        // Array batch payload containing client-generated anchor ID
         const payload = JSON.stringify([
           {
             id: anchorData.id,
@@ -98,6 +179,7 @@ export const useMatchLifecycle = () => {
       await removeTimeAnchor(anchorId);
     }
     dispatch(endPeriodState());
+    await syncPeriodStateWithDB();
   };
 
   const revertEndPeriod = async (anchorId?: string | null) => {
@@ -105,13 +187,14 @@ export const useMatchLifecycle = () => {
       await removeTimeAnchor(anchorId);
     }
     dispatch(startPeriodState());
+    await syncPeriodStateWithDB();
   };
 
   const startPeriod = async (): Promise<string | undefined> => {
     if (!activeMatchId?.trim()) {
       throw new Error("No active match ID found for logging time anchor.");
     }
-    if (isPeriodActive) return;
+    if (isPeriodActive || isPeriodEnded) return;
 
     const priorSequence = globalSequenceNumber;
     dispatch(startPeriodState());
@@ -119,10 +202,12 @@ export const useMatchLifecycle = () => {
 
     try {
       const anchorId = await logTimeAnchor(0);
+      await syncPeriodStateWithDB();
       return anchorId;
     } catch (error) {
       dispatch(endPeriodState());
       dispatch(setGlobalSequenceNumber(priorSequence));
+      await syncPeriodStateWithDB();
       throw error;
     }
   };
@@ -131,7 +216,7 @@ export const useMatchLifecycle = () => {
     if (!activeMatchId?.trim()) {
       throw new Error("No active match ID found for logging time anchor.");
     }
-    if (!isPeriodActive) return;
+    if (!isPeriodActive || isInsideStoppage) return;
 
     const priorSequence = globalSequenceNumber;
     dispatch(endPeriodState());
@@ -139,10 +224,12 @@ export const useMatchLifecycle = () => {
 
     try {
       const anchorId = await logTimeAnchor(1);
+      await syncPeriodStateWithDB();
       return anchorId;
     } catch (error) {
       dispatch(startPeriodState());
       dispatch(setGlobalSequenceNumber(priorSequence));
+      await syncPeriodStateWithDB();
       throw error;
     }
   };
@@ -158,9 +245,11 @@ export const useMatchLifecycle = () => {
     dispatch(incrementSequence());
     try {
       await logTimeAnchor(2);
+      await syncPeriodStateWithDB();
     } catch (error) {
       dispatch(endStoppageState());
       dispatch(setGlobalSequenceNumber(priorSequence));
+      await syncPeriodStateWithDB();
       throw error;
     }
   };
@@ -176,20 +265,20 @@ export const useMatchLifecycle = () => {
     dispatch(incrementSequence());
     try {
       await logTimeAnchor(3);
+      await syncPeriodStateWithDB();
     } catch (error) {
       dispatch(startStoppageState());
       dispatch(setGlobalSequenceNumber(priorSequence));
+      await syncPeriodStateWithDB();
       throw error;
     }
   };
 
   const nextPeriod = () => {
-    if (isPeriodActive) return;
     dispatch(incrementPeriodNumber());
   };
 
   const prevPeriod = () => {
-    if (isPeriodActive) return;
     dispatch(decrementPeriodNumber());
   };
 
@@ -197,6 +286,7 @@ export const useMatchLifecycle = () => {
     periodNumber,
     isPeriodActive,
     isInsideStoppage,
+    isPeriodEnded,
     globalSequenceNumber,
     startPeriod,
     endPeriod,
@@ -207,5 +297,6 @@ export const useMatchLifecycle = () => {
     startTime,
     nextPeriod,
     prevPeriod,
+    syncPeriodStateWithDB,
   };
 };
