@@ -291,7 +291,7 @@ export const useMatchLifecycle = () => {
 
     await db.transaction(
       "rw",
-      [db.timeanchors, db.syncQueue, db.playerpresences],
+      [db.timeanchors, db.syncQueue, db.playerpresences, db.matchlineups],
       async () => {
         let targetAnchorId = anchorId;
         if (!targetAnchorId && normalizedMatchId && db?.timeanchors) {
@@ -319,11 +319,17 @@ export const useMatchLifecycle = () => {
           }
         }
 
-        if (normalizedMatchId && db?.playerpresences) {
+        if (normalizedMatchId && db?.playerpresences && db?.matchlineups) {
+          const lineups = await db.matchlineups
+            .where("matchId")
+            .equals(normalizedMatchId)
+            .toArray();
+          const lineupIds = new Set(lineups.map((l) => l.id));
+
           const presences = await db.playerpresences
             .where("periodNumber")
             .equals(currentPeriod)
-            .filter((p) => p.timeOut !== null)
+            .filter((p) => p.timeOut !== null && lineupIds.has(p.matchLineupId))
             .toArray();
 
           for (const p of presences) {

@@ -84,6 +84,13 @@ vi.mock("../../../db/ttaDatabase", () => ({
         last: vi.fn().mockResolvedValue(undefined),
       }),
     },
+    matchlineups: {
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+    },
     gameevents: {
       orderBy: vi.fn().mockReturnValue({
         last: vi.fn().mockResolvedValue(undefined),
@@ -170,6 +177,15 @@ describe("useMatchLifecycle Hook & State Machine", () => {
               })),
           })),
         }) as unknown as ReturnType<typeof db.timeanchors.where>,
+    );
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
     );
 
     vi.mocked(db.playerpresences.where).mockImplementation(
@@ -1282,5 +1298,81 @@ describe("useMatchLifecycle Hook & State Machine", () => {
 
     expect(store.getState().match.isPeriodEnded).toBe(true);
     expect(store.getState().match.isPeriodActive).toBe(false);
+  });
+
+  test("should only reset player presences for the active match lineups during revertEndPeriod", async () => {
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockImplementation((matchIdVal: string) => ({
+            toArray: vi
+              .fn()
+              .mockResolvedValue(
+                matchIdVal === "test-match-id"
+                  ? [{ id: "lineup-match-1" }]
+                  : [{ id: "lineup-match-2" }],
+              ),
+          })),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    const updatedPresences: string[] = [];
+    vi.mocked(db.playerpresences.update).mockImplementation(((key: unknown) => {
+      if (typeof key === "string") {
+        updatedPresences.push(key);
+      }
+      return Promise.resolve(1);
+    }) as unknown as typeof db.playerpresences.update);
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi.fn().mockResolvedValue(
+                [
+                  {
+                    id: "presence-match-1",
+                    matchLineupId: "lineup-match-1",
+                    timeOut: "2020-01-01T10:00:00Z",
+                  },
+                  {
+                    id: "presence-match-2",
+                    matchLineupId: "lineup-match-2",
+                    timeOut: "2020-01-01T10:00:00Z",
+                  },
+                ].filter(predicate),
+              ),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod("seed-end-anchor");
+    });
+
+    expect(updatedPresences).toEqual(["presence-match-1"]);
+    expect(updatedPresences).not.toContain("presence-match-2");
   });
 });
