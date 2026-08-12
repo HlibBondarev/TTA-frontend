@@ -606,4 +606,42 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     ).toBeInTheDocument();
     expect(defaultPresenceMock.startPeriodWithRoster).not.toHaveBeenCalled();
   });
+
+  test("should restore preceding ended period 1 if startPeriodWithRoster fails during START PERIOD 2", async () => {
+    vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
+      ...defaultPresenceMock,
+      startPeriodWithRoster: vi
+        .fn()
+        .mockRejectedValue(new Error("Roster persistence failed")),
+    });
+
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 1,
+        isPeriodActive: false,
+        isInsideStoppage: false,
+        isPeriodEnded: true,
+        globalSequenceNumber: 2,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const startBtn = await screen.findByText("START PERIOD 2");
+    fireEvent.click(startBtn);
+
+    await waitFor(() => {
+      expect(store.getState().match.periodNumber).toBe(1);
+      expect(store.getState().match.isPeriodEnded).toBe(true);
+      expect(store.getState().match.isPeriodActive).toBe(false);
+      expect(db.timeanchors.delete).toHaveBeenCalledWith(expect.any(String));
+    });
+  });
 });

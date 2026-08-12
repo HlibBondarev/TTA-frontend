@@ -17,6 +17,8 @@ export const MatchLifecyclePanel: React.FC = () => {
     revertEndPeriod,
     stopTime,
     startTime,
+    prevPeriod,
+    syncPeriodStateWithDB,
   } = useMatchLifecycle();
 
   const activeMatchId = useSelector(
@@ -52,6 +54,12 @@ export const MatchLifecyclePanel: React.FC = () => {
       try {
         if (anchorId) {
           await revertStartPeriod(anchorId);
+        }
+        if (targetPeriod && targetPeriod > 1) {
+          prevPeriod();
+          if (activeMatchId) {
+            await syncPeriodStateWithDB(activeMatchId, targetPeriod - 1);
+          }
         }
         await refreshPresenceFromDB();
         setPanelError("Failed to start period. Transaction fully reverted.");

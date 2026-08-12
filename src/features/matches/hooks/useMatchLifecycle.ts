@@ -268,7 +268,7 @@ export const useMatchLifecycle = () => {
 
   const revertStartPeriod = async (anchorId?: string | null) => {
     const normalizedMatchId = activeMatchId?.trim();
-    const currentPeriod = periodNumber;
+    const currentPeriod = periodNumberRef.current;
     if (anchorId) {
       await removeTimeAnchor(anchorId);
     }
@@ -356,20 +356,24 @@ export const useMatchLifecycle = () => {
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
     }
-    if (
-      isPeriodActive ||
-      (isPeriodEnded &&
-        (!targetPeriodNumber || targetPeriodNumber === periodNumber))
-    ) {
+
+    const isTargetValid = isPeriodEnded
+      ? targetPeriodNumber === periodNumber + 1
+      : targetPeriodNumber === undefined || targetPeriodNumber === periodNumber;
+
+    if (isPeriodActive || !isTargetValid) {
       return;
     }
+
+    const priorPeriod = periodNumber;
+    const priorIsPeriodEnded = isPeriodEnded;
+    const priorSequence = globalSequenceNumber;
 
     const currentPeriod = targetPeriodNumber ?? periodNumber;
     if (targetPeriodNumber && targetPeriodNumber !== periodNumber) {
       dispatch(incrementPeriodNumber());
     }
 
-    const priorSequence = globalSequenceNumber;
     dispatch(startPeriodState());
     dispatch(incrementSequence());
 
@@ -379,15 +383,18 @@ export const useMatchLifecycle = () => {
       return anchorId;
     } catch (error) {
       if (isCurrentContext(normalizedMatchId, currentPeriod)) {
+        if (targetPeriodNumber && targetPeriodNumber !== priorPeriod) {
+          dispatch(decrementPeriodNumber());
+        }
         dispatch(
           setPeriodStatePayload({
             isPeriodActive: false,
             isInsideStoppage: false,
-            isPeriodEnded: false,
+            isPeriodEnded: priorIsPeriodEnded,
           }),
         );
         dispatch(setGlobalSequenceNumber(priorSequence));
-        await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
+        await syncPeriodStateWithDB(normalizedMatchId, priorPeriod);
       }
       throw error;
     }

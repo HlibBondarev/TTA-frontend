@@ -1375,4 +1375,47 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(updatedPresences).toEqual(["presence-match-1"]);
     expect(updatedPresences).not.toContain("presence-match-2");
   });
+
+  test("should reject invalid targetPeriodNumber without advancing state", async () => {
+    const store = createTestStore({ periodNumber: 1, isPeriodEnded: false });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.startPeriod(3);
+    });
+
+    expect(store.getState().match.periodNumber).toBe(1);
+    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  test("should restore prior period number and ended state when logTimeAnchor fails during START PERIOD N+1", async () => {
+    vi.mocked(db.transaction).mockRejectedValueOnce(
+      new Error("Anchor write failed"),
+    );
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+      globalSequenceNumber: 3,
+    });
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.startPeriod(2);
+      }),
+    ).rejects.toThrow("Anchor write failed");
+
+    expect(store.getState().match.periodNumber).toBe(1);
+    expect(store.getState().match.isPeriodEnded).toBe(true);
+    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.globalSequenceNumber).toBe(3);
+  });
 });
