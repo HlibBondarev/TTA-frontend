@@ -10,12 +10,55 @@ import {
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { MatchLifecyclePanel } from "../components/MatchLifecyclePanel";
-import matchReducer from "../store/matchSlice";
+import matchReducer, { type MatchState } from "../store/matchSlice";
 import presenceReducer from "../../playerpresences/store/presenceSlice";
-import { db } from "../../../db/ttaDatabase";
+import { db, type TimeAnchor } from "../../../db/ttaDatabase";
 import * as usePlayerPresenceModule from "../../playerpresences/hooks/usePlayerPresence";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
 import { processSyncQueue } from "../../../services/syncService";
+
+let mockTimeAnchors: TimeAnchor[] = [];
+
+const seedAnchorsFromState = (matchState: Partial<MatchState> = {}) => {
+  const matchId = matchState.activeMatchId || "test-match";
+  const periodNumber = matchState.periodNumber ?? 1;
+
+  if (matchState.isPeriodActive || matchState.isPeriodEnded) {
+    mockTimeAnchors.push({
+      id: "seed-start-anchor",
+      matchId,
+      periodNumber,
+      type: 0,
+      timestamp: "2020-01-01T10:00:00Z",
+      sequenceNumber: 1,
+      isSynced: 0,
+    });
+  }
+
+  if (matchState.isInsideStoppage) {
+    mockTimeAnchors.push({
+      id: "seed-stoppage-start-anchor",
+      matchId,
+      periodNumber,
+      type: 2,
+      timestamp: "2020-01-01T10:05:00Z",
+      sequenceNumber: 2,
+      isSynced: 0,
+    });
+  }
+
+  if (matchState.isPeriodEnded) {
+    mockTimeAnchors.push({
+      id: "seed-end-anchor",
+      matchId,
+      periodNumber,
+      type: 1,
+      timestamp: "2020-01-01T10:10:00Z",
+      sequenceNumber: 3,
+      isSynced: 0,
+    });
+  }
+};
 
 vi.mock("../../../services/syncService", () => ({
   processSyncQueue: vi.fn().mockResolvedValue(0),
@@ -24,8 +67,28 @@ vi.mock("../../../services/syncService", () => ({
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
     timeanchors: {
-      add: vi.fn(),
-      delete: vi.fn(),
+      add: vi.fn((anchor: TimeAnchor) => {
+        mockTimeAnchors.push(anchor);
+        return Promise.resolve(anchor.id);
+      }),
+      delete: vi.fn((id: string) => {
+        mockTimeAnchors = mockTimeAnchors.filter((a) => a.id !== id);
+        return Promise.resolve();
+      }),
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockImplementation((matchIdVal: string) => ({
+          filter: vi
+            .fn()
+            .mockImplementation((predicate: (a: TimeAnchor) => boolean) => ({
+              toArray: vi.fn().mockImplementation(() => {
+                const res = mockTimeAnchors.filter(
+                  (a) => a.matchId === matchIdVal && predicate(a),
+                );
+                return Promise.resolve(res);
+              }),
+            })),
+        })),
+      }),
       orderBy: vi.fn().mockReturnValue({
         last: vi.fn().mockResolvedValue(undefined),
       }),
@@ -52,6 +115,13 @@ vi.mock("../../../db/ttaDatabase", () => ({
 }));
 
 const createTestStore = (preloadedState = {}) => {
+  mockTimeAnchors = [];
+  if ("match" in preloadedState) {
+    seedAnchorsFromState(
+      (preloadedState as { match: Partial<MatchState> }).match,
+    );
+  }
+
   return configureStore({
     reducer: {
       match: matchReducer,
@@ -66,6 +136,7 @@ const createTestStore = (preloadedState = {}) => {
         guestScore: 0,
         isPeriodActive: false,
         isInsideStoppage: false,
+        isPeriodEnded: false,
         globalSequenceNumber: 0,
         recentActions: [],
       },
@@ -87,9 +158,10 @@ const defaultPresenceMock = {
   executeSubstitution: vi.fn(),
 };
 
-describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () => {
+describe("MatchLifecyclePanel Component Integration & State Machine", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTimeAnchors = [];
     vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue(
       defaultPresenceMock,
     );
@@ -106,6 +178,54 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     expect(screen.getByText("Period")).toBeDefined();
     expect(screen.getByText("1")).toBeDefined();
     expect(screen.getByText("START PERIOD")).toBeDefined();
+  });
+
+  test("should disable END PERIOD button when stoppage is active", () => {
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 1,
+        isPeriodActive: true,
+        isInsideStoppage: true,
+        isPeriodEnded: false,
+        globalSequenceNumber: 1,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const endBtn = screen.getByText("END PERIOD");
+    expect(endBtn).toBeDisabled();
+  });
+
+  test("should disable START PERIOD button when period has ended", () => {
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 1,
+        isPeriodActive: false,
+        isInsideStoppage: false,
+        isPeriodEnded: true,
+        globalSequenceNumber: 2,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const startBtn = screen.getByText("START PERIOD");
+    expect(startBtn).toBeDisabled();
   });
 
   test("should allow navigating periods when period is inactive", () => {
@@ -141,7 +261,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     });
   });
 
-  test("should successfully trigger period end flow and trigger processSyncQueue", async () => {
+  test("should end period 1 and auto-advance to period 2", async () => {
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
@@ -149,6 +269,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
+        isPeriodEnded: false,
         globalSequenceNumber: 1,
         recentActions: [],
       },
@@ -164,9 +285,39 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     fireEvent.click(endBtn);
 
     await waitFor(() => {
-      expect(store.getState().match.isPeriodActive).toBe(false);
       expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledTimes(1);
       expect(processSyncQueue).toHaveBeenCalledTimes(1);
+      expect(store.getState().match.periodNumber).toBe(2);
+    });
+  });
+
+  test("should end period 4 and remain on period 4", async () => {
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 4,
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        isPeriodEnded: false,
+        globalSequenceNumber: 8,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const endBtn = screen.getByText("END PERIOD");
+    fireEvent.click(endBtn);
+
+    await waitFor(() => {
+      expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledTimes(1);
+      expect(store.getState().match.periodNumber).toBe(4);
+      expect(store.getState().match.isPeriodEnded).toBe(true);
     });
   });
 
@@ -181,6 +332,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
+        isPeriodEnded: false,
         globalSequenceNumber: 1,
         recentActions: [],
       },
@@ -196,7 +348,6 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
     fireEvent.click(endBtn);
 
     await waitFor(() => {
-      expect(store.getState().match.isPeriodActive).toBe(false);
       expect(processSyncQueue).toHaveBeenCalledTimes(1);
       expect(consoleSpy).toHaveBeenCalledWith(
         "Background sync after ending period failed:",
@@ -273,6 +424,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
+        isPeriodEnded: false,
         globalSequenceNumber: 1,
         recentActions: [],
       },
@@ -312,6 +464,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
+        isPeriodEnded: false,
         globalSequenceNumber: 1,
         recentActions: [],
       },
@@ -364,6 +517,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
+        isPeriodEnded: false,
         globalSequenceNumber: 1,
         recentActions: [],
       },
@@ -390,6 +544,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: true,
+        isPeriodEnded: false,
         globalSequenceNumber: 1,
         recentActions: [],
       },
@@ -419,6 +574,7 @@ describe("MatchLifecyclePanel Component Integration & Hook Error Rollbacks", () 
         periodNumber: 1,
         isPeriodActive: true,
         isInsideStoppage: false,
+        isPeriodEnded: false,
         globalSequenceNumber: 1,
         recentActions: [],
       },

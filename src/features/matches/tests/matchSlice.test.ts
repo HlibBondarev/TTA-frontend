@@ -3,6 +3,7 @@ import matchReducer, {
   updateScores,
   startPeriodState,
   endPeriodState,
+  setPeriodStatePayload,
   incrementPeriodNumber,
   decrementPeriodNumber,
   startStoppageState,
@@ -24,6 +25,7 @@ describe("matchSlice Reducers", () => {
     guestScore: 0,
     isPeriodActive: false,
     isInsideStoppage: false,
+    isPeriodEnded: false,
     globalSequenceNumber: 0,
     recentActions: [],
   };
@@ -36,6 +38,7 @@ describe("matchSlice Reducers", () => {
     const customState: MatchState = {
       ...initialState,
       periodNumber: 3,
+      isPeriodEnded: true,
       globalSequenceNumber: 15,
     };
 
@@ -50,6 +53,7 @@ describe("matchSlice Reducers", () => {
     expect(nextState.activeMatchId).toBe("test-match-uuid");
     expect(nextState.activeTeamId).toBe("test-team-uuid");
     expect(nextState.periodNumber).toBe(1);
+    expect(nextState.isPeriodEnded).toBe(false);
     expect(nextState.globalSequenceNumber).toBe(0);
   });
 
@@ -80,9 +84,27 @@ describe("matchSlice Reducers", () => {
     const stateStarted = matchReducer(initialState, startPeriodState());
     expect(stateStarted.isPeriodActive).toBe(true);
     expect(stateStarted.isInsideStoppage).toBe(false);
+    expect(stateStarted.isPeriodEnded).toBe(false);
 
     const stateEnded = matchReducer(stateStarted, endPeriodState());
     expect(stateEnded.isPeriodActive).toBe(false);
+    expect(stateEnded.isInsideStoppage).toBe(false);
+    expect(stateEnded.isPeriodEnded).toBe(true);
+  });
+
+  it("should handle setPeriodStatePayload to explicitly sync period flags", () => {
+    const nextState = matchReducer(
+      initialState,
+      setPeriodStatePayload({
+        isPeriodActive: false,
+        isInsideStoppage: false,
+        isPeriodEnded: true,
+      }),
+    );
+
+    expect(nextState.isPeriodActive).toBe(false);
+    expect(nextState.isInsideStoppage).toBe(false);
+    expect(nextState.isPeriodEnded).toBe(true);
   });
 
   it("should handle period number navigation safely", () => {
@@ -149,6 +171,7 @@ describe("matchSlice Reducers", () => {
       guestScore: 8,
       isPeriodActive: true,
       isInsideStoppage: true,
+      isPeriodEnded: true,
       globalSequenceNumber: 42,
     };
 

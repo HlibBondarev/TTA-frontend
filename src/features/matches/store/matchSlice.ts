@@ -16,6 +16,7 @@ export interface MatchState {
   guestScore?: number;
   isPeriodActive: boolean;
   isInsideStoppage: boolean;
+  isPeriodEnded: boolean;
   globalSequenceNumber: number;
   recentActions: ActionEntry[];
 }
@@ -23,6 +24,12 @@ export interface MatchState {
 export interface SetActiveMatchPayload {
   matchId: string;
   teamId: string;
+}
+
+export interface SetPeriodStatePayload {
+  isPeriodActive: boolean;
+  isInsideStoppage: boolean;
+  isPeriodEnded: boolean;
 }
 
 const initialState: MatchState = {
@@ -33,6 +40,7 @@ const initialState: MatchState = {
   guestScore: 0,
   isPeriodActive: false,
   isInsideStoppage: false,
+  isPeriodEnded: false,
   globalSequenceNumber: 0,
   recentActions: [],
 };
@@ -54,6 +62,7 @@ const matchSlice = createSlice({
       state.guestScore = 0;
       state.isPeriodActive = false;
       state.isInsideStoppage = false;
+      state.isPeriodEnded = false;
       state.globalSequenceNumber = 0;
       state.recentActions = [];
     },
@@ -67,16 +76,25 @@ const matchSlice = createSlice({
     startPeriodState(state) {
       state.isPeriodActive = true;
       state.isInsideStoppage = false;
+      state.isPeriodEnded = false;
     },
     endPeriodState(state) {
       state.isPeriodActive = false;
       state.isInsideStoppage = false;
+      state.isPeriodEnded = true;
+    },
+    setPeriodStatePayload(state, action: PayloadAction<SetPeriodStatePayload>) {
+      state.isPeriodActive = action.payload.isPeriodActive;
+      state.isInsideStoppage = action.payload.isInsideStoppage;
+      state.isPeriodEnded = action.payload.isPeriodEnded;
     },
     incrementPeriodNumber(state) {
-      state.periodNumber += 1;
+      if (!state.isPeriodActive) {
+        state.periodNumber += 1;
+      }
     },
     decrementPeriodNumber(state) {
-      if (state.periodNumber > 1) {
+      if (!state.isPeriodActive && state.periodNumber > 1) {
         state.periodNumber -= 1;
       }
     },
@@ -109,6 +127,7 @@ export const {
   updateScores,
   startPeriodState,
   endPeriodState,
+  setPeriodStatePayload,
   incrementPeriodNumber,
   decrementPeriodNumber,
   startStoppageState,

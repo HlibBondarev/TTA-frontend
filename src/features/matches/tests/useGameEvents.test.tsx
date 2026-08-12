@@ -34,6 +34,7 @@ const createTestStore = (preloadedState = {}) => {
         guestScore: 0,
         isPeriodActive: true,
         isInsideStoppage: false,
+        isPeriodEnded: false,
         globalSequenceNumber: 10,
         recentActions: [],
         ...preloadedState,
