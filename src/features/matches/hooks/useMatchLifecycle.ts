@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { db, type TimeAnchor } from "../../../db/ttaDatabase";
 import { getNextSequenceNumber } from "../../../db/eventService";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
@@ -80,7 +80,10 @@ export const useMatchLifecycle = () => {
     globalSequenceNumber,
   } = matchState;
 
+  const syncRequestIdRef = useRef(0);
+
   const syncPeriodStateWithDB = useCallback(async () => {
+    const currentRequestId = ++syncRequestIdRef.current;
     const normalizedMatchId = activeMatchId?.trim();
     if (!normalizedMatchId || !db?.timeanchors) return;
 
@@ -91,8 +94,10 @@ export const useMatchLifecycle = () => {
         .filter((a) => a.periodNumber === periodNumber)
         .toArray();
 
-      const computedState = calculatePeriodState(anchors);
-      dispatch(setPeriodStatePayload(computedState));
+      if (currentRequestId === syncRequestIdRef.current) {
+        const computedState = calculatePeriodState(anchors);
+        dispatch(setPeriodStatePayload(computedState));
+      }
     } catch (err) {
       console.error(
         "Failed to sync period state with IndexedDB timeanchors:",

@@ -766,4 +766,66 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       }),
     );
   });
+
+  test("should ignore stale syncPeriodStateWithDB results when period changes before query completes", async () => {
+    let resolveFirstQuery: (value: TimeAnchor[]) => void = () => {};
+    const firstQueryPromise = new Promise<TimeAnchor[]>((resolve) => {
+      resolveFirstQuery = resolve;
+    });
+
+    const filterMock = vi
+      .fn()
+      .mockImplementation((predicate: (a: TimeAnchor) => boolean) => {
+        // If querying Period 1, delay resolution manually
+        const isPeriod1Query = mockTimeAnchors.some(
+          (a) => a.periodNumber === 1 && predicate(a),
+        );
+        if (isPeriod1Query) {
+          return { toArray: () => firstQueryPromise };
+        }
+        return {
+          toArray: () =>
+            Promise.resolve(
+              mockTimeAnchors.filter(
+                (a) => a.matchId === "test-match-id" && predicate(a),
+              ),
+            ),
+        };
+      });
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({ filter: filterMock }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    const store = createTestStore({ periodNumber: 1, isPeriodActive: false });
+    const { result, rerender } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    // Trigger period change to 2 while period 1 query is still pending
+    act(() => {
+      result.current.nextPeriod();
+    });
+    rerender();
+
+    expect(store.getState().match.periodNumber).toBe(2);
+
+    // Now resolve the stale period 1 query with an active period state anchor
+    await act(async () => {
+      resolveFirstQuery([
+        {
+          id: "stale-p1-anchor",
+          matchId: "test-match-id",
+          periodNumber: 1,
+          type: 0,
+          timestamp: "2020-01-01T10:00:00Z",
+          sequenceNumber: 1,
+          isSynced: 0,
+        },
+      ]);
+    });
+
+    // Verify that Redux state was NOT overwritten with stale active state from period 1
+    expect(store.getState().match.isPeriodActive).toBe(false);
+  });
 });
