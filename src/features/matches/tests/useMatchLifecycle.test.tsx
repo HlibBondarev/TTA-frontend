@@ -153,12 +153,72 @@ describe("useMatchLifecycle Hook & State Machine", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockTimeAnchors = [];
-    vi.mocked(db.transaction).mockImplementation((...args: unknown[]) => {
+
+    vi.mocked(db.timeanchors.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockImplementation((matchIdVal: string) => ({
+            filter: vi
+              .fn()
+              .mockImplementation((predicate: (a: TimeAnchor) => boolean) => ({
+                toArray: vi.fn().mockImplementation(() => {
+                  const res = mockTimeAnchors.filter(
+                    (a) => a.matchId === matchIdVal && predicate(a),
+                  );
+                  return Promise.resolve(res);
+                }),
+              })),
+          })),
+        }) as unknown as ReturnType<typeof db.timeanchors.where>,
+    );
+
+    vi.mocked(db.playerpresences.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            filter: vi.fn().mockReturnValue({
+              toArray: vi.fn().mockResolvedValue([]),
+            }),
+          }),
+        }) as unknown as ReturnType<typeof db.playerpresences.where>,
+    );
+
+    vi.mocked(db.playerpresences.update).mockResolvedValue(1);
+
+    vi.mocked(db.syncQueue.filter).mockImplementation(
+      () =>
+        ({
+          toArray: vi.fn().mockImplementation(() =>
+            Promise.resolve([
+              {
+                id: 101,
+                payload: JSON.stringify([{ id: "seed-end-anchor" }]),
+              },
+            ]),
+          ),
+        }) as unknown as ReturnType<typeof db.syncQueue.filter>,
+    );
+
+    vi.mocked(db.transaction).mockImplementation(((...args: unknown[]) => {
       const cb = args[args.length - 1];
-      return typeof cb === "function"
-        ? (cb() as ReturnType<typeof db.transaction>)
-        : (Promise.resolve() as ReturnType<typeof db.transaction>);
-    });
+      if (typeof cb === "function") {
+        const snapshot = [...mockTimeAnchors];
+        try {
+          const res = cb();
+          if (res && typeof (res as Promise<unknown>).then === "function") {
+            return (res as Promise<unknown>).catch((err: unknown) => {
+              mockTimeAnchors = snapshot;
+              throw err;
+            });
+          }
+          return res;
+        } catch (err) {
+          mockTimeAnchors = snapshot;
+          throw err;
+        }
+      }
+      return Promise.resolve();
+    }) as unknown as typeof db.transaction);
   });
 
   describe("calculatePeriodState Helper", () => {
@@ -1180,6 +1240,47 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     });
 
     expect(store.getState().match.periodNumber).toBe(2);
+    expect(store.getState().match.isPeriodActive).toBe(false);
+  });
+
+  test("should roll back transaction and preserve ended state when playerpresences update fails inside revertEndPeriod", async () => {
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi.fn().mockReturnValue({
+          toArray: vi
+            .fn()
+            .mockResolvedValue([
+              { id: "presence-1", timeOut: "2020-01-01T10:00:00Z" },
+            ]),
+        }),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    vi.mocked(db.playerpresences.update).mockRejectedValueOnce(
+      new Error("Player presences update failed"),
+    );
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.revertEndPeriod("seed-end-anchor");
+      }),
+    ).rejects.toThrow("Player presences update failed");
+
+    expect(store.getState().match.isPeriodEnded).toBe(true);
     expect(store.getState().match.isPeriodActive).toBe(false);
   });
 });

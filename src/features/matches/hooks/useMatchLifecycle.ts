@@ -289,28 +289,37 @@ export const useMatchLifecycle = () => {
     const normalizedMatchId = activeMatchId?.trim();
     const currentPeriod = periodNumber;
 
-    let targetAnchorId = anchorId;
-    if (!targetAnchorId && normalizedMatchId && db?.timeanchors) {
-      const endAnchors = await db.timeanchors
-        .where("matchId")
-        .equals(normalizedMatchId)
-        .filter((a) => a.periodNumber === currentPeriod && a.type === 1)
-        .toArray();
+    await db.transaction(
+      "rw",
+      [db.timeanchors, db.syncQueue, db.playerpresences],
+      async () => {
+        let targetAnchorId = anchorId;
+        if (!targetAnchorId && normalizedMatchId && db?.timeanchors) {
+          const endAnchors = await db.timeanchors
+            .where("matchId")
+            .equals(normalizedMatchId)
+            .filter((a) => a.periodNumber === currentPeriod && a.type === 1)
+            .toArray();
 
-      if (endAnchors.length > 0) {
-        targetAnchorId = endAnchors[0].id;
-      }
-    }
+          if (endAnchors.length > 0) {
+            targetAnchorId = endAnchors[0].id;
+          }
+        }
 
-    if (targetAnchorId) {
-      await removeTimeAnchor(targetAnchorId);
-    }
+        if (targetAnchorId) {
+          await db.timeanchors.delete(targetAnchorId);
+          const matchingQueueItems = await db.syncQueue
+            .filter((item) => item.payload.includes(targetAnchorId))
+            .toArray();
 
-    if (normalizedMatchId && db?.playerpresences) {
-      await db.transaction(
-        "rw",
-        [db.playerpresences, db.syncQueue],
-        async () => {
+          for (const item of matchingQueueItems) {
+            if (item.id !== undefined) {
+              await db.syncQueue.delete(item.id);
+            }
+          }
+        }
+
+        if (normalizedMatchId && db?.playerpresences) {
           const presences = await db.playerpresences
             .where("periodNumber")
             .equals(currentPeriod)
@@ -323,9 +332,9 @@ export const useMatchLifecycle = () => {
               isSynced: 0,
             });
           }
-        },
-      );
-    }
+        }
+      },
+    );
 
     if (!isCurrentContext(normalizedMatchId, currentPeriod)) {
       return;
