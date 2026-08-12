@@ -5,7 +5,10 @@ import {
   useMatchLifecycle,
   calculatePeriodState,
 } from "../hooks/useMatchLifecycle";
-import matchReducer, { type MatchState } from "../store/matchSlice";
+import matchReducer, {
+  type MatchState,
+  setPeriodStatePayload,
+} from "../store/matchSlice";
 import { db, type TimeAnchor } from "../../../db/ttaDatabase";
 import { vi, describe, beforeEach, test, expect } from "vitest";
 
@@ -629,6 +632,109 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     ).rejects.toThrow("IndexedDB transaction failure");
     expect(store.getState().match.isInsideStoppage).toBe(true);
     expect(store.getState().match.globalSequenceNumber).toBe(initialSeq);
+  });
+
+  test("should skip stale Redux rollback and sync in revertStartPeriod if period changes before removeTimeAnchor resolves", async () => {
+    let resolveDelete: () => void = () => {};
+    const deletePromise = new Promise<void>((resolve) => {
+      resolveDelete = resolve;
+    });
+
+    vi.mocked(db.transaction).mockImplementation((...args: unknown[]) => {
+      const cb = args[args.length - 1];
+      if (typeof cb === "function") {
+        return deletePromise.then(() => cb()) as ReturnType<
+          typeof db.transaction
+        >;
+      }
+      return Promise.resolve() as ReturnType<typeof db.transaction>;
+    });
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: true,
+    });
+
+    const { result, rerender } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    let revertPromise: Promise<void>;
+    act(() => {
+      revertPromise = result.current.revertStartPeriod("test-anchor-id");
+    });
+
+    // Deactivate active period state in Redux to allow period navigation while revert is pending
+    act(() => {
+      store.dispatch(
+        setPeriodStatePayload({
+          isPeriodActive: false,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+        }),
+      );
+      result.current.nextPeriod();
+    });
+    rerender();
+
+    expect(store.getState().match.periodNumber).toBe(2);
+
+    await act(async () => {
+      resolveDelete();
+      await revertPromise;
+    });
+
+    // Period 2 state should remain unaffected by Period 1 revert
+    expect(store.getState().match.periodNumber).toBe(2);
+    expect(store.getState().match.isPeriodActive).toBe(false);
+  });
+
+  test("should skip stale Redux rollback on logTimeAnchor failure if context changes before error is handled", async () => {
+    let rejectTransaction: (err: Error) => void = () => {};
+    const transactionPromise = new Promise<void>((_, reject) => {
+      rejectTransaction = reject;
+    });
+
+    vi.mocked(db.transaction).mockReturnValue(
+      transactionPromise as unknown as ReturnType<typeof db.transaction>,
+    );
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+    });
+
+    const { result, rerender } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    let startPromise: Promise<string | undefined>;
+    act(() => {
+      startPromise = result.current.startPeriod();
+    });
+
+    // Reset active flag in Redux and navigate to period 2 before logTimeAnchor fails
+    act(() => {
+      store.dispatch(
+        setPeriodStatePayload({
+          isPeriodActive: false,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+        }),
+      );
+      result.current.nextPeriod();
+    });
+    rerender();
+
+    expect(store.getState().match.periodNumber).toBe(2);
+
+    await act(async () => {
+      rejectTransaction(new Error("DB write failure"));
+      await expect(startPromise).rejects.toThrow("DB write failure");
+    });
+
+    // Period 2 context should remain untouched
+    expect(store.getState().match.periodNumber).toBe(2);
   });
 
   test("should stop the timer (stoppage start) and start the timer (stoppage end) properly", async () => {

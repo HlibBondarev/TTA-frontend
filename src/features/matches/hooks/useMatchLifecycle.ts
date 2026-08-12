@@ -89,6 +89,18 @@ export const useMatchLifecycle = () => {
     periodNumberRef.current = periodNumber;
   }, [activeMatchId, periodNumber]);
 
+  const isCurrentContext = useCallback(
+    (targetMatchId?: string, targetPeriodNumber?: number) => {
+      const norm = targetMatchId?.trim();
+      return (
+        !!norm &&
+        norm === activeMatchIdRef.current?.trim() &&
+        targetPeriodNumber === periodNumberRef.current
+      );
+    },
+    [],
+  );
+
   const syncPeriodStateWithDB = useCallback(
     async (overrideMatchId?: string, overridePeriodNumber?: number) => {
       const currentRequestId = ++syncRequestIdRef.current;
@@ -219,6 +231,9 @@ export const useMatchLifecycle = () => {
     if (anchorId) {
       await removeTimeAnchor(anchorId);
     }
+    if (!isCurrentContext(normalizedMatchId, currentPeriod)) {
+      return;
+    }
     dispatch(
       setPeriodStatePayload({
         isPeriodActive: false,
@@ -234,6 +249,9 @@ export const useMatchLifecycle = () => {
     const currentPeriod = periodNumber;
     if (anchorId) {
       await removeTimeAnchor(anchorId);
+    }
+    if (!isCurrentContext(normalizedMatchId, currentPeriod)) {
+      return;
     }
     dispatch(startPeriodState());
     await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
@@ -256,15 +274,17 @@ export const useMatchLifecycle = () => {
       await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
       return anchorId;
     } catch (error) {
-      dispatch(
-        setPeriodStatePayload({
-          isPeriodActive: false,
-          isInsideStoppage: false,
-          isPeriodEnded: false,
-        }),
-      );
-      dispatch(setGlobalSequenceNumber(priorSequence));
-      await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
+      if (isCurrentContext(normalizedMatchId, currentPeriod)) {
+        dispatch(
+          setPeriodStatePayload({
+            isPeriodActive: false,
+            isInsideStoppage: false,
+            isPeriodEnded: false,
+          }),
+        );
+        dispatch(setGlobalSequenceNumber(priorSequence));
+        await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
+      }
       throw error;
     }
   };
@@ -286,9 +306,11 @@ export const useMatchLifecycle = () => {
       await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
       return anchorId;
     } catch (error) {
-      dispatch(startPeriodState());
-      dispatch(setGlobalSequenceNumber(priorSequence));
-      await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
+      if (isCurrentContext(normalizedMatchId, currentPeriod)) {
+        dispatch(startPeriodState());
+        dispatch(setGlobalSequenceNumber(priorSequence));
+        await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
+      }
       throw error;
     }
   };
@@ -308,9 +330,11 @@ export const useMatchLifecycle = () => {
       await logTimeAnchor(2);
       await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
     } catch (error) {
-      dispatch(endStoppageState());
-      dispatch(setGlobalSequenceNumber(priorSequence));
-      await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
+      if (isCurrentContext(normalizedMatchId, currentPeriod)) {
+        dispatch(endStoppageState());
+        dispatch(setGlobalSequenceNumber(priorSequence));
+        await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
+      }
       throw error;
     }
   };
@@ -330,9 +354,11 @@ export const useMatchLifecycle = () => {
       await logTimeAnchor(3);
       await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
     } catch (error) {
-      dispatch(startStoppageState());
-      dispatch(setGlobalSequenceNumber(priorSequence));
-      await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
+      if (isCurrentContext(normalizedMatchId, currentPeriod)) {
+        dispatch(startStoppageState());
+        dispatch(setGlobalSequenceNumber(priorSequence));
+        await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
+      }
       throw error;
     }
   };
