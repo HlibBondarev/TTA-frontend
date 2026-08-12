@@ -831,4 +831,55 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     // Verify that Redux state was NOT overwritten with stale active state from period 1
     expect(store.getState().match.isPeriodActive).toBe(false);
   });
+
+  test("should ignore syncPeriodStateWithDB when period transitions from 1 to 2 during an async operation", async () => {
+    let resolveAddAnchor: () => void = () => {};
+    const addAnchorPromise = new Promise<void>((resolve) => {
+      resolveAddAnchor = resolve;
+    });
+
+    vi.mocked(db.transaction).mockImplementation((...args: unknown[]) => {
+      const cb = args[args.length - 1];
+      if (typeof cb === "function") {
+        return addAnchorPromise.then(() => cb()) as ReturnType<
+          typeof db.transaction
+        >;
+      }
+      return Promise.resolve() as ReturnType<typeof db.transaction>;
+    });
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: true,
+      isPeriodEnded: false,
+    });
+
+    const { result, rerender } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    // Initiate period 1 end (which deactivates period 1 and calls logTimeAnchor)
+    let endPromise: Promise<string | undefined>;
+    act(() => {
+      endPromise = result.current.endPeriod();
+    });
+
+    // User navigates to period 2 after period 1 ended, before DB transaction completes
+    act(() => {
+      result.current.nextPeriod();
+    });
+    rerender();
+
+    expect(store.getState().match.periodNumber).toBe(2);
+
+    // Now resolve the delayed anchor transaction for period 1
+    await act(async () => {
+      resolveAddAnchor();
+      await endPromise;
+    });
+
+    // Verify that period 2 Redux state remains untouched by period 1's delayed sync
+    expect(store.getState().match.periodNumber).toBe(2);
+    expect(store.getState().match.isPeriodActive).toBe(false);
+  });
 });
