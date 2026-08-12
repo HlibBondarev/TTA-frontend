@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { useSelector } from "react-redux";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
 import { usePlayerPresence } from "../../../features/playerpresences/hooks/usePlayerPresence";
-import { processSyncQueue } from "../../../services/syncService";
 import type { RootState } from "../../../store";
 
 export const MatchLifecyclePanel: React.FC = () => {
@@ -11,14 +10,13 @@ export const MatchLifecyclePanel: React.FC = () => {
     isPeriodActive,
     isInsideStoppage,
     isPeriodEnded,
+    canUndoEndPeriod,
     startPeriod,
     endPeriod,
     revertStartPeriod,
     revertEndPeriod,
     stopTime,
     startTime,
-    nextPeriod,
-    prevPeriod,
   } = useMatchLifecycle();
 
   const activeMatchId = useSelector(
@@ -35,7 +33,7 @@ export const MatchLifecyclePanel: React.FC = () => {
 
   const [panelError, setPanelError] = useState<string | null>(null);
 
-  const handleStartPeriod = async () => {
+  const handleStartPeriod = async (targetPeriod?: number) => {
     setPanelError(null);
     if (selectedStartingIds.length !== activePlayersLimit) {
       setPanelError(`Select exactly ${activePlayersLimit} players.`);
@@ -45,7 +43,7 @@ export const MatchLifecyclePanel: React.FC = () => {
     let anchorId: string | null | undefined = null;
     try {
       // Step 1: Log time anchor first to ensure atomic coordination
-      anchorId = await startPeriod();
+      anchorId = await startPeriod(targetPeriod);
 
       // Step 2: Initialize roster presence transaction
       await startPeriodWithRoster(new Date().toISOString());
@@ -73,17 +71,6 @@ export const MatchLifecyclePanel: React.FC = () => {
 
       // Step 2: Terminate roster presence transaction
       await endPeriodWithRoster(new Date().toISOString());
-
-      // Step 3: Trigger queue processing on period end with error handling
-      void processSyncQueue().catch((syncErr) => {
-        console.error("Background sync after ending period failed:", syncErr);
-      });
-
-      // Step 4: Auto-advance to next period if not at maximum period limit (default: 4)
-      const maxPeriods = 4;
-      if (periodNumber < maxPeriods) {
-        nextPeriod();
-      }
     } catch (err) {
       console.error(err);
       try {
@@ -99,6 +86,19 @@ export const MatchLifecyclePanel: React.FC = () => {
     }
   };
 
+  const handleUndoEndPeriod = async () => {
+    setPanelError(null);
+    try {
+      await revertEndPeriod();
+      await refreshPresenceFromDB();
+    } catch (err) {
+      console.error("Failed to undo end period:", err);
+      setPanelError("Failed to undo end period.");
+    }
+  };
+
+  const maxPeriods = 4;
+
   return (
     <div className="w-full bg-gray-900 text-white rounded-xl border border-gray-800 p-2">
       {panelError && (
@@ -112,46 +112,70 @@ export const MatchLifecyclePanel: React.FC = () => {
 
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-gray-300">Period</span>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={prevPeriod}
-            disabled={isPeriodActive}
-            className="w-6 h-6 min-h-11 min-w-11 bg-gray-800 rounded text-xs hover:bg-gray-700 disabled:opacity-30"
-          >
-            &lt;
-          </button>
-          <span className="text-sm font-black text-emerald-400 min-w-4 text-center">
-            {periodNumber}
-          </span>
-          <button
-            type="button"
-            onClick={nextPeriod}
-            disabled={isPeriodActive}
-            className="w-6 h-6 min-h-11 min-w-11 bg-gray-800 rounded text-xs hover:bg-gray-700 disabled:opacity-30"
-          >
-            &gt;
-          </button>
-        </div>
+        <span className="text-sm font-black text-emerald-400 min-w-4 text-center">
+          {periodNumber}
+        </span>
       </div>
 
       <div className="grid grid-cols-2 gap-1 mb-2">
-        <button
-          type="button"
-          onClick={handleStartPeriod}
-          disabled={isPeriodActive || isPeriodEnded}
-          className="py-1 min-h-11 bg-emerald-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
-        >
-          START PERIOD
-        </button>
-        <button
-          type="button"
-          onClick={handleEndPeriod}
-          disabled={!isPeriodActive || isInsideStoppage}
-          className="py-1 min-h-11 bg-rose-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
-        >
-          END PERIOD
-        </button>
+        {!isPeriodEnded ? (
+          <>
+            <button
+              type="button"
+              onClick={() => handleStartPeriod()}
+              disabled={isPeriodActive}
+              className="py-1 min-h-11 bg-emerald-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
+            >
+              START PERIOD
+            </button>
+            <button
+              type="button"
+              onClick={handleEndPeriod}
+              disabled={!isPeriodActive || isInsideStoppage}
+              className="py-1 min-h-11 bg-rose-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
+            >
+              END PERIOD
+            </button>
+          </>
+        ) : (
+          <>
+            {periodNumber < maxPeriods ? (
+              <button
+                type="button"
+                onClick={() => handleStartPeriod(periodNumber + 1)}
+                className="py-1 min-h-11 bg-emerald-700 hover:bg-emerald-600 rounded text-[10px] font-bold uppercase"
+              >
+                START PERIOD {periodNumber + 1}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="py-1 min-h-11 bg-gray-800 rounded text-[10px] font-bold uppercase opacity-30"
+              >
+                MATCH ENDED
+              </button>
+            )}
+
+            {canUndoEndPeriod ? (
+              <button
+                type="button"
+                onClick={handleUndoEndPeriod}
+                className="py-1 min-h-11 bg-amber-700 hover:bg-amber-600 rounded text-[10px] font-bold uppercase"
+              >
+                UNDO END PERIOD {periodNumber}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="py-1 min-h-11 bg-rose-700 rounded text-[10px] font-bold uppercase opacity-30"
+              >
+                END PERIOD
+              </button>
+            )}
+          </>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-1">
