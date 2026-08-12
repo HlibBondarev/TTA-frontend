@@ -300,6 +300,84 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(db.timeanchors.add).not.toHaveBeenCalled();
   });
 
+  test("should reject startPeriod atomically inside IndexedDB transaction when an existing end anchor is present before initial sync completes", async () => {
+    let resolveSyncQuery: (value: TimeAnchor[]) => void = () => {};
+    const syncQueryPromise = new Promise<TimeAnchor[]>((resolve) => {
+      resolveSyncQuery = resolve;
+    });
+
+    let callCount = 0;
+    const filterMock = vi
+      .fn()
+      .mockImplementation((predicate: (a: TimeAnchor) => boolean) => ({
+        toArray: vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            // Delay initial sync query so Redux isPeriodEnded remains false when startPeriod is called
+            return syncQueryPromise;
+          }
+          // Query inside logTimeAnchor transaction returns existing DB anchors directly
+          return Promise.resolve(
+            mockTimeAnchors.filter(
+              (a) => a.matchId === "test-match-id" && predicate(a),
+            ),
+          );
+        }),
+      }));
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({ filter: filterMock }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: false,
+    });
+
+    mockTimeAnchors = [
+      {
+        id: "existing-start-anchor",
+        matchId: "test-match-id",
+        periodNumber: 1,
+        type: 0,
+        timestamp: "2020-01-01T10:00:00Z",
+        sequenceNumber: 1,
+        isSynced: 1,
+      },
+      {
+        id: "existing-end-anchor",
+        matchId: "test-match-id",
+        periodNumber: 1,
+        type: 1,
+        timestamp: "2020-01-01T10:10:00Z",
+        sequenceNumber: 2,
+        isSynced: 1,
+      },
+    ];
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    // Call startPeriod while initial sync is still pending in Redux
+    await expect(
+      act(async () => {
+        await result.current.startPeriod();
+      }),
+    ).rejects.toThrow(
+      "Cannot start period: period is already active or ended.",
+    );
+
+    expect(mockTimeAnchors.filter((a) => a.type === 0)).toHaveLength(1);
+    expect(store.getState().match.isPeriodActive).toBe(false);
+
+    // Clean up initial sync query promise
+    await act(async () => {
+      resolveSyncQuery(mockTimeAnchors);
+    });
+  });
+
   test("should end a period, set isPeriodEnded=true and push item to syncQueue", async () => {
     const store = createTestStore({ isPeriodActive: true });
     const { result } = renderHook(() => useMatchLifecycle(), {

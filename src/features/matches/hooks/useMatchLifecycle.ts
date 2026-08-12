@@ -142,6 +142,21 @@ export const useMatchLifecycle = () => {
       "rw",
       [db.timeanchors, db.gameevents, db.playerpresences, db.syncQueue],
       async () => {
+        if (type === 0) {
+          const existingAnchors = await db.timeanchors
+            .where("matchId")
+            .equals(normalizedMatchId)
+            .filter((a) => a.periodNumber === periodNumber)
+            .toArray();
+
+          const existingState = calculatePeriodState(existingAnchors);
+          if (existingState.isPeriodActive || existingState.isPeriodEnded) {
+            throw new Error(
+              "Cannot start period: period is already active or ended.",
+            );
+          }
+        }
+
         const nextSeq = await getNextSequenceNumber();
         const timestamp = new Date().toISOString();
 
