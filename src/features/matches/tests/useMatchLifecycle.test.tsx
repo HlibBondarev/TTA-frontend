@@ -664,6 +664,18 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       revertPromise = result.current.revertStartPeriod("test-anchor-id");
     });
 
+    // Seed Period 2 active anchor in mock DB BEFORE triggering period navigation/rerender
+    // so background syncPeriodStateWithDB() sees Period 2 as active
+    mockTimeAnchors.push({
+      id: "p2-start-anchor",
+      matchId: "test-match-id",
+      periodNumber: 2,
+      type: 0,
+      timestamp: "2020-01-01T10:20:00Z",
+      sequenceNumber: 10,
+      isSynced: 0,
+    });
+
     // Deactivate active period state in Redux to allow period navigation while revert is pending
     act(() => {
       store.dispatch(
@@ -684,9 +696,9 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       await revertPromise;
     });
 
-    // Period 2 state should remain unaffected by Period 1 revert
+    // Period 2 state should remain active and unaffected by Period 1 revert
     expect(store.getState().match.periodNumber).toBe(2);
-    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.isPeriodActive).toBe(true);
   });
 
   test("should skip stale Redux rollback on logTimeAnchor failure if context changes before error is handled", async () => {
@@ -713,6 +725,17 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       startPromise = result.current.startPeriod();
     });
 
+    // Seed Period 2 active anchor in mock DB BEFORE rerender so background sync reads active state
+    mockTimeAnchors.push({
+      id: "p2-start-anchor-fail-test",
+      matchId: "test-match-id",
+      periodNumber: 2,
+      type: 0,
+      timestamp: "2020-01-01T10:20:00Z",
+      sequenceNumber: 10,
+      isSynced: 0,
+    });
+
     // Reset active flag in Redux and navigate to period 2 before logTimeAnchor fails
     act(() => {
       store.dispatch(
@@ -733,8 +756,9 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       await expect(startPromise).rejects.toThrow("DB write failure");
     });
 
-    // Period 2 context should remain untouched
+    // Period 2 context should remain active and untouched by Period 1 error rollback
     expect(store.getState().match.periodNumber).toBe(2);
+    expect(store.getState().match.isPeriodActive).toBe(true);
   });
 
   test("should ignore syncPeriodStateWithDB when period transitions from 1 to 2 during an async operation", async () => {
