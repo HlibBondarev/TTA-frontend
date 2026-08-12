@@ -183,7 +183,13 @@ export const useMatchLifecycle = () => {
     if (anchorId) {
       await removeTimeAnchor(anchorId);
     }
-    dispatch(endPeriodState());
+    dispatch(
+      setPeriodStatePayload({
+        isPeriodActive: false,
+        isInsideStoppage: false,
+        isPeriodEnded: false,
+      }),
+    );
     await syncPeriodStateWithDB();
   };
 
@@ -210,7 +216,13 @@ export const useMatchLifecycle = () => {
       await syncPeriodStateWithDB();
       return anchorId;
     } catch (error) {
-      dispatch(endPeriodState());
+      dispatch(
+        setPeriodStatePayload({
+          isPeriodActive: false,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+        }),
+      );
       dispatch(setGlobalSequenceNumber(priorSequence));
       await syncPeriodStateWithDB();
       throw error;

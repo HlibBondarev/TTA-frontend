@@ -419,6 +419,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(db.timeanchors.delete).toHaveBeenCalledWith("revert-anchor-id");
     expect(db.syncQueue.delete).toHaveBeenCalledWith(202);
     expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.isPeriodEnded).toBe(false);
 
     mockTimeAnchors.push({
       id: "start-anchor-for-revert",
@@ -450,6 +451,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     });
 
     expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.isPeriodEnded).toBe(false);
 
     mockTimeAnchors.push({
       id: "start-anchor-safe",
@@ -490,6 +492,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       }),
     ).rejects.toThrow("IndexedDB transaction failure");
     expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.isPeriodEnded).toBe(false);
     expect(store.getState().match.globalSequenceNumber).toBe(initialSeq);
 
     // Set state & anchor for endPeriod and stopTime tests
