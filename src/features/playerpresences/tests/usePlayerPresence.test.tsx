@@ -99,7 +99,6 @@ describe("usePlayerPresence Hook", () => {
 
     expect(result.current.selectedStartingIds).toEqual(["p1", "p2", "p3"]);
 
-    // Expect an error when staging more than active players limit
     expect(() => {
       act(() => {
         result.current.stageStartingLineup([
@@ -116,7 +115,24 @@ describe("usePlayerPresence Hook", () => {
     }).toThrow("Cannot exceed the limit of 7 active players.");
   });
 
-  it("should refresh roster and load presence state from IndexedDB filtering out closed sessions", async () => {
+  it("should refresh roster and load presence state from IndexedDB filtering out closed sessions and duplicates", async () => {
+    vi.mocked(db.playerpresences.toArray).mockResolvedValueOnce([
+      {
+        id: "pres-1",
+        matchLineupId: "lineup-1",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:00:00.000Z",
+        timeOut: null,
+      },
+      {
+        id: "pres-duplicate",
+        matchLineupId: "lineup-1", // Duplicate active presence for same lineup
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:01:00.000Z",
+        timeOut: null,
+      },
+    ]);
+
     const { result } = renderHook(() => usePlayerPresence("test-match"), {
       wrapper,
     });
@@ -125,7 +141,7 @@ describe("usePlayerPresence Hook", () => {
       await result.current.refreshPresenceFromDB();
     });
 
-    // Validated based on the mocked toArray values
+    // Validated based on the deduplicated lineup IDs
     expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
     expect(result.current.benchLineupIds).toEqual(["lineup-2"]);
   });
@@ -151,14 +167,13 @@ describe("usePlayerPresence Hook", () => {
     consoleSpy.mockRestore();
   });
 
-  it("should start a period and trigger database initialization with exactly 7 players", async () => {
+  it("should start a period, trigger database initialization, and sync with DB", async () => {
     const { result } = renderHook(() => usePlayerPresence("test-match"), {
       wrapper,
     });
 
     const completeLineup = ["p1", "p2", "p3", "p4", "p5", "p6", "p7"];
 
-    // Stage complete Water Polo lineup (7 players)
     act(() => {
       result.current.stageStartingLineup(completeLineup);
     });
@@ -173,6 +188,7 @@ describe("usePlayerPresence Hook", () => {
       completeLineup,
       "2026-07-16T10:00:00.000Z",
     );
+    expect(db.matchlineups.where).toHaveBeenCalled(); // Verifies refreshPresenceFromDB was run
   });
 
   it("should refresh presence from DB and rethrow when startPeriodWithRoster fails", async () => {
@@ -203,19 +219,16 @@ describe("usePlayerPresence Hook", () => {
       wrapper,
     });
 
-    // 1. Populate the store state with active players first
     await act(async () => {
       await result.current.refreshPresenceFromDB();
     });
     expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
 
-    // 2. Trigger the termination action
     await act(async () => {
       await result.current.endPeriodWithRoster("2026-07-16T11:00:00.000Z");
     });
 
-    // 3. Assertions
-    expect(result.current.activeLineupIds).toEqual([]); // Cleared in store
+    expect(result.current.activeLineupIds).toEqual([]);
     expect(terminatePeriodPresenceTx).toHaveBeenCalledWith(
       "test-match",
       1,
@@ -248,7 +261,7 @@ describe("usePlayerPresence Hook", () => {
     });
 
     act(() => {
-      result.current.stageStartingLineup(["p1", "p2"]); // only 2 players instead of 7
+      result.current.stageStartingLineup(["p1", "p2"]);
     });
 
     await expect(
@@ -282,7 +295,6 @@ describe("usePlayerPresence Hook", () => {
       wrapper,
     });
 
-    // Force substitutePlayerTx to throw an error
     vi.mocked(substitutePlayerTx).mockRejectedValueOnce(
       new Error("Transaction Aborted"),
     );
@@ -293,7 +305,6 @@ describe("usePlayerPresence Hook", () => {
       }),
     ).rejects.toThrow("Transaction Aborted");
 
-    // Reconcilation trigger (refreshPresenceFromDB) must be invoked
     expect(db.matchlineups.where).toHaveBeenCalled();
   });
 });

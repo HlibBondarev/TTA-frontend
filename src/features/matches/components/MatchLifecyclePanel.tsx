@@ -42,13 +42,15 @@ export const MatchLifecyclePanel: React.FC = () => {
       return;
     }
 
+    const effectivePeriod = targetPeriod ?? periodNumber;
     let anchorId: string | null | undefined = null;
+
     try {
       // Step 1: Log time anchor first to ensure atomic coordination
       anchorId = await startPeriod(targetPeriod);
 
-      // Step 2: Initialize roster presence transaction
-      await startPeriodWithRoster(new Date().toISOString());
+      // Step 2: Initialize roster presence transaction for the TARGET period explicitly
+      await startPeriodWithRoster(new Date().toISOString(), effectivePeriod);
     } catch (err) {
       console.error(err);
       try {
@@ -61,7 +63,7 @@ export const MatchLifecyclePanel: React.FC = () => {
             await syncPeriodStateWithDB(activeMatchId, targetPeriod - 1);
           }
         }
-        await refreshPresenceFromDB();
+        await refreshPresenceFromDB(effectivePeriod);
         setPanelError("Failed to start period. Transaction fully reverted.");
       } catch (compensationErr) {
         console.error("Compensation failed:", compensationErr);
@@ -77,15 +79,15 @@ export const MatchLifecyclePanel: React.FC = () => {
       // Step 1: Log time anchor first
       anchorId = await endPeriod();
 
-      // Step 2: Terminate roster presence transaction
-      await endPeriodWithRoster(new Date().toISOString());
+      // Step 2: Terminate roster presence transaction for current period
+      await endPeriodWithRoster(new Date().toISOString(), periodNumber);
     } catch (err) {
       console.error(err);
       try {
         if (anchorId) {
           await revertEndPeriod(anchorId);
         }
-        await refreshPresenceFromDB();
+        await refreshPresenceFromDB(periodNumber);
         setPanelError("Failed to end period. Transaction fully reverted.");
       } catch (compensationErr) {
         console.error("Compensation failed:", compensationErr);
@@ -98,7 +100,7 @@ export const MatchLifecyclePanel: React.FC = () => {
     setPanelError(null);
     try {
       await revertEndPeriod();
-      await refreshPresenceFromDB();
+      await refreshPresenceFromDB(periodNumber);
     } catch (err) {
       console.error("Failed to undo end period:", err);
       setPanelError("Failed to undo end period.");

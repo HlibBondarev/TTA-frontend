@@ -250,7 +250,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     });
   });
 
-  test("should trigger successful period start flow", async () => {
+  test("should trigger successful period start flow with target period 1", async () => {
     const store = createTestStore();
     render(
       <Provider store={store}>
@@ -263,13 +263,14 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
 
     await waitFor(() => {
       expect(store.getState().match.isPeriodActive).toBe(true);
-      expect(defaultPresenceMock.startPeriodWithRoster).toHaveBeenCalledTimes(
+      expect(defaultPresenceMock.startPeriodWithRoster).toHaveBeenCalledWith(
+        expect.any(String),
         1,
       );
     });
   });
 
-  test("should end period 1 without changing periodNumber or executing auto-sync", async () => {
+  test("should end period 1 passing period number explicitly", async () => {
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
@@ -293,7 +294,10 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     fireEvent.click(endBtn);
 
     await waitFor(() => {
-      expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledTimes(1);
+      expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledWith(
+        expect.any(String),
+        1,
+      );
       expect(store.getState().match.periodNumber).toBe(1);
       expect(store.getState().match.isPeriodEnded).toBe(true);
     });
@@ -323,14 +327,17 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     fireEvent.click(endBtn);
 
     await waitFor(() => {
-      expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledTimes(1);
+      expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledWith(
+        expect.any(String),
+        4,
+      );
       expect(store.getState().match.periodNumber).toBe(4);
       expect(store.getState().match.isPeriodEnded).toBe(true);
       expect(screen.getByText("MATCH ENDED")).toBeInTheDocument();
     });
   });
 
-  test("should start period 2 when clicking START PERIOD 2 during period 1 break", async () => {
+  test("should start period 2 passing target period 2 explicitly to startPeriodWithRoster", async () => {
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
@@ -356,8 +363,9 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     await waitFor(() => {
       expect(store.getState().match.periodNumber).toBe(2);
       expect(store.getState().match.isPeriodActive).toBe(true);
-      expect(defaultPresenceMock.startPeriodWithRoster).toHaveBeenCalledTimes(
-        1,
+      expect(defaultPresenceMock.startPeriodWithRoster).toHaveBeenCalledWith(
+        expect.any(String),
+        2,
       );
     });
   });
@@ -388,7 +396,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     await waitFor(() => {
       expect(store.getState().match.periodNumber).toBe(1);
       expect(store.getState().match.isPeriodActive).toBe(true);
-      expect(defaultPresenceMock.refreshPresenceFromDB).toHaveBeenCalled();
+      expect(defaultPresenceMock.refreshPresenceFromDB).toHaveBeenCalledWith(1);
     });
   });
 

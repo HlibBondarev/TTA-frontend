@@ -74,7 +74,7 @@ describe("PlayerPresencePanel Component", () => {
     expect(await screen.findByText("Period 1 Roster")).toBeInTheDocument();
   });
 
-  it("should support runtime player substitutions", async () => {
+  it("should support runtime player substitutions with period number passed", async () => {
     const TestWrapper = () => {
       const [selectedId, setSelectedId] = useState<string | null>(null);
       return (
@@ -100,6 +100,7 @@ describe("PlayerPresencePanel Component", () => {
       expect(mockExecuteSubstitution).toHaveBeenCalledWith(
         "lineup-1",
         "lineup-2",
+        1,
       );
     });
   });
