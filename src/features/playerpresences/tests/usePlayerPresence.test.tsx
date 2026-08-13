@@ -126,12 +126,12 @@ describe("usePlayerPresence Hook", () => {
       },
       {
         id: "pres-duplicate",
-        matchLineupId: "lineup-1", // Duplicate active presence for same lineup
+        matchLineupId: "lineup-1",
         periodNumber: 1,
         timeIn: "2026-07-16T10:01:00.000Z",
         timeOut: null,
       },
-    ]);
+    ] as never);
 
     const { result } = renderHook(() => usePlayerPresence("test-match"), {
       wrapper,
@@ -141,9 +141,58 @@ describe("usePlayerPresence Hook", () => {
       await result.current.refreshPresenceFromDB();
     });
 
-    // Validated based on the deduplicated lineup IDs
     expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
     expect(result.current.benchLineupIds).toEqual(["lineup-2"]);
+  });
+
+  it("should ignore stale refresh requests if a newer request was issued", async () => {
+    let resolveFirstQuery!: (value: unknown) => void;
+
+    vi.mocked(db.playerpresences.toArray)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirstQuery = resolve;
+          }) as unknown as ReturnType<typeof db.playerpresences.toArray>,
+      )
+      .mockResolvedValueOnce([
+        {
+          id: "pres-2",
+          matchLineupId: "lineup-2",
+          periodNumber: 1,
+          timeIn: "2026-07-16T10:00:00.000Z",
+          timeOut: null,
+        },
+      ] as never);
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    // Trigger first (slow) refresh
+    const firstRefreshPromise = act(async () => {
+      void result.current.refreshPresenceFromDB();
+    });
+
+    // Trigger second (fast) refresh
+    await act(async () => {
+      await result.current.refreshPresenceFromDB();
+    });
+
+    // Resolve first query late
+    resolveFirstQuery([
+      {
+        id: "pres-1",
+        matchLineupId: "lineup-1",
+        periodNumber: 1,
+        timeIn: "2026-07-16T09:00:00.000Z",
+        timeOut: null,
+      },
+    ]);
+    await firstRefreshPromise;
+
+    // Active lineup should reflect second request result ("lineup-2"), ignoring stale first request
+    expect(result.current.activeLineupIds).toEqual(["lineup-2"]);
   });
 
   it("should handle error gracefully when refreshPresenceFromDB fails", async () => {
@@ -188,7 +237,52 @@ describe("usePlayerPresence Hook", () => {
       completeLineup,
       "2026-07-16T10:00:00.000Z",
     );
-    expect(db.matchlineups.where).toHaveBeenCalled(); // Verifies refreshPresenceFromDB was run
+    expect(db.matchlineups.where).toHaveBeenCalled();
+  });
+
+  it("should respect overridePeriodNumber when passed to startPeriodWithRoster, endPeriodWithRoster, and executeSubstitution", async () => {
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    const completeLineup = ["p1", "p2", "p3", "p4", "p5", "p6", "p7"];
+
+    act(() => {
+      result.current.stageStartingLineup(completeLineup);
+    });
+
+    await act(async () => {
+      await result.current.startPeriodWithRoster("2026-07-16T10:00:00.000Z", 2);
+    });
+
+    expect(initializePeriodPresenceTx).toHaveBeenCalledWith(
+      "test-match",
+      2,
+      completeLineup,
+      "2026-07-16T10:00:00.000Z",
+    );
+
+    await act(async () => {
+      await result.current.executeSubstitution("outgoing-p", "incoming-p", 2);
+    });
+
+    expect(substitutePlayerTx).toHaveBeenCalledWith(
+      "test-match",
+      2,
+      "outgoing-p",
+      "incoming-p",
+    );
+
+    await act(async () => {
+      await result.current.endPeriodWithRoster("2026-07-16T11:00:00.000Z", 2);
+    });
+
+    expect(terminatePeriodPresenceTx).toHaveBeenCalledWith(
+      "test-match",
+      2,
+      expect.any(Array),
+      "2026-07-16T11:00:00.000Z",
+    );
   });
 
   it("should refresh presence from DB and rethrow when startPeriodWithRoster fails", async () => {

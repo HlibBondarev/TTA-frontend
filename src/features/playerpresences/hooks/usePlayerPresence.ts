@@ -21,6 +21,8 @@ export function usePlayerPresence(matchId: string) {
 
   // Safeguard: guarantees up-to-date periodNumber inside async callbacks
   const currentPeriodRef = useRef(currentPeriod);
+  const refreshRequestRef = useRef(0);
+
   useEffect(() => {
     currentPeriodRef.current = currentPeriod;
   }, [currentPeriod]);
@@ -34,6 +36,7 @@ export function usePlayerPresence(matchId: string) {
 
   const refreshPresenceFromDB = useCallback(
     async (overridePeriodNumber?: number) => {
+      const requestId = ++refreshRequestRef.current;
       const periodToFetch = overridePeriodNumber ?? currentPeriodRef.current;
       dispatch(setLoading(true));
       try {
@@ -67,13 +70,20 @@ export function usePlayerPresence(matchId: string) {
           (id) => !activeLineups.includes(id),
         );
 
-        dispatch(
-          loadRosterState({ active: activeLineups, bench: benchLineups }),
-        );
+        if (
+          requestId === refreshRequestRef.current &&
+          periodToFetch === currentPeriodRef.current
+        ) {
+          dispatch(
+            loadRosterState({ active: activeLineups, bench: benchLineups }),
+          );
+        }
       } catch (error) {
         console.error("Failed to load local presence state:", error);
       } finally {
-        dispatch(setLoading(false));
+        if (requestId === refreshRequestRef.current) {
+          dispatch(setLoading(false));
+        }
       }
     },
     [matchId, dispatch],
