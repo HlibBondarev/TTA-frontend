@@ -126,13 +126,28 @@ vi.mock("../../../db/ttaDatabase", () => ({
   },
 }));
 
-const createTestStore = (preloadedState = {}) => {
+const createTestStore = (
+  preloadedState: { match?: Partial<MatchState>; [key: string]: unknown } = {},
+) => {
   mockTimeAnchors = [];
-  if ("match" in preloadedState) {
-    seedAnchorsFromState(
-      (preloadedState as { match: Partial<MatchState> }).match,
-    );
+  if ("match" in preloadedState && preloadedState.match) {
+    seedAnchorsFromState(preloadedState.match);
   }
+
+  const defaultMatchState = {
+    activeMatchId: "test-match",
+    activeTeamId: "test-team",
+    periodNumber: 1,
+    homeScore: 0,
+    guestScore: 0,
+    isPeriodActive: false,
+    isInsideStoppage: false,
+    isPeriodEnded: false,
+    globalSequenceNumber: 0,
+    recentActions: [],
+  };
+
+  const { match: customMatchState, ...otherPreloadedState } = preloadedState;
 
   return configureStore({
     reducer: {
@@ -140,19 +155,11 @@ const createTestStore = (preloadedState = {}) => {
       presence: presenceReducer,
     },
     preloadedState: {
+      ...otherPreloadedState,
       match: {
-        activeMatchId: "test-match",
-        activeTeamId: "test-team",
-        periodNumber: 1,
-        homeScore: 0,
-        guestScore: 0,
-        isPeriodActive: false,
-        isInsideStoppage: false,
-        isPeriodEnded: false,
-        globalSequenceNumber: 0,
-        recentActions: [],
+        ...defaultMatchState,
+        ...customMatchState,
       },
-      ...preloadedState,
     },
   });
 };
