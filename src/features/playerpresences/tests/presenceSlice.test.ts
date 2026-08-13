@@ -30,14 +30,19 @@ describe("presenceSlice reducers", () => {
     expect(state.currentPeriod).toBe(2);
   });
 
-  it("should handle loadRosterState and deduplicate ids", () => {
+  it("should handle loadRosterState, deduplicate ids, and reset selectedStartingIds", () => {
+    const startingState = {
+      ...initialState,
+      selectedStartingIds: ["p1", "p2"],
+    };
     const action = loadRosterState({
       active: ["player1", "player2", "player1"], // duplicate in active
       bench: ["player3", "player1"], // active player included in bench by mistake
     });
-    const state = presenceReducer(initialState, action);
+    const state = presenceReducer(startingState, action);
     expect(state.activeLineupIds).toEqual(["player1", "player2"]);
     expect(state.benchLineupIds).toEqual(["player3"]); // player1 filtered out from bench
+    expect(state.selectedStartingIds).toEqual([]); // Prepared players list cleared
     expect(state.isLoading).toBe(false);
   });
 

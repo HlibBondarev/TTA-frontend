@@ -38,6 +38,7 @@ export const presenceSlice = createSlice({
       state.benchLineupIds = Array.from(
         new Set(action.payload.bench.filter((id) => !activeSet.has(id))),
       );
+      state.selectedStartingIds = []; // Reset prepared starting lineup on DB state sync
       state.isLoading = false;
     },
     // Prepare starting lineup in UI only
