@@ -1467,6 +1467,130 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(updatedPresences).not.toContain("presence-match-2");
   });
 
+  test("should only reopen player presences matching the max timeOut during revertEndPeriod", async () => {
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockResolvedValue([
+                { id: "lineup-earlier-sub" },
+                { id: "lineup-period-end" },
+              ]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    mockPlayerPresences = [
+      {
+        id: "presence-earlier-sub",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:05:00Z",
+        matchLineupId: "lineup-earlier-sub",
+      },
+      {
+        id: "presence-period-end",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00Z",
+        matchLineupId: "lineup-period-end",
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod("seed-end-anchor");
+    });
+
+    const reopenedPresence = mockPlayerPresences.find(
+      (p) => p.id === "presence-period-end",
+    );
+    expect(reopenedPresence?.timeOut).toBeNull();
+
+    const earlierSubPresence = mockPlayerPresences.find(
+      (p) => p.id === "presence-earlier-sub",
+    );
+    expect(earlierSubPresence?.timeOut).toBe("2020-01-01T10:05:00Z");
+  });
+
+  test("should purge orphaned /presence/terminate queue items for the current period during revertEndPeriod", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodEnded: true,
+    });
+
+    const terminateQueueItem = {
+      id: 303,
+      actionType: "PUT",
+      endpoint: "/Matches/test-match-id/presence/terminate",
+      payload: JSON.stringify({
+        periodNumber: 1,
+        playerLineupIds: ["lineup-1"],
+        timeOut: "2020-01-01T10:10:00Z",
+      }),
+      createdAt: "2020-01-01T10:10:00Z",
+    };
+
+    const otherPeriodTerminateQueueItem = {
+      id: 304,
+      actionType: "PUT",
+      endpoint: "/Matches/test-match-id/presence/terminate",
+      payload: JSON.stringify({
+        periodNumber: 2,
+        playerLineupIds: ["lineup-1"],
+        timeOut: "2020-01-01T10:20:00Z",
+      }),
+      createdAt: "2020-01-01T10:20:00Z",
+    };
+
+    mockSyncQueue.push(terminateQueueItem, otherPeriodTerminateQueueItem);
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod("seed-end-anchor");
+    });
+
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(303);
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(304);
+    expect(mockSyncQueue.some((i) => i.id === 303)).toBe(false);
+    expect(mockSyncQueue.some((i) => i.id === 304)).toBe(true);
+  });
+
   test("should reject invalid targetPeriodNumber without advancing state", async () => {
     const store = createTestStore({ periodNumber: 1, isPeriodEnded: false });
     const { result } = renderHook(() => useMatchLifecycle(), {

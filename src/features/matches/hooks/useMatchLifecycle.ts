@@ -319,6 +319,28 @@ export const useMatchLifecycle = () => {
           }
         }
 
+        // Purge orphaned /presence/terminate queue items from syncQueue
+        if (normalizedMatchId && db?.syncQueue) {
+          const terminateEndpoint = `/Matches/${normalizedMatchId}/presence/terminate`;
+          const pendingTerminateItems = await db.syncQueue
+            .filter((item) => {
+              if (item.endpoint !== terminateEndpoint) return false;
+              try {
+                const data = JSON.parse(item.payload);
+                return data.periodNumber === currentPeriod;
+              } catch {
+                return false;
+              }
+            })
+            .toArray();
+
+          for (const item of pendingTerminateItems) {
+            if (item.id !== undefined) {
+              await db.syncQueue.delete(item.id);
+            }
+          }
+        }
+
         if (normalizedMatchId && db?.playerpresences && db?.matchlineups) {
           const lineups = await db.matchlineups
             .where("matchId")
@@ -332,11 +354,29 @@ export const useMatchLifecycle = () => {
             .filter((p) => p.timeOut !== null && lineupIds.has(p.matchLineupId))
             .toArray();
 
-          for (const p of presences) {
-            await db.playerpresences.update(p.id, {
-              timeOut: null,
-              isSynced: 0,
-            });
+          if (presences.length > 0) {
+            // Find maximum timeOut timestamp among closed presences for this period.
+            // When a period ends, all currently active players are closed with the same batch timestamp (max timeOut).
+            const maxTimeOut = presences.reduce(
+              (max, p) => {
+                if (!p.timeOut) return max;
+                return !max || p.timeOut > max ? p.timeOut : max;
+              },
+              null as string | null,
+            );
+
+            if (maxTimeOut) {
+              const presencesToReopen = presences.filter(
+                (p) => p.timeOut === maxTimeOut,
+              );
+
+              for (const p of presencesToReopen) {
+                await db.playerpresences.update(p.id, {
+                  timeOut: null,
+                  isSynced: 0,
+                });
+              }
+            }
           }
         }
       },
