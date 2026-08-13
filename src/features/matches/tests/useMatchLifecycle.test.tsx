@@ -13,6 +13,18 @@ import { db, type TimeAnchor } from "../../../db/ttaDatabase";
 import { vi, describe, beforeEach, test, expect } from "vitest";
 
 let mockTimeAnchors: TimeAnchor[] = [];
+let mockSyncQueue: Array<{
+  id?: number;
+  payload: string;
+  [key: string]: unknown;
+}> = [];
+let mockPlayerPresences: Array<{
+  id: string;
+  periodNumber: number;
+  timeOut: string | null;
+  matchLineupId: string;
+  [key: string]: unknown;
+}> = [];
 
 const seedAnchorsFromState = (matchState: Partial<MatchState> = {}) => {
   const matchId = matchState.activeMatchId || "test-match-id";
@@ -104,22 +116,41 @@ vi.mock("../../../db/ttaDatabase", () => ({
           }),
         }),
       }),
-      update: vi.fn().mockResolvedValue(1),
+      update: vi.fn((id: string, updateData: Record<string, unknown>) => {
+        const index = mockPlayerPresences.findIndex((p) => p.id === id);
+        if (index !== -1) {
+          mockPlayerPresences[index] = {
+            ...mockPlayerPresences[index],
+            ...updateData,
+          };
+        }
+        return Promise.resolve(1);
+      }),
       orderBy: vi.fn().mockReturnValue({
         last: vi.fn().mockResolvedValue(undefined),
       }),
     },
     syncQueue: {
-      add: vi.fn(),
-      delete: vi.fn(),
+      add: vi.fn((item) => {
+        mockSyncQueue.push(item);
+        return Promise.resolve(item?.id ?? 1);
+      }),
+      delete: vi.fn((id: number) => {
+        mockSyncQueue = mockSyncQueue.filter((i) => i.id !== id);
+        return Promise.resolve();
+      }),
       filter: vi.fn().mockReturnValue({
         toArray: vi.fn().mockImplementation(() =>
-          Promise.resolve([
-            {
-              id: 101,
-              payload: JSON.stringify([{ id: "seed-end-anchor" }]),
-            },
-          ]),
+          Promise.resolve(
+            mockSyncQueue.length > 0
+              ? mockSyncQueue
+              : [
+                  {
+                    id: 101,
+                    payload: JSON.stringify([{ id: "seed-end-anchor" }]),
+                  },
+                ],
+          ),
         ),
       }),
     },
@@ -160,6 +191,8 @@ describe("useMatchLifecycle Hook & State Machine", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockTimeAnchors = [];
+    mockSyncQueue = [];
+    mockPlayerPresences = [];
 
     vi.mocked(db.timeanchors.where).mockImplementation(
       () =>
@@ -199,18 +232,36 @@ describe("useMatchLifecycle Hook & State Machine", () => {
         }) as unknown as ReturnType<typeof db.playerpresences.where>,
     );
 
-    vi.mocked(db.playerpresences.update).mockResolvedValue(1);
+    vi.mocked(db.playerpresences.update).mockImplementation(((
+      key: unknown,
+      updateData: Record<string, unknown>,
+    ) => {
+      if (typeof key === "string") {
+        const index = mockPlayerPresences.findIndex((p) => p.id === key);
+        if (index !== -1) {
+          mockPlayerPresences[index] = {
+            ...mockPlayerPresences[index],
+            ...updateData,
+          };
+        }
+      }
+      return Promise.resolve(1);
+    }) as unknown as typeof db.playerpresences.update);
 
     vi.mocked(db.syncQueue.filter).mockImplementation(
       () =>
         ({
           toArray: vi.fn().mockImplementation(() =>
-            Promise.resolve([
-              {
-                id: 101,
-                payload: JSON.stringify([{ id: "seed-end-anchor" }]),
-              },
-            ]),
+            Promise.resolve(
+              mockSyncQueue.length > 0
+                ? mockSyncQueue
+                : [
+                    {
+                      id: 101,
+                      payload: JSON.stringify([{ id: "seed-end-anchor" }]),
+                    },
+                  ],
+            ),
           ),
         }) as unknown as ReturnType<typeof db.syncQueue.filter>,
     );
@@ -218,18 +269,29 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     vi.mocked(db.transaction).mockImplementation(((...args: unknown[]) => {
       const cb = args[args.length - 1];
       if (typeof cb === "function") {
-        const snapshot = [...mockTimeAnchors];
+        const timeAnchorsSnapshot = [...mockTimeAnchors];
+        const syncQueueSnapshot = [...mockSyncQueue];
+        const playerPresencesSnapshot = mockPlayerPresences.map((p) => ({
+          ...p,
+        }));
+
+        const restoreSnapshots = () => {
+          mockTimeAnchors = timeAnchorsSnapshot;
+          mockSyncQueue = syncQueueSnapshot;
+          mockPlayerPresences = playerPresencesSnapshot;
+        };
+
         try {
           const res = cb();
           if (res && typeof (res as Promise<unknown>).then === "function") {
             return (res as Promise<unknown>).catch((err: unknown) => {
-              mockTimeAnchors = snapshot;
+              restoreSnapshots();
               throw err;
             });
           }
           return res;
         } catch (err) {
-          mockTimeAnchors = snapshot;
+          restoreSnapshots();
           throw err;
         }
       }
