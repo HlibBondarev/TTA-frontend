@@ -69,6 +69,113 @@ export const calculatePeriodState = (
   };
 };
 
+/**
+ * Resolves and deletes the period end time anchor along with its matching sync queue entry.
+ */
+const deleteEndAnchorAndSyncQueue = async (
+  matchId: string,
+  periodNumber: number,
+  anchorId?: string | null,
+): Promise<void> => {
+  let targetAnchorId = anchorId;
+  if (!targetAnchorId && matchId && db?.timeanchors) {
+    const endAnchors = await db.timeanchors
+      .where("matchId")
+      .equals(matchId)
+      .filter((a) => a.periodNumber === periodNumber && a.type === 1)
+      .toArray();
+
+    if (endAnchors.length > 0) {
+      targetAnchorId = endAnchors[0].id;
+    }
+  }
+
+  if (!targetAnchorId) return;
+
+  await db.timeanchors.delete(targetAnchorId);
+  const matchingQueueItems = await db.syncQueue
+    .filter((item) => item.payload.includes(targetAnchorId))
+    .toArray();
+
+  for (const item of matchingQueueItems) {
+    if (item.id !== undefined) {
+      await db.syncQueue.delete(item.id);
+    }
+  }
+};
+
+/**
+ * Removes pending /presence/terminate sync requests from queue for a given period.
+ */
+const purgeTerminateSyncQueueItems = async (
+  matchId: string,
+  periodNumber: number,
+): Promise<void> => {
+  if (!matchId || !db?.syncQueue) return;
+
+  const terminateEndpoint = `/Matches/${matchId}/presence/terminate`;
+  const pendingTerminateItems = await db.syncQueue
+    .filter((item) => {
+      if (item.endpoint !== terminateEndpoint) return false;
+      try {
+        const data = JSON.parse(item.payload);
+        return data.periodNumber === periodNumber;
+      } catch {
+        return false;
+      }
+    })
+    .toArray();
+
+  for (const item of pendingTerminateItems) {
+    if (item.id !== undefined) {
+      await db.syncQueue.delete(item.id);
+    }
+  }
+};
+
+/**
+ * Reopens player presences closed at period termination by clearing their timeOut timestamp.
+ */
+const reopenClosedPlayerPresences = async (
+  matchId: string,
+  periodNumber: number,
+): Promise<void> => {
+  if (!matchId || !db?.playerpresences || !db?.matchlineups) return;
+
+  const lineups = await db.matchlineups
+    .where("matchId")
+    .equals(matchId)
+    .toArray();
+  const lineupIds = new Set(lineups.map((l) => l.id));
+
+  const presences = await db.playerpresences
+    .where("periodNumber")
+    .equals(periodNumber)
+    .filter((p) => p.timeOut !== null && lineupIds.has(p.matchLineupId))
+    .toArray();
+
+  if (presences.length === 0) return;
+
+  const maxTimeOut = presences.reduce(
+    (max, p) => {
+      if (!p.timeOut) return max;
+      return !max || p.timeOut > max ? p.timeOut : max;
+    },
+    null as string | null,
+  );
+
+  if (!maxTimeOut) return;
+
+  const presencesToReopen = presences.filter((p) => p.timeOut === maxTimeOut);
+
+  for (const p of presencesToReopen) {
+    await db.playerpresences.update(p.id, {
+      timeOut: null,
+      isSynced: 0,
+    });
+  }
+};
+
 export const useMatchLifecycle = () => {
   const dispatch = useAppDispatch();
   const matchState = useAppSelector((state) => state.match);
@@ -293,92 +400,14 @@ export const useMatchLifecycle = () => {
       "rw",
       [db.timeanchors, db.syncQueue, db.playerpresences, db.matchlineups],
       async () => {
-        let targetAnchorId = anchorId;
-        if (!targetAnchorId && normalizedMatchId && db?.timeanchors) {
-          const endAnchors = await db.timeanchors
-            .where("matchId")
-            .equals(normalizedMatchId)
-            .filter((a) => a.periodNumber === currentPeriod && a.type === 1)
-            .toArray();
-
-          if (endAnchors.length > 0) {
-            targetAnchorId = endAnchors[0].id;
-          }
-        }
-
-        if (targetAnchorId) {
-          await db.timeanchors.delete(targetAnchorId);
-          const matchingQueueItems = await db.syncQueue
-            .filter((item) => item.payload.includes(targetAnchorId))
-            .toArray();
-
-          for (const item of matchingQueueItems) {
-            if (item.id !== undefined) {
-              await db.syncQueue.delete(item.id);
-            }
-          }
-        }
-
-        // Purge orphaned /presence/terminate queue items from syncQueue
-        if (normalizedMatchId && db?.syncQueue) {
-          const terminateEndpoint = `/Matches/${normalizedMatchId}/presence/terminate`;
-          const pendingTerminateItems = await db.syncQueue
-            .filter((item) => {
-              if (item.endpoint !== terminateEndpoint) return false;
-              try {
-                const data = JSON.parse(item.payload);
-                return data.periodNumber === currentPeriod;
-              } catch {
-                return false;
-              }
-            })
-            .toArray();
-
-          for (const item of pendingTerminateItems) {
-            if (item.id !== undefined) {
-              await db.syncQueue.delete(item.id);
-            }
-          }
-        }
-
-        if (normalizedMatchId && db?.playerpresences && db?.matchlineups) {
-          const lineups = await db.matchlineups
-            .where("matchId")
-            .equals(normalizedMatchId)
-            .toArray();
-          const lineupIds = new Set(lineups.map((l) => l.id));
-
-          const presences = await db.playerpresences
-            .where("periodNumber")
-            .equals(currentPeriod)
-            .filter((p) => p.timeOut !== null && lineupIds.has(p.matchLineupId))
-            .toArray();
-
-          if (presences.length > 0) {
-            // Find maximum timeOut timestamp among closed presences for this period.
-            // When a period ends, all currently active players are closed with the same batch timestamp (max timeOut).
-            const maxTimeOut = presences.reduce(
-              (max, p) => {
-                if (!p.timeOut) return max;
-                return !max || p.timeOut > max ? p.timeOut : max;
-              },
-              null as string | null,
-            );
-
-            if (maxTimeOut) {
-              const presencesToReopen = presences.filter(
-                (p) => p.timeOut === maxTimeOut,
-              );
-
-              for (const p of presencesToReopen) {
-                await db.playerpresences.update(p.id, {
-                  timeOut: null,
-                  isSynced: 0,
-                });
-              }
-            }
-          }
-        }
+        if (!normalizedMatchId) return;
+        await deleteEndAnchorAndSyncQueue(
+          normalizedMatchId,
+          currentPeriod,
+          anchorId,
+        );
+        await purgeTerminateSyncQueueItems(normalizedMatchId, currentPeriod);
+        await reopenClosedPlayerPresences(normalizedMatchId, currentPeriod);
       },
     );
 
