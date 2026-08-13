@@ -64,6 +64,13 @@ const seedAnchorsFromState = (matchState: Partial<MatchState> = {}) => {
       sequenceNumber: 3,
       isSynced: 0,
     });
+    mockSyncQueue.push({
+      id: 101,
+      actionType: "POST",
+      endpoint: `/Matches/${matchId}/anchors`,
+      payload: JSON.stringify([{ id: "seed-end-anchor" }]),
+      createdAt: "2020-01-01T10:10:00Z",
+    });
   }
 };
 
@@ -131,10 +138,18 @@ vi.mock("../../../db/ttaDatabase", () => ({
       }),
     },
     syncQueue: {
-      add: vi.fn((item) => {
-        mockSyncQueue.push(item);
-        return Promise.resolve(item?.id ?? 1);
-      }),
+      add: vi.fn(
+        (item: { id?: number; payload?: string; [key: string]: unknown }) => {
+          const id = item.id ?? mockSyncQueue.length + 1;
+          const newItem = {
+            payload: "",
+            ...item,
+            id,
+          };
+          mockSyncQueue.push(newItem);
+          return Promise.resolve(id);
+        },
+      ),
       delete: vi.fn((id: number) => {
         mockSyncQueue = mockSyncQueue.filter((i) => i.id !== id);
         return Promise.resolve();
@@ -142,17 +157,10 @@ vi.mock("../../../db/ttaDatabase", () => ({
       filter: vi.fn(
         (predicate?: (item: Record<string, unknown>) => boolean) => ({
           toArray: vi.fn().mockImplementation(() => {
-            const items =
-              mockSyncQueue.length > 0
-                ? mockSyncQueue
-                : [
-                    {
-                      id: 101,
-                      payload: JSON.stringify([{ id: "seed-end-anchor" }]),
-                    },
-                  ];
             return Promise.resolve(
-              predicate ? items.filter((item) => predicate(item)) : items,
+              predicate
+                ? mockSyncQueue.filter((item) => predicate(item))
+                : mockSyncQueue,
             );
           }),
         }),
@@ -167,6 +175,7 @@ vi.mock("../../../db/ttaDatabase", () => ({
 
 const createTestStore = (preloadedMatchState: Partial<MatchState> = {}) => {
   mockTimeAnchors = [];
+  mockSyncQueue = [];
   seedAnchorsFromState(preloadedMatchState);
 
   return configureStore({
@@ -256,17 +265,10 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       predicate?: (item: Record<string, unknown>) => boolean,
     ) => ({
       toArray: vi.fn().mockImplementation(() => {
-        const items =
-          mockSyncQueue.length > 0
-            ? mockSyncQueue
-            : [
-                {
-                  id: 101,
-                  payload: JSON.stringify([{ id: "seed-end-anchor" }]),
-                },
-              ];
         return Promise.resolve(
-          predicate ? items.filter((item) => predicate(item)) : items,
+          predicate
+            ? mockSyncQueue.filter((item) => predicate(item))
+            : mockSyncQueue,
         );
       }),
     })) as unknown as typeof db.syncQueue.filter);
