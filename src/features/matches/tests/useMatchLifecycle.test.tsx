@@ -139,20 +139,24 @@ vi.mock("../../../db/ttaDatabase", () => ({
         mockSyncQueue = mockSyncQueue.filter((i) => i.id !== id);
         return Promise.resolve();
       }),
-      filter: vi.fn().mockReturnValue({
-        toArray: vi.fn().mockImplementation(() =>
-          Promise.resolve(
-            mockSyncQueue.length > 0
-              ? mockSyncQueue
-              : [
-                  {
-                    id: 101,
-                    payload: JSON.stringify([{ id: "seed-end-anchor" }]),
-                  },
-                ],
-          ),
-        ),
-      }),
+      filter: vi.fn(
+        (predicate?: (item: Record<string, unknown>) => boolean) => ({
+          toArray: vi.fn().mockImplementation(() => {
+            const items =
+              mockSyncQueue.length > 0
+                ? mockSyncQueue
+                : [
+                    {
+                      id: 101,
+                      payload: JSON.stringify([{ id: "seed-end-anchor" }]),
+                    },
+                  ];
+            return Promise.resolve(
+              predicate ? items.filter((item) => predicate(item)) : items,
+            );
+          }),
+        }),
+      ),
     },
     transaction: vi.fn((...args: unknown[]) => {
       const cb = args[args.length - 1];
@@ -248,23 +252,24 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       return Promise.resolve(1);
     }) as unknown as typeof db.playerpresences.update);
 
-    vi.mocked(db.syncQueue.filter).mockImplementation(
-      () =>
-        ({
-          toArray: vi.fn().mockImplementation(() =>
-            Promise.resolve(
-              mockSyncQueue.length > 0
-                ? mockSyncQueue
-                : [
-                    {
-                      id: 101,
-                      payload: JSON.stringify([{ id: "seed-end-anchor" }]),
-                    },
-                  ],
-            ),
-          ),
-        }) as unknown as ReturnType<typeof db.syncQueue.filter>,
-    );
+    vi.mocked(db.syncQueue.filter).mockImplementation(((
+      predicate?: (item: Record<string, unknown>) => boolean,
+    ) => ({
+      toArray: vi.fn().mockImplementation(() => {
+        const items =
+          mockSyncQueue.length > 0
+            ? mockSyncQueue
+            : [
+                {
+                  id: 101,
+                  payload: JSON.stringify([{ id: "seed-end-anchor" }]),
+                },
+              ];
+        return Promise.resolve(
+          predicate ? items.filter((item) => predicate(item)) : items,
+        );
+      }),
+    })) as unknown as typeof db.syncQueue.filter);
 
     vi.mocked(db.transaction).mockImplementation(((...args: unknown[]) => {
       const cb = args[args.length - 1];
@@ -1322,15 +1327,37 @@ describe("useMatchLifecycle Hook & State Machine", () => {
   });
 
   test("should roll back transaction and preserve ended state when playerpresences update fails inside revertEndPeriod", async () => {
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([{ id: "lineup-1" }]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
     vi.mocked(db.playerpresences.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
-        filter: vi.fn().mockReturnValue({
-          toArray: vi
-            .fn()
-            .mockResolvedValue([
-              { id: "presence-1", timeOut: "2020-01-01T10:00:00Z" },
-            ]),
-        }),
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi.fn().mockResolvedValue(
+                [
+                  {
+                    id: "presence-1",
+                    matchLineupId: "lineup-1",
+                    timeOut: "2020-01-01T10:00:00Z",
+                  },
+                ].filter(predicate),
+              ),
+            }),
+          ),
       }),
     } as unknown as ReturnType<typeof db.playerpresences.where>);
 
