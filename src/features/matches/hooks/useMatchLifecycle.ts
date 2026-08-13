@@ -86,6 +86,11 @@ const deleteEndAnchorAndSyncQueue = async (
       .toArray();
 
     if (endAnchors.length > 0) {
+      endAnchors.sort(
+        (a, b) =>
+          b.sequenceNumber - a.sequenceNumber ||
+          b.timestamp.localeCompare(a.timestamp),
+      );
       targetAnchorId = endAnchors[0].id;
     }
   }

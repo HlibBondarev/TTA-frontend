@@ -724,6 +724,45 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(store.getState().match.isPeriodActive).toBe(true);
   });
 
+  test("should select and delete the latest end anchor by sequenceNumber when multiple exist during revertEndPeriod", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodEnded: true,
+    });
+
+    mockTimeAnchors = [
+      {
+        id: "older-end-anchor",
+        matchId: "test-match-id",
+        periodNumber: 1,
+        type: 1,
+        timestamp: "2020-01-01T10:05:00Z",
+        sequenceNumber: 2,
+        isSynced: 0,
+      },
+      {
+        id: "newer-end-anchor",
+        matchId: "test-match-id",
+        periodNumber: 1,
+        type: 1,
+        timestamp: "2020-01-01T10:10:00Z",
+        sequenceNumber: 5,
+        isSynced: 0,
+      },
+    ];
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod();
+    });
+
+    expect(db.timeanchors.delete).toHaveBeenCalledWith("newer-end-anchor");
+    expect(db.timeanchors.delete).not.toHaveBeenCalledWith("older-end-anchor");
+  });
+
   test("should handle revertStartPeriod and revertEndPeriod safely when anchorId is null or undefined", async () => {
     const store = createTestStore({ isPeriodActive: true });
     mockTimeAnchors = [];
