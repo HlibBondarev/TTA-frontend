@@ -235,7 +235,10 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
       <MatchResultModal
         isOpen={isResultModalOpen}
         onClose={() => setIsResultModalOpen(false)}
-        onSuccess={onFinalizeSuccess}
+        onSuccess={() => {
+          setIsResultModalOpen(false);
+          onFinalizeSuccess?.();
+        }}
       />
     </div>
   );

@@ -20,12 +20,8 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
   const activeMatchId = useSelector(
     (state: RootState) => state.match.activeMatchId,
   );
-  const {
-    periodNumber,
-    isPeriodActive,
-    isInsideStoppage,
-    setIsResultModalOpen,
-  } = useMatchLifecycle();
+  const { periodNumber, isPeriodActive, isInsideStoppage } =
+    useMatchLifecycle();
 
   const { recordGameEvent } = useGameEvents(activeMatchId || "");
 
@@ -51,7 +47,6 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
   const isRecordingEnabled = isPeriodActive && !isInsideStoppage;
 
   const handleFinalizeSuccess = () => {
-    setIsResultModalOpen(false);
     dispatch(resetMatchState());
     dispatch(resetPresenceState());
     if (onCompleteMatch) {
