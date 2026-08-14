@@ -18,6 +18,8 @@ vi.mock("../db/ttaDatabase", () => ({
   db: {
     transaction: vi.fn(),
     matches: { put: vi.fn() },
+    tournaments: { put: vi.fn() },
+    sportconfigurations: { put: vi.fn() },
     matchlineups: { where: vi.fn(), bulkPut: vi.fn() },
     timeanchors: { where: vi.fn(), bulkPut: vi.fn() },
     playerpresences: { filter: vi.fn(), bulkPut: vi.fn(), bulkDelete: vi.fn() },
@@ -107,10 +109,72 @@ describe("Hydration Service", () => {
     ]);
   });
 
+  it("fetches and stores tournament and configuration when match contains tournamentId", async () => {
+    const tournamentId = "tourn-789";
+    const configId = "config-999";
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ id: tournamentId, configurationId: configId })
+      .mockResolvedValueOnce({ id: configId, periodsCount: 4 });
+
+    vi.mocked(db.transaction).mockImplementation((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          delete: vi.fn().mockResolvedValue(0),
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          and: vi
+            .fn()
+            .mockReturnValue({ delete: vi.fn().mockResolvedValue(0) }),
+        }),
+      } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+      vi.mocked(db.playerpresences.filter).mockImplementation((() => ({
+        primaryKeys: vi.fn().mockResolvedValue([]),
+      })) as unknown as typeof db.playerpresences.filter);
+
+      vi.mocked(db.gameevents.filter).mockImplementation((() => ({
+        primaryKeys: vi.fn().mockResolvedValue([]),
+      })) as unknown as typeof db.gameevents.filter);
+
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    const result = await hydrateMatchData(matchId, teamId);
+
+    expect(result).toEqual({ success: true, isOfflineFallback: false });
+    expect(apiClient.get).toHaveBeenCalledWith(`/Tournaments/${tournamentId}`);
+    expect(apiClient.get).toHaveBeenCalledWith(
+      `/SportConfigurations/${configId}`,
+    );
+    expect(db.tournaments.put).toHaveBeenCalledWith({
+      id: tournamentId,
+      configurationId: configId,
+    });
+    expect(db.sportconfigurations.put).toHaveBeenCalledWith({
+      id: configId,
+      periodsCount: 4,
+    });
+  });
+
   it("deletes synced presence and event rows for removed lineup IDs when server returns empty lineups", async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId })
-      .mockResolvedValueOnce([]) // Server returns empty lineups
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])

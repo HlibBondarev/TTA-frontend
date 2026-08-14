@@ -1,7 +1,13 @@
 import { useEffect, useCallback, useRef, useState } from "react";
 import { liveQuery } from "dexie";
-import { db, type TimeAnchor } from "../../../db/ttaDatabase";
+import {
+  db,
+  type TimeAnchor,
+  type TournamentLookup,
+  type SportConfigurationLookup,
+} from "../../../db/ttaDatabase";
 import { getNextSequenceNumber } from "../../../db/eventService";
+import { apiClient } from "../../../api/client";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import {
   startPeriodState,
@@ -38,18 +44,46 @@ const fetchSportConfigPeriodsCount = async (
     throw new Error(`Match with ID '${matchId}' not found in local IndexedDB.`);
   }
 
-  const tournament = db.tournaments?.get
+  let tournament = db.tournaments?.get
     ? await db.tournaments.get(match.tournamentId)
     : null;
+
+  if (!tournament && match.tournamentId) {
+    try {
+      tournament = await apiClient.get<TournamentLookup>(
+        `/Tournaments/${match.tournamentId}`,
+      );
+      if (tournament && db.tournaments) {
+        await db.tournaments.put(tournament);
+      }
+    } catch {
+      // Fallthrough to strict null check below
+    }
+  }
+
   if (!tournament) {
     throw new Error(
       `Tournament with ID '${match.tournamentId}' not found for match '${matchId}'.`,
     );
   }
 
-  const config = db.sportconfigurations?.get
+  let config = db.sportconfigurations?.get
     ? await db.sportconfigurations.get(tournament.configurationId)
     : null;
+
+  if (!config && tournament.configurationId) {
+    try {
+      config = await apiClient.get<SportConfigurationLookup>(
+        `/SportConfigurations/${tournament.configurationId}`,
+      );
+      if (config && db.sportconfigurations) {
+        await db.sportconfigurations.put(config);
+      }
+    } catch {
+      // Fallthrough to strict null check below
+    }
+  }
+
   if (
     !config ||
     typeof config.periodsCount !== "number" ||

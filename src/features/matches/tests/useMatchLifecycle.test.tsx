@@ -11,7 +11,14 @@ import matchReducer, {
   setPeriodStatePayload,
 } from "../store/matchSlice";
 import { db, type TimeAnchor } from "../../../db/ttaDatabase";
+import { apiClient } from "../../../api/client";
 import { vi, describe, beforeEach, test, expect } from "vitest";
+
+vi.mock("../../../api/client", () => ({
+  apiClient: {
+    get: vi.fn(),
+  },
+}));
 
 let mockTimeAnchors: TimeAnchor[] = [];
 let mockSyncQueue: Array<{
@@ -83,12 +90,15 @@ vi.mock("../../../db/ttaDatabase", () => ({
   db: {
     matches: {
       get: vi.fn((id: string) => Promise.resolve(mockMatches[id])),
+      put: vi.fn(),
     },
     tournaments: {
       get: vi.fn((id: string) => Promise.resolve(mockTournaments[id])),
+      put: vi.fn(),
     },
     sportconfigurations: {
       get: vi.fn((id: string) => Promise.resolve(mockSportConfigs[id])),
+      put: vi.fn(),
     },
     timeanchors: {
       add: vi.fn((anchor: TimeAnchor) => {
@@ -445,8 +455,56 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       expect(result.current.isFinalPeriod(1)).toBe(false);
     });
 
+    test("fetches tournament and configuration from API fallback when missing in IndexedDB and saves to Dexie", async () => {
+      mockMatches = {
+        "test-match-id": {
+          id: "test-match-id",
+          tournamentId: "missing-tourn-id",
+        },
+      };
+      mockTournaments = {};
+      mockSportConfigs = {};
+
+      vi.mocked(apiClient.get)
+        .mockResolvedValueOnce({
+          id: "missing-tourn-id",
+          configurationId: "missing-config-id",
+        })
+        .mockResolvedValueOnce({
+          id: "missing-config-id",
+          periodsCount: 4,
+        });
+
+      const store = createTestStore();
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoadingConfig).toBe(false);
+      });
+
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/Tournaments/missing-tourn-id",
+      );
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/SportConfigurations/missing-config-id",
+      );
+      expect(db.tournaments.put).toHaveBeenCalledWith({
+        id: "missing-tourn-id",
+        configurationId: "missing-config-id",
+      });
+      expect(db.sportconfigurations.put).toHaveBeenCalledWith({
+        id: "missing-config-id",
+        periodsCount: 4,
+      });
+      expect(result.current.periodsCount).toBe(4);
+    });
+
     test("should set configError and keep periodsCount null when match or config is missing", async () => {
-      mockMatches = {}; // Clear matches
+      mockMatches = {};
 
       const store = createTestStore({ activeMatchId: "missing-match-id" });
       const { result } = renderHook(() => useMatchLifecycle(), {
@@ -493,7 +551,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     });
 
     test("should throw error and abort endPeriod without Redux state mutation when periodsCount is unresolved", async () => {
-      mockMatches = {}; // Ensure configuration resolution fails
+      mockMatches = {};
 
       const store = createTestStore({
         isPeriodActive: true,
