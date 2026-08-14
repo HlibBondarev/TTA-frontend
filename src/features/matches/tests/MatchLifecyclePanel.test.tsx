@@ -15,7 +15,6 @@ import presenceReducer from "../../playerpresences/store/presenceSlice";
 import { db, type TimeAnchor } from "../../../db/ttaDatabase";
 import * as usePlayerPresenceModule from "../../playerpresences/hooks/usePlayerPresence";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
-import { processSyncQueue } from "../../../services/syncService";
 
 let mockTimeAnchors: TimeAnchor[] = [];
 
@@ -99,6 +98,14 @@ vi.mock("../../../db/ttaDatabase", () => ({
       }),
     },
     playerpresences: {
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+            modify: vi.fn(),
+          }),
+        }),
+      }),
       orderBy: vi.fn().mockReturnValue({
         last: vi.fn().mockResolvedValue(undefined),
       }),
@@ -107,20 +114,40 @@ vi.mock("../../../db/ttaDatabase", () => ({
       add: vi.fn(),
       delete: vi.fn(),
       filter: vi.fn().mockReturnValue({
-        toArray: vi.fn().mockResolvedValue([]),
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: 1,
+            payload: JSON.stringify([{ id: "seed-end-anchor" }]),
+          },
+        ]),
       }),
     },
     transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
 }));
 
-const createTestStore = (preloadedState = {}) => {
+const createTestStore = (
+  preloadedState: { match?: Partial<MatchState>; [key: string]: unknown } = {},
+) => {
   mockTimeAnchors = [];
-  if ("match" in preloadedState) {
-    seedAnchorsFromState(
-      (preloadedState as { match: Partial<MatchState> }).match,
-    );
+  if ("match" in preloadedState && preloadedState.match) {
+    seedAnchorsFromState(preloadedState.match);
   }
+
+  const defaultMatchState = {
+    activeMatchId: "test-match",
+    activeTeamId: "test-team",
+    periodNumber: 1,
+    homeScore: 0,
+    guestScore: 0,
+    isPeriodActive: false,
+    isInsideStoppage: false,
+    isPeriodEnded: false,
+    globalSequenceNumber: 0,
+    recentActions: [],
+  };
+
+  const { match: customMatchState, ...otherPreloadedState } = preloadedState;
 
   return configureStore({
     reducer: {
@@ -128,19 +155,11 @@ const createTestStore = (preloadedState = {}) => {
       presence: presenceReducer,
     },
     preloadedState: {
+      ...otherPreloadedState,
       match: {
-        activeMatchId: "test-match",
-        activeTeamId: "test-team",
-        periodNumber: 1,
-        homeScore: 0,
-        guestScore: 0,
-        isPeriodActive: false,
-        isInsideStoppage: false,
-        isPeriodEnded: false,
-        globalSequenceNumber: 0,
-        recentActions: [],
+        ...defaultMatchState,
+        ...customMatchState,
       },
-      ...preloadedState,
     },
   });
 };
@@ -167,7 +186,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     );
   });
 
-  test("should render component structure properly", () => {
+  test("should render component structure properly without navigation arrows", () => {
     const store = createTestStore();
     render(
       <Provider store={store}>
@@ -177,6 +196,8 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
 
     expect(screen.getByText("Period")).toBeDefined();
     expect(screen.getByText("1")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "<" })).toBeNull();
+    expect(screen.queryByRole("button", { name: ">" })).toBeNull();
     expect(screen.getByText("START PERIOD")).toBeDefined();
   });
 
@@ -204,7 +225,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     expect(endBtn).toBeDisabled();
   });
 
-  test("should disable START PERIOD button when period has ended", () => {
+  test("should render START PERIOD 2 button when period 1 is ended", async () => {
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
@@ -224,25 +245,12 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       </Provider>,
     );
 
-    const startBtn = screen.getByText("START PERIOD");
-    expect(startBtn).toBeDisabled();
+    await waitFor(() => {
+      expect(screen.getByText("START PERIOD 2")).toBeInTheDocument();
+    });
   });
 
-  test("should allow navigating periods when period is inactive", () => {
-    const store = createTestStore();
-    render(
-      <Provider store={store}>
-        <MatchLifecyclePanel />
-      </Provider>,
-    );
-
-    const nextBtn = screen.getByRole("button", { name: ">" });
-    fireEvent.click(nextBtn);
-
-    expect(store.getState().match.periodNumber).toBe(2);
-  });
-
-  test("should trigger successful period start flow", async () => {
+  test("should trigger successful period start flow with target period 1", async () => {
     const store = createTestStore();
     render(
       <Provider store={store}>
@@ -255,13 +263,14 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
 
     await waitFor(() => {
       expect(store.getState().match.isPeriodActive).toBe(true);
-      expect(defaultPresenceMock.startPeriodWithRoster).toHaveBeenCalledTimes(
+      expect(defaultPresenceMock.startPeriodWithRoster).toHaveBeenCalledWith(
+        expect.any(String),
         1,
       );
     });
   });
 
-  test("should end period 1 and auto-advance to period 2", async () => {
+  test("should end period 1 passing period number explicitly", async () => {
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
@@ -285,13 +294,16 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     fireEvent.click(endBtn);
 
     await waitFor(() => {
-      expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledTimes(1);
-      expect(processSyncQueue).toHaveBeenCalledTimes(1);
-      expect(store.getState().match.periodNumber).toBe(2);
+      expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledWith(
+        expect.any(String),
+        1,
+      );
+      expect(store.getState().match.periodNumber).toBe(1);
+      expect(store.getState().match.isPeriodEnded).toBe(true);
     });
   });
 
-  test("should end period 4 and remain on period 4", async () => {
+  test("should end period 4 and remain on period 4 displaying MATCH ENDED", async () => {
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
@@ -315,25 +327,26 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     fireEvent.click(endBtn);
 
     await waitFor(() => {
-      expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledTimes(1);
+      expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledWith(
+        expect.any(String),
+        4,
+      );
       expect(store.getState().match.periodNumber).toBe(4);
       expect(store.getState().match.isPeriodEnded).toBe(true);
+      expect(screen.getByText("MATCH ENDED")).toBeInTheDocument();
     });
   });
 
-  test("should handle processSyncQueue rejection gracefully without rolling back ended period", async () => {
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.mocked(processSyncQueue).mockRejectedValueOnce(new Error("Sync error"));
-
+  test("should start period 2 passing target period 2 explicitly to startPeriodWithRoster", async () => {
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
         activeTeamId: "test-team",
         periodNumber: 1,
-        isPeriodActive: true,
+        isPeriodActive: false,
         isInsideStoppage: false,
-        isPeriodEnded: false,
-        globalSequenceNumber: 1,
+        isPeriodEnded: true,
+        globalSequenceNumber: 2,
         recentActions: [],
       },
     });
@@ -344,18 +357,47 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       </Provider>,
     );
 
-    const endBtn = screen.getByText("END PERIOD");
-    fireEvent.click(endBtn);
+    const startNextBtn = await screen.findByText("START PERIOD 2");
+    fireEvent.click(startNextBtn);
 
     await waitFor(() => {
-      expect(processSyncQueue).toHaveBeenCalledTimes(1);
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Background sync after ending period failed:",
-        expect.any(Error),
+      expect(store.getState().match.periodNumber).toBe(2);
+      expect(store.getState().match.isPeriodActive).toBe(true);
+      expect(defaultPresenceMock.startPeriodWithRoster).toHaveBeenCalledWith(
+        expect.any(String),
+        2,
       );
     });
+  });
 
-    consoleSpy.mockRestore();
+  test("should restore active period 1 when UNDO END PERIOD 1 is clicked", async () => {
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 1,
+        isPeriodActive: false,
+        isInsideStoppage: false,
+        isPeriodEnded: true,
+        globalSequenceNumber: 2,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const undoBtn = await screen.findByText("UNDO END PERIOD 1");
+    fireEvent.click(undoBtn);
+
+    await waitFor(() => {
+      expect(store.getState().match.periodNumber).toBe(1);
+      expect(store.getState().match.isPeriodActive).toBe(true);
+      expect(defaultPresenceMock.refreshPresenceFromDB).toHaveBeenCalledWith(1);
+    });
   });
 
   test("should restore isPeriodActive to false if startPeriodWithRoster fails after anchor write", async () => {
@@ -443,45 +485,6 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       expect(store.getState().match.isPeriodActive).toBe(true);
       expect(db.timeanchors.delete).toHaveBeenCalledWith(expect.any(String));
     });
-  });
-
-  test("should show compensation incomplete message if rollback fails during end period error", async () => {
-    vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
-      ...defaultPresenceMock,
-      endPeriodWithRoster: vi
-        .fn()
-        .mockRejectedValue(new Error("Initial error")),
-    });
-
-    vi.mocked(db.timeanchors.delete).mockRejectedValueOnce(
-      new Error("DB failure"),
-    );
-
-    const store = createTestStore({
-      match: {
-        activeMatchId: "test-match",
-        activeTeamId: "test-team",
-        periodNumber: 1,
-        isPeriodActive: true,
-        isInsideStoppage: false,
-        isPeriodEnded: false,
-        globalSequenceNumber: 1,
-        recentActions: [],
-      },
-    });
-
-    render(
-      <Provider store={store}>
-        <MatchLifecyclePanel />
-      </Provider>,
-    );
-
-    const endBtn = screen.getByText("END PERIOD");
-    fireEvent.click(endBtn);
-
-    expect(
-      await screen.findByText(/Compensation incomplete/i),
-    ).toBeInTheDocument();
   });
 
   test("should roll back isPeriodActive and keep sequence incremented when startPeriod DB write rejects", async () => {
@@ -617,5 +620,54 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       await screen.findByText(/Select exactly 7 players\./i),
     ).toBeInTheDocument();
     expect(defaultPresenceMock.startPeriodWithRoster).not.toHaveBeenCalled();
+  });
+
+  test("should restore preceding ended period 1 if startPeriodWithRoster fails during START PERIOD 2", async () => {
+    vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
+      ...defaultPresenceMock,
+      startPeriodWithRoster: vi
+        .fn()
+        .mockRejectedValue(new Error("Roster persistence failed")),
+    });
+
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 1,
+        isPeriodActive: false,
+        isInsideStoppage: false,
+        isPeriodEnded: true,
+        globalSequenceNumber: 2,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const startBtn = await screen.findByText("START PERIOD 2");
+    fireEvent.click(startBtn);
+
+    await waitFor(() => {
+      expect(store.getState().match.periodNumber).toBe(1);
+      expect(store.getState().match.isPeriodEnded).toBe(true);
+      expect(store.getState().match.isPeriodActive).toBe(false);
+    });
+
+    const addedAnchor = vi
+      .mocked(db.timeanchors.add)
+      .mock.calls.at(-1)?.[0] as {
+      id: string;
+      periodNumber: number;
+    };
+    expect(addedAnchor.periodNumber).toBe(2);
+    expect(db.timeanchors.delete).toHaveBeenCalledWith(addedAnchor.id);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to start period. Transaction fully reverted.",
+    );
   });
 });

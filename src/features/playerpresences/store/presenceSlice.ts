@@ -33,28 +33,32 @@ export const presenceSlice = createSlice({
       state,
       action: PayloadAction<{ active: string[]; bench: string[] }>,
     ) => {
-      state.activeLineupIds = action.payload.active;
-      state.benchLineupIds = action.payload.bench;
+      const activeSet = new Set(action.payload.active);
+      state.activeLineupIds = Array.from(activeSet);
+      state.benchLineupIds = Array.from(
+        new Set(action.payload.bench.filter((id) => !activeSet.has(id))),
+      );
+      state.selectedStartingIds = []; // Reset prepared starting lineup on DB state sync
       state.isLoading = false;
     },
     // Prepare starting lineup in UI only
     setSelectedStartingIds: (state, action: PayloadAction<string[]>) => {
-      state.selectedStartingIds = action.payload;
+      state.selectedStartingIds = Array.from(new Set(action.payload));
     },
     // Triggers when "START PERIOD" is confirmed
     commitStartingLineup: (state, action: PayloadAction<string[]>) => {
-      state.activeLineupIds = action.payload;
+      const activeSet = new Set(action.payload);
+      state.activeLineupIds = Array.from(activeSet);
       state.benchLineupIds = state.benchLineupIds.filter(
-        (id) => !action.payload.includes(id),
+        (id) => !activeSet.has(id),
       );
       state.selectedStartingIds = [];
     },
     // Triggers when "END PERIOD" is pressed (moves everyone back to bench)
     clearActiveRosterToBench: (state) => {
-      state.benchLineupIds = [
-        ...state.benchLineupIds,
-        ...state.activeLineupIds,
-      ];
+      state.benchLineupIds = Array.from(
+        new Set([...state.benchLineupIds, ...state.activeLineupIds]),
+      );
       state.activeLineupIds = [];
       state.selectedStartingIds = [];
     },
@@ -63,11 +67,11 @@ export const presenceSlice = createSlice({
       action: PayloadAction<{ outId: string; inId: string }>,
     ) => {
       const { outId, inId } = action.payload;
-      state.activeLineupIds = state.activeLineupIds.map((id) =>
-        id === outId ? inId : id,
+      state.activeLineupIds = Array.from(
+        new Set(state.activeLineupIds.map((id) => (id === outId ? inId : id))),
       );
-      state.benchLineupIds = state.benchLineupIds.map((id) =>
-        id === inId ? outId : id,
+      state.benchLineupIds = Array.from(
+        new Set(state.benchLineupIds.map((id) => (id === inId ? outId : id))),
       );
     },
     setLoading: (state, action: PayloadAction<boolean>) => {

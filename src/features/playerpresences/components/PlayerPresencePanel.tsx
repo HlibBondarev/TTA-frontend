@@ -23,6 +23,9 @@ export const PlayerPresencePanel: React.FC<{
   const isPeriodActive = useSelector(
     (state: RootState) => state.match.isPeriodActive,
   );
+  const isPeriodEnded = useSelector(
+    (state: RootState) => state.match.isPeriodEnded,
+  );
 
   const [lineupsMap, setLineupsMap] = useState<
     Record<string, MatchLineupLookup>
@@ -41,7 +44,7 @@ export const PlayerPresencePanel: React.FC<{
           const map: Record<string, MatchLineupLookup> = {};
           lineups.forEach((l) => (map[l.id] = l));
           setLineupsMap(map);
-          await refreshPresenceFromDB();
+          await refreshPresenceFromDB(currentPeriod);
           return lineups.length > 0;
         }
       } catch {
@@ -51,7 +54,7 @@ export const PlayerPresencePanel: React.FC<{
       }
       return false;
     },
-    [matchId, refreshPresenceFromDB],
+    [matchId, currentPeriod, refreshPresenceFromDB],
   );
 
   useEffect(() => {
@@ -71,7 +74,7 @@ export const PlayerPresencePanel: React.FC<{
     return () => {
       ignore = true;
     };
-  }, [matchId, loadRosterData]);
+  }, [matchId, currentPeriod, isPeriodActive, isPeriodEnded, loadRosterData]);
 
   const handleActiveTap = (id: string) => {
     setErrorMessage(null);
@@ -88,7 +91,7 @@ export const PlayerPresencePanel: React.FC<{
     if (isPeriodActive) {
       if (selectedPlayerId) {
         try {
-          await executeSubstitution(selectedPlayerId, benchId);
+          await executeSubstitution(selectedPlayerId, benchId, currentPeriod);
           setSelectedPlayerId(null);
         } catch {
           setErrorMessage("Substitution failed.");
