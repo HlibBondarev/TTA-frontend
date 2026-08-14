@@ -194,6 +194,10 @@ export const useMatchLifecycle = () => {
   } = matchState;
 
   const [canUndoEndPeriod, setCanUndoEndPeriod] = useState(false);
+  const [periodsCount, setPeriodsCount] = useState<number | null>(null);
+  const [isLoadingConfig, setIsLoadingConfig] = useState<boolean>(true);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [isResultModalOpen, setIsResultModalOpen] = useState<boolean>(false);
 
   const syncRequestIdRef = useRef(0);
   const activeMatchIdRef = useRef(activeMatchId);
@@ -203,6 +207,83 @@ export const useMatchLifecycle = () => {
     activeMatchIdRef.current = activeMatchId;
     periodNumberRef.current = periodNumber;
   }, [activeMatchId, periodNumber]);
+
+  // Strict Dynamic Period Resolution from Dexie IndexedDB (Matches -> Tournaments -> SportConfigurations)
+  useEffect(() => {
+    let isMounted = true;
+
+    const resolvePeriodsCount = async () => {
+      const normalizedMatchId = activeMatchId?.trim();
+      if (!normalizedMatchId) {
+        if (isMounted) {
+          setPeriodsCount(null);
+          setIsLoadingConfig(false);
+          setConfigError(null);
+        }
+        return;
+      }
+
+      try {
+        setIsLoadingConfig(true);
+        setConfigError(null);
+
+        const match = db.matches?.get
+          ? await db.matches.get(normalizedMatchId)
+          : null;
+        if (!match) {
+          throw new Error(
+            `Match with ID '${normalizedMatchId}' not found in local IndexedDB.`,
+          );
+        }
+
+        const tournament = db.tournaments?.get
+          ? await db.tournaments.get(match.tournamentId)
+          : null;
+        if (!tournament) {
+          throw new Error(
+            `Tournament with ID '${match.tournamentId}' not found for match '${normalizedMatchId}'.`,
+          );
+        }
+
+        const config = db.sportconfigurations?.get
+          ? await db.sportconfigurations.get(tournament.configurationId)
+          : null;
+        if (
+          !config ||
+          typeof config.periodsCount !== "number" ||
+          config.periodsCount <= 0
+        ) {
+          throw new Error(
+            `Invalid or missing periodsCount in SportConfiguration ('${tournament.configurationId}') for match '${normalizedMatchId}'.`,
+          );
+        }
+
+        if (isMounted) {
+          setPeriodsCount(config.periodsCount);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(
+          "[useMatchLifecycle] Configuration Resolution Error:",
+          msg,
+        );
+        if (isMounted) {
+          setConfigError(msg);
+          setPeriodsCount(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingConfig(false);
+        }
+      }
+    };
+
+    void resolvePeriodsCount();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeMatchId]);
 
   useEffect(() => {
     const normalizedMatchId = activeMatchId?.trim();
@@ -252,6 +333,19 @@ export const useMatchLifecycle = () => {
       );
     },
     [],
+  );
+
+  const isFinalPeriod = useCallback(
+    (targetPeriod?: number): boolean => {
+      const checkPeriod = targetPeriod ?? periodNumber;
+      if (periodsCount === null) {
+        throw new Error(
+          `Cannot evaluate isFinalPeriod: periodsCount is not resolved for active match. ${configError ?? ""}`.trim(),
+        );
+      }
+      return checkPeriod === periodsCount;
+    },
+    [periodsCount, periodNumber, configError],
   );
 
   const syncPeriodStateWithDB = useCallback(
@@ -419,6 +513,7 @@ export const useMatchLifecycle = () => {
     if (!isCurrentContext(normalizedMatchId, currentPeriod)) {
       return;
     }
+    setIsResultModalOpen(false);
     dispatch(startPeriodState());
     await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
   };
@@ -489,6 +584,12 @@ export const useMatchLifecycle = () => {
     try {
       const anchorId = await logTimeAnchor(1, currentPeriod);
       await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
+
+      // Trigger MatchResultModal automatically if this was the final period of the match
+      if (periodsCount !== null && currentPeriod === periodsCount) {
+        setIsResultModalOpen(true);
+      }
+
       return anchorId;
     } catch (error) {
       if (isCurrentContext(normalizedMatchId, currentPeriod)) {
@@ -563,6 +664,12 @@ export const useMatchLifecycle = () => {
     isPeriodEnded,
     canUndoEndPeriod,
     globalSequenceNumber,
+    periodsCount,
+    isLoadingConfig,
+    configError,
+    isResultModalOpen,
+    setIsResultModalOpen,
+    isFinalPeriod,
     startPeriod,
     endPeriod,
     removeTimeAnchor,

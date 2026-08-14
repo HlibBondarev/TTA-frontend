@@ -26,6 +26,10 @@ let mockPlayerPresences: Array<{
   [key: string]: unknown;
 }> = [];
 
+let mockMatches: Record<string, unknown> = {};
+let mockTournaments: Record<string, unknown> = {};
+let mockSportConfigs: Record<string, unknown> = {};
+
 const seedAnchorsFromState = (matchState: Partial<MatchState> = {}) => {
   const matchId = matchState.activeMatchId || "test-match-id";
   const periodNumber = matchState.periodNumber ?? 1;
@@ -76,6 +80,15 @@ const seedAnchorsFromState = (matchState: Partial<MatchState> = {}) => {
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
+    matches: {
+      get: vi.fn((id: string) => Promise.resolve(mockMatches[id])),
+    },
+    tournaments: {
+      get: vi.fn((id: string) => Promise.resolve(mockTournaments[id])),
+    },
+    sportconfigurations: {
+      get: vi.fn((id: string) => Promise.resolve(mockSportConfigs[id])),
+    },
     timeanchors: {
       add: vi.fn((anchor: TimeAnchor) => {
         mockTimeAnchors.push(anchor);
@@ -206,6 +219,23 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     mockTimeAnchors = [];
     mockSyncQueue = [];
     mockPlayerPresences = [];
+
+    mockMatches = {
+      "test-match-id": { id: "test-match-id", tournamentId: "test-tourn-id" },
+      "match-padded-id": {
+        id: "match-padded-id",
+        tournamentId: "test-tourn-id",
+      },
+    };
+    mockTournaments = {
+      "test-tourn-id": {
+        id: "test-tourn-id",
+        configurationId: "test-config-id",
+      },
+    };
+    mockSportConfigs = {
+      "test-config-id": { id: "test-config-id", periodsCount: 4 },
+    };
 
     vi.mocked(db.timeanchors.where).mockImplementation(
       () =>
@@ -392,6 +422,82 @@ describe("useMatchLifecycle Hook & State Machine", () => {
         isInsideStoppage: false,
         isPeriodEnded: true,
       });
+    });
+  });
+
+  describe("Dynamic SportConfiguration Periods Count Resolution", () => {
+    test("should dynamically resolve periodsCount from IndexedDB for active match", async () => {
+      const store = createTestStore();
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoadingConfig).toBe(false);
+      });
+
+      expect(result.current.periodsCount).toBe(4);
+      expect(result.current.configError).toBeNull();
+      expect(result.current.isFinalPeriod(4)).toBe(true);
+      expect(result.current.isFinalPeriod(1)).toBe(false);
+    });
+
+    test("should set configError and keep periodsCount null when match or config is missing", async () => {
+      mockMatches = {}; // Clear matches
+
+      const store = createTestStore({ activeMatchId: "missing-match-id" });
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoadingConfig).toBe(false);
+      });
+
+      expect(result.current.periodsCount).toBeNull();
+      expect(result.current.configError).toContain(
+        "Match with ID 'missing-match-id' not found",
+      );
+
+      expect(() => result.current.isFinalPeriod(1)).toThrow(
+        /Cannot evaluate isFinalPeriod: periodsCount is not resolved/i,
+      );
+    });
+
+    test("should automatically set isResultModalOpen to true when ending the final period", async () => {
+      // Set sport configuration to 2 periods (e.g. soccer)
+      mockSportConfigs["test-config-id"] = {
+        id: "test-config-id",
+        periodsCount: 2,
+      };
+
+      const store = createTestStore({
+        periodNumber: 2,
+        isPeriodActive: true,
+      });
+
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoadingConfig).toBe(false);
+      });
+
+      expect(result.current.periodsCount).toBe(2);
+      expect(result.current.isResultModalOpen).toBe(false);
+
+      await act(async () => {
+        await result.current.endPeriod();
+      });
+
+      expect(result.current.isResultModalOpen).toBe(true);
     });
   });
 
