@@ -54,7 +54,8 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   const trimmedTemp = temperatureInput.trim();
   const isValidTemperature =
     trimmedTemp === "" ||
-    (!isNaN(Number(trimmedTemp)) && isFinite(Number(trimmedTemp)));
+    (!Number.isNaN(Number(trimmedTemp)) &&
+      Number.isFinite(Number(trimmedTemp)));
 
   const isFormValid =
     isValidHomeScore &&
@@ -67,23 +68,23 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     currentVal: string,
     delta: number,
   ) => {
-    const num = parseInt(currentVal, 10);
-    const safeNum = isNaN(num) ? 0 : num;
+    const num = Number.parseInt(currentVal, 10);
+    const safeNum = Number.isNaN(num) ? 0 : num;
     const nextVal = Math.max(0, safeNum + delta);
     setter(String(nextVal));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!isFormValid || !activeMatchId || !activeTeamId) return;
 
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    const parsedHomeScore = parseInt(homeScoreInput.trim(), 10);
-    const parsedGuestScore = parseInt(guestScoreInput.trim(), 10);
+    const parsedHomeScore = Number.parseInt(homeScoreInput.trim(), 10);
+    const parsedGuestScore = Number.parseInt(guestScoreInput.trim(), 10);
     const parsedTemperature =
-      trimmedTemp !== "" ? parseFloat(trimmedTemp) : null;
+      trimmedTemp !== "" ? Number.parseFloat(trimmedTemp) : null;
 
     try {
       await matchFinalizationService.finalizeMatch({
@@ -108,11 +109,11 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   };
 
   return (
-    <div
-      role="dialog"
+    <dialog
+      open
       aria-modal="true"
       aria-labelledby="modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 w-full h-full max-w-none max-h-none border-none m-0"
     >
       <div className="w-full max-w-xs bg-gray-900 border border-gray-800 text-white rounded-2xl shadow-2xl p-4 flex flex-col space-y-4">
         <header className="border-b border-gray-800 pb-2 text-center">
@@ -139,7 +140,10 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Home Score Stepper & Input */}
           <div className="space-y-1">
-            <label className="block text-[10px] uppercase font-bold text-gray-400">
+            <label
+              htmlFor="home-score-input"
+              className="block text-[10px] uppercase font-bold text-gray-400"
+            >
               Home Team Score <span className="text-red-500">*</span>
             </label>
             <div className="flex items-center gap-2">
@@ -154,6 +158,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
                 -
               </button>
               <input
+                id="home-score-input"
                 type="text"
                 inputMode="numeric"
                 value={homeScoreInput}
@@ -176,7 +181,10 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
 
           {/* Guest Score Stepper & Input */}
           <div className="space-y-1">
-            <label className="block text-[10px] uppercase font-bold text-gray-400">
+            <label
+              htmlFor="guest-score-input"
+              className="block text-[10px] uppercase font-bold text-gray-400"
+            >
               Guest Team Score <span className="text-red-500">*</span>
             </label>
             <div className="flex items-center gap-2">
@@ -191,6 +199,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
                 -
               </button>
               <input
+                id="guest-score-input"
                 type="text"
                 inputMode="numeric"
                 value={guestScoreInput}
@@ -213,10 +222,14 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
 
           {/* Temperature Optional Input */}
           <div className="space-y-1">
-            <label className="block text-[10px] uppercase font-bold text-gray-400">
+            <label
+              htmlFor="temperature-input"
+              className="block text-[10px] uppercase font-bold text-gray-400"
+            >
               Temperature (°C) <span className="text-gray-500">(Optional)</span>
             </label>
             <input
+              id="temperature-input"
               type="text"
               inputMode="decimal"
               placeholder="e.g., 26.5"
@@ -256,6 +269,6 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </dialog>
   );
 };

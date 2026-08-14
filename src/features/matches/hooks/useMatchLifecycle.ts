@@ -22,6 +22,43 @@ export interface CalculatedPeriodState {
 }
 
 /**
+ * Helper function to fetch SportConfiguration periodsCount from IndexedDB
+ * Extracted to keep hook Cognitive Complexity within strict limits (<15).
+ */
+const fetchSportConfigPeriodsCount = async (
+  matchId: string,
+): Promise<number> => {
+  const match = db.matches?.get ? await db.matches.get(matchId) : null;
+  if (!match) {
+    throw new Error(`Match with ID '${matchId}' not found in local IndexedDB.`);
+  }
+
+  const tournament = db.tournaments?.get
+    ? await db.tournaments.get(match.tournamentId)
+    : null;
+  if (!tournament) {
+    throw new Error(
+      `Tournament with ID '${match.tournamentId}' not found for match '${matchId}'.`,
+    );
+  }
+
+  const config = db.sportconfigurations?.get
+    ? await db.sportconfigurations.get(tournament.configurationId)
+    : null;
+  if (
+    !config ||
+    typeof config.periodsCount !== "number" ||
+    config.periodsCount <= 0
+  ) {
+    throw new Error(
+      `Invalid or missing periodsCount in SportConfiguration ('${tournament.configurationId}') for match '${matchId}'.`,
+    );
+  }
+
+  return config.periodsCount;
+};
+
+/**
  * Calculates period flags from a list of period time anchors according to state machine transition rules.
  */
 export const calculatePeriodState = (
@@ -227,39 +264,9 @@ export const useMatchLifecycle = () => {
         setIsLoadingConfig(true);
         setConfigError(null);
 
-        const match = db.matches?.get
-          ? await db.matches.get(normalizedMatchId)
-          : null;
-        if (!match) {
-          throw new Error(
-            `Match with ID '${normalizedMatchId}' not found in local IndexedDB.`,
-          );
-        }
-
-        const tournament = db.tournaments?.get
-          ? await db.tournaments.get(match.tournamentId)
-          : null;
-        if (!tournament) {
-          throw new Error(
-            `Tournament with ID '${match.tournamentId}' not found for match '${normalizedMatchId}'.`,
-          );
-        }
-
-        const config = db.sportconfigurations?.get
-          ? await db.sportconfigurations.get(tournament.configurationId)
-          : null;
-        if (
-          !config ||
-          typeof config.periodsCount !== "number" ||
-          config.periodsCount <= 0
-        ) {
-          throw new Error(
-            `Invalid or missing periodsCount in SportConfiguration ('${tournament.configurationId}') for match '${normalizedMatchId}'.`,
-          );
-        }
-
+        const count = await fetchSportConfigPeriodsCount(normalizedMatchId);
         if (isMounted) {
-          setPeriodsCount(config.periodsCount);
+          setPeriodsCount(count);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
