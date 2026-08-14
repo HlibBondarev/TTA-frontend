@@ -52,10 +52,16 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     Number(guestScoreInput) >= 0;
 
   const trimmedTemp = temperatureInput.trim();
+  // Ensure strict decimal/integer numeric format (e.g., 26, 26.5, -5)
+  const isStrictNumericTemp = /^-?\d+(\.\d+)?$/.test(trimmedTemp);
+  const parsedTempNum =
+    trimmedTemp !== "" && isStrictNumericTemp ? Number(trimmedTemp) : null;
+
   const isValidTemperature =
     trimmedTemp === "" ||
-    (!Number.isNaN(Number(trimmedTemp)) &&
-      Number.isFinite(Number(trimmedTemp)));
+    (parsedTempNum !== null &&
+      !Number.isNaN(parsedTempNum) &&
+      Number.isFinite(parsedTempNum));
 
   const isFormValid =
     isValidHomeScore &&
@@ -83,8 +89,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
 
     const parsedHomeScore = Number.parseInt(homeScoreInput.trim(), 10);
     const parsedGuestScore = Number.parseInt(guestScoreInput.trim(), 10);
-    const parsedTemperature =
-      trimmedTemp !== "" ? Number.parseFloat(trimmedTemp) : null;
+    const parsedTemperature = parsedTempNum;
 
     try {
       await matchFinalizationService.finalizeMatch({

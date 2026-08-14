@@ -221,4 +221,24 @@ describe("MatchResultModal Component", () => {
 
     expect(mockOnClose).toHaveBeenCalledTimes(1);
   });
+
+  test("should reject hexadecimal string as temperature input", () => {
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    const inputs = screen.getAllByRole("textbox");
+    const tempInput = inputs[2];
+    const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
+
+    // Hexadecimal value should fail validation
+    fireEvent.change(tempInput, { target: { value: "0x10" } });
+    expect(submitBtn).toBeDisabled();
+    expect(
+      screen.getByText("Enter a valid numeric temperature value."),
+    ).toBeInTheDocument();
+  });
 });
