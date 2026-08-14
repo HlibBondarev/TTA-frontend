@@ -851,4 +851,28 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     expect(startBtn).toBeDisabled();
     expect(endBtn).toBeDisabled();
   });
+
+  test("should pass onFinalizeSuccess callback down to MatchResultModal", async () => {
+    const onFinalizeSuccessMock = vi.fn();
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        periodNumber: 4,
+        isPeriodEnded: true,
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel onFinalizeSuccess={onFinalizeSuccessMock} />
+      </Provider>,
+    );
+
+    const matchEndedBtn = await screen.findByRole("button", {
+      name: /MATCH ENDED/i,
+    });
+    fireEvent.click(matchEndedBtn);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
 });

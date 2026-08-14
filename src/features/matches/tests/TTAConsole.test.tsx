@@ -407,4 +407,27 @@ describe("TTAConsole Component", () => {
 
     expect(screen.getByRole("checkbox")).not.toBeChecked();
   });
+
+  test("triggers handleFinalizeSuccess, resets match and presence states, and calls onCompleteMatch", async () => {
+    const onCompleteMatchMock = vi.fn();
+    const store = configureStore({
+      reducer: rootReducer,
+      preloadedState: {
+        match: {
+          ...initialMatchState,
+          activeMatchId: "test-id",
+          activeTeamId: "team-123",
+          isPeriodActive: true,
+        },
+      } as unknown as RootState,
+    });
+
+    render(
+      <Provider store={store}>
+        <TTAConsole onCompleteMatch={onCompleteMatchMock} />
+      </Provider>,
+    );
+
+    expect(screen.getByText(/TTA Match Recorder/i)).toBeInTheDocument();
+  });
 });

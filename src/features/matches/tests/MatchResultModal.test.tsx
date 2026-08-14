@@ -241,4 +241,29 @@ describe("MatchResultModal Component", () => {
       screen.getByText("Enter a valid numeric temperature value."),
     ).toBeInTheDocument();
   });
+
+  test("should call onSuccess callback when finalization succeeds", async () => {
+    const mockOnSuccess = vi.fn();
+    vi.mocked(matchFinalizationService.finalizeMatch).mockResolvedValueOnce(
+      undefined,
+    );
+
+    const store = createTestStore({ homeScore: 10, guestScore: 8 });
+    render(
+      <Provider store={store}>
+        <MatchResultModal
+          isOpen={true}
+          onClose={mockOnClose}
+          onSuccess={mockOnSuccess}
+        />
+      </Provider>,
+    );
+
+    const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(mockOnSuccess).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -5,7 +5,13 @@ import { usePlayerPresence } from "../../../features/playerpresences/hooks/usePl
 import { MatchResultModal } from "./MatchResultModal";
 import type { RootState } from "../../../store";
 
-export const MatchLifecyclePanel: React.FC = () => {
+interface MatchLifecyclePanelProps {
+  onFinalizeSuccess?: () => void;
+}
+
+export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
+  onFinalizeSuccess,
+}) => {
   const {
     periodNumber,
     isPeriodActive,
@@ -229,6 +235,7 @@ export const MatchLifecyclePanel: React.FC = () => {
       <MatchResultModal
         isOpen={isResultModalOpen}
         onClose={() => setIsResultModalOpen(false)}
+        onSuccess={onFinalizeSuccess}
       />
     </div>
   );

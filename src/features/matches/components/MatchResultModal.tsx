@@ -3,14 +3,16 @@ import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import { resetMatchState } from "../store/matchSlice";
 import { matchFinalizationService } from "../../../services/matchFinalizationService";
 
-interface MatchResultModalProps {
+export interface MatchResultModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
 export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   isOpen,
   onClose,
+  onSuccess,
 }) => {
   const dispatch = useAppDispatch();
 
@@ -102,6 +104,10 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
 
       // Reset Redux state to transition App.tsx back to MatchSetupWizard
       dispatch(resetMatchState());
+
+      if (onSuccess) {
+        onSuccess();
+      }
     } catch (err) {
       console.error("Failed to finalize match:", err);
       setErrorMessage(
