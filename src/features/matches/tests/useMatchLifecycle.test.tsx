@@ -468,6 +468,29 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       );
     });
 
+    test("should set configError when periodsCount is a non-integer float", async () => {
+      mockSportConfigs["test-config-id"] = {
+        id: "test-config-id",
+        periodsCount: 3.5,
+      };
+
+      const store = createTestStore();
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoadingConfig).toBe(false);
+      });
+
+      expect(result.current.periodsCount).toBeNull();
+      expect(result.current.configError).toContain(
+        "Invalid or missing periodsCount in SportConfiguration",
+      );
+    });
+
     test("should automatically set isResultModalOpen to true when ending the final period", async () => {
       // Set sport configuration to 2 periods (e.g. soccer)
       mockSportConfigs["test-config-id"] = {

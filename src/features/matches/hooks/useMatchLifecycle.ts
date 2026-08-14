@@ -48,6 +48,7 @@ const fetchSportConfigPeriodsCount = async (
   if (
     !config ||
     typeof config.periodsCount !== "number" ||
+    !Number.isInteger(config.periodsCount) ||
     config.periodsCount <= 0
   ) {
     throw new Error(
