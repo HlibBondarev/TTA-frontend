@@ -492,6 +492,37 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       );
     });
 
+    test("should throw error and abort endPeriod without Redux state mutation when periodsCount is unresolved", async () => {
+      mockMatches = {}; // Ensure configuration resolution fails
+
+      const store = createTestStore({
+        isPeriodActive: true,
+        globalSequenceNumber: 1,
+      });
+
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoadingConfig).toBe(false);
+      });
+
+      expect(result.current.periodsCount).toBeNull();
+
+      await expect(
+        act(async () => {
+          await result.current.endPeriod();
+        }),
+      ).rejects.toThrow(/Cannot evaluate isFinalPeriod/i);
+
+      expect(store.getState().match.isPeriodActive).toBe(true);
+      expect(store.getState().match.isPeriodEnded).toBe(false);
+      expect(store.getState().match.globalSequenceNumber).toBe(1);
+    });
+
     test("should return isFinal=true when ending the final period", async () => {
       mockSportConfigs["test-config-id"] = {
         id: "test-config-id",
@@ -704,6 +735,10 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     const store = createTestStore({ isPeriodActive: true });
     const { result } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
     });
 
     let endResult: EndPeriodResult | undefined;
@@ -943,6 +978,10 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
     // 1. startPeriod failure
     await expect(
       act(async () => {
@@ -1155,6 +1194,10 @@ describe("useMatchLifecycle Hook & State Machine", () => {
 
     const { result, rerender } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
     });
 
     let endPromise!: Promise<EndPeriodResult | undefined>;
@@ -1477,6 +1520,10 @@ describe("useMatchLifecycle Hook & State Machine", () => {
 
     const { result, rerender } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
     });
 
     let endPromise!: Promise<EndPeriodResult | undefined>;

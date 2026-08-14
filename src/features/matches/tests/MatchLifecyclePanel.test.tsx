@@ -643,6 +643,10 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
     await expect(
       act(async () => {
         await result.current.endPeriod();

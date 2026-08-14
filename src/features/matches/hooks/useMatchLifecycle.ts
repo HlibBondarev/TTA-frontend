@@ -590,8 +590,8 @@ export const useMatchLifecycle = () => {
     if (!isPeriodActive || isInsideStoppage) return;
 
     const currentPeriod = periodNumber;
+    const isFinal = isFinalPeriod(currentPeriod);
     const priorSequence = globalSequenceNumber;
-    const isFinal = periodsCount !== null && currentPeriod === periodsCount;
 
     dispatch(endPeriodState());
     dispatch(incrementSequence());
