@@ -20,7 +20,10 @@ vi.mock("../db/ttaDatabase", () => {
     timeanchors: { clear: vi.fn().mockResolvedValue(undefined) },
     playerpresences: { clear: vi.fn().mockResolvedValue(undefined) },
     matchlineups: { clear: vi.fn().mockResolvedValue(undefined) },
-    syncQueue: { clear: vi.fn().mockResolvedValue(undefined) },
+    syncQueue: {
+      clear: vi.fn().mockResolvedValue(undefined),
+      count: vi.fn().mockResolvedValue(0),
+    },
     matches: { clear: vi.fn().mockResolvedValue(undefined) },
     teams: { clear: vi.fn().mockResolvedValue(undefined) },
     players: { clear: vi.fn().mockResolvedValue(undefined) },
@@ -92,6 +95,29 @@ describe("matchFinalizationService", () => {
     expect(db.gameevents.clear).toHaveBeenCalled();
     expect(db.timeanchors.clear).toHaveBeenCalled();
     expect(db.syncQueue.clear).toHaveBeenCalled();
+  });
+
+  it("should ABORT finalization if sync queue still contains pending items after processSyncQueue", async () => {
+    vi.mocked(db.syncQueue.count).mockResolvedValueOnce(2);
+
+    const params = {
+      matchId: "match-123",
+      activeTeamId: "team-456",
+      homeScore: 12,
+      guestScore: 9,
+      temperature: 26.5,
+    };
+
+    await expect(
+      matchFinalizationService.finalizeMatch(params),
+    ).rejects.toThrow(
+      "Cannot finalize match: offline sync queue is not empty. Please ensure all pending actions are synchronized.",
+    );
+
+    expect(processSyncQueue).toHaveBeenCalledTimes(1);
+    expect(apiClient.put).not.toHaveBeenCalled();
+    expect(db.gameevents.clear).not.toHaveBeenCalled();
+    expect(db.syncQueue.clear).not.toHaveBeenCalled();
   });
 
   it("should ABORT IndexedDB purge if record result API fails", async () => {

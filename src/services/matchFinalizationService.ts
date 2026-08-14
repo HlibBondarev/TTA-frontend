@@ -28,6 +28,13 @@ export const matchFinalizationService = {
     // Step 1: Flush all pending offline sync queue items to backend
     await processSyncQueue();
 
+    const remainingQueueCount = await db.syncQueue.count();
+    if (remainingQueueCount > 0) {
+      throw new Error(
+        "Cannot finalize match: offline sync queue is not empty. Please ensure all pending actions are synchronized.",
+      );
+    }
+
     // Step 2: Record match result scores and weather/water temperature
     await apiClient.put(`/Matches/${matchId}/result`, {
       homeScore,
