@@ -114,6 +114,8 @@ export const MatchLifecyclePanel: React.FC = () => {
   };
 
   const displayError = panelError || configError;
+  const isConfigDisabled =
+    isLoadingConfig || periodsCount === null || Boolean(configError);
   const hasReachedMaxPeriods =
     periodsCount !== null && periodNumber >= periodsCount;
 
@@ -141,7 +143,7 @@ export const MatchLifecyclePanel: React.FC = () => {
             <button
               type="button"
               onClick={() => handleStartPeriod()}
-              disabled={isPeriodActive || isLoadingConfig}
+              disabled={isPeriodActive || isConfigDisabled}
               className="py-1 min-h-11 bg-emerald-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
             >
               START PERIOD
@@ -149,7 +151,7 @@ export const MatchLifecyclePanel: React.FC = () => {
             <button
               type="button"
               onClick={handleEndPeriod}
-              disabled={!isPeriodActive || isInsideStoppage || isLoadingConfig}
+              disabled={!isPeriodActive || isInsideStoppage || isConfigDisabled}
               className="py-1 min-h-11 bg-rose-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
             >
               END PERIOD
@@ -161,7 +163,7 @@ export const MatchLifecyclePanel: React.FC = () => {
               <button
                 type="button"
                 onClick={() => handleStartPeriod(periodNumber + 1)}
-                disabled={isLoadingConfig}
+                disabled={isConfigDisabled}
                 className="py-1 min-h-11 bg-emerald-700 hover:bg-emerald-600 rounded text-[10px] font-bold uppercase disabled:opacity-30"
               >
                 START PERIOD {periodNumber + 1}
@@ -170,7 +172,8 @@ export const MatchLifecyclePanel: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsResultModalOpen(true)}
-                className="py-1 min-h-11 bg-emerald-800 hover:bg-emerald-700 rounded text-[10px] font-bold uppercase"
+                disabled={isConfigDisabled}
+                className="py-1 min-h-11 bg-emerald-800 hover:bg-emerald-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
               >
                 MATCH ENDED
               </button>
@@ -180,7 +183,8 @@ export const MatchLifecyclePanel: React.FC = () => {
               <button
                 type="button"
                 onClick={handleUndoEndPeriod}
-                className="py-1 min-h-11 bg-amber-700 hover:bg-amber-600 rounded text-[10px] font-bold uppercase"
+                disabled={isConfigDisabled}
+                className="py-1 min-h-11 bg-amber-700 hover:bg-amber-600 rounded text-[10px] font-bold uppercase disabled:opacity-30"
               >
                 UNDO END PERIOD {periodNumber}
               </button>
@@ -201,7 +205,7 @@ export const MatchLifecyclePanel: React.FC = () => {
         <button
           type="button"
           onClick={startTime}
-          disabled={!isPeriodActive || !isInsideStoppage || isLoadingConfig}
+          disabled={!isPeriodActive || !isInsideStoppage || isConfigDisabled}
           className="py-1 min-h-11 bg-blue-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
         >
           Resume
@@ -209,7 +213,7 @@ export const MatchLifecyclePanel: React.FC = () => {
         <button
           type="button"
           onClick={stopTime}
-          disabled={!isPeriodActive || isInsideStoppage || isLoadingConfig}
+          disabled={!isPeriodActive || isInsideStoppage || isConfigDisabled}
           className="py-1 min-h-11 bg-amber-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
         >
           Stop

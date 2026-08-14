@@ -780,4 +780,27 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Match Result Finalization")).toBeInTheDocument();
   });
+
+  test("should disable lifecycle buttons when configuration resolution fails with configError", async () => {
+    mockMatches = {}; // Induce lookup error
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /not found in local IndexedDB/i,
+      );
+    });
+
+    const startBtn = screen.getByRole("button", { name: /START PERIOD/i });
+    const endBtn = screen.getByRole("button", { name: /END PERIOD/i });
+
+    expect(startBtn).toBeDisabled();
+    expect(endBtn).toBeDisabled();
+  });
 });
