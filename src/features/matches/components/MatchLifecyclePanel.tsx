@@ -82,11 +82,17 @@ export const MatchLifecyclePanel: React.FC = () => {
     setPanelError(null);
     let anchorId: string | null | undefined = null;
     try {
-      // Step 1: Log time anchor first
-      anchorId = await endPeriod();
+      // Step 1: Log time anchor first and receive final-period status
+      const endResult = await endPeriod();
+      anchorId = endResult?.anchorId;
 
       // Step 2: Terminate roster presence transaction for current period
       await endPeriodWithRoster(new Date().toISOString(), periodNumber);
+
+      // Step 3: Open result modal ONLY after successful roster termination on final period
+      if (endResult?.isFinal) {
+        setIsResultModalOpen(true);
+      }
     } catch (err) {
       console.error(err);
       try {

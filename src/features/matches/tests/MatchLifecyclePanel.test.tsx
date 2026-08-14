@@ -356,7 +356,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     });
   });
 
-  test("should end period 4 and remain on period 4 displaying MATCH ENDED", async () => {
+  test("should end period 4, await endPeriodWithRoster, remain on period 4 displaying MATCH ENDED and open MatchResultModal", async () => {
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
@@ -391,7 +391,51 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       expect(store.getState().match.periodNumber).toBe(4);
       expect(store.getState().match.isPeriodEnded).toBe(true);
       expect(screen.getByText("MATCH ENDED")).toBeInTheDocument();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText("Match Result Finalization")).toBeInTheDocument();
     });
+  });
+
+  test("should NOT open MatchResultModal if endPeriodWithRoster fails on final period", async () => {
+    vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
+      ...defaultPresenceMock,
+      endPeriodWithRoster: vi
+        .fn()
+        .mockRejectedValue(new Error("Roster termination failed")),
+    });
+
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 4,
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        isPeriodEnded: false,
+        globalSequenceNumber: 8,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("4")).toBeInTheDocument();
+    });
+
+    const endBtn = screen.getByText("END PERIOD");
+    fireEvent.click(endBtn);
+
+    await waitFor(() => {
+      expect(store.getState().match.isPeriodActive).toBe(true);
+      expect(db.timeanchors.delete).toHaveBeenCalledWith(expect.any(String));
+    });
+
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   test("should start period 2 passing target period 2 explicitly to startPeriodWithRoster", async () => {

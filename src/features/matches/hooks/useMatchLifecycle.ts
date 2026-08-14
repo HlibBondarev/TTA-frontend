@@ -21,6 +21,11 @@ export interface CalculatedPeriodState {
   isPeriodEnded: boolean;
 }
 
+export interface EndPeriodResult {
+  anchorId: string | undefined;
+  isFinal: boolean;
+}
+
 /**
  * Helper function to fetch SportConfiguration periodsCount from IndexedDB
  * Extracted to keep hook Cognitive Complexity within strict limits (<15).
@@ -577,7 +582,7 @@ export const useMatchLifecycle = () => {
     }
   };
 
-  const endPeriod = async (): Promise<string | undefined> => {
+  const endPeriod = async (): Promise<EndPeriodResult | undefined> => {
     const normalizedMatchId = activeMatchId?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
@@ -586,6 +591,8 @@ export const useMatchLifecycle = () => {
 
     const currentPeriod = periodNumber;
     const priorSequence = globalSequenceNumber;
+    const isFinal = periodsCount !== null && currentPeriod === periodsCount;
+
     dispatch(endPeriodState());
     dispatch(incrementSequence());
 
@@ -593,12 +600,7 @@ export const useMatchLifecycle = () => {
       const anchorId = await logTimeAnchor(1, currentPeriod);
       await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
 
-      // Trigger MatchResultModal automatically if this was the final period of the match
-      if (periodsCount !== null && currentPeriod === periodsCount) {
-        setIsResultModalOpen(true);
-      }
-
-      return anchorId;
+      return { anchorId, isFinal };
     } catch (error) {
       if (isCurrentContext(normalizedMatchId, currentPeriod)) {
         dispatch(startPeriodState());

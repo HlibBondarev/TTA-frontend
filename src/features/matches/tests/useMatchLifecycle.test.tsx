@@ -4,6 +4,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import {
   useMatchLifecycle,
   calculatePeriodState,
+  type EndPeriodResult,
 } from "../hooks/useMatchLifecycle";
 import matchReducer, {
   type MatchState,
@@ -491,8 +492,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       );
     });
 
-    test("should automatically set isResultModalOpen to true when ending the final period", async () => {
-      // Set sport configuration to 2 periods (e.g. soccer)
+    test("should return isFinal=true when ending the final period", async () => {
       mockSportConfigs["test-config-id"] = {
         id: "test-config-id",
         periodsCount: 2,
@@ -514,13 +514,16 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       });
 
       expect(result.current.periodsCount).toBe(2);
-      expect(result.current.isResultModalOpen).toBe(false);
 
+      let endRes: EndPeriodResult | undefined;
       await act(async () => {
-        await result.current.endPeriod();
+        endRes = await result.current.endPeriod();
       });
 
-      expect(result.current.isResultModalOpen).toBe(true);
+      expect(endRes).toEqual({
+        anchorId: expect.any(String),
+        isFinal: true,
+      });
     });
   });
 
@@ -703,12 +706,13 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
-    let anchorId: string | undefined;
+    let endResult: EndPeriodResult | undefined;
     await act(async () => {
-      anchorId = await result.current.endPeriod();
+      endResult = await result.current.endPeriod();
     });
 
-    expect(anchorId).toBeDefined();
+    expect(endResult?.anchorId).toBeDefined();
+    expect(endResult?.isFinal).toBe(false);
     expect(store.getState().match.isPeriodActive).toBe(false);
     expect(store.getState().match.isPeriodEnded).toBe(true);
     expect(store.getState().match.globalSequenceNumber).toBe(1);
@@ -1153,7 +1157,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
-    let endPromise!: Promise<string | undefined>;
+    let endPromise!: Promise<EndPeriodResult | undefined>;
     act(() => {
       endPromise = result.current.endPeriod();
     });
@@ -1475,7 +1479,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
-    let endPromise!: Promise<string | undefined>;
+    let endPromise!: Promise<EndPeriodResult | undefined>;
     act(() => {
       endPromise = result.current.endPeriod();
     });
