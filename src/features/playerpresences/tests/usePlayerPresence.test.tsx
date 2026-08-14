@@ -169,27 +169,30 @@ describe("usePlayerPresence Hook", () => {
       wrapper,
     });
 
-    // Trigger first (slow) refresh
-    const firstRefreshPromise = act(async () => {
-      void result.current.refreshPresenceFromDB();
+    // Trigger first (slow) refresh synchronously within act
+    let firstRefreshPromise!: Promise<void>;
+    act(() => {
+      firstRefreshPromise = result.current.refreshPresenceFromDB();
     });
 
-    // Trigger second (fast) refresh
+    // Trigger second (fast) refresh and await it
     await act(async () => {
       await result.current.refreshPresenceFromDB();
     });
 
-    // Resolve first query late
-    resolveFirstQuery([
-      {
-        id: "pres-1",
-        matchLineupId: "lineup-1",
-        periodNumber: 1,
-        timeIn: "2026-07-16T09:00:00.000Z",
-        timeOut: null,
-      },
-    ]);
-    await firstRefreshPromise;
+    // Resolve first query late and await its promise within act
+    await act(async () => {
+      resolveFirstQuery([
+        {
+          id: "pres-1",
+          matchLineupId: "lineup-1",
+          periodNumber: 1,
+          timeIn: "2026-07-16T09:00:00.000Z",
+          timeOut: null,
+        },
+      ]);
+      await firstRefreshPromise;
+    });
 
     // Active lineup should reflect second request result ("lineup-2"), ignoring stale first request
     expect(result.current.activeLineupIds).toEqual(["lineup-2"]);
