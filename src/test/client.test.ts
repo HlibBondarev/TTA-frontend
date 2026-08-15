@@ -111,4 +111,34 @@ describe("API Client", () => {
       expect.objectContaining({ method: "DELETE" }),
     );
   });
+
+  it("combines external AbortSignal with timeout signal properly", async () => {
+    const externalController = new AbortController();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url, options) => {
+      const signal = options?.signal as AbortSignal;
+      expect(signal).toBeDefined();
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true }),
+      } as Response);
+    });
+
+    const res = await apiClient.get("test-signal", {
+      signal: externalController.signal,
+    });
+    expect(res).toEqual({ success: true });
+  });
+
+  it("handles aborted request errors gracefully and throws AbortError", async () => {
+    const abortError = new Error("The operation was aborted");
+    abortError.name = "AbortError";
+
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(abortError);
+
+    await expect(apiClient.get("aborted-endpoint")).rejects.toThrow(
+      "The operation was aborted",
+    );
+  });
 });

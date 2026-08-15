@@ -4,7 +4,6 @@ import {
   db,
   type TimeAnchor,
   type TournamentLookup,
-  type SportConfigurationLookup,
 } from "../../../db/ttaDatabase";
 import { getNextSequenceNumber } from "../../../db/eventService";
 import { apiClient } from "../../../api/client";
@@ -33,8 +32,7 @@ export interface EndPeriodResult {
 }
 
 /**
- * Helper function to fetch SportConfiguration periodsCount from IndexedDB
- * Extracted to keep hook Cognitive Complexity within strict limits (<15).
+ * Helper function to fetch SportConfiguration periodsCount from IndexedDB.
  */
 const fetchSportConfigPeriodsCount = async (
   matchId: string,
@@ -67,22 +65,9 @@ const fetchSportConfigPeriodsCount = async (
     );
   }
 
-  let config = db.sportconfigurations?.get
+  const config = db.sportconfigurations?.get
     ? await db.sportconfigurations.get(tournament.configurationId)
     : null;
-
-  if (!config && tournament.configurationId) {
-    try {
-      config = await apiClient.get<SportConfigurationLookup>(
-        `/SportConfigurations/${tournament.configurationId}`,
-      );
-      if (config && db.sportconfigurations) {
-        await db.sportconfigurations.put(config);
-      }
-    } catch {
-      // Fallthrough to strict null check below
-    }
-  }
 
   if (
     !config ||
@@ -147,6 +132,137 @@ export const calculatePeriodState = (
 };
 
 /**
+ * Validates whether starting a target period is allowed given current period state.
+ */
+const validateTargetPeriod = (
+  periodNumber: number,
+  isPeriodEnded: boolean,
+  targetPeriodNumber?: number,
+): boolean => {
+  if (isPeriodEnded) {
+    return targetPeriodNumber === periodNumber + 1;
+  }
+  return (
+    targetPeriodNumber === undefined || targetPeriodNumber === periodNumber
+  );
+};
+
+/**
+ * Executes Dexie transaction to persist a new time anchor and enqueue its sync item.
+ */
+const createAndSaveTimeAnchor = async (
+  matchId: string,
+  periodNumber: number,
+  type: number,
+): Promise<string> => {
+  const anchorId = crypto.randomUUID();
+
+  await db.transaction(
+    "rw",
+    [db.timeanchors, db.gameevents, db.playerpresences, db.syncQueue],
+    async () => {
+      if (type === 0) {
+        const existingAnchors = await db.timeanchors
+          .where("matchId")
+          .equals(matchId)
+          .filter((a) => a.periodNumber === periodNumber)
+          .toArray();
+
+        const existingState = calculatePeriodState(existingAnchors);
+        if (existingState.isPeriodActive || existingState.isPeriodEnded) {
+          throw new Error(
+            "Cannot start period: period is already active or ended.",
+          );
+        }
+      }
+
+      const nextSeq = await getNextSequenceNumber();
+      const timestamp = new Date().toISOString();
+
+      const anchorData = {
+        id: anchorId,
+        matchId,
+        periodNumber,
+        type,
+        timestamp,
+        sequenceNumber: nextSeq,
+        isSynced: 0,
+      };
+
+      await db.timeanchors.add(anchorData);
+
+      const payload = JSON.stringify([
+        {
+          id: anchorData.id,
+          periodNumber: anchorData.periodNumber,
+          type: anchorData.type,
+          timestamp: anchorData.timestamp,
+        },
+      ]);
+
+      const syncItem = {
+        actionType: "POST" as const,
+        endpoint: `/Matches/${matchId}/anchors`,
+        payload,
+        createdAt: timestamp,
+      };
+
+      await db.syncQueue.add(syncItem);
+    },
+  );
+
+  return anchorId;
+};
+
+/**
+ * Deletes time anchor and matching sync queue items.
+ */
+const deleteTimeAnchorWithQueue = async (anchorId: string): Promise<void> => {
+  await db.transaction("rw", [db.timeanchors, db.syncQueue], async () => {
+    await db.timeanchors.delete(anchorId);
+    const matchingQueueItems = await db.syncQueue
+      .filter((item) => item.payload.includes(anchorId))
+      .toArray();
+
+    for (const item of matchingQueueItems) {
+      if (item.id !== undefined) {
+        await db.syncQueue.delete(item.id);
+      }
+    }
+  });
+};
+
+/**
+ * Checks if there are unsynced PeriodEnd anchors for liveQuery subscription.
+ */
+const checkUnsyncedEndAnchorExists = async (
+  matchId: string,
+  periodNumber: number,
+): Promise<boolean> => {
+  if (!matchId || !db?.syncQueue || !db?.timeanchors) {
+    return false;
+  }
+
+  const endAnchors = await db.timeanchors
+    .where("matchId")
+    .equals(matchId)
+    .filter(
+      (a) =>
+        a.periodNumber === periodNumber && a.type === 1 && a.isSynced === 0,
+    )
+    .toArray();
+
+  if (endAnchors.length === 0) return false;
+
+  const endAnchorId = endAnchors[0].id;
+  const pendingItems = await db.syncQueue
+    .filter((item) => item.payload.includes(endAnchorId))
+    .toArray();
+
+  return pendingItems.length > 0;
+};
+
+/**
  * Resolves and deletes the period end time anchor along with its matching sync queue entry.
  */
 const deleteEndAnchorAndSyncQueue = async (
@@ -174,16 +290,7 @@ const deleteEndAnchorAndSyncQueue = async (
 
   if (!targetAnchorId) return;
 
-  await db.timeanchors.delete(targetAnchorId);
-  const matchingQueueItems = await db.syncQueue
-    .filter((item) => item.payload.includes(targetAnchorId))
-    .toArray();
-
-  for (const item of matchingQueueItems) {
-    if (item.id !== undefined) {
-      await db.syncQueue.delete(item.id);
-    }
-  }
+  await deleteTimeAnchorWithQueue(targetAnchorId);
 };
 
 /**
@@ -285,7 +392,7 @@ export const useMatchLifecycle = () => {
     periodNumberRef.current = periodNumber;
   }, [activeMatchId, periodNumber]);
 
-  // Strict Dynamic Period Resolution from Dexie IndexedDB (Matches -> Tournaments -> SportConfigurations)
+  // Strict Dynamic Period Resolution from Dexie IndexedDB
   useEffect(() => {
     let isMounted = true;
 
@@ -335,34 +442,9 @@ export const useMatchLifecycle = () => {
   useEffect(() => {
     const normalizedMatchId = activeMatchId?.trim();
 
-    const subscription = liveQuery(async () => {
-      if (
-        !normalizedMatchId ||
-        !isPeriodEnded ||
-        !db?.syncQueue ||
-        !db?.timeanchors
-      ) {
-        return false;
-      }
-
-      const endAnchors = await db.timeanchors
-        .where("matchId")
-        .equals(normalizedMatchId)
-        .filter(
-          (a) =>
-            a.periodNumber === periodNumber && a.type === 1 && a.isSynced === 0,
-        )
-        .toArray();
-
-      if (endAnchors.length === 0) return false;
-
-      const endAnchorId = endAnchors[0].id;
-      const pendingItems = await db.syncQueue
-        .filter((item) => item.payload.includes(endAnchorId))
-        .toArray();
-
-      return pendingItems.length > 0;
-    }).subscribe({
+    const subscription = liveQuery(() =>
+      checkUnsyncedEndAnchorExists(normalizedMatchId ?? "", periodNumber),
+    ).subscribe({
       next: (canUndo) => setCanUndoEndPeriod(canUndo),
       error: () => setCanUndoEndPeriod(false),
     });
@@ -445,78 +527,11 @@ export const useMatchLifecycle = () => {
     }
 
     const anchorPeriod = targetPeriodNumber ?? periodNumber;
-    const anchorId = crypto.randomUUID();
-
-    await db.transaction(
-      "rw",
-      [db.timeanchors, db.gameevents, db.playerpresences, db.syncQueue],
-      async () => {
-        if (type === 0) {
-          const existingAnchors = await db.timeanchors
-            .where("matchId")
-            .equals(normalizedMatchId)
-            .filter((a) => a.periodNumber === anchorPeriod)
-            .toArray();
-
-          const existingState = calculatePeriodState(existingAnchors);
-          if (existingState.isPeriodActive || existingState.isPeriodEnded) {
-            throw new Error(
-              "Cannot start period: period is already active or ended.",
-            );
-          }
-        }
-
-        const nextSeq = await getNextSequenceNumber();
-        const timestamp = new Date().toISOString();
-
-        const anchorData = {
-          id: anchorId,
-          matchId: normalizedMatchId,
-          periodNumber: anchorPeriod,
-          type,
-          timestamp,
-          sequenceNumber: nextSeq,
-          isSynced: 0,
-        };
-
-        await db.timeanchors.add(anchorData);
-
-        const payload = JSON.stringify([
-          {
-            id: anchorData.id,
-            periodNumber: anchorData.periodNumber,
-            type: anchorData.type,
-            timestamp: anchorData.timestamp,
-          },
-        ]);
-
-        const syncItem = {
-          actionType: "POST" as const,
-          endpoint: `/Matches/${normalizedMatchId}/anchors`,
-          payload,
-          createdAt: timestamp,
-        };
-
-        await db.syncQueue.add(syncItem);
-      },
-    );
-
-    return anchorId;
+    return createAndSaveTimeAnchor(normalizedMatchId, anchorPeriod, type);
   };
 
   const removeTimeAnchor = async (anchorId: string) => {
-    await db.transaction("rw", [db.timeanchors, db.syncQueue], async () => {
-      await db.timeanchors.delete(anchorId);
-      const matchingQueueItems = await db.syncQueue
-        .filter((item) => item.payload.includes(anchorId))
-        .toArray();
-
-      for (const item of matchingQueueItems) {
-        if (item.id !== undefined) {
-          await db.syncQueue.delete(item.id);
-        }
-      }
-    });
+    await deleteTimeAnchorWithQueue(anchorId);
   };
 
   const revertStartPeriod = async (anchorId?: string | null) => {
@@ -573,9 +588,11 @@ export const useMatchLifecycle = () => {
       throw new Error("No active match ID found for logging time anchor.");
     }
 
-    const isTargetValid = isPeriodEnded
-      ? targetPeriodNumber === periodNumber + 1
-      : targetPeriodNumber === undefined || targetPeriodNumber === periodNumber;
+    const isTargetValid = validateTargetPeriod(
+      periodNumber,
+      isPeriodEnded,
+      targetPeriodNumber,
+    );
 
     if (isPeriodActive || !isTargetValid) {
       return;

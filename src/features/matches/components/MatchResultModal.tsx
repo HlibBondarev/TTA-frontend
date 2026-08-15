@@ -82,8 +82,10 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     setter(String(nextVal));
   };
 
-  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    e.stopPropagation();
+
     if (!isFormValid || !activeMatchId || !activeTeamId) return;
 
     setIsSubmitting(true);
@@ -110,10 +112,14 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
       }
     } catch (err) {
       console.error("Failed to finalize match:", err);
+      const isAbort = err instanceof Error && err.name === "AbortError";
+
       setErrorMessage(
-        err instanceof Error
-          ? err.message
-          : "Failed to finalize match. Please verify connection and try again.",
+        isAbort
+          ? "Request timed out or was cancelled. Please check backend sync and retry."
+          : err instanceof Error
+            ? err.message
+            : "Failed to finalize match. Please verify connection and try again.",
       );
       setIsSubmitting(false);
     }

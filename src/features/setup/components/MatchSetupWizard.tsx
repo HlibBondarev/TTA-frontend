@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { sportService } from "../../../services/sportService";
 import { teamService } from "../../../services/teamService";
 import { apiClient } from "../../../api/client";
+import { db } from "../../../db/ttaDatabase";
 import type {
   SportLookup,
   SportConfigurationLookup,
@@ -58,6 +59,11 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
         setConfigurations(data);
 
+        // Persist retrieved configurations to IndexedDB immediately
+        if (data.length > 0 && db.sportconfigurations) {
+          await db.sportconfigurations.bulkPut(data);
+        }
+
         const currentSport = sportList.find((s) => s.id === sportId);
         const defaultConfig = data.find(
           (c) => c.id === currentSport?.defaultConfigId,
@@ -100,6 +106,12 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         if (!isMounted) return;
 
         setSports(data);
+
+        // Persist sports to IndexedDB
+        if (data.length > 0 && db.sports) {
+          await db.sports.bulkPut(data);
+        }
+
         if (data.length > 0) {
           const firstSportId = data[0].id;
           setSelectedSportId(firstSportId);
@@ -145,6 +157,14 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       setIsLoadingTeams(true);
       setErrorMessage(null);
 
+      // Ensure the chosen configuration is explicitly in Dexie before proceeding
+      const selectedConfig = configurations.find(
+        (c) => c.id === selectedConfigId,
+      );
+      if (selectedConfig && db.sportconfigurations) {
+        await db.sportconfigurations.put(selectedConfig);
+      }
+
       let matchId = pendingMatchId;
 
       if (!matchId) {
@@ -160,6 +180,44 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       }
 
       const match = await apiClient.get<MatchLookup>(`/Matches/${matchId}`);
+
+      // Store match locally
+      if (match && db.matches) {
+        await db.matches.put(match);
+      }
+
+      // If match points to a tournament, ensure tournament is also stored
+      if (match.tournamentId && db.tournaments) {
+        try {
+          const tournament = await apiClient.get<{
+            id: string;
+            sportId: string;
+            configurationId: string;
+          }>(`/Tournaments/${match.tournamentId}`);
+          if (tournament) {
+            await db.tournaments.put(
+              tournament as unknown as Parameters<typeof db.tournaments.put>[0],
+            );
+          }
+        } catch {
+          // If tournament endpoint fails, ensure a fallback stub is created linking to configurationId
+          const existingTourn = await db.tournaments.get(match.tournamentId);
+          if (!existingTourn) {
+            await db.tournaments.put({
+              id: match.tournamentId,
+              sportId: selectedSportId,
+              configurationId: selectedConfigId,
+              cityId: "",
+              ownerId: "",
+              name: "Quick Tournament",
+              startDate: new Date().toISOString(),
+              endDate: null,
+              createdAt: new Date().toISOString(),
+            });
+          }
+        }
+      }
+
       const [home, guest] = await Promise.all([
         teamService.getTeamById(match.homeTeamId),
         teamService.getTeamById(match.guestTeamId),

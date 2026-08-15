@@ -455,7 +455,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       expect(result.current.isFinalPeriod(1)).toBe(false);
     });
 
-    test("fetches tournament and configuration from API fallback when missing in IndexedDB and saves to Dexie", async () => {
+    test("fetches tournament from API fallback when missing in IndexedDB and resolves config from Dexie", async () => {
       mockMatches = {
         "test-match-id": {
           id: "test-match-id",
@@ -463,17 +463,14 @@ describe("useMatchLifecycle Hook & State Machine", () => {
         },
       };
       mockTournaments = {};
-      mockSportConfigs = {};
+      mockSportConfigs = {
+        "missing-config-id": { id: "missing-config-id", periodsCount: 4 },
+      };
 
-      vi.mocked(apiClient.get)
-        .mockResolvedValueOnce({
-          id: "missing-tourn-id",
-          configurationId: "missing-config-id",
-        })
-        .mockResolvedValueOnce({
-          id: "missing-config-id",
-          periodsCount: 4,
-        });
+      vi.mocked(apiClient.get).mockResolvedValueOnce({
+        id: "missing-tourn-id",
+        configurationId: "missing-config-id",
+      });
 
       const store = createTestStore();
       const { result } = renderHook(() => useMatchLifecycle(), {
@@ -489,16 +486,9 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       expect(apiClient.get).toHaveBeenCalledWith(
         "/Tournaments/missing-tourn-id",
       );
-      expect(apiClient.get).toHaveBeenCalledWith(
-        "/SportConfigurations/missing-config-id",
-      );
       expect(db.tournaments.put).toHaveBeenCalledWith({
         id: "missing-tourn-id",
         configurationId: "missing-config-id",
-      });
-      expect(db.sportconfigurations.put).toHaveBeenCalledWith({
-        id: "missing-config-id",
-        periodsCount: 4,
       });
       expect(result.current.periodsCount).toBe(4);
     });

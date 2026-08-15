@@ -109,7 +109,7 @@ describe("Hydration Service", () => {
     ]);
   });
 
-  it("fetches and stores tournament and configuration when match contains tournamentId", async () => {
+  it("fetches and stores tournament when match contains tournamentId", async () => {
     const tournamentId = "tourn-789";
     const configId = "config-999";
 
@@ -120,8 +120,7 @@ describe("Hydration Service", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce({ id: tournamentId, configurationId: configId })
-      .mockResolvedValueOnce({ id: configId, periodsCount: 4 });
+      .mockResolvedValueOnce({ id: tournamentId, configurationId: configId });
 
     vi.mocked(db.transaction).mockImplementation((async (
       _mode: string,
@@ -158,16 +157,9 @@ describe("Hydration Service", () => {
 
     expect(result).toEqual({ success: true, isOfflineFallback: false });
     expect(apiClient.get).toHaveBeenCalledWith(`/Tournaments/${tournamentId}`);
-    expect(apiClient.get).toHaveBeenCalledWith(
-      `/SportConfigurations/${configId}`,
-    );
     expect(db.tournaments.put).toHaveBeenCalledWith({
       id: tournamentId,
       configurationId: configId,
-    });
-    expect(db.sportconfigurations.put).toHaveBeenCalledWith({
-      id: configId,
-      periodsCount: 4,
     });
   });
 

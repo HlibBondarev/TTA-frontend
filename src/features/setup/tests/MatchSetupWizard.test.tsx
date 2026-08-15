@@ -4,6 +4,7 @@ import { MatchSetupWizard } from "../components/MatchSetupWizard";
 import { sportService } from "../../../services/sportService";
 import { teamService } from "../../../services/teamService";
 import { apiClient } from "../../../api/client";
+import { db } from "../../../db/ttaDatabase";
 import type { TeamLookup } from "../../../db/ttaDatabase";
 
 vi.mock("../../../services/sportService", () => ({
@@ -23,6 +24,15 @@ vi.mock("../../../api/client", () => ({
   apiClient: {
     get: vi.fn(),
     post: vi.fn(),
+  },
+}));
+
+vi.mock("../../../db/ttaDatabase", () => ({
+  db: {
+    sports: { bulkPut: vi.fn() },
+    sportconfigurations: { bulkPut: vi.fn(), put: vi.fn() },
+    matches: { put: vi.fn() },
+    tournaments: { get: vi.fn().mockResolvedValue(null), put: vi.fn() },
   },
 }));
 
@@ -451,6 +461,60 @@ describe("MatchSetupWizard Component", () => {
         "config-2",
         5,
         "team-home",
+      );
+    });
+  });
+
+  it("should persist loaded sports and configurations into IndexedDB", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(db.sports.bulkPut).toHaveBeenCalledWith(mockSports);
+      expect(db.sportconfigurations.bulkPut).toHaveBeenCalledWith(mockConfigs);
+    });
+  });
+
+  it("should persist selected config, match and tournament fallback to IndexedDB on handleInitMatch", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({
+        id: "match-123",
+        tournamentId: "tourn-456",
+        homeTeamId: "team-home",
+        guestTeamId: "team-guest",
+      })
+      .mockRejectedValueOnce(new Error("Tournament not found"));
+
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    await waitFor(() => {
+      expect(db.sportconfigurations.put).toHaveBeenCalledWith(mockConfigs[0]);
+      expect(db.matches.put).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "match-123" }),
+      );
+      expect(db.tournaments.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "tourn-456",
+          configurationId: "config-1",
+        }),
       );
     });
   });

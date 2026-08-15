@@ -266,4 +266,28 @@ describe("MatchResultModal Component", () => {
       expect(mockOnSuccess).toHaveBeenCalledTimes(1);
     });
   });
+
+  test("should display friendly timeout message when finalization request is aborted", async () => {
+    const abortError = new Error("signal is aborted without reason");
+    abortError.name = "AbortError";
+
+    vi.mocked(matchFinalizationService.finalizeMatch).mockRejectedValueOnce(
+      abortError,
+    );
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={vi.fn()} />
+      </Provider>,
+    );
+
+    const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
+    fireEvent.click(submitBtn);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Request timed out or was cancelled. Please check backend sync and retry.",
+    );
+  });
 });
