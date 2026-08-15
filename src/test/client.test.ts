@@ -114,21 +114,32 @@ describe("API Client", () => {
 
   it("combines external AbortSignal with timeout signal properly", async () => {
     const externalController = new AbortController();
+    const abortError = new Error("Caller cancelled request");
+    abortError.name = "AbortError";
 
     vi.spyOn(globalThis, "fetch").mockImplementation((_url, options) => {
       const signal = options?.signal as AbortSignal;
       expect(signal).toBeDefined();
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: async () => ({ success: true }),
-      } as Response);
+
+      // If signal is already aborted prior to fetch execution, reject immediately
+      if (signal?.aborted) {
+        return Promise.reject(signal.reason);
+      }
+
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      });
     });
 
-    const res = await apiClient.get("test-signal", {
+    const request = apiClient.get("test-signal", {
       signal: externalController.signal,
     });
-    expect(res).toEqual({ success: true });
+
+    externalController.abort(abortError);
+
+    await expect(request).rejects.toBe(abortError);
   });
 
   it("handles aborted request errors gracefully and throws AbortError", async () => {
