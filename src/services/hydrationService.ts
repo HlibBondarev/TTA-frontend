@@ -119,23 +119,47 @@ export const hydrateMatchData = async (
         tournament = await apiClient.get<TournamentLookup>(
           `/Tournaments/${match.tournamentId}`,
         );
-        const targetSportId = tournament?.sportId;
-        const targetConfigId = tournament?.configurationId;
-
-        if (targetSportId && targetConfigId) {
-          try {
-            const configs =
-              await sportService.getSportConfigurations(targetSportId);
-            sportConfig = configs.find((c) => c.id === targetConfigId) ?? null;
-          } catch (cErr) {
-            console.warn(
-              "Failed to fetch sport configurations during hydration:",
-              cErr,
-            );
-          }
-        }
       } catch (tErr) {
-        console.warn("Failed to fetch tournament during hydration:", tErr);
+        throw new Error(
+          `Hydration Metadata Error: Failed to fetch tournament '${match.tournamentId}' during hydration: ${
+            tErr instanceof Error ? tErr.message : String(tErr)
+          }`,
+          { cause: tErr },
+        );
+      }
+
+      if (!tournament) {
+        throw new Error(
+          `Hydration Metadata Error: Tournament '${match.tournamentId}' returned null during hydration.`,
+        );
+      }
+
+      const targetSportId = tournament.sportId;
+      const targetConfigId = tournament.configurationId;
+
+      if (!targetSportId || !targetConfigId) {
+        throw new Error(
+          `Hydration Metadata Error: Tournament '${match.tournamentId}' is missing sportId or configurationId.`,
+        );
+      }
+
+      try {
+        const configs =
+          await sportService.getSportConfigurations(targetSportId);
+        sportConfig = configs.find((c) => c.id === targetConfigId) ?? null;
+      } catch (cErr) {
+        throw new Error(
+          `Hydration Metadata Error: Failed to fetch sport configurations for sport '${targetSportId}': ${
+            cErr instanceof Error ? cErr.message : String(cErr)
+          }`,
+          { cause: cErr },
+        );
+      }
+
+      if (!sportConfig) {
+        throw new Error(
+          `Hydration Metadata Error: SportConfiguration '${targetConfigId}' not found for sport '${targetSportId}'.`,
+        );
       }
     }
 
@@ -180,7 +204,11 @@ export const hydrateMatchData = async (
     return { success: true, isOfflineFallback: false };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    if (errorMessage.includes("401") || errorMessage.includes("403")) {
+    if (
+      errorMessage.includes("401") ||
+      errorMessage.includes("403") ||
+      errorMessage.includes("Hydration Metadata Error:")
+    ) {
       throw err;
     }
 

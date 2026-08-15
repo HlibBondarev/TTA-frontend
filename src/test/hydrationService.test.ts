@@ -190,6 +190,68 @@ describe("Hydration Service", () => {
     expect(db.sportconfigurations.put).toHaveBeenCalledWith(mockConfig);
   });
 
+  it("re-throws Hydration Metadata Error when tournament fetch fails", async () => {
+    const tournamentId = "tourn-failed";
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("Tournament fetch failed 500"));
+
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      "Hydration Metadata Error: Failed to fetch tournament 'tourn-failed' during hydration: Tournament fetch failed 500",
+    );
+    expect(seedTestData).not.toHaveBeenCalled();
+  });
+
+  it("re-throws Hydration Metadata Error when tournament is null or missing required IDs", async () => {
+    const tournamentId = "tourn-incomplete";
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ id: tournamentId }); // missing sportId & configurationId
+
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      "Hydration Metadata Error: Tournament 'tourn-incomplete' is missing sportId or configurationId.",
+    );
+    expect(seedTestData).not.toHaveBeenCalled();
+  });
+
+  it("re-throws Hydration Metadata Error when sport configuration fetch fails or matching config is not found", async () => {
+    const tournamentId = "tourn-789";
+    const sportId = "sport-111";
+    const configId = "config-missing";
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        id: tournamentId,
+        sportId,
+        configurationId: configId,
+      });
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([]);
+
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      "Hydration Metadata Error: SportConfiguration 'config-missing' not found for sport 'sport-111'.",
+    );
+    expect(seedTestData).not.toHaveBeenCalled();
+  });
+
   it("deletes synced presence and event rows for removed lineup IDs when server returns empty lineups", async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId })
