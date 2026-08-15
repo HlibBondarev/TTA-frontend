@@ -92,6 +92,66 @@ const syncEvents = async (
   }
 };
 
+/**
+ * Fetches and validates tournament and sport configuration metadata for a given tournamentId.
+ */
+const fetchTournamentMetadata = async (
+  tournamentId: string,
+): Promise<{
+  tournament: TournamentLookup;
+  sportConfig: SportConfigurationLookup;
+}> => {
+  let tournament: TournamentLookup | null;
+  try {
+    tournament = await apiClient.get<TournamentLookup>(
+      `/Tournaments/${tournamentId}`,
+    );
+  } catch (tErr) {
+    throw new Error(
+      `Hydration Metadata Error: Failed to fetch tournament '${tournamentId}' during hydration: ${
+        tErr instanceof Error ? tErr.message : String(tErr)
+      }`,
+      { cause: tErr },
+    );
+  }
+
+  if (!tournament) {
+    throw new Error(
+      `Hydration Metadata Error: Tournament '${tournamentId}' returned null during hydration.`,
+    );
+  }
+
+  const targetSportId = tournament.sportId;
+  const targetConfigId = tournament.configurationId;
+
+  if (!targetSportId || !targetConfigId) {
+    throw new Error(
+      `Hydration Metadata Error: Tournament '${tournamentId}' is missing sportId or configurationId.`,
+    );
+  }
+
+  let sportConfig: SportConfigurationLookup | null;
+  try {
+    const configs = await sportService.getSportConfigurations(targetSportId);
+    sportConfig = configs.find((c) => c.id === targetConfigId) ?? null;
+  } catch (cErr) {
+    throw new Error(
+      `Hydration Metadata Error: Failed to fetch sport configurations for sport '${targetSportId}': ${
+        cErr instanceof Error ? cErr.message : String(cErr)
+      }`,
+      { cause: cErr },
+    );
+  }
+
+  if (!sportConfig) {
+    throw new Error(
+      `Hydration Metadata Error: SportConfiguration '${targetConfigId}' not found for sport '${targetSportId}'.`,
+    );
+  }
+
+  return { tournament, sportConfig };
+};
+
 export const hydrateMatchData = async (
   matchId: string,
   teamId: string,
@@ -115,52 +175,9 @@ export const hydrateMatchData = async (
     let sportConfig: SportConfigurationLookup | null = null;
 
     if (match?.tournamentId) {
-      try {
-        tournament = await apiClient.get<TournamentLookup>(
-          `/Tournaments/${match.tournamentId}`,
-        );
-      } catch (tErr) {
-        throw new Error(
-          `Hydration Metadata Error: Failed to fetch tournament '${match.tournamentId}' during hydration: ${
-            tErr instanceof Error ? tErr.message : String(tErr)
-          }`,
-          { cause: tErr },
-        );
-      }
-
-      if (!tournament) {
-        throw new Error(
-          `Hydration Metadata Error: Tournament '${match.tournamentId}' returned null during hydration.`,
-        );
-      }
-
-      const targetSportId = tournament.sportId;
-      const targetConfigId = tournament.configurationId;
-
-      if (!targetSportId || !targetConfigId) {
-        throw new Error(
-          `Hydration Metadata Error: Tournament '${match.tournamentId}' is missing sportId or configurationId.`,
-        );
-      }
-
-      try {
-        const configs =
-          await sportService.getSportConfigurations(targetSportId);
-        sportConfig = configs.find((c) => c.id === targetConfigId) ?? null;
-      } catch (cErr) {
-        throw new Error(
-          `Hydration Metadata Error: Failed to fetch sport configurations for sport '${targetSportId}': ${
-            cErr instanceof Error ? cErr.message : String(cErr)
-          }`,
-          { cause: cErr },
-        );
-      }
-
-      if (!sportConfig) {
-        throw new Error(
-          `Hydration Metadata Error: SportConfiguration '${targetConfigId}' not found for sport '${targetSportId}'.`,
-        );
-      }
+      const metadata = await fetchTournamentMetadata(match.tournamentId);
+      tournament = metadata.tournament;
+      sportConfig = metadata.sportConfig;
     }
 
     await db.transaction(
