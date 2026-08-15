@@ -82,7 +82,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     setter(String(nextVal));
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -114,13 +114,16 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
       console.error("Failed to finalize match:", err);
       const isAbort = err instanceof Error && err.name === "AbortError";
 
-      setErrorMessage(
-        isAbort
-          ? "Request timed out or was cancelled. Please check backend sync and retry."
-          : err instanceof Error
-            ? err.message
-            : "Failed to finalize match. Please verify connection and try again.",
-      );
+      let errorText =
+        "Failed to finalize match. Please verify connection and try again.";
+      if (isAbort) {
+        errorText =
+          "Request timed out or was cancelled. Please check backend sync and retry.";
+      } else if (err instanceof Error) {
+        errorText = err.message;
+      }
+
+      setErrorMessage(errorText);
       setIsSubmitting(false);
     }
   };

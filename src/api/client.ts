@@ -7,6 +7,29 @@ export interface RequestOptions extends RequestInit {
   token?: string;
 }
 
+function combineAbortSignals(
+  externalSignal: AbortSignal,
+  timeoutSignal: AbortSignal,
+): AbortSignal {
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any([externalSignal, timeoutSignal]);
+  }
+
+  const combinedController = new AbortController();
+  const onAbort = () => {
+    combinedController.abort(externalSignal.reason || timeoutSignal.reason);
+  };
+
+  if (externalSignal.aborted || timeoutSignal.aborted) {
+    onAbort();
+  } else {
+    externalSignal.addEventListener("abort", onAbort, { once: true });
+    timeoutSignal.addEventListener("abort", onAbort, { once: true });
+  }
+
+  return combinedController.signal;
+}
+
 export const apiClient = {
   async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { token, headers, signal: externalSignal, ...rest } = options;
@@ -33,34 +56,9 @@ export const apiClient = {
       );
     }, DEFAULT_TIMEOUT_MS);
 
-    // Combine external signal and timeout signal safely
-    let effectiveSignal = timeoutController.signal;
-    if (externalSignal) {
-      if (typeof AbortSignal.any === "function") {
-        effectiveSignal = AbortSignal.any([
-          externalSignal,
-          timeoutController.signal,
-        ]);
-      } else {
-        const combinedController = new AbortController();
-        const onAbort = () => {
-          combinedController.abort(
-            externalSignal.reason || timeoutController.signal.reason,
-          );
-        };
-        if (externalSignal.aborted) {
-          onAbort();
-        } else if (timeoutController.signal.aborted) {
-          onAbort();
-        } else {
-          externalSignal.addEventListener("abort", onAbort, { once: true });
-          timeoutController.signal.addEventListener("abort", onAbort, {
-            once: true,
-          });
-        }
-        effectiveSignal = combinedController.signal;
-      }
-    }
+    const effectiveSignal = externalSignal
+      ? combineAbortSignals(externalSignal, timeoutController.signal)
+      : timeoutController.signal;
 
     try {
       const response = await fetch(`${BASE_URL}${normalizedEndpoint}`, {

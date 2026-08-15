@@ -20,6 +20,43 @@ interface MatchSetupWizardProps {
   ) => Promise<void>;
 }
 
+async function ensureTournamentPersisted(
+  tournamentId: string,
+  sportId: string,
+  configurationId: string,
+): Promise<void> {
+  if (!db.tournaments) return;
+
+  try {
+    const tournament = await apiClient.get<{
+      id: string;
+      sportId: string;
+      configurationId: string;
+    }>(`/Tournaments/${tournamentId}`);
+
+    if (tournament) {
+      await db.tournaments.put(
+        tournament as unknown as Parameters<typeof db.tournaments.put>[0],
+      );
+    }
+  } catch {
+    const existingTourn = await db.tournaments.get(tournamentId);
+    if (!existingTourn) {
+      await db.tournaments.put({
+        id: tournamentId,
+        sportId,
+        configurationId,
+        cityId: "",
+        ownerId: "",
+        name: "Quick Tournament",
+        startDate: new Date().toISOString(),
+        endDate: null,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+}
+
 export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   onQuickStart,
 }) => {
@@ -187,35 +224,12 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       }
 
       // If match points to a tournament, ensure tournament is also stored
-      if (match.tournamentId && db.tournaments) {
-        try {
-          const tournament = await apiClient.get<{
-            id: string;
-            sportId: string;
-            configurationId: string;
-          }>(`/Tournaments/${match.tournamentId}`);
-          if (tournament) {
-            await db.tournaments.put(
-              tournament as unknown as Parameters<typeof db.tournaments.put>[0],
-            );
-          }
-        } catch {
-          // If tournament endpoint fails, ensure a fallback stub is created linking to configurationId
-          const existingTourn = await db.tournaments.get(match.tournamentId);
-          if (!existingTourn) {
-            await db.tournaments.put({
-              id: match.tournamentId,
-              sportId: selectedSportId,
-              configurationId: selectedConfigId,
-              cityId: "",
-              ownerId: "",
-              name: "Quick Tournament",
-              startDate: new Date().toISOString(),
-              endDate: null,
-              createdAt: new Date().toISOString(),
-            });
-          }
-        }
+      if (match.tournamentId) {
+        await ensureTournamentPersisted(
+          match.tournamentId,
+          selectedSportId,
+          selectedConfigId,
+        );
       }
 
       const [home, guest] = await Promise.all([
