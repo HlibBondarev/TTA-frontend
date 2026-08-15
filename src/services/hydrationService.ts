@@ -1,4 +1,5 @@
 import { apiClient } from "../api/client";
+import { sportService } from "./sportService";
 import { db } from "../db/ttaDatabase";
 import type {
   MatchLookup,
@@ -8,6 +9,7 @@ import type {
   GameEvent,
   EventDefinitionLookup,
   TournamentLookup,
+  SportConfigurationLookup,
 } from "../db/ttaDatabase";
 import { seedTestData } from "../db/seed";
 
@@ -110,12 +112,28 @@ export const hydrateMatchData = async (
       ]);
 
     let tournament: TournamentLookup | null = null;
+    let sportConfig: SportConfigurationLookup | null = null;
 
     if (match?.tournamentId) {
       try {
         tournament = await apiClient.get<TournamentLookup>(
           `/Tournaments/${match.tournamentId}`,
         );
+        const targetSportId = tournament?.sportId;
+        const targetConfigId = tournament?.configurationId;
+
+        if (targetSportId && targetConfigId) {
+          try {
+            const configs =
+              await sportService.getSportConfigurations(targetSportId);
+            sportConfig = configs.find((c) => c.id === targetConfigId) ?? null;
+          } catch (cErr) {
+            console.warn(
+              "Failed to fetch sport configurations during hydration:",
+              cErr,
+            );
+          }
+        }
       } catch (tErr) {
         console.warn("Failed to fetch tournament during hydration:", tErr);
       }
@@ -136,6 +154,7 @@ export const hydrateMatchData = async (
       async () => {
         if (match) await db.matches.put(match);
         if (tournament) await db.tournaments.put(tournament);
+        if (sportConfig) await db.sportconfigurations.put(sportConfig);
 
         const existingLineups = await db.matchlineups
           .where("matchId")

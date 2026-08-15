@@ -1,12 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { hydrateMatchData } from "../services/hydrationService";
 import { apiClient } from "../api/client";
+import { sportService } from "../services/sportService";
 import { db } from "../db/ttaDatabase";
 import { seedTestData } from "../db/seed";
 
 vi.mock("../api/client", () => ({
   apiClient: {
     get: vi.fn(),
+  },
+}));
+
+vi.mock("../services/sportService", () => ({
+  sportService: {
+    getSportConfigurations: vi.fn(),
   },
 }));
 
@@ -109,9 +116,16 @@ describe("Hydration Service", () => {
     ]);
   });
 
-  it("fetches and stores tournament when match contains tournamentId", async () => {
+  it("fetches and stores tournament and sport configuration when match contains tournamentId", async () => {
     const tournamentId = "tourn-789";
+    const sportId = "sport-111";
     const configId = "config-999";
+
+    const mockConfig = {
+      id: configId,
+      sportId,
+      periodsCount: 4,
+    };
 
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId, tournamentId })
@@ -120,7 +134,17 @@ describe("Hydration Service", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce({ id: tournamentId, configurationId: configId });
+      .mockResolvedValueOnce({
+        id: tournamentId,
+        sportId,
+        configurationId: configId,
+      });
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      mockConfig as unknown as Awaited<
+        ReturnType<typeof sportService.getSportConfigurations>
+      >[0],
+    ]);
 
     vi.mocked(db.transaction).mockImplementation((async (
       _mode: string,
@@ -157,10 +181,13 @@ describe("Hydration Service", () => {
 
     expect(result).toEqual({ success: true, isOfflineFallback: false });
     expect(apiClient.get).toHaveBeenCalledWith(`/Tournaments/${tournamentId}`);
+    expect(sportService.getSportConfigurations).toHaveBeenCalledWith(sportId);
     expect(db.tournaments.put).toHaveBeenCalledWith({
       id: tournamentId,
+      sportId,
       configurationId: configId,
     });
+    expect(db.sportconfigurations.put).toHaveBeenCalledWith(mockConfig);
   });
 
   it("deletes synced presence and event rows for removed lineup IDs when server returns empty lineups", async () => {
