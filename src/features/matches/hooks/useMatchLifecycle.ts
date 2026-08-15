@@ -54,7 +54,11 @@ const fetchSportConfigPeriodsCount = async (
       if (tournament && db.tournaments) {
         await db.tournaments.put(tournament);
       }
-    } catch {
+    } catch (err) {
+      console.error(
+        `[useMatchLifecycle] Tournament fallback fetch failed for '${match.tournamentId}':`,
+        err,
+      );
       // Fallthrough to strict null check below
     }
   }

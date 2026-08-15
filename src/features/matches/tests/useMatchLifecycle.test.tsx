@@ -1900,4 +1900,36 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(store.getState().match.isPeriodActive).toBe(false);
     expect(store.getState().match.globalSequenceNumber).toBe(3);
   });
+
+  test("logs error when tournament API fallback fetch fails", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    mockMatches = {
+      "test-match-id": {
+        id: "test-match-id",
+        tournamentId: "failed-tourn-id",
+      },
+    };
+    mockTournaments = {};
+
+    vi.mocked(apiClient.get).mockRejectedValueOnce(
+      new Error("Network connection lost"),
+    );
+
+    const store = createTestStore();
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "[useMatchLifecycle] Tournament fallback fetch failed for 'failed-tourn-id':",
+      expect.any(Error),
+    );
+
+    consoleSpy.mockRestore();
+  });
 });
