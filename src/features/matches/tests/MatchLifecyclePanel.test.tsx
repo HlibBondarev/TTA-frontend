@@ -17,6 +17,9 @@ import * as usePlayerPresenceModule from "../../playerpresences/hooks/usePlayerP
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
 
 let mockTimeAnchors: TimeAnchor[] = [];
+let mockMatches: Record<string, unknown> = {};
+let mockTournaments: Record<string, unknown> = {};
+let mockSportConfigs: Record<string, unknown> = {};
 
 const seedAnchorsFromState = (matchState: Partial<MatchState> = {}) => {
   const matchId = matchState.activeMatchId || "test-match";
@@ -63,8 +66,23 @@ vi.mock("../../../services/syncService", () => ({
   processSyncQueue: vi.fn().mockResolvedValue(0),
 }));
 
+vi.mock("../../../services/matchFinalizationService", () => ({
+  matchFinalizationService: {
+    finalizeMatch: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
+    matches: {
+      get: vi.fn((id: string) => Promise.resolve(mockMatches[id])),
+    },
+    tournaments: {
+      get: vi.fn((id: string) => Promise.resolve(mockTournaments[id])),
+    },
+    sportconfigurations: {
+      get: vi.fn((id: string) => Promise.resolve(mockSportConfigs[id])),
+    },
     timeanchors: {
       add: vi.fn((anchor: TimeAnchor) => {
         mockTimeAnchors.push(anchor);
@@ -181,12 +199,32 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockTimeAnchors = [];
+
+    mockMatches = {
+      "test-match": {
+        id: "test-match",
+        tournamentId: "test-tournament",
+      },
+    };
+    mockTournaments = {
+      "test-tournament": {
+        id: "test-tournament",
+        configurationId: "test-config",
+      },
+    };
+    mockSportConfigs = {
+      "test-config": {
+        id: "test-config",
+        periodsCount: 4,
+      },
+    };
+
     vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue(
       defaultPresenceMock,
     );
   });
 
-  test("should render component structure properly without navigation arrows", () => {
+  test("should render component structure properly without navigation arrows", async () => {
     const store = createTestStore();
     render(
       <Provider store={store}>
@@ -194,14 +232,17 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       </Provider>,
     );
 
-    expect(screen.getByText("Period")).toBeDefined();
-    expect(screen.getByText("1")).toBeDefined();
+    await waitFor(() => {
+      expect(screen.getByText("Period")).toBeDefined();
+      expect(screen.getByText("1")).toBeDefined();
+    });
+
     expect(screen.queryByRole("button", { name: "<" })).toBeNull();
     expect(screen.queryByRole("button", { name: ">" })).toBeNull();
     expect(screen.getByText("START PERIOD")).toBeDefined();
   });
 
-  test("should disable END PERIOD button when stoppage is active", () => {
+  test("should disable END PERIOD button when stoppage is active", async () => {
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
@@ -220,6 +261,10 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
         <MatchLifecyclePanel />
       </Provider>,
     );
+
+    await waitFor(() => {
+      expect(screen.getByText("1")).toBeInTheDocument();
+    });
 
     const endBtn = screen.getByText("END PERIOD");
     expect(endBtn).toBeDisabled();
@@ -258,7 +303,12 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       </Provider>,
     );
 
+    await waitFor(() => {
+      expect(screen.getByText("1")).toBeInTheDocument();
+    });
+
     const startBtn = screen.getByText("START PERIOD");
+    await waitFor(() => expect(startBtn).not.toBeDisabled());
     fireEvent.click(startBtn);
 
     await waitFor(() => {
@@ -290,7 +340,12 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       </Provider>,
     );
 
+    await waitFor(() => {
+      expect(screen.getByText("1")).toBeInTheDocument();
+    });
+
     const endBtn = screen.getByText("END PERIOD");
+    await waitFor(() => expect(endBtn).not.toBeDisabled());
     fireEvent.click(endBtn);
 
     await waitFor(() => {
@@ -303,7 +358,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     });
   });
 
-  test("should end period 4 and remain on period 4 displaying MATCH ENDED", async () => {
+  test("should end period 4, await endPeriodWithRoster, remain on period 4 displaying MATCH ENDED and open MatchResultModal", async () => {
     const store = createTestStore({
       match: {
         activeMatchId: "test-match",
@@ -323,7 +378,12 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       </Provider>,
     );
 
+    await waitFor(() => {
+      expect(screen.getByText("4")).toBeInTheDocument();
+    });
+
     const endBtn = screen.getByText("END PERIOD");
+    await waitFor(() => expect(endBtn).not.toBeDisabled());
     fireEvent.click(endBtn);
 
     await waitFor(() => {
@@ -334,7 +394,52 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       expect(store.getState().match.periodNumber).toBe(4);
       expect(store.getState().match.isPeriodEnded).toBe(true);
       expect(screen.getByText("MATCH ENDED")).toBeInTheDocument();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText("Match Result Finalization")).toBeInTheDocument();
     });
+  });
+
+  test("should NOT open MatchResultModal if endPeriodWithRoster fails on final period", async () => {
+    vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
+      ...defaultPresenceMock,
+      endPeriodWithRoster: vi
+        .fn()
+        .mockRejectedValue(new Error("Roster termination failed")),
+    });
+
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 4,
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        isPeriodEnded: false,
+        globalSequenceNumber: 8,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("4")).toBeInTheDocument();
+    });
+
+    const endBtn = screen.getByText("END PERIOD");
+    await waitFor(() => expect(endBtn).not.toBeDisabled());
+    fireEvent.click(endBtn);
+
+    await waitFor(() => {
+      expect(store.getState().match.isPeriodActive).toBe(true);
+      expect(db.timeanchors.delete).toHaveBeenCalledWith(expect.any(String));
+    });
+
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   test("should start period 2 passing target period 2 explicitly to startPeriodWithRoster", async () => {
@@ -358,6 +463,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     );
 
     const startNextBtn = await screen.findByText("START PERIOD 2");
+    await waitFor(() => expect(startNextBtn).not.toBeDisabled());
     fireEvent.click(startNextBtn);
 
     await waitFor(() => {
@@ -391,6 +497,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     );
 
     const undoBtn = await screen.findByText("UNDO END PERIOD 1");
+    await waitFor(() => expect(undoBtn).not.toBeDisabled());
     fireEvent.click(undoBtn);
 
     await waitFor(() => {
@@ -415,7 +522,12 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       </Provider>,
     );
 
+    await waitFor(() => {
+      expect(screen.getByText("1")).toBeInTheDocument();
+    });
+
     const startBtn = screen.getByText("START PERIOD");
+    await waitFor(() => expect(startBtn).not.toBeDisabled());
     fireEvent.click(startBtn);
 
     await waitFor(() => {
@@ -443,7 +555,12 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       </Provider>,
     );
 
+    await waitFor(() => {
+      expect(screen.getByText("1")).toBeInTheDocument();
+    });
+
     const startBtn = screen.getByText("START PERIOD");
+    await waitFor(() => expect(startBtn).not.toBeDisabled());
     fireEvent.click(startBtn);
 
     expect(
@@ -478,7 +595,12 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       </Provider>,
     );
 
+    await waitFor(() => {
+      expect(screen.getByText("1")).toBeInTheDocument();
+    });
+
     const endBtn = screen.getByText("END PERIOD");
+    await waitFor(() => expect(endBtn).not.toBeDisabled());
     fireEvent.click(endBtn);
 
     await waitFor(() => {
@@ -530,6 +652,10 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
     await expect(
       act(async () => {
         await result.current.endPeriod();
@@ -559,8 +685,12 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       </Provider>,
     );
 
+    await waitFor(() => {
+      expect(screen.getByText("1")).toBeInTheDocument();
+    });
+
     const resumeBtn = screen.getByRole("button", { name: /Resume/i });
-    expect(resumeBtn).not.toBeDisabled();
+    await waitFor(() => expect(resumeBtn).not.toBeDisabled());
 
     fireEvent.click(resumeBtn);
 
@@ -589,8 +719,12 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       </Provider>,
     );
 
+    await waitFor(() => {
+      expect(screen.getByText("1")).toBeInTheDocument();
+    });
+
     const stopBtn = screen.getByRole("button", { name: /^Stop$/i });
-    expect(stopBtn).not.toBeDisabled();
+    await waitFor(() => expect(stopBtn).not.toBeDisabled());
 
     fireEvent.click(stopBtn);
 
@@ -613,7 +747,12 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       </Provider>,
     );
 
+    await waitFor(() => {
+      expect(screen.getByText("1")).toBeInTheDocument();
+    });
+
     const startBtn = screen.getByText("START PERIOD");
+    await waitFor(() => expect(startBtn).not.toBeDisabled());
     fireEvent.click(startBtn);
 
     expect(
@@ -650,24 +789,108 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     );
 
     const startBtn = await screen.findByText("START PERIOD 2");
+    await waitFor(() => expect(startBtn).not.toBeDisabled());
     fireEvent.click(startBtn);
 
     await waitFor(() => {
       expect(store.getState().match.periodNumber).toBe(1);
       expect(store.getState().match.isPeriodEnded).toBe(true);
       expect(store.getState().match.isPeriodActive).toBe(false);
+
+      const addedAnchor = vi
+        .mocked(db.timeanchors.add)
+        .mock.calls.at(-1)?.[0] as
+        | {
+            id: string;
+            periodNumber: number;
+          }
+        | undefined;
+
+      expect(addedAnchor).toBeDefined();
+      expect(addedAnchor?.periodNumber).toBe(2);
+      expect(db.timeanchors.delete).toHaveBeenCalledWith(addedAnchor?.id);
     });
 
-    const addedAnchor = vi
-      .mocked(db.timeanchors.add)
-      .mock.calls.at(-1)?.[0] as {
-      id: string;
-      periodNumber: number;
-    };
-    expect(addedAnchor.periodNumber).toBe(2);
-    expect(db.timeanchors.delete).toHaveBeenCalledWith(addedAnchor.id);
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Failed to start period. Transaction fully reverted.",
     );
+  });
+
+  test("should open MatchResultModal when clicking MATCH ENDED button after period 4 ends", async () => {
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 4,
+        isPeriodActive: false,
+        isInsideStoppage: false,
+        isPeriodEnded: true,
+        globalSequenceNumber: 8,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const matchEndedBtn = await screen.findByRole("button", {
+      name: /MATCH ENDED/i,
+    });
+    await waitFor(() => expect(matchEndedBtn).not.toBeDisabled());
+    fireEvent.click(matchEndedBtn);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Match Result Finalization")).toBeInTheDocument();
+  });
+
+  test("should disable lifecycle buttons when configuration resolution fails with configError", async () => {
+    mockMatches = {}; // Induce lookup error
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /not found in local IndexedDB/i,
+      );
+    });
+
+    const startBtn = screen.getByRole("button", { name: /START PERIOD/i });
+    const endBtn = screen.getByRole("button", { name: /END PERIOD/i });
+
+    expect(startBtn).toBeDisabled();
+    expect(endBtn).toBeDisabled();
+  });
+
+  test("should pass onFinalizeSuccess callback down to MatchResultModal", async () => {
+    const onFinalizeSuccessMock = vi.fn();
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        periodNumber: 4,
+        isPeriodEnded: true,
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel onFinalizeSuccess={onFinalizeSuccessMock} />
+      </Provider>,
+    );
+
+    const matchEndedBtn = await screen.findByRole("button", {
+      name: /MATCH ENDED/i,
+    });
+    await waitFor(() => expect(matchEndedBtn).not.toBeDisabled());
+    fireEvent.click(matchEndedBtn);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });

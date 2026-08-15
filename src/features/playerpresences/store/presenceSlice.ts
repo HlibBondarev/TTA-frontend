@@ -77,6 +77,7 @@ export const presenceSlice = createSlice({
     setLoading: (state, action: PayloadAction<boolean>) => {
       state.isLoading = action.payload;
     },
+    resetPresenceState: () => initialState,
   },
 });
 
@@ -88,6 +89,7 @@ export const {
   clearActiveRosterToBench,
   optimisticSubstitute,
   setLoading,
+  resetPresenceState,
 } = presenceSlice.actions;
 
 export default presenceSlice.reducer;

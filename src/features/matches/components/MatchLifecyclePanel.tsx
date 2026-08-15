@@ -2,15 +2,27 @@ import React, { useState } from "react";
 import { useSelector } from "react-redux";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
 import { usePlayerPresence } from "../../../features/playerpresences/hooks/usePlayerPresence";
+import { MatchResultModal } from "./MatchResultModal";
 import type { RootState } from "../../../store";
 
-export const MatchLifecyclePanel: React.FC = () => {
+interface MatchLifecyclePanelProps {
+  onFinalizeSuccess?: () => void;
+}
+
+export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
+  onFinalizeSuccess,
+}) => {
   const {
     periodNumber,
     isPeriodActive,
     isInsideStoppage,
     isPeriodEnded,
     canUndoEndPeriod,
+    periodsCount,
+    isLoadingConfig,
+    configError,
+    isResultModalOpen,
+    setIsResultModalOpen,
     startPeriod,
     endPeriod,
     revertStartPeriod,
@@ -76,11 +88,17 @@ export const MatchLifecyclePanel: React.FC = () => {
     setPanelError(null);
     let anchorId: string | null | undefined = null;
     try {
-      // Step 1: Log time anchor first
-      anchorId = await endPeriod();
+      // Step 1: Log time anchor first and receive final-period status
+      const endResult = await endPeriod();
+      anchorId = endResult?.anchorId;
 
       // Step 2: Terminate roster presence transaction for current period
       await endPeriodWithRoster(new Date().toISOString(), periodNumber);
+
+      // Step 3: Open result modal ONLY after successful roster termination on final period
+      if (endResult?.isFinal) {
+        setIsResultModalOpen(true);
+      }
     } catch (err) {
       console.error(err);
       try {
@@ -107,23 +125,27 @@ export const MatchLifecyclePanel: React.FC = () => {
     }
   };
 
-  const maxPeriods = 4;
+  const displayError = panelError || configError;
+  const isConfigDisabled =
+    isLoadingConfig || periodsCount === null || Boolean(configError);
+  const hasReachedMaxPeriods =
+    periodsCount !== null && periodNumber >= periodsCount;
 
   return (
     <div className="w-full bg-gray-900 text-white rounded-xl border border-gray-800 p-2">
-      {panelError && (
+      {displayError && (
         <div
           role="alert"
           className="mb-2 p-1 text-[10px] bg-red-900/50 text-red-200 rounded"
         >
-          {panelError}
+          {displayError}
         </div>
       )}
 
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-gray-300">Period</span>
         <span className="text-sm font-black text-emerald-400 min-w-4 text-center">
-          {periodNumber}
+          {isLoadingConfig ? "..." : periodNumber}
         </span>
       </div>
 
@@ -133,7 +155,7 @@ export const MatchLifecyclePanel: React.FC = () => {
             <button
               type="button"
               onClick={() => handleStartPeriod()}
-              disabled={isPeriodActive}
+              disabled={isPeriodActive || isConfigDisabled}
               className="py-1 min-h-11 bg-emerald-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
             >
               START PERIOD
@@ -141,7 +163,7 @@ export const MatchLifecyclePanel: React.FC = () => {
             <button
               type="button"
               onClick={handleEndPeriod}
-              disabled={!isPeriodActive || isInsideStoppage}
+              disabled={!isPeriodActive || isInsideStoppage || isConfigDisabled}
               className="py-1 min-h-11 bg-rose-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
             >
               END PERIOD
@@ -149,19 +171,21 @@ export const MatchLifecyclePanel: React.FC = () => {
           </>
         ) : (
           <>
-            {periodNumber < maxPeriods ? (
+            {!hasReachedMaxPeriods ? (
               <button
                 type="button"
                 onClick={() => handleStartPeriod(periodNumber + 1)}
-                className="py-1 min-h-11 bg-emerald-700 hover:bg-emerald-600 rounded text-[10px] font-bold uppercase"
+                disabled={isConfigDisabled}
+                className="py-1 min-h-11 bg-emerald-700 hover:bg-emerald-600 rounded text-[10px] font-bold uppercase disabled:opacity-30"
               >
                 START PERIOD {periodNumber + 1}
               </button>
             ) : (
               <button
                 type="button"
-                disabled
-                className="py-1 min-h-11 bg-gray-800 rounded text-[10px] font-bold uppercase opacity-30"
+                onClick={() => setIsResultModalOpen(true)}
+                disabled={isConfigDisabled}
+                className="py-1 min-h-11 bg-emerald-800 hover:bg-emerald-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
               >
                 MATCH ENDED
               </button>
@@ -171,7 +195,8 @@ export const MatchLifecyclePanel: React.FC = () => {
               <button
                 type="button"
                 onClick={handleUndoEndPeriod}
-                className="py-1 min-h-11 bg-amber-700 hover:bg-amber-600 rounded text-[10px] font-bold uppercase"
+                disabled={isConfigDisabled}
+                className="py-1 min-h-11 bg-amber-700 hover:bg-amber-600 rounded text-[10px] font-bold uppercase disabled:opacity-30"
               >
                 UNDO END PERIOD {periodNumber}
               </button>
@@ -192,7 +217,7 @@ export const MatchLifecyclePanel: React.FC = () => {
         <button
           type="button"
           onClick={startTime}
-          disabled={!isPeriodActive || !isInsideStoppage}
+          disabled={!isPeriodActive || !isInsideStoppage || isConfigDisabled}
           className="py-1 min-h-11 bg-blue-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
         >
           Resume
@@ -200,12 +225,21 @@ export const MatchLifecyclePanel: React.FC = () => {
         <button
           type="button"
           onClick={stopTime}
-          disabled={!isPeriodActive || isInsideStoppage}
+          disabled={!isPeriodActive || isInsideStoppage || isConfigDisabled}
           className="py-1 min-h-11 bg-amber-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
         >
           Stop
         </button>
       </div>
+
+      <MatchResultModal
+        isOpen={isResultModalOpen}
+        onClose={() => setIsResultModalOpen(false)}
+        onSuccess={() => {
+          setIsResultModalOpen(false);
+          onFinalizeSuccess?.();
+        }}
+      />
     </div>
   );
 };

@@ -1,12 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { hydrateMatchData } from "../services/hydrationService";
 import { apiClient } from "../api/client";
+import { sportService } from "../services/sportService";
 import { db } from "../db/ttaDatabase";
 import { seedTestData } from "../db/seed";
 
 vi.mock("../api/client", () => ({
   apiClient: {
     get: vi.fn(),
+  },
+}));
+
+vi.mock("../services/sportService", () => ({
+  sportService: {
+    getSportConfigurations: vi.fn(),
   },
 }));
 
@@ -18,6 +25,8 @@ vi.mock("../db/ttaDatabase", () => ({
   db: {
     transaction: vi.fn(),
     matches: { put: vi.fn() },
+    tournaments: { put: vi.fn() },
+    sportconfigurations: { put: vi.fn() },
     matchlineups: { where: vi.fn(), bulkPut: vi.fn() },
     timeanchors: { where: vi.fn(), bulkPut: vi.fn() },
     playerpresences: { filter: vi.fn(), bulkPut: vi.fn(), bulkDelete: vi.fn() },
@@ -107,10 +116,192 @@ describe("Hydration Service", () => {
     ]);
   });
 
+  it("fetches and stores tournament and sport configuration when match contains tournamentId", async () => {
+    const tournamentId = "tourn-789";
+    const sportId = "sport-111";
+    const configId = "config-999";
+
+    const mockConfig = {
+      id: configId,
+      sportId,
+      periodsCount: 4,
+    };
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        id: tournamentId,
+        sportId,
+        configurationId: configId,
+      });
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      mockConfig as unknown as Awaited<
+        ReturnType<typeof sportService.getSportConfigurations>
+      >[0],
+    ]);
+
+    vi.mocked(db.transaction).mockImplementation((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          delete: vi.fn().mockResolvedValue(0),
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          and: vi
+            .fn()
+            .mockReturnValue({ delete: vi.fn().mockResolvedValue(0) }),
+        }),
+      } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+      vi.mocked(db.playerpresences.filter).mockImplementation((() => ({
+        primaryKeys: vi.fn().mockResolvedValue([]),
+      })) as unknown as typeof db.playerpresences.filter);
+
+      vi.mocked(db.gameevents.filter).mockImplementation((() => ({
+        primaryKeys: vi.fn().mockResolvedValue([]),
+      })) as unknown as typeof db.gameevents.filter);
+
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    const result = await hydrateMatchData(matchId, teamId);
+
+    expect(result).toEqual({ success: true, isOfflineFallback: false });
+    expect(apiClient.get).toHaveBeenCalledWith(`/Tournaments/${tournamentId}`);
+    expect(sportService.getSportConfigurations).toHaveBeenCalledWith(sportId);
+    expect(db.tournaments.put).toHaveBeenCalledWith({
+      id: tournamentId,
+      sportId,
+      configurationId: configId,
+    });
+    expect(db.sportconfigurations.put).toHaveBeenCalledWith(mockConfig);
+  });
+
+  it("re-throws Hydration Metadata Error when tournament fetch fails", async () => {
+    const tournamentId = "tourn-failed";
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("Tournament fetch failed 500"));
+
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      "Hydration Metadata Error: Failed to fetch tournament 'tourn-failed' during hydration: Tournament fetch failed 500",
+    );
+    expect(seedTestData).not.toHaveBeenCalled();
+  });
+
+  it("re-throws Hydration Metadata Error when tournament response is null", async () => {
+    const tournamentId = "tourn-null";
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(null);
+
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      `Hydration Metadata Error: Tournament '${tournamentId}' returned null during hydration.`,
+    );
+    expect(seedTestData).not.toHaveBeenCalled();
+  });
+
+  it("re-throws Hydration Metadata Error when sportService.getSportConfigurations request is rejected", async () => {
+    const tournamentId = "tourn-789";
+    const sportId = "sport-111";
+    const configId = "config-999";
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        id: tournamentId,
+        sportId,
+        configurationId: configId,
+      });
+
+    vi.mocked(sportService.getSportConfigurations).mockRejectedValueOnce(
+      new Error("Network error loading sport configurations"),
+    );
+
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      `Hydration Metadata Error: Failed to fetch sport configurations for sport '${sportId}': Network error loading sport configurations`,
+    );
+    expect(seedTestData).not.toHaveBeenCalled();
+  });
+
+  it("re-throws Hydration Metadata Error when tournament is missing required IDs", async () => {
+    const tournamentId = "tourn-incomplete";
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ id: tournamentId }); // missing sportId & configurationId
+
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      "Hydration Metadata Error: Tournament 'tourn-incomplete' is missing sportId or configurationId.",
+    );
+    expect(seedTestData).not.toHaveBeenCalled();
+  });
+
+  it("re-throws Hydration Metadata Error when sport configuration fetch fails or matching config is not found", async () => {
+    const tournamentId = "tourn-789";
+    const sportId = "sport-111";
+    const configId = "config-missing";
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        id: tournamentId,
+        sportId,
+        configurationId: configId,
+      });
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([]);
+
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      "Hydration Metadata Error: SportConfiguration 'config-missing' not found for sport 'sport-111'.",
+    );
+    expect(seedTestData).not.toHaveBeenCalled();
+  });
+
   it("deletes synced presence and event rows for removed lineup IDs when server returns empty lineups", async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId })
-      .mockResolvedValueOnce([]) // Server returns empty lineups
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])

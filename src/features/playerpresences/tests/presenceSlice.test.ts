@@ -7,6 +7,7 @@ import presenceReducer, {
   clearActiveRosterToBench,
   optimisticSubstitute,
   setLoading,
+  resetPresenceState,
 } from "../store/presenceSlice";
 
 describe("presenceSlice reducers", () => {
@@ -96,5 +97,18 @@ describe("presenceSlice reducers", () => {
     const action = setLoading(true);
     const state = presenceReducer(initialState, action);
     expect(state.isLoading).toBe(true);
+  });
+
+  it("should handle resetPresenceState", () => {
+    const modifiedState = {
+      currentPeriod: 3,
+      activeLineupIds: ["p1"],
+      benchLineupIds: ["p2"],
+      selectedStartingIds: ["p3"],
+      activePlayersLimit: 5,
+      isLoading: true,
+    };
+    const state = presenceReducer(modifiedState, resetPresenceState());
+    expect(state).toEqual(initialState);
   });
 });

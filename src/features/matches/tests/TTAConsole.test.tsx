@@ -25,6 +25,14 @@ interface MockPresenceProps {
 let mockPeriodActive = true;
 let mockPeriodNumber = 1;
 
+vi.mock("../components/MatchLifecyclePanel", () => ({
+  MatchLifecyclePanel: ({
+    onFinalizeSuccess,
+  }: {
+    onFinalizeSuccess?: () => void;
+  }) => <button onClick={onFinalizeSuccess}>Mock Finalize Success</button>,
+}));
+
 vi.mock("../hooks/useMatchLifecycle", () => ({
   useMatchLifecycle: () => ({
     periodNumber: mockPeriodNumber,
@@ -406,5 +414,43 @@ describe("TTAConsole Component", () => {
     );
 
     expect(screen.getByRole("checkbox")).not.toBeChecked();
+  });
+
+  test("triggers handleFinalizeSuccess, resets match and presence states, and calls onCompleteMatch", () => {
+    const onCompleteMatchMock = vi.fn();
+    const store = configureStore({
+      reducer: rootReducer,
+      preloadedState: {
+        match: {
+          ...initialMatchState,
+          activeMatchId: "test-id",
+          activeTeamId: "team-123",
+          isPeriodActive: true,
+          homeScore: 5,
+          guestScore: 3,
+        },
+        presence: {
+          currentPeriod: 2,
+          activeLineupIds: ["p1", "p2"],
+          benchLineupIds: ["p3"],
+          selectedStartingIds: ["p4"],
+          activePlayersLimit: 7,
+          isLoading: false,
+        },
+      } as unknown as RootState,
+    });
+
+    render(
+      <Provider store={store}>
+        <TTAConsole onCompleteMatch={onCompleteMatchMock} />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByText("Mock Finalize Success"));
+
+    expect(onCompleteMatchMock).toHaveBeenCalledTimes(1);
+    expect(store.getState().match.activeMatchId).toBeNull();
+    expect(store.getState().presence.currentPeriod).toBe(1);
+    expect(store.getState().presence.activeLineupIds).toEqual([]);
   });
 });

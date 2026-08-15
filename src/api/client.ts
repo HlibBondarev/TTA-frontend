@@ -7,9 +7,32 @@ export interface RequestOptions extends RequestInit {
   token?: string;
 }
 
+function combineAbortSignals(
+  externalSignal: AbortSignal,
+  timeoutSignal: AbortSignal,
+): AbortSignal {
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any([externalSignal, timeoutSignal]);
+  }
+
+  const combinedController = new AbortController();
+  const onAbort = () => {
+    combinedController.abort(externalSignal.reason || timeoutSignal.reason);
+  };
+
+  if (externalSignal.aborted || timeoutSignal.aborted) {
+    onAbort();
+  } else {
+    externalSignal.addEventListener("abort", onAbort, { once: true });
+    timeoutSignal.addEventListener("abort", onAbort, { once: true });
+  }
+
+  return combinedController.signal;
+}
+
 export const apiClient = {
   async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-    const { token, headers, signal, ...rest } = options;
+    const { token, headers, signal: externalSignal, ...rest } = options;
 
     const requestHeaders: Record<string, string> = {
       "Content-Type": "application/json",
@@ -26,13 +49,21 @@ export const apiClient = {
       ? endpoint
       : `/${endpoint}`;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => {
+      timeoutController.abort(
+        new Error(`API Request timeout after ${DEFAULT_TIMEOUT_MS}ms`),
+      );
+    }, DEFAULT_TIMEOUT_MS);
+
+    const effectiveSignal = externalSignal
+      ? combineAbortSignals(externalSignal, timeoutController.signal)
+      : timeoutController.signal;
 
     try {
       const response = await fetch(`${BASE_URL}${normalizedEndpoint}`, {
         headers: requestHeaders,
-        signal: signal ?? controller.signal,
+        signal: effectiveSignal,
         ...rest,
       });
 
@@ -50,6 +81,15 @@ export const apiClient = {
       }
 
       return (await response.json()) as T;
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        // Suppress or format user-friendly message for aborted signals
+        console.warn(
+          `[apiClient] Request aborted for ${normalizedEndpoint}:`,
+          err.message,
+        );
+      }
+      throw err;
     } finally {
       clearTimeout(timeoutId);
     }

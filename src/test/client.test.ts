@@ -111,4 +111,45 @@ describe("API Client", () => {
       expect.objectContaining({ method: "DELETE" }),
     );
   });
+
+  it("combines external AbortSignal with timeout signal properly", async () => {
+    const externalController = new AbortController();
+    const abortError = new Error("Caller cancelled request");
+    abortError.name = "AbortError";
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url, options) => {
+      const signal = options?.signal as AbortSignal;
+      expect(signal).toBeDefined();
+
+      // If signal is already aborted prior to fetch execution, reject immediately
+      if (signal?.aborted) {
+        return Promise.reject(signal.reason);
+      }
+
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      });
+    });
+
+    const request = apiClient.get("test-signal", {
+      signal: externalController.signal,
+    });
+
+    externalController.abort(abortError);
+
+    await expect(request).rejects.toBe(abortError);
+  });
+
+  it("handles aborted request errors gracefully and throws AbortError", async () => {
+    const abortError = new Error("The operation was aborted");
+    abortError.name = "AbortError";
+
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(abortError);
+
+    await expect(apiClient.get("aborted-endpoint")).rejects.toThrow(
+      "The operation was aborted",
+    );
+  });
 });

@@ -4,13 +4,21 @@ import { configureStore } from "@reduxjs/toolkit";
 import {
   useMatchLifecycle,
   calculatePeriodState,
+  type EndPeriodResult,
 } from "../hooks/useMatchLifecycle";
 import matchReducer, {
   type MatchState,
   setPeriodStatePayload,
 } from "../store/matchSlice";
 import { db, type TimeAnchor } from "../../../db/ttaDatabase";
+import { apiClient } from "../../../api/client";
 import { vi, describe, beforeEach, test, expect } from "vitest";
+
+vi.mock("../../../api/client", () => ({
+  apiClient: {
+    get: vi.fn(),
+  },
+}));
 
 let mockTimeAnchors: TimeAnchor[] = [];
 let mockSyncQueue: Array<{
@@ -25,6 +33,10 @@ let mockPlayerPresences: Array<{
   matchLineupId: string;
   [key: string]: unknown;
 }> = [];
+
+let mockMatches: Record<string, unknown> = {};
+let mockTournaments: Record<string, unknown> = {};
+let mockSportConfigs: Record<string, unknown> = {};
 
 const seedAnchorsFromState = (matchState: Partial<MatchState> = {}) => {
   const matchId = matchState.activeMatchId || "test-match-id";
@@ -76,6 +88,18 @@ const seedAnchorsFromState = (matchState: Partial<MatchState> = {}) => {
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
+    matches: {
+      get: vi.fn((id: string) => Promise.resolve(mockMatches[id])),
+      put: vi.fn(),
+    },
+    tournaments: {
+      get: vi.fn((id: string) => Promise.resolve(mockTournaments[id])),
+      put: vi.fn(),
+    },
+    sportconfigurations: {
+      get: vi.fn((id: string) => Promise.resolve(mockSportConfigs[id])),
+      put: vi.fn(),
+    },
     timeanchors: {
       add: vi.fn((anchor: TimeAnchor) => {
         mockTimeAnchors.push(anchor);
@@ -206,6 +230,23 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     mockTimeAnchors = [];
     mockSyncQueue = [];
     mockPlayerPresences = [];
+
+    mockMatches = {
+      "test-match-id": { id: "test-match-id", tournamentId: "test-tourn-id" },
+      "match-padded-id": {
+        id: "match-padded-id",
+        tournamentId: "test-tourn-id",
+      },
+    };
+    mockTournaments = {
+      "test-tourn-id": {
+        id: "test-tourn-id",
+        configurationId: "test-config-id",
+      },
+    };
+    mockSportConfigs = {
+      "test-config-id": { id: "test-config-id", periodsCount: 4 },
+    };
 
     vi.mocked(db.timeanchors.where).mockImplementation(
       () =>
@@ -395,6 +436,176 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     });
   });
 
+  describe("Dynamic SportConfiguration Periods Count Resolution", () => {
+    test("should dynamically resolve periodsCount from IndexedDB for active match", async () => {
+      const store = createTestStore();
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoadingConfig).toBe(false);
+      });
+
+      expect(result.current.periodsCount).toBe(4);
+      expect(result.current.configError).toBeNull();
+      expect(result.current.isFinalPeriod(4)).toBe(true);
+      expect(result.current.isFinalPeriod(1)).toBe(false);
+    });
+
+    test("fetches tournament from API fallback when missing in IndexedDB and resolves config from Dexie", async () => {
+      mockMatches = {
+        "test-match-id": {
+          id: "test-match-id",
+          tournamentId: "missing-tourn-id",
+        },
+      };
+      mockTournaments = {};
+      mockSportConfigs = {
+        "missing-config-id": { id: "missing-config-id", periodsCount: 4 },
+      };
+
+      vi.mocked(apiClient.get).mockResolvedValueOnce({
+        id: "missing-tourn-id",
+        configurationId: "missing-config-id",
+      });
+
+      const store = createTestStore();
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoadingConfig).toBe(false);
+      });
+
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/Tournaments/missing-tourn-id",
+      );
+      expect(db.tournaments.put).toHaveBeenCalledWith({
+        id: "missing-tourn-id",
+        configurationId: "missing-config-id",
+      });
+      expect(result.current.periodsCount).toBe(4);
+    });
+
+    test("should set configError and keep periodsCount null when match or config is missing", async () => {
+      mockMatches = {};
+
+      const store = createTestStore({ activeMatchId: "missing-match-id" });
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoadingConfig).toBe(false);
+      });
+
+      expect(result.current.periodsCount).toBeNull();
+      expect(result.current.configError).toContain(
+        "Match with ID 'missing-match-id' not found",
+      );
+
+      expect(() => result.current.isFinalPeriod(1)).toThrow(
+        /Cannot evaluate isFinalPeriod: periodsCount is not resolved/i,
+      );
+    });
+
+    test("should set configError when periodsCount is a non-integer float", async () => {
+      mockSportConfigs["test-config-id"] = {
+        id: "test-config-id",
+        periodsCount: 3.5,
+      };
+
+      const store = createTestStore();
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoadingConfig).toBe(false);
+      });
+
+      expect(result.current.periodsCount).toBeNull();
+      expect(result.current.configError).toContain(
+        "Invalid or missing periodsCount in SportConfiguration",
+      );
+    });
+
+    test("should throw error and abort endPeriod without Redux state mutation when periodsCount is unresolved", async () => {
+      mockMatches = {};
+
+      const store = createTestStore({
+        isPeriodActive: true,
+        globalSequenceNumber: 1,
+      });
+
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoadingConfig).toBe(false);
+      });
+
+      expect(result.current.periodsCount).toBeNull();
+
+      await expect(
+        act(async () => {
+          await result.current.endPeriod();
+        }),
+      ).rejects.toThrow(/Cannot evaluate isFinalPeriod/i);
+
+      expect(store.getState().match.isPeriodActive).toBe(true);
+      expect(store.getState().match.isPeriodEnded).toBe(false);
+      expect(store.getState().match.globalSequenceNumber).toBe(1);
+    });
+
+    test("should return isFinal=true when ending the final period", async () => {
+      mockSportConfigs["test-config-id"] = {
+        id: "test-config-id",
+        periodsCount: 2,
+      };
+
+      const store = createTestStore({
+        periodNumber: 2,
+        isPeriodActive: true,
+      });
+
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoadingConfig).toBe(false);
+      });
+
+      expect(result.current.periodsCount).toBe(2);
+
+      let endRes: EndPeriodResult | undefined;
+      await act(async () => {
+        endRes = await result.current.endPeriod();
+      });
+
+      expect(endRes).toEqual({
+        anchorId: expect.any(String),
+        isFinal: true,
+      });
+    });
+  });
+
   test("should initialize with values matched from the Redux store", () => {
     const store = createTestStore({ periodNumber: 3, isPeriodActive: true });
     const { result } = renderHook(() => useMatchLifecycle(), {
@@ -574,12 +785,17 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
-    let anchorId: string | undefined;
-    await act(async () => {
-      anchorId = await result.current.endPeriod();
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
     });
 
-    expect(anchorId).toBeDefined();
+    let endResult: EndPeriodResult | undefined;
+    await act(async () => {
+      endResult = await result.current.endPeriod();
+    });
+
+    expect(endResult?.anchorId).toBeDefined();
+    expect(endResult?.isFinal).toBe(false);
     expect(store.getState().match.isPeriodActive).toBe(false);
     expect(store.getState().match.isPeriodEnded).toBe(true);
     expect(store.getState().match.globalSequenceNumber).toBe(1);
@@ -810,6 +1026,10 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
     // 1. startPeriod failure
     await expect(
       act(async () => {
@@ -1024,7 +1244,11 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
-    let endPromise!: Promise<string | undefined>;
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
+    let endPromise!: Promise<EndPeriodResult | undefined>;
     act(() => {
       endPromise = result.current.endPeriod();
     });
@@ -1346,7 +1570,11 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
-    let endPromise!: Promise<string | undefined>;
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
+    let endPromise!: Promise<EndPeriodResult | undefined>;
     act(() => {
       endPromise = result.current.endPeriod();
     });
@@ -1671,5 +1899,37 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(store.getState().match.isPeriodEnded).toBe(true);
     expect(store.getState().match.isPeriodActive).toBe(false);
     expect(store.getState().match.globalSequenceNumber).toBe(3);
+  });
+
+  test("logs error when tournament API fallback fetch fails", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    mockMatches = {
+      "test-match-id": {
+        id: "test-match-id",
+        tournamentId: "failed-tourn-id",
+      },
+    };
+    mockTournaments = {};
+
+    vi.mocked(apiClient.get).mockRejectedValueOnce(
+      new Error("Network connection lost"),
+    );
+
+    const store = createTestStore();
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "[useMatchLifecycle] Tournament fallback fetch failed for 'failed-tourn-id':",
+      expect.any(Error),
+    );
+
+    consoleSpy.mockRestore();
   });
 });

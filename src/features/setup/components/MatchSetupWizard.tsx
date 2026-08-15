@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { sportService } from "../../../services/sportService";
 import { teamService } from "../../../services/teamService";
 import { apiClient } from "../../../api/client";
+import { db } from "../../../db/ttaDatabase";
 import type {
   SportLookup,
   SportConfigurationLookup,
@@ -17,6 +18,43 @@ interface MatchSetupWizardProps {
     activePlayersLimit: number,
     selectedTeamId: string,
   ) => Promise<void>;
+}
+
+async function ensureTournamentPersisted(
+  tournamentId: string,
+  sportId: string,
+  configurationId: string,
+): Promise<void> {
+  if (!db.tournaments) return;
+
+  try {
+    const tournament = await apiClient.get<{
+      id: string;
+      sportId: string;
+      configurationId: string;
+    }>(`/Tournaments/${tournamentId}`);
+
+    if (tournament) {
+      await db.tournaments.put(
+        tournament as unknown as Parameters<typeof db.tournaments.put>[0],
+      );
+    }
+  } catch {
+    const existingTourn = await db.tournaments.get(tournamentId);
+    if (!existingTourn) {
+      await db.tournaments.put({
+        id: tournamentId,
+        sportId,
+        configurationId,
+        cityId: "",
+        ownerId: "",
+        name: "Quick Tournament",
+        startDate: new Date().toISOString(),
+        endDate: null,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
 }
 
 export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
@@ -57,6 +95,13 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         if (requestId !== configRequestRef.current) return;
 
         setConfigurations(data);
+
+        // Persist retrieved configurations to IndexedDB immediately
+        if (data.length > 0 && db.sportconfigurations) {
+          await db.sportconfigurations.bulkPut(data);
+        }
+
+        if (requestId !== configRequestRef.current) return;
 
         const currentSport = sportList.find((s) => s.id === sportId);
         const defaultConfig = data.find(
@@ -100,6 +145,12 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         if (!isMounted) return;
 
         setSports(data);
+
+        // Persist sports to IndexedDB
+        if (data.length > 0 && db.sports) {
+          await db.sports.bulkPut(data);
+        }
+
         if (data.length > 0) {
           const firstSportId = data[0].id;
           setSelectedSportId(firstSportId);
@@ -145,6 +196,14 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       setIsLoadingTeams(true);
       setErrorMessage(null);
 
+      // Ensure the chosen configuration is explicitly in Dexie before proceeding
+      const selectedConfig = configurations.find(
+        (c) => c.id === selectedConfigId,
+      );
+      if (selectedConfig && db.sportconfigurations) {
+        await db.sportconfigurations.put(selectedConfig);
+      }
+
       let matchId = pendingMatchId;
 
       if (!matchId) {
@@ -160,6 +219,21 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       }
 
       const match = await apiClient.get<MatchLookup>(`/Matches/${matchId}`);
+
+      // Store match locally
+      if (match && db.matches) {
+        await db.matches.put(match);
+      }
+
+      // If match points to a tournament, ensure tournament is also stored
+      if (match.tournamentId) {
+        await ensureTournamentPersisted(
+          match.tournamentId,
+          selectedSportId,
+          selectedConfigId,
+        );
+      }
+
       const [home, guest] = await Promise.all([
         teamService.getTeamById(match.homeTeamId),
         teamService.getTeamById(match.guestTeamId),

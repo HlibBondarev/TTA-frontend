@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
 import { MatchLifecyclePanel } from "./MatchLifecyclePanel";
 import { PlayerPresencePanel } from "../../../features/playerpresences/components/PlayerPresencePanel";
 import { ActionsLog } from "./ActionsLog";
@@ -7,9 +7,16 @@ import { TTDActionsPanel } from "./TTAPanel";
 import { SyncStatusBadge } from "./SyncStatusBadge";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
 import { useGameEvents } from "../hooks/useGameEvents";
-import type { RootState } from "../../../store";
+import { resetMatchState } from "../store/matchSlice";
+import { resetPresenceState } from "../../playerpresences/store/presenceSlice";
+import type { RootState, AppDispatch } from "../../../store";
 
-export const TTAConsole: React.FC = () => {
+interface TTAConsoleProps {
+  onCompleteMatch?: () => void;
+}
+
+export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
+  const dispatch = useDispatch<AppDispatch>();
   const activeMatchId = useSelector(
     (state: RootState) => state.match.activeMatchId,
   );
@@ -38,6 +45,14 @@ export const TTAConsole: React.FC = () => {
   }
 
   const isRecordingEnabled = isPeriodActive && !isInsideStoppage;
+
+  const handleFinalizeSuccess = () => {
+    dispatch(resetMatchState());
+    dispatch(resetPresenceState());
+    if (onCompleteMatch) {
+      onCompleteMatch();
+    }
+  };
 
   const handleEnter = async () => {
     if (pendingAction && selectedPlayerId && activeMatchId && !isSubmitting) {
@@ -86,7 +101,7 @@ export const TTAConsole: React.FC = () => {
             </div>
           )}
           <div className="flex-1 overflow-y-auto w-full px-2 space-y-2">
-            <MatchLifecyclePanel />
+            <MatchLifecyclePanel onFinalizeSuccess={handleFinalizeSuccess} />
 
             <ActionsLog />
 
