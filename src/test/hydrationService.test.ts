@@ -208,7 +208,53 @@ describe("Hydration Service", () => {
     expect(seedTestData).not.toHaveBeenCalled();
   });
 
-  it("re-throws Hydration Metadata Error when tournament is null or missing required IDs", async () => {
+  it("re-throws Hydration Metadata Error when tournament response is null", async () => {
+    const tournamentId = "tourn-null";
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(null);
+
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      `Hydration Metadata Error: Tournament '${tournamentId}' returned null during hydration.`,
+    );
+    expect(seedTestData).not.toHaveBeenCalled();
+  });
+
+  it("re-throws Hydration Metadata Error when sportService.getSportConfigurations request is rejected", async () => {
+    const tournamentId = "tourn-789";
+    const sportId = "sport-111";
+    const configId = "config-999";
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        id: tournamentId,
+        sportId,
+        configurationId: configId,
+      });
+
+    vi.mocked(sportService.getSportConfigurations).mockRejectedValueOnce(
+      new Error("Network error loading sport configurations"),
+    );
+
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      `Hydration Metadata Error: Failed to fetch sport configurations for sport '${sportId}': Network error loading sport configurations`,
+    );
+    expect(seedTestData).not.toHaveBeenCalled();
+  });
+
+  it("re-throws Hydration Metadata Error when tournament is missing required IDs", async () => {
     const tournamentId = "tourn-incomplete";
 
     vi.mocked(apiClient.get)
