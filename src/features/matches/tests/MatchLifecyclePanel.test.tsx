@@ -785,16 +785,21 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       expect(store.getState().match.periodNumber).toBe(1);
       expect(store.getState().match.isPeriodEnded).toBe(true);
       expect(store.getState().match.isPeriodActive).toBe(false);
+
+      const addedAnchor = vi
+        .mocked(db.timeanchors.add)
+        .mock.calls.at(-1)?.[0] as
+        | {
+            id: string;
+            periodNumber: number;
+          }
+        | undefined;
+
+      expect(addedAnchor).toBeDefined();
+      expect(addedAnchor?.periodNumber).toBe(2);
+      expect(db.timeanchors.delete).toHaveBeenCalledWith(addedAnchor?.id);
     });
 
-    const addedAnchor = vi
-      .mocked(db.timeanchors.add)
-      .mock.calls.at(-1)?.[0] as {
-      id: string;
-      periodNumber: number;
-    };
-    expect(addedAnchor.periodNumber).toBe(2);
-    expect(db.timeanchors.delete).toHaveBeenCalledWith(addedAnchor.id);
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Failed to start period. Transaction fully reverted.",
     );
