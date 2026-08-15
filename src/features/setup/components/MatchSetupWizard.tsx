@@ -101,6 +101,8 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           await db.sportconfigurations.bulkPut(data);
         }
 
+        if (requestId !== configRequestRef.current) return;
+
         const currentSport = sportList.find((s) => s.id === sportId);
         const defaultConfig = data.find(
           (c) => c.id === currentSport?.defaultConfigId,

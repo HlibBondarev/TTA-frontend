@@ -518,4 +518,32 @@ describe("MatchSetupWizard Component", () => {
       );
     });
   });
+
+  it("should ignore stale configuration state updates if sport selection changes during bulkPut", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations)
+      .mockResolvedValueOnce(mockConfigs)
+      .mockResolvedValueOnce([]);
+
+    // Delay bulkPut execution to simulate a race condition during DB persistence
+    vi.mocked(db.sportconfigurations.bulkPut).mockImplementationOnce(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve(["config-1"]), 50),
+        ) as unknown as ReturnType<typeof db.sportconfigurations.bulkPut>,
+    );
+
+    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    expect(await screen.findByText("Water Polo")).toBeDefined();
+
+    // Switch rapidly to the second discipline while bulkPut for the first is still pending
+    fireEvent.click(screen.getByText("Basketball"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("No configurations available for this sport."),
+      ).toBeDefined();
+    });
+  });
 });
