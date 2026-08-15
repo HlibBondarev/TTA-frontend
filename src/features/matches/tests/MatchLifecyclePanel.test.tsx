@@ -308,6 +308,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     });
 
     const startBtn = screen.getByText("START PERIOD");
+    await waitFor(() => expect(startBtn).not.toBeDisabled());
     fireEvent.click(startBtn);
 
     await waitFor(() => {
@@ -344,6 +345,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     });
 
     const endBtn = screen.getByText("END PERIOD");
+    await waitFor(() => expect(endBtn).not.toBeDisabled());
     fireEvent.click(endBtn);
 
     await waitFor(() => {
@@ -381,6 +383,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     });
 
     const endBtn = screen.getByText("END PERIOD");
+    await waitFor(() => expect(endBtn).not.toBeDisabled());
     fireEvent.click(endBtn);
 
     await waitFor(() => {
@@ -428,6 +431,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     });
 
     const endBtn = screen.getByText("END PERIOD");
+    await waitFor(() => expect(endBtn).not.toBeDisabled());
     fireEvent.click(endBtn);
 
     await waitFor(() => {
@@ -459,6 +463,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     );
 
     const startNextBtn = await screen.findByText("START PERIOD 2");
+    await waitFor(() => expect(startNextBtn).not.toBeDisabled());
     fireEvent.click(startNextBtn);
 
     await waitFor(() => {
@@ -492,6 +497,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     );
 
     const undoBtn = await screen.findByText("UNDO END PERIOD 1");
+    await waitFor(() => expect(undoBtn).not.toBeDisabled());
     fireEvent.click(undoBtn);
 
     await waitFor(() => {
@@ -521,6 +527,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     });
 
     const startBtn = screen.getByText("START PERIOD");
+    await waitFor(() => expect(startBtn).not.toBeDisabled());
     fireEvent.click(startBtn);
 
     await waitFor(() => {
@@ -553,6 +560,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     });
 
     const startBtn = screen.getByText("START PERIOD");
+    await waitFor(() => expect(startBtn).not.toBeDisabled());
     fireEvent.click(startBtn);
 
     expect(
@@ -592,6 +600,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     });
 
     const endBtn = screen.getByText("END PERIOD");
+    await waitFor(() => expect(endBtn).not.toBeDisabled());
     fireEvent.click(endBtn);
 
     await waitFor(() => {
@@ -681,7 +690,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     });
 
     const resumeBtn = screen.getByRole("button", { name: /Resume/i });
-    expect(resumeBtn).not.toBeDisabled();
+    await waitFor(() => expect(resumeBtn).not.toBeDisabled());
 
     fireEvent.click(resumeBtn);
 
@@ -715,7 +724,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     });
 
     const stopBtn = screen.getByRole("button", { name: /^Stop$/i });
-    expect(stopBtn).not.toBeDisabled();
+    await waitFor(() => expect(stopBtn).not.toBeDisabled());
 
     fireEvent.click(stopBtn);
 
@@ -743,6 +752,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     });
 
     const startBtn = screen.getByText("START PERIOD");
+    await waitFor(() => expect(startBtn).not.toBeDisabled());
     fireEvent.click(startBtn);
 
     expect(
@@ -779,6 +789,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     );
 
     const startBtn = await screen.findByText("START PERIOD 2");
+    await waitFor(() => expect(startBtn).not.toBeDisabled());
     fireEvent.click(startBtn);
 
     await waitFor(() => {
@@ -828,6 +839,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     const matchEndedBtn = await screen.findByRole("button", {
       name: /MATCH ENDED/i,
     });
+    await waitFor(() => expect(matchEndedBtn).not.toBeDisabled());
     fireEvent.click(matchEndedBtn);
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
@@ -876,6 +888,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     const matchEndedBtn = await screen.findByRole("button", {
       name: /MATCH ENDED/i,
     });
+    await waitFor(() => expect(matchEndedBtn).not.toBeDisabled());
     fireEvent.click(matchEndedBtn);
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
