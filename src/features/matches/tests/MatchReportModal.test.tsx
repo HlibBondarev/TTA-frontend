@@ -51,6 +51,21 @@ describe("MatchReportModal", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+
+    if (!HTMLDialogElement.prototype.showModal) {
+      HTMLDialogElement.prototype.showModal = vi.fn(function (
+        this: HTMLDialogElement,
+      ) {
+        this.open = true;
+      });
+    }
+    if (!HTMLDialogElement.prototype.close) {
+      HTMLDialogElement.prototype.close = vi.fn(function (
+        this: HTMLDialogElement,
+      ) {
+        this.open = false;
+      });
+    }
   });
 
   it("does not render when isOpen is false", () => {
@@ -180,5 +195,36 @@ describe("MatchReportModal", () => {
     fireEvent.click(crossButton);
 
     expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onClose when cancel event (Escape key) is triggered on dialog", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
+      mockTeamSummary,
+    );
+
+    render(<MatchReportModal {...defaultProps} />);
+
+    const dialog = screen.getByRole("dialog");
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+
+    expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores focus to the triggering element upon closing", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
+      mockTeamSummary,
+    );
+
+    const triggerBtn = document.createElement("button");
+    document.body.appendChild(triggerBtn);
+    triggerBtn.focus();
+    expect(document.activeElement).toBe(triggerBtn);
+
+    const { unmount } = render(<MatchReportModal {...defaultProps} />);
+
+    unmount();
+
+    expect(document.activeElement).toBe(triggerBtn);
+    document.body.removeChild(triggerBtn);
   });
 });

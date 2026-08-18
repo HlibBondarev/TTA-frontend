@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   reportService,
   type TeamMatchSummaryReportResponse,
@@ -20,6 +20,9 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   teamId,
   onClose,
 }) => {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
   const [summaryReports, setSummaryReports] = useState<
     TeamMatchSummaryReportResponse[]
   >([]);
@@ -30,6 +33,30 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   const [playerReport, setPlayerReport] =
     useState<PlayerDetailedMatchReportResponse | null>(null);
   const [isPlayerLoading, setIsPlayerLoading] = useState<boolean>(false);
+
+  // Manage native dialog showModal and focus restoration
+  useEffect(() => {
+    if (isOpen) {
+      previousFocusRef.current = document.activeElement as HTMLElement | null;
+      const dialog = dialogRef.current;
+      if (dialog && !dialog.open) {
+        if (typeof dialog.showModal === "function") {
+          dialog.showModal();
+        } else {
+          dialog.setAttribute("open", "");
+        }
+      }
+    }
+
+    return () => {
+      if (
+        previousFocusRef.current &&
+        typeof previousFocusRef.current.focus === "function"
+      ) {
+        previousFocusRef.current.focus();
+      }
+    };
+  }, [isOpen]);
 
   // Event handler for selecting a player row
   const handleSelectPlayer = (lineupId: string) => {
@@ -122,10 +149,15 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleCancel = (e: React.SyntheticEvent<HTMLDialogElement, Event>) => {
+    e.preventDefault();
+    onClose();
+  };
+
   return (
     <dialog
-      open
-      aria-modal="true"
+      ref={dialogRef}
+      onCancel={handleCancel}
       aria-labelledby="report-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-2 sm:p-4 w-full h-full max-w-none max-h-none border-none m-0"
     >
