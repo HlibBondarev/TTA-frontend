@@ -74,6 +74,15 @@ export const PlayerDetailedReportView: React.FC<
     {},
   );
 
+  // Sort events within each period ascending by normalizedMatchTime, falling back to eventTimestamp
+  Object.values(eventsByPeriod).forEach((periodEvents) => {
+    periodEvents.sort((a, b) => {
+      const timeA = a.normalizedMatchTime ?? a.eventTimestamp ?? "";
+      const timeB = b.normalizedMatchTime ?? b.eventTimestamp ?? "";
+      return timeA.localeCompare(timeB);
+    });
+  });
+
   const sortedPeriods = Object.keys(eventsByPeriod)
     .map(Number)
     .sort((a, b) => a - b);

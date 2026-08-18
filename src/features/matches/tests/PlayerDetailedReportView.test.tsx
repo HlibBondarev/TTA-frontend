@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { PlayerDetailedReportView } from "../components/PlayerDetailedReportView";
 
@@ -121,6 +121,49 @@ describe("PlayerDetailedReportView", () => {
     // Check normalized match times
     expect(screen.getByText("00:02:15")).toBeInTheDocument();
     expect(screen.getByText("00:15:30")).toBeInTheDocument();
+  });
+
+  it("sorts out-of-order events within a period ascending by normalizedMatchTime and eventTimestamp", () => {
+    const mockReport = {
+      firstName: "Michael",
+      lastName: "Jordan",
+      number: 23,
+      events: [
+        {
+          eventName: "Second Event",
+          isPositive: true,
+          periodNumber: 1,
+          eventTimestamp: "2026-08-18T10:05:00Z",
+          normalizedMatchTime: "00:07:10",
+          isLeadToGoal: false,
+        },
+        {
+          eventName: "First Event",
+          isPositive: true,
+          periodNumber: 1,
+          eventTimestamp: "2026-08-18T10:00:00Z",
+          normalizedMatchTime: "00:02:15",
+          isLeadToGoal: false,
+        },
+      ],
+    };
+
+    render(
+      <PlayerDetailedReportView
+        report={mockReport}
+        isLoading={false}
+        onBack={vi.fn()}
+      />,
+    );
+
+    // Scope query exclusively to Period 1 timeline container
+    const period1Container = screen.getByText("Period 1").parentElement!;
+    const eventNames = within(period1Container).getAllByText(
+      /(First Event|Second Event)/,
+    );
+
+    expect(eventNames[0]).toHaveTextContent("First Event");
+    expect(eventNames[1]).toHaveTextContent("Second Event");
   });
 
   it("calls onBack when header back button is clicked", () => {
