@@ -106,17 +106,41 @@ describe("PlayerDetailedReportView", () => {
     expect(screen.getByText("#10 Alex Smith")).toBeInTheDocument();
     expect(screen.getByText("Total Actions: 3")).toBeInTheDocument();
 
-    // Check TTA Summary Cards
-    expect(screen.getByText("+ Positive Actions")).toBeInTheDocument();
-    expect(screen.getByText("- Negative Actions")).toBeInTheDocument();
+    // Check Positive TTA Summary Card contents & counts
+    const positiveCardHeader = screen.getByText("+ Positive Actions");
+    const positiveCardContainer = positiveCardHeader.closest("div")!;
+    expect(
+      within(positiveCardContainer).getByText("Shot on Target:"),
+    ).toBeInTheDocument();
+    expect(
+      within(positiveCardContainer).getByText("Key Pass:"),
+    ).toBeInTheDocument();
+
+    // Check Negative TTA Summary Card contents & counts
+    const negativeCardHeader = screen.getByText("- Negative Actions");
+    const negativeCardContainer = negativeCardHeader.closest("div")!;
+    expect(
+      within(negativeCardContainer).getByText("Turnover:"),
+    ).toBeInTheDocument();
 
     // Check periods headers
     expect(screen.getByText("Period 1")).toBeInTheDocument();
     expect(screen.getByText("Period 2")).toBeInTheDocument();
 
-    // Check Goal Lead badges (+ for positive, - for negative)
-    expect(screen.getByText("+Goal Lead")).toBeInTheDocument();
-    expect(screen.getByText("-Goal Lead")).toBeInTheDocument();
+    // Confirm total counts for Goal Lead badges across document
+    expect(screen.getAllByText("+Goal Lead")).toHaveLength(1);
+    expect(screen.getAllByText("-Goal Lead")).toHaveLength(1);
+
+    // Verify Goal Lead badges are attached specifically to their corresponding event rows
+    const keyPassRow = screen.getByText("Key Pass").closest("div")!;
+    expect(within(keyPassRow).getByText("+Goal Lead")).toBeInTheDocument();
+
+    const turnoverRow = screen.getByText("Turnover").closest("div")!;
+    expect(within(turnoverRow).getByText("-Goal Lead")).toBeInTheDocument();
+
+    const shotRow = screen.getByText("Shot on Target").closest("div")!;
+    expect(within(shotRow).queryByText("+Goal Lead")).not.toBeInTheDocument();
+    expect(within(shotRow).queryByText("-Goal Lead")).not.toBeInTheDocument();
 
     // Check normalized match times
     expect(screen.getByText("00:02:15")).toBeInTheDocument();
