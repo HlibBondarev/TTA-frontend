@@ -1,10 +1,4 @@
-import {
-  render,
-  screen,
-  fireEvent,
-  waitFor,
-  act,
-} from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MatchReportModal } from "../components/MatchReportModal";
 import { reportService } from "../../../services/reportService";
@@ -111,9 +105,7 @@ describe("MatchReportModal", () => {
       expect(screen.getByText("Michael Jordan")).toBeInTheDocument();
     });
 
-    await act(async () => {
-      fireEvent.click(screen.getByText("Michael Jordan"));
-    });
+    fireEvent.click(screen.getByText("Michael Jordan"));
 
     expect(screen.getByText("Player TTA Detailed Report")).toBeInTheDocument();
 
@@ -143,18 +135,14 @@ describe("MatchReportModal", () => {
       expect(screen.getByText("Michael Jordan")).toBeInTheDocument();
     });
 
-    await act(async () => {
-      fireEvent.click(screen.getByText("Michael Jordan"));
-    });
+    fireEvent.click(screen.getByText("Michael Jordan"));
 
     await waitFor(() => {
       expect(screen.getByText("#23 Michael Jordan")).toBeInTheDocument();
     });
 
     const backButton = screen.getByRole("button", { name: /← back/i });
-    await act(async () => {
-      fireEvent.click(backButton);
-    });
+    fireEvent.click(backButton);
 
     expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
     expect(screen.getByText("Michael Jordan")).toBeInTheDocument();
@@ -172,9 +160,7 @@ describe("MatchReportModal", () => {
     });
 
     const closeButton = screen.getByRole("button", { name: /close report/i });
-    await act(async () => {
-      fireEvent.click(closeButton);
-    });
+    fireEvent.click(closeButton);
 
     expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
   });
@@ -191,9 +177,7 @@ describe("MatchReportModal", () => {
     });
 
     const crossButton = screen.getByRole("button", { name: "✕" });
-    await act(async () => {
-      fireEvent.click(crossButton);
-    });
+    fireEvent.click(crossButton);
 
     expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
   });
