@@ -268,6 +268,12 @@ describe("MatchReportModal", () => {
 
     const { unmount } = render(<MatchReportModal {...defaultProps} />);
 
+    // Shift focus to an internal modal control first
+    const closeButton = screen.getByRole("button", { name: /close report/i });
+    closeButton.focus();
+    expect(document.activeElement).toBe(closeButton);
+
+    // Unmount modal and assert focus is restored to triggerBtn
     unmount();
 
     expect(document.activeElement).toBe(triggerBtn);
