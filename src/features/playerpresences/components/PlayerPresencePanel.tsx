@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { usePlayerPresence } from "../hooks/usePlayerPresence";
 import { db } from "../../../db/ttaDatabase";
 import type { MatchLineupLookup } from "../../../db/ttaDatabase";
@@ -76,6 +76,24 @@ export const PlayerPresencePanel: React.FC<{
     };
   }, [matchId, currentPeriod, isPeriodActive, isPeriodEnded, loadRosterData]);
 
+  // Sort active lineup IDs ascending by player shirt/cap number
+  const sortedActiveLineupIds = useMemo(() => {
+    return [...activeLineupIds].sort((a, b) => {
+      const numA = lineupsMap[a]?.number ?? Number.MAX_SAFE_INTEGER;
+      const numB = lineupsMap[b]?.number ?? Number.MAX_SAFE_INTEGER;
+      return numA - numB;
+    });
+  }, [activeLineupIds, lineupsMap]);
+
+  // Sort bench lineup IDs ascending by player shirt/cap number
+  const sortedBenchLineupIds = useMemo(() => {
+    return [...benchLineupIds].sort((a, b) => {
+      const numA = lineupsMap[a]?.number ?? Number.MAX_SAFE_INTEGER;
+      const numB = lineupsMap[b]?.number ?? Number.MAX_SAFE_INTEGER;
+      return numA - numB;
+    });
+  }, [benchLineupIds, lineupsMap]);
+
   const handleActiveTap = (id: string) => {
     setErrorMessage(null);
 
@@ -128,7 +146,7 @@ export const PlayerPresencePanel: React.FC<{
         Active Players
       </h4>
       <div className="grid grid-cols-4 gap-1 mb-2">
-        {activeLineupIds.map((id) => (
+        {sortedActiveLineupIds.map((id) => (
           <button
             key={id}
             type="button"
@@ -145,7 +163,7 @@ export const PlayerPresencePanel: React.FC<{
 
       <h4 className="text-[10px] uppercase text-gray-400 mb-1">Bench</h4>
       <div className="grid grid-cols-4 gap-1">
-        {benchLineupIds.map((id) => (
+        {sortedBenchLineupIds.map((id) => (
           <button
             key={id}
             type="button"
