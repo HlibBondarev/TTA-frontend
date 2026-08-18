@@ -106,7 +106,7 @@ describe("PlayerDetailedReportView", () => {
     expect(screen.getByText("#10 Alex Smith")).toBeInTheDocument();
     expect(screen.getByText("Total Actions: 3")).toBeInTheDocument();
 
-    // Check Positive TTA Summary Card contents & counts
+    // Check Positive TTA Summary Card contents & count values (2 positive actions)
     const positiveCardHeader = screen.getByText("+ Positive Actions");
     const positiveCardContainer = positiveCardHeader.closest("div")!;
     expect(
@@ -115,13 +115,15 @@ describe("PlayerDetailedReportView", () => {
     expect(
       within(positiveCardContainer).getByText("Key Pass:"),
     ).toBeInTheDocument();
+    expect(within(positiveCardContainer).getAllByText("1")).toHaveLength(2);
 
-    // Check Negative TTA Summary Card contents & counts
+    // Check Negative TTA Summary Card contents & count values (1 negative action)
     const negativeCardHeader = screen.getByText("- Negative Actions");
     const negativeCardContainer = negativeCardHeader.closest("div")!;
     expect(
       within(negativeCardContainer).getByText("Turnover:"),
     ).toBeInTheDocument();
+    expect(within(negativeCardContainer).getByText("1")).toBeInTheDocument();
 
     // Check periods headers
     expect(screen.getByText("Period 1")).toBeInTheDocument();
