@@ -55,16 +55,21 @@ export const TeamSummaryReportView: React.FC<TeamSummaryReportViewProps> = ({
               return (
                 <tr
                   key={p.matchLineupId}
-                  onClick={() =>
-                    p.matchLineupId && onSelectPlayer(p.matchLineupId)
-                  }
-                  className="hover:bg-gray-800/70 active:bg-gray-700/80 cursor-pointer transition-colors"
+                  className="hover:bg-gray-800/70 active:bg-gray-700/80 transition-colors"
                 >
                   <td className="py-2 px-1.5 text-center font-bold text-gray-400">
                     {p.number ?? "-"}
                   </td>
                   <td className="py-2 px-2 font-sans font-semibold text-gray-100 truncate max-w-28 sm:max-w-36">
-                    {fullName}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        p.matchLineupId && onSelectPlayer(p.matchLineupId)
+                      }
+                      className="text-left font-sans font-semibold text-gray-100 hover:text-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 focus:text-emerald-400 rounded transition-colors"
+                    >
+                      {fullName}
+                    </button>
                   </td>
                   <td className="py-2 px-1 text-center font-bold text-emerald-400">
                     {p.goals ?? 0}
