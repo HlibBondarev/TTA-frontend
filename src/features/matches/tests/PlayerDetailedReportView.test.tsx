@@ -123,14 +123,14 @@ describe("PlayerDetailedReportView", () => {
     expect(screen.getByText("00:15:30")).toBeInTheDocument();
   });
 
-  it("sorts out-of-order events within a period ascending by normalizedMatchTime and eventTimestamp", () => {
+  it("sorts out-of-order events within a period ascending by normalizedMatchTime and uses eventTimestamp as tie-breaker", () => {
     const mockReport = {
       firstName: "Michael",
       lastName: "Jordan",
       number: 23,
       events: [
         {
-          eventName: "Second Event",
+          eventName: "Later Event",
           isPositive: true,
           periodNumber: 1,
           eventTimestamp: "2026-08-18T10:05:00Z",
@@ -138,10 +138,18 @@ describe("PlayerDetailedReportView", () => {
           isLeadToGoal: false,
         },
         {
-          eventName: "First Event",
+          eventName: "Equal Time Event B",
           isPositive: true,
           periodNumber: 1,
-          eventTimestamp: "2026-08-18T10:00:00Z",
+          eventTimestamp: "2026-08-18T10:00:10Z",
+          normalizedMatchTime: "00:02:15",
+          isLeadToGoal: false,
+        },
+        {
+          eventName: "Equal Time Event A",
+          isPositive: true,
+          periodNumber: 1,
+          eventTimestamp: "2026-08-18T10:00:02Z",
           normalizedMatchTime: "00:02:15",
           isLeadToGoal: false,
         },
@@ -159,11 +167,12 @@ describe("PlayerDetailedReportView", () => {
     // Scope query exclusively to Period 1 timeline container
     const period1Container = screen.getByText("Period 1").parentElement!;
     const eventNames = within(period1Container).getAllByText(
-      /(First Event|Second Event)/,
+      /(Equal Time Event A|Equal Time Event B|Later Event)/,
     );
 
-    expect(eventNames[0]).toHaveTextContent("First Event");
-    expect(eventNames[1]).toHaveTextContent("Second Event");
+    expect(eventNames[0]).toHaveTextContent("Equal Time Event A");
+    expect(eventNames[1]).toHaveTextContent("Equal Time Event B");
+    expect(eventNames[2]).toHaveTextContent("Later Event");
   });
 
   it("calls onBack when header back button is clicked", () => {

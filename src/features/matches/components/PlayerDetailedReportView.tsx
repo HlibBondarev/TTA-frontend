@@ -74,12 +74,20 @@ export const PlayerDetailedReportView: React.FC<
     {},
   );
 
-  // Sort events within each period ascending by normalizedMatchTime, falling back to eventTimestamp
+  // Sort events within each period ascending by normalizedMatchTime, using eventTimestamp as tie-breaker
   Object.values(eventsByPeriod).forEach((periodEvents) => {
     periodEvents.sort((a, b) => {
       const timeA = a.normalizedMatchTime ?? a.eventTimestamp ?? "";
       const timeB = b.normalizedMatchTime ?? b.eventTimestamp ?? "";
-      return timeA.localeCompare(timeB);
+      const primaryDiff = timeA.localeCompare(timeB);
+
+      if (primaryDiff !== 0) {
+        return primaryDiff;
+      }
+
+      const timestampA = a.eventTimestamp ?? "";
+      const timestampB = b.eventTimestamp ?? "";
+      return timestampA.localeCompare(timestampB);
     });
   });
 
