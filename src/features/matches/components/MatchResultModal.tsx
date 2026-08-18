@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import { resetMatchState } from "../store/matchSlice";
 import { matchFinalizationService } from "../../../services/matchFinalizationService";
+import { MatchReportModal } from "./MatchReportModal";
 
 export interface MatchResultModalProps {
   isOpen: boolean;
@@ -27,6 +28,13 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // States for post-finalization report modal
+  const [completedMatchContext, setCompletedMatchContext] = useState<{
+    matchId: string;
+    teamId: string;
+  } | null>(null);
+  const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
+
   // Synchronize inputs with Redux scores during render when modal transitions to open
   const [prevIsOpen, setPrevIsOpen] = useState(false);
   if (isOpen !== prevIsOpen) {
@@ -40,7 +48,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     }
   }
 
-  if (!isOpen) return null;
+  if (!isOpen && !isReportOpen) return null;
 
   // Validation Rules
   const isValidHomeScore =
@@ -54,7 +62,6 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     Number(guestScoreInput) >= 0;
 
   const trimmedTemp = temperatureInput.trim();
-  // Ensure strict decimal/integer numeric format (e.g., 26, 26.5, -5)
   const isStrictNumericTemp = /^-?\d+(\.\d+)?$/.test(trimmedTemp);
   const parsedTempNum =
     trimmedTemp !== "" && isStrictNumericTemp ? Number(trimmedTemp) : null;
@@ -95,21 +102,26 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     const parsedGuestScore = Number.parseInt(guestScoreInput.trim(), 10);
     const parsedTemperature = parsedTempNum;
 
+    const currentMatchId = activeMatchId;
+    const currentTeamId = activeTeamId;
+
     try {
       await matchFinalizationService.finalizeMatch({
-        matchId: activeMatchId,
-        activeTeamId,
+        matchId: currentMatchId,
+        activeTeamId: currentTeamId,
         homeScore: parsedHomeScore,
         guestScore: parsedGuestScore,
         temperature: parsedTemperature,
       });
 
-      // Reset Redux state to transition App.tsx back to MatchSetupWizard
-      dispatch(resetMatchState());
+      // Save match identifiers BEFORE resetting Redux state
+      setCompletedMatchContext({
+        matchId: currentMatchId,
+        teamId: currentTeamId,
+      });
 
-      if (onSuccess) {
-        onSuccess();
-      }
+      // Open report view and keep match active in Redux until user explicitly closes report
+      setIsReportOpen(true);
     } catch (err) {
       console.error("Failed to finalize match:", err);
       const isAbort = err instanceof Error && err.name === "AbortError";
@@ -127,6 +139,30 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
       setIsSubmitting(false);
     }
   };
+
+  const handleReportClose = () => {
+    setIsReportOpen(false);
+    setCompletedMatchContext(null);
+
+    // NOW reset Redux match state and trigger parent onClose/onSuccess navigation
+    dispatch(resetMatchState());
+
+    if (onSuccess) {
+      onSuccess();
+    }
+    onClose();
+  };
+
+  if (isReportOpen && completedMatchContext) {
+    return (
+      <MatchReportModal
+        isOpen={isReportOpen}
+        matchId={completedMatchContext.matchId}
+        teamId={completedMatchContext.teamId}
+        onClose={handleReportClose}
+      />
+    );
+  }
 
   return (
     <dialog
@@ -158,7 +194,6 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Home Score Stepper & Input */}
           <div className="space-y-1">
             <label
               htmlFor="home-score-input"
@@ -199,7 +234,6 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
             </div>
           </div>
 
-          {/* Guest Score Stepper & Input */}
           <div className="space-y-1">
             <label
               htmlFor="guest-score-input"
@@ -240,7 +274,6 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
             </div>
           </div>
 
-          {/* Temperature Optional Input */}
           <div className="space-y-1">
             <label
               htmlFor="temperature-input"
@@ -269,7 +302,6 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
             )}
           </div>
 
-          {/* Action Buttons */}
           <div className="pt-2 grid grid-cols-2 gap-2">
             <button
               type="button"

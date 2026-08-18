@@ -5,10 +5,18 @@ import { configureStore } from "@reduxjs/toolkit";
 import { MatchResultModal } from "../components/MatchResultModal";
 import matchReducer, { type MatchState } from "../store/matchSlice";
 import { matchFinalizationService } from "../../../services/matchFinalizationService";
+import { reportService } from "../../../services/reportService";
 
 vi.mock("../../../services/matchFinalizationService", () => ({
   matchFinalizationService: {
     finalizeMatch: vi.fn(),
+  },
+}));
+
+vi.mock("../../../services/reportService", () => ({
+  reportService: {
+    getTeamSummaryReport: vi.fn(),
+    getPlayerDetailedReport: vi.fn(),
   },
 }));
 
@@ -152,10 +160,11 @@ describe("MatchResultModal Component", () => {
     ).toBeNull();
   });
 
-  test("should trigger match finalization pipeline and reset Redux state on successful submit", async () => {
+  test("should trigger match finalization pipeline, keep match in Redux, and display report modal on successful submit", async () => {
     vi.mocked(matchFinalizationService.finalizeMatch).mockResolvedValueOnce(
       undefined,
     );
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce([]);
 
     const store = createTestStore({ homeScore: 10, guestScore: 8 });
     render(
@@ -180,10 +189,45 @@ describe("MatchResultModal Component", () => {
       });
     });
 
-    // Check Redux state was reset
+    // Check Redux match state is STILL ACTIVE while report modal is open
+    expect(store.getState().match.activeMatchId).toBe("test-match-123");
+
+    // Check post-finalization MatchReportModal rendered
     await waitFor(() => {
-      expect(store.getState().match.activeMatchId).toBeNull();
+      expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
     });
+  });
+
+  test("should reset Redux state and call onClose when report modal is closed after finalization", async () => {
+    vi.mocked(matchFinalizationService.finalizeMatch).mockResolvedValueOnce(
+      undefined,
+    );
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce([]);
+
+    const store = createTestStore({ homeScore: 10, guestScore: 8 });
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
+    fireEvent.click(submitBtn);
+
+    // Wait for report modal to appear
+    await waitFor(() => {
+      expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
+    });
+
+    // Close report modal
+    const closeReportBtn = screen.getByRole("button", {
+      name: /close report/i,
+    });
+    fireEvent.click(closeReportBtn);
+
+    // Check Redux state was reset after closing report
+    expect(store.getState().match.activeMatchId).toBeNull();
+    expect(mockOnClose).toHaveBeenCalledTimes(1);
   });
 
   test("should display error message alert when finalization service fails", async () => {
@@ -240,31 +284,6 @@ describe("MatchResultModal Component", () => {
     expect(
       screen.getByText("Enter a valid numeric temperature value."),
     ).toBeInTheDocument();
-  });
-
-  test("should call onSuccess callback when finalization succeeds", async () => {
-    const mockOnSuccess = vi.fn();
-    vi.mocked(matchFinalizationService.finalizeMatch).mockResolvedValueOnce(
-      undefined,
-    );
-
-    const store = createTestStore({ homeScore: 10, guestScore: 8 });
-    render(
-      <Provider store={store}>
-        <MatchResultModal
-          isOpen={true}
-          onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
-        />
-      </Provider>,
-    );
-
-    const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
-    fireEvent.click(submitBtn);
-
-    await waitFor(() => {
-      expect(mockOnSuccess).toHaveBeenCalledTimes(1);
-    });
   });
 
   test("should display friendly timeout message when finalization request is aborted", async () => {
