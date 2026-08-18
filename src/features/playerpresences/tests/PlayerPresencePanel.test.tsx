@@ -74,14 +74,16 @@ describe("PlayerPresencePanel Component", () => {
     expect(await screen.findByText("Period 1 Roster")).toBeInTheDocument();
   });
 
-  it("should render active and bench players sorted in ascending numerical order by shirt/cap number", async () => {
+  it("should render active and bench players sorted in ascending numerical order with missing numbers placed last", async () => {
     vi.mocked(db.matchlineups.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
         toArray: vi.fn().mockResolvedValue([
+          { id: "lineup-no-num-active", matchId: "test-match" },
           { id: "lineup-c", matchId: "test-match", number: 12 },
           { id: "lineup-a", matchId: "test-match", number: 2 },
           { id: "lineup-b", matchId: "test-match", number: 5 },
           { id: "lineup-e", matchId: "test-match", number: 8 },
+          { id: "lineup-no-num-bench", matchId: "test-match" },
           { id: "lineup-d", matchId: "test-match", number: 1 },
         ]),
       }),
@@ -89,8 +91,13 @@ describe("PlayerPresencePanel Component", () => {
 
     vi.mocked(usePlayerPresence).mockReturnValue({
       currentPeriod: 1,
-      activeLineupIds: ["lineup-c", "lineup-a", "lineup-b"], // Unsorted: #12, #2, #5
-      benchLineupIds: ["lineup-e", "lineup-d"], // Unsorted: #8, #1
+      activeLineupIds: [
+        "lineup-no-num-active",
+        "lineup-c",
+        "lineup-a",
+        "lineup-b",
+      ],
+      benchLineupIds: ["lineup-no-num-bench", "lineup-e", "lineup-d"],
       selectedStartingIds: [],
       activePlayersLimit: 7,
       refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
@@ -115,14 +122,14 @@ describe("PlayerPresencePanel Component", () => {
     const activeButtons = Array.from(activeSection.querySelectorAll("button"));
     const activeNumbers = activeButtons.map((btn) => btn.textContent?.trim());
 
-    expect(activeNumbers).toEqual(["#2", "#5", "#12"]);
+    expect(activeNumbers).toEqual(["#2", "#5", "#12", "#"]);
 
     const benchHeader = screen.getByText("Bench");
     const benchSection = benchHeader.nextElementSibling!;
     const benchButtons = Array.from(benchSection.querySelectorAll("button"));
     const benchNumbers = benchButtons.map((btn) => btn.textContent?.trim());
 
-    expect(benchNumbers).toEqual(["#1", "#8"]);
+    expect(benchNumbers).toEqual(["#1", "#8", "#"]);
   });
 
   it("should support runtime player substitutions with period number passed", async () => {
