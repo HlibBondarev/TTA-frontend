@@ -88,7 +88,9 @@ describe("MatchReportModal", () => {
         "match-101",
         "team-202",
       );
-      expect(screen.getByText("Michael Jordan")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Michael Jordan/i }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -117,10 +119,15 @@ describe("MatchReportModal", () => {
     render(<MatchReportModal {...defaultProps} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Michael Jordan")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Michael Jordan/i }),
+      ).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText("Michael Jordan"));
+    const playerButton = screen.getByRole("button", {
+      name: /Michael Jordan/i,
+    });
+    fireEvent.click(playerButton);
 
     expect(screen.getByText("Player TTA Detailed Report")).toBeInTheDocument();
 
@@ -136,6 +143,34 @@ describe("MatchReportModal", () => {
     });
   });
 
+  it("navigates to player detailed report when player button is activated via keyboard input", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
+      mockTeamSummary,
+    );
+    vi.mocked(reportService.getPlayerDetailedReport).mockResolvedValueOnce(
+      mockPlayerDetailed,
+    );
+
+    render(<MatchReportModal {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Michael Jordan/i }),
+      ).toBeInTheDocument();
+    });
+
+    const playerButton = screen.getByRole("button", {
+      name: /Michael Jordan/i,
+    });
+    playerButton.focus();
+    expect(document.activeElement).toBe(playerButton);
+
+    fireEvent.keyDown(playerButton, { key: "Enter", code: "Enter" });
+    fireEvent.click(playerButton);
+
+    expect(screen.getByText("Player TTA Detailed Report")).toBeInTheDocument();
+  });
+
   it("navigates back to team summary view when back button is clicked in player view", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
       mockTeamSummary,
@@ -147,10 +182,15 @@ describe("MatchReportModal", () => {
     render(<MatchReportModal {...defaultProps} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Michael Jordan")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Michael Jordan/i }),
+      ).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText("Michael Jordan"));
+    const playerButton = screen.getByRole("button", {
+      name: /Michael Jordan/i,
+    });
+    fireEvent.click(playerButton);
 
     await waitFor(() => {
       expect(screen.getByText("#23 Michael Jordan")).toBeInTheDocument();
@@ -160,7 +200,9 @@ describe("MatchReportModal", () => {
     fireEvent.click(backButton);
 
     expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
-    expect(screen.getByText("Michael Jordan")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Michael Jordan/i }),
+    ).toBeInTheDocument();
   });
 
   it("calls onClose when Close Report button is clicked", async () => {
@@ -171,7 +213,9 @@ describe("MatchReportModal", () => {
     render(<MatchReportModal {...defaultProps} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Michael Jordan")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Michael Jordan/i }),
+      ).toBeInTheDocument();
     });
 
     const closeButton = screen.getByRole("button", { name: /close report/i });
@@ -188,7 +232,9 @@ describe("MatchReportModal", () => {
     render(<MatchReportModal {...defaultProps} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Michael Jordan")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Michael Jordan/i }),
+      ).toBeInTheDocument();
     });
 
     const crossButton = screen.getByRole("button", { name: "✕" });
