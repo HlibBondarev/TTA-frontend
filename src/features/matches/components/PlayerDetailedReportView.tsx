@@ -7,6 +7,19 @@ export interface PlayerDetailedReportViewProps {
   onBack: () => void;
 }
 
+const formatEventTime = (
+  normalizedTime?: string | null,
+  timestamp?: string | null,
+): string => {
+  if (normalizedTime) {
+    return normalizedTime;
+  }
+  if (timestamp) {
+    return new Date(timestamp).toLocaleTimeString();
+  }
+  return "-";
+};
+
 export const PlayerDetailedReportView: React.FC<
   PlayerDetailedReportViewProps
 > = ({ report, isLoading, onBack }) => {
@@ -183,11 +196,10 @@ export const PlayerDetailedReportView: React.FC<
                       )}
                     </div>
                     <div className="font-mono text-[10px] text-gray-400 shrink-0">
-                      {ev.normalizedMatchTime
-                        ? ev.normalizedMatchTime
-                        : ev.eventTimestamp
-                          ? new Date(ev.eventTimestamp).toLocaleTimeString()
-                          : "-"}
+                      {formatEventTime(
+                        ev.normalizedMatchTime,
+                        ev.eventTimestamp,
+                      )}
                     </div>
                   </div>
                 ))}
