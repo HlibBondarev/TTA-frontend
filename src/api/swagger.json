@@ -1382,6 +1382,153 @@
         }
       }
     },
+    "/api/Matches/{matchId}/teams/{teamId}/reports/summary": {
+      "get": {
+        "tags": [
+          "Matches"
+        ],
+        "parameters": [
+          {
+            "name": "matchId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TeamMatchSummaryReportResponse"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TeamMatchSummaryReportResponse"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TeamMatchSummaryReportResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/Matches/{matchId}/lineups/{matchLineupId}/reports/detailed": {
+      "get": {
+        "tags": [
+          "Matches"
+        ],
+        "parameters": [
+          {
+            "name": "matchId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "matchLineupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayerDetailedMatchReportResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayerDetailedMatchReportResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayerDetailedMatchReportResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/Matches/{matchId}/eventdefinitions": {
       "get": {
         "tags": [
@@ -1518,17 +1665,26 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateGameEventRequest"
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateGameEventRequest"
+                }
               }
             },
             "text/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateGameEventRequest"
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateGameEventRequest"
+                }
               }
             },
             "application/*+json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateGameEventRequest"
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateGameEventRequest"
+                }
               }
             }
           }
@@ -1539,20 +1695,29 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
                 }
               },
               "application/json": {
                 "schema": {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
                 }
               },
               "text/json": {
                 "schema": {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
                 }
               }
             }
@@ -1669,17 +1834,26 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateGameEventRequest"
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateGameEventRequest"
+                }
               }
             },
             "text/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateGameEventRequest"
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateGameEventRequest"
+                }
               }
             },
             "application/*+json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateGameEventRequest"
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateGameEventRequest"
+                }
               }
             }
           }
@@ -1690,20 +1864,29 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
                 }
               },
               "application/json": {
                 "schema": {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
                 }
               },
               "text/json": {
                 "schema": {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
                 }
               }
             }
@@ -2526,17 +2709,26 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateTimeAnchorRequest"
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateTimeAnchorRequest"
+                }
               }
             },
             "text/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateTimeAnchorRequest"
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateTimeAnchorRequest"
+                }
               }
             },
             "application/*+json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateTimeAnchorRequest"
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateTimeAnchorRequest"
+                }
               }
             }
           }
@@ -2547,20 +2739,29 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
                 }
               },
               "application/json": {
                 "schema": {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
                 }
               },
               "text/json": {
                 "schema": {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
                 }
               }
             }
@@ -3020,6 +3221,148 @@
             "application/*+json": {
               "schema": {
                 "$ref": "#/components/schemas/InitializePresenceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/Matches/{matchId}/presence/terminate": {
+      "put": {
+        "tags": [
+          "Matches"
+        ],
+        "parameters": [
+          {
+            "name": "matchId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminatePresenceRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminatePresenceRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminatePresenceRequest"
               }
             }
           }
@@ -4022,6 +4365,66 @@
                   "items": {
                     "$ref": "#/components/schemas/SportConfigurationResponse"
                   }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/Teams/{teamId}": {
+      "get": {
+        "tags": [
+          "Teams"
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
                 }
               }
             }
@@ -5062,6 +5465,10 @@
       "CreateGameEventRequest": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
           "matchLineupId": {
             "type": "string",
             "format": "uuid"
@@ -5073,6 +5480,10 @@
           "periodNumber": {
             "type": "integer",
             "format": "int32"
+          },
+          "eventTimestamp": {
+            "type": "string",
+            "format": "date-time"
           },
           "isLeadToGoal": {
             "type": "boolean"
@@ -5141,12 +5552,20 @@
       "CreateTimeAnchorRequest": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
           "periodNumber": {
             "type": "integer",
             "format": "int32"
           },
           "type": {
             "$ref": "#/components/schemas/TimeAnchorType"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "additionalProperties": false
@@ -5401,6 +5820,60 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PlayerDetailedEventResponse": {
+        "type": "object",
+        "properties": {
+          "eventName": {
+            "type": "string",
+            "nullable": true
+          },
+          "isPositive": {
+            "type": "boolean"
+          },
+          "periodNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "eventTimestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "normalizedMatchTime": {
+            "type": "string",
+            "format": "date-span",
+            "nullable": true
+          },
+          "isLeadToGoal": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PlayerDetailedMatchReportResponse": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastName": {
+            "type": "string",
+            "nullable": true
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlayerDetailedEventResponse"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -5689,6 +6162,52 @@
         },
         "additionalProperties": false
       },
+      "TeamMatchSummaryReportResponse": {
+        "type": "object",
+        "properties": {
+          "matchLineupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "firstName": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastName": {
+            "type": "string",
+            "nullable": true
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "goals": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "positiveGoalLeadingActions": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "negativeGoalLeadingActions": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPositiveActions": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalNegativeActions": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "playPercentage": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
       "TeamMemberResponse": {
         "type": "object",
         "properties": {
@@ -5755,6 +6274,41 @@
         },
         "additionalProperties": false
       },
+      "TeamResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "clubId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sportId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "minBirthYear": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "gender": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
       "TeamRole": {
         "enum": [
           "HeadCoach",
@@ -5781,6 +6335,28 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "TerminatePresenceRequest": {
+        "type": "object",
+        "properties": {
+          "periodNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "playerLineupIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true
+          },
+          "timeOut": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "additionalProperties": false

@@ -896,6 +896,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/Matches/{matchId}/teams/{teamId}/reports/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    matchId: string;
+                    teamId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["TeamMatchSummaryReportResponse"][];
+                        "application/json": components["schemas"]["TeamMatchSummaryReportResponse"][];
+                        "text/json": components["schemas"]["TeamMatchSummaryReportResponse"][];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/Matches/{matchId}/lineups/{matchLineupId}/reports/detailed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    matchId: string;
+                    matchLineupId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PlayerDetailedMatchReportResponse"];
+                        "application/json": components["schemas"]["PlayerDetailedMatchReportResponse"];
+                        "text/json": components["schemas"]["PlayerDetailedMatchReportResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/Matches/{matchId}/eventdefinitions": {
         parameters: {
             query?: never;
@@ -989,9 +1091,9 @@ export interface paths {
             };
             requestBody?: {
                 content: {
-                    "application/json": components["schemas"]["CreateGameEventRequest"];
-                    "text/json": components["schemas"]["CreateGameEventRequest"];
-                    "application/*+json": components["schemas"]["CreateGameEventRequest"];
+                    "application/json": components["schemas"]["CreateGameEventRequest"][];
+                    "text/json": components["schemas"]["CreateGameEventRequest"][];
+                    "application/*+json": components["schemas"]["CreateGameEventRequest"][];
                 };
             };
             responses: {
@@ -1001,9 +1103,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": string;
-                        "application/json": string;
-                        "text/json": string;
+                        "text/plain": string[];
+                        "application/json": string[];
+                        "text/json": string[];
                     };
                 };
                 /** @description Bad Request */
@@ -1079,9 +1181,9 @@ export interface paths {
             };
             requestBody?: {
                 content: {
-                    "application/json": components["schemas"]["CreateGameEventRequest"];
-                    "text/json": components["schemas"]["CreateGameEventRequest"];
-                    "application/*+json": components["schemas"]["CreateGameEventRequest"];
+                    "application/json": components["schemas"]["CreateGameEventRequest"][];
+                    "text/json": components["schemas"]["CreateGameEventRequest"][];
+                    "application/*+json": components["schemas"]["CreateGameEventRequest"][];
                 };
             };
             responses: {
@@ -1091,9 +1193,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": string;
-                        "application/json": string;
-                        "text/json": string;
+                        "text/plain": string[];
+                        "application/json": string[];
+                        "text/json": string[];
                     };
                 };
                 /** @description Bad Request */
@@ -1608,9 +1710,9 @@ export interface paths {
             };
             requestBody?: {
                 content: {
-                    "application/json": components["schemas"]["CreateTimeAnchorRequest"];
-                    "text/json": components["schemas"]["CreateTimeAnchorRequest"];
-                    "application/*+json": components["schemas"]["CreateTimeAnchorRequest"];
+                    "application/json": components["schemas"]["CreateTimeAnchorRequest"][];
+                    "text/json": components["schemas"]["CreateTimeAnchorRequest"][];
+                    "application/*+json": components["schemas"]["CreateTimeAnchorRequest"][];
                 };
             };
             responses: {
@@ -1620,9 +1722,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": string;
-                        "application/json": string;
-                        "text/json": string;
+                        "text/plain": string[];
+                        "application/json": string[];
+                        "text/json": string[];
                     };
                 };
                 /** @description Bad Request */
@@ -1982,6 +2084,102 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/Matches/{matchId}/presence/terminate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    matchId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["TerminatePresenceRequest"];
+                    "text/json": components["schemas"]["TerminatePresenceRequest"];
+                    "application/*+json": components["schemas"]["TerminatePresenceRequest"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2556,6 +2754,56 @@ export interface paths {
                         "text/plain": components["schemas"]["SportConfigurationResponse"][];
                         "application/json": components["schemas"]["SportConfigurationResponse"][];
                         "text/json": components["schemas"]["SportConfigurationResponse"][];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/Teams/{teamId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    teamId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["TeamResponse"];
+                        "application/json": components["schemas"]["TeamResponse"];
+                        "text/json": components["schemas"]["TeamResponse"];
                     };
                 };
                 /** @description Not Found */
@@ -3212,11 +3460,15 @@ export interface components {
         };
         CreateGameEventRequest: {
             /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
             matchLineupId?: string;
             /** Format: uuid */
             eventDefinitionId?: string;
             /** Format: int32 */
             periodNumber?: number;
+            /** Format: date-time */
+            eventTimestamp?: string;
             isLeadToGoal?: boolean;
         };
         CreatePlayerRequest: {
@@ -3241,9 +3493,13 @@ export interface components {
             gender?: components["schemas"]["Gender"];
         };
         CreateTimeAnchorRequest: {
+            /** Format: uuid */
+            id?: string;
             /** Format: int32 */
             periodNumber?: number;
             type?: components["schemas"]["TimeAnchorType"];
+            /** Format: date-time */
+            timestamp?: string;
         };
         CreateTournamentRequest: {
             /** Format: uuid */
@@ -3342,6 +3598,24 @@ export interface components {
             guestScore?: number | null;
             /** Format: date-time */
             createdAt?: string;
+        };
+        PlayerDetailedEventResponse: {
+            eventName?: string | null;
+            isPositive?: boolean;
+            /** Format: int32 */
+            periodNumber?: number;
+            /** Format: date-time */
+            eventTimestamp?: string;
+            /** Format: date-span */
+            normalizedMatchTime?: string | null;
+            isLeadToGoal?: boolean;
+        };
+        PlayerDetailedMatchReportResponse: {
+            firstName?: string | null;
+            lastName?: string | null;
+            /** Format: int32 */
+            number?: number;
+            events?: components["schemas"]["PlayerDetailedEventResponse"][] | null;
         };
         PlayerPresenceItemDto: {
             /** Format: uuid */
@@ -3462,6 +3736,26 @@ export interface components {
             /** Format: date-time */
             substitutionTime?: string;
         };
+        TeamMatchSummaryReportResponse: {
+            /** Format: uuid */
+            matchLineupId?: string;
+            firstName?: string | null;
+            lastName?: string | null;
+            /** Format: int32 */
+            number?: number;
+            /** Format: int32 */
+            goals?: number;
+            /** Format: int32 */
+            positiveGoalLeadingActions?: number;
+            /** Format: int32 */
+            negativeGoalLeadingActions?: number;
+            /** Format: int32 */
+            totalPositiveActions?: number;
+            /** Format: int32 */
+            totalNegativeActions?: number;
+            /** Format: double */
+            playPercentage?: number;
+        };
         TeamMemberResponse: {
             /** Format: uuid */
             membershipId?: string;
@@ -3487,6 +3781,21 @@ export interface components {
             leftAt?: string | null;
             isPrimary?: boolean;
         };
+        TeamResponse: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            clubId?: string;
+            /** Format: uuid */
+            sportId?: string;
+            name?: string | null;
+            /** Format: int32 */
+            minBirthYear?: number | null;
+            /** Format: int32 */
+            gender?: number;
+            /** Format: date-time */
+            createdAt?: string;
+        };
         /** @enum {string} */
         TeamRole: "HeadCoach" | "AssistantCoach" | "ClubDirector" | "TeamManager" | "Analyst" | "Captain" | "Player";
         TerminateMembershipRequest: {
@@ -3494,6 +3803,13 @@ export interface components {
             roleInTeam?: components["schemas"]["TeamRole"];
             /** Format: date-time */
             leftAt?: string | null;
+        };
+        TerminatePresenceRequest: {
+            /** Format: int32 */
+            periodNumber?: number;
+            playerLineupIds?: string[] | null;
+            /** Format: date-time */
+            timeOut?: string;
         };
         TimeAnchorResponse: {
             /** Format: uuid */
