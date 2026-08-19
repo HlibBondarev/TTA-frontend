@@ -93,9 +93,8 @@ describe("ModalDialog Component", () => {
     );
 
     const dialog = screen.getByRole("dialog");
-    const overlay = dialog.parentElement!;
 
-    fireEvent.click(overlay);
+    fireEvent.click(dialog);
 
     expect(mockOnClose).toHaveBeenCalledTimes(1);
   });

@@ -19,7 +19,7 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
   maxWidthClass = "max-w-sm",
   children,
 }) => {
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const previousActiveElement = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -53,18 +53,16 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
         if (currentFocusables.length === 0) return;
 
         const firstElement = currentFocusables[0];
-        const lastElement = currentFocusables[currentFocusables.length - 1];
+        const lastElement = currentFocusables.at(-1);
 
         if (e.shiftKey) {
           if (document.activeElement === firstElement) {
             e.preventDefault();
-            lastElement.focus();
+            lastElement?.focus();
           }
-        } else {
-          if (document.activeElement === lastElement) {
-            e.preventDefault();
-            firstElement.focus();
-          }
+        } else if (document.activeElement === lastElement) {
+          e.preventDefault();
+          firstElement.focus();
         }
       }
     };
@@ -82,19 +80,24 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm overflow-y-auto"
+    <dialog
+      ref={dialogRef}
+      open={isOpen}
+      aria-modal="true"
+      aria-labelledby={titleId}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm overflow-y-auto w-full h-full max-w-none max-h-none border-0 text-white m-0"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           onClose();
         }
       }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          onClose();
+        }
+      }}
     >
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
         className={`w-full ${maxWidthClass} rounded-xl border border-gray-800 bg-gray-900 p-4 text-white shadow-2xl space-y-4 max-h-[92vh] flex flex-col justify-between`}
       >
         <div className="flex justify-between items-center border-b border-gray-800 pb-2 shrink-0">
@@ -115,6 +118,6 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
         </div>
         {children}
       </div>
-    </div>
+    </dialog>
   );
 };
