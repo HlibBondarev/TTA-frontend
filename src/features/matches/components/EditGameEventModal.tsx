@@ -136,9 +136,9 @@ const EditGameEventModalContent: React.FC<{
 
         {/* Player Roster Selection */}
         <div>
-          <label className="block text-[10px] uppercase text-gray-400 font-bold mb-1">
+          <span className="block text-[10px] uppercase text-gray-400 font-bold mb-1">
             Player (Full Roster)
-          </label>
+          </span>
           <div className="grid grid-cols-5 gap-1.5 max-h-48 overflow-y-auto pr-1">
             {lineups.map((l) => (
               <button
