@@ -204,6 +204,7 @@ export const ActionsLog: React.FC = () => {
                         checked={act.isLeadToGoal}
                         disabled={isSynced || isGoalAction}
                         onChange={() => handleToggleLeadToGoal(act)}
+                        aria-label={`Toggle leads to goal for action #${act.playerNumber} ${act.actionName}`}
                         className="w-3 h-3 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 disabled:opacity-30"
                       />
                       <span>GL</span>
@@ -217,7 +218,9 @@ export const ActionsLog: React.FC = () => {
                       }
                     >
                       {isSynced ? (
-                        <span className="text-yellow-500/80">🔒</span>
+                        <span className="text-yellow-500/80" aria-hidden="true">
+                          🔒
+                        </span>
                       ) : null}
                     </span>
 
@@ -233,8 +236,9 @@ export const ActionsLog: React.FC = () => {
                       title={
                         isSynced ? "Cannot edit synced event" : "Edit Action"
                       }
+                      aria-label={`Edit action #${act.playerNumber} ${act.actionName}`}
                     >
-                      ✏️
+                      <span aria-hidden="true">✏️</span>
                     </button>
 
                     {/* Delete Action Button */}
@@ -251,8 +255,9 @@ export const ActionsLog: React.FC = () => {
                           ? "Cannot delete synced event"
                           : "Delete Action"
                       }
+                      aria-label={`Delete action #${act.playerNumber} ${act.actionName}`}
                     >
-                      🗑️
+                      <span aria-hidden="true">🗑️</span>
                     </button>
 
                     <span className="text-gray-600 text-[9px]">
