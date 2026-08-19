@@ -453,6 +453,35 @@ describe("useGameEvents Custom Hook", () => {
     ).rejects.toThrow("Player lineup record not found for ID: missing-lineup");
   });
 
+  it("should throw an error in updateGameEvent if player lineup does not belong to the active match", async () => {
+    const store = createTestStore();
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-other",
+      matchId: "other-match-id",
+      playerRosterId: "roster-1",
+      number: 1,
+      positionId: null,
+    });
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.updateGameEvent({
+          eventId: "event-1",
+          selectedPlayerId: "lineup-uuid-other",
+          actionName: "Pass",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow(
+      "Player lineup lineup-uuid-other does not belong to match: test-match-id",
+    );
+  });
+
   it("should throw an error in updateGameEvent if event definition is not found", async () => {
     const store = createTestStore();
     vi.mocked(db.matchlineups.get).mockResolvedValueOnce({

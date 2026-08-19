@@ -112,10 +112,21 @@ export const useGameEvents = (matchId: string) => {
     const { eventId, selectedPlayerId, actionName, isPositive, isLeadToGoal } =
       params;
 
+    const normalizedMatchId = matchId?.trim();
+    if (!normalizedMatchId) {
+      throw new Error("Active match ID is missing or empty.");
+    }
+
     const lineup = await db.matchlineups.get(selectedPlayerId);
     if (!lineup) {
       throw new Error(
         `Player lineup record not found for ID: ${selectedPlayerId}`,
+      );
+    }
+
+    if (lineup.matchId?.trim() !== normalizedMatchId) {
+      throw new Error(
+        `Player lineup ${selectedPlayerId} does not belong to match: ${matchId}`,
       );
     }
 
