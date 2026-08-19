@@ -43,8 +43,8 @@ describe("PlayerPresencePanel Component", () => {
     vi.mocked(db.matchlineups.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
         toArray: vi.fn().mockResolvedValue([
-          { id: "lineup-1", matchid: "test-match", number: 5 },
-          { id: "lineup-2", matchid: "test-match", number: 10 },
+          { id: "lineup-1", matchId: "test-match", number: 5 },
+          { id: "lineup-2", matchId: "test-match", number: 10 },
         ]),
       }),
     } as unknown as ReturnType<typeof db.matchlineups.where>);
@@ -72,6 +72,64 @@ describe("PlayerPresencePanel Component", () => {
       />,
     );
     expect(await screen.findByText("Period 1 Roster")).toBeInTheDocument();
+  });
+
+  it("should render active and bench players sorted in ascending numerical order with missing numbers placed last", async () => {
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { id: "lineup-no-num-active", matchId: "test-match" },
+          { id: "lineup-c", matchId: "test-match", number: 12 },
+          { id: "lineup-a", matchId: "test-match", number: 2 },
+          { id: "lineup-b", matchId: "test-match", number: 5 },
+          { id: "lineup-e", matchId: "test-match", number: 8 },
+          { id: "lineup-no-num-bench", matchId: "test-match" },
+          { id: "lineup-d", matchId: "test-match", number: 1 },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      currentPeriod: 1,
+      activeLineupIds: [
+        "lineup-no-num-active",
+        "lineup-c",
+        "lineup-a",
+        "lineup-b",
+      ],
+      benchLineupIds: ["lineup-no-num-bench", "lineup-e", "lineup-d"],
+      selectedStartingIds: [],
+      activePlayersLimit: 7,
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      executeSubstitution: mockExecuteSubstitution,
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    });
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
+
+    await screen.findByText("#2");
+
+    const activeHeader = screen.getByText("Active Players");
+    const activeSection = activeHeader.nextElementSibling!;
+    const activeButtons = Array.from(activeSection.querySelectorAll("button"));
+    const activeNumbers = activeButtons.map((btn) => btn.textContent?.trim());
+
+    expect(activeNumbers).toEqual(["#2", "#5", "#12", "#"]);
+
+    const benchHeader = screen.getByText("Bench");
+    const benchSection = benchHeader.nextElementSibling!;
+    const benchButtons = Array.from(benchSection.querySelectorAll("button"));
+    const benchNumbers = benchButtons.map((btn) => btn.textContent?.trim());
+
+    expect(benchNumbers).toEqual(["#1", "#8", "#"]);
   });
 
   it("should support runtime player substitutions with period number passed", async () => {
@@ -171,7 +229,7 @@ describe("PlayerPresencePanel Component", () => {
       .fn()
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
-        { id: "lineup-1", matchid: "test-match", number: 5 },
+        { id: "lineup-1", matchId: "test-match", number: 5 },
       ]);
 
     vi.mocked(db.matchlineups.where).mockReturnValue({
