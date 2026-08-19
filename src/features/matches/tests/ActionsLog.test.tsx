@@ -1,5 +1,11 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { ActionsLog } from "../components/ActionsLog";
@@ -8,6 +14,16 @@ import * as eventService from "../../../db/eventService";
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
+    gameevents: {
+      where: vi.fn().mockReturnValue({
+        anyOf: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            { id: "action-synced", isSynced: 1 },
+            { id: "action-1", isSynced: 0 },
+          ]),
+        }),
+      }),
+    },
     matchlineups: {
       get: vi.fn().mockImplementation((id: string) => {
         const lineups: Record<
@@ -66,6 +82,10 @@ const createStoreWithActions = (actions: ActionEntry[]) => {
 describe("ActionsLog Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("renders empty actions log message when no actions exist", () => {
@@ -269,5 +289,132 @@ describe("ActionsLog Component", () => {
     await waitFor(() => {
       expect(eventService.deleteGameEventTx).toHaveBeenCalledWith("action-del");
     });
+  });
+
+  it("automatically clears inline error message after 2 seconds", async () => {
+    vi.useFakeTimers();
+
+    const store = createStoreWithActions([
+      {
+        id: "action-synced",
+        playerNumber: 5,
+        actionName: "Goal",
+        isPositive: true,
+        timestamp: new Date().toISOString(),
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        isLeadToGoal: false,
+        isSynced: 1,
+      },
+    ]);
+
+    render(
+      <Provider store={store}>
+        <ActionsLog />
+      </Provider>,
+    );
+
+    const editBtn = screen.getByTitle("Cannot edit synced event");
+    fireEvent.click(editBtn);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Cannot edit a synchronized event.",
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("handles errors thrown during updateGameEvent and deleteGameEvent", async () => {
+    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValue({
+      id: "def-2",
+      sportId: "s1",
+      name: "Turnover",
+      shortName: "TO",
+      isPositive: false,
+      createdAt: "",
+    });
+
+    vi.mocked(eventService.updateGameEventTx).mockRejectedValueOnce(
+      new Error("Failed to update event"),
+    );
+    vi.mocked(eventService.deleteGameEventTx).mockRejectedValueOnce(
+      new Error("Failed to delete event"),
+    );
+
+    const store = createStoreWithActions([
+      {
+        id: "action-fail",
+        playerNumber: 3,
+        actionName: "Turnover",
+        isPositive: false,
+        timestamp: new Date().toISOString(),
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-2",
+        isLeadToGoal: false,
+        isSynced: 0,
+      },
+    ]);
+
+    render(
+      <Provider store={store}>
+        <ActionsLog />
+      </Provider>,
+    );
+
+    // 1. Error on toggle
+    const checkbox = screen.getByRole("checkbox");
+    fireEvent.click(checkbox);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Failed to update event",
+      );
+    });
+
+    // 2. Error on delete
+    fireEvent.click(screen.getByTitle("Delete Action"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Failed to delete event",
+      );
+    });
+  });
+
+  it("opens edit modal for unsynced event and closes it", async () => {
+    const store = createStoreWithActions([
+      {
+        id: "action-edit",
+        playerNumber: 5,
+        actionName: "Goal",
+        isPositive: true,
+        timestamp: new Date().toISOString(),
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        isLeadToGoal: false,
+        isSynced: 0,
+      },
+    ]);
+
+    render(
+      <Provider store={store}>
+        <ActionsLog />
+      </Provider>,
+    );
+
+    const editBtn = screen.getByTitle("Edit Action");
+    fireEvent.click(editBtn);
+
+    expect(screen.getByText("Edit Action")).toBeInTheDocument();
+
+    const closeBtn = screen.getByText("✕");
+    fireEvent.click(closeBtn);
+
+    expect(screen.queryByText("Edit Action")).not.toBeInTheDocument();
   });
 });

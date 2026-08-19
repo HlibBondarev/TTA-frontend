@@ -201,6 +201,7 @@ describe("Event Database Service (eventService)", () => {
     mockGameEventsGet.mockResolvedValueOnce(existingEvent);
     mockSyncQueueFilter.mockReturnValueOnce({
       toArray: vi.fn().mockResolvedValue([
+        { id: 99, endpoint: "/other", payload: "invalid-json" },
         {
           id: 10,
           endpoint: "/Matches/match-123/teams/team-456/events",
@@ -227,6 +228,19 @@ describe("Event Database Service (eventService)", () => {
     });
   });
 
+  it("should throw error when event to update is not found", async () => {
+    mockGameEventsGet.mockResolvedValueOnce(undefined);
+
+    await expect(
+      updateGameEventTx({
+        eventId: "non-existent",
+        matchLineupId: "l-1",
+        eventDefinitionId: "d-1",
+        isLeadToGoal: false,
+      }),
+    ).rejects.toThrow("Game event not found for ID: non-existent");
+  });
+
   it("should throw error when attempting to update a synced event", async () => {
     mockGameEventsGet.mockResolvedValueOnce({
       id: "event-synced",
@@ -243,7 +257,34 @@ describe("Event Database Service (eventService)", () => {
     ).rejects.toThrow("Cannot edit a synchronized event.");
   });
 
-  it("should delete an unsynchronized GameEvent entity and update syncQueue", async () => {
+  it("should delete an unsynchronized GameEvent entity and update syncQueue array payload", async () => {
+    mockGameEventsGet.mockResolvedValueOnce({
+      id: "event-del-1",
+      isSynced: 0,
+    });
+
+    mockSyncQueueFilter.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 20,
+          endpoint: "/Matches/match-123/teams/team-456/events",
+          payload: JSON.stringify([
+            { id: "event-del-1" },
+            { id: "event-del-2" },
+          ]),
+        },
+      ]),
+    });
+
+    await deleteGameEventTx("event-del-1");
+
+    expect(mockGameEventsDelete).toHaveBeenCalledWith("event-del-1");
+    expect(mockSyncQueueUpdate).toHaveBeenCalledWith(20, {
+      payload: JSON.stringify([{ id: "event-del-2" }]),
+    });
+  });
+
+  it("should delete syncQueue item entirely when last item in batch is deleted", async () => {
     mockGameEventsGet.mockResolvedValueOnce({
       id: "event-del",
       isSynced: 0,
@@ -263,6 +304,14 @@ describe("Event Database Service (eventService)", () => {
 
     expect(mockGameEventsDelete).toHaveBeenCalledWith("event-del");
     expect(mockSyncQueueDelete).toHaveBeenCalledWith(15);
+  });
+
+  it("should throw error when event to delete is not found", async () => {
+    mockGameEventsGet.mockResolvedValueOnce(undefined);
+
+    await expect(deleteGameEventTx("non-existent")).rejects.toThrow(
+      "Game event not found for ID: non-existent",
+    );
   });
 
   it("should throw error when attempting to delete a synced event", async () => {

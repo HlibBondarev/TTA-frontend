@@ -5,6 +5,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import { EditGameEventModal } from "../components/EditGameEventModal";
 import matchReducer from "../store/matchSlice";
 import * as eventService from "../../../db/eventService";
+import { db } from "../../../db/ttaDatabase";
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
@@ -32,6 +33,7 @@ vi.mock("../../../db/ttaDatabase", () => ({
       toArray: vi.fn().mockResolvedValue([
         { id: "def-1", name: "Pass", isPositive: true },
         { id: "def-2", name: "Goal", isPositive: true },
+        { id: "def-3", name: "Foul", ispositive: false },
       ]),
     },
   },
@@ -68,7 +70,7 @@ describe("EditGameEventModal Component", () => {
     timestamp: new Date().toISOString(),
     matchLineupId: "lineup-1",
     eventDefinitionId: "def-1",
-    isLeadToGoal: false,
+    isLeadToGoal: true,
     isSynced: 0,
   };
 
@@ -109,6 +111,28 @@ describe("EditGameEventModal Component", () => {
     expect(await screen.findByText("#7")).toBeInTheDocument();
     expect(screen.getByText("#10")).toBeInTheDocument();
     expect(screen.getByText("Pass")).toBeInTheDocument();
+  });
+
+  it("allows switching between Positive and Negative action tabs", async () => {
+    const store = createStore();
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction}
+          matchId="match-1"
+          onClose={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Pass")).toBeInTheDocument();
+
+    const negativeTab = screen.getByRole("button", { name: "Negative" });
+    fireEvent.click(negativeTab);
+
+    expect(screen.getByText("Foul")).toBeInTheDocument();
+    expect(screen.queryByText("Pass")).not.toBeInTheDocument();
   });
 
   it("allows selecting a different player and action, then saving updates", async () => {
@@ -168,5 +192,95 @@ describe("EditGameEventModal Component", () => {
       });
       expect(mockOnClose).toHaveBeenCalled();
     });
+  });
+
+  it("displays error alert when updateGameEventTx fails on save", async () => {
+    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValue({
+      id: "def-1",
+      sportId: "s1",
+      name: "Pass",
+      shortName: "PS",
+      isPositive: true,
+      createdAt: "",
+    });
+
+    vi.mocked(eventService.updateGameEventTx).mockRejectedValueOnce(
+      new Error("Database write error"),
+    );
+
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction}
+          matchId="match-1"
+          onClose={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    const saveBtn = await screen.findByRole("button", { name: /Save/i });
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Database write error",
+      );
+    });
+  });
+
+  it("handles loading errors for match roster and action definitions", async () => {
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockRejectedValueOnce(new Error("Roster error")),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.eventdefinitions.toArray).mockRejectedValueOnce(
+      new Error("Defs error"),
+    );
+
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction}
+          matchId="match-1"
+          onClose={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+  });
+
+  it("closes modal on Cancel button and close button click", async () => {
+    const mockOnClose = vi.fn();
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction}
+          matchId="match-1"
+          onClose={mockOnClose}
+        />
+      </Provider>,
+    );
+
+    const cancelBtn = await screen.findByRole("button", { name: /Cancel/i });
+    fireEvent.click(cancelBtn);
+    expect(mockOnClose).toHaveBeenCalledTimes(1);
+
+    const closeBtn = screen.getByText("✕");
+    fireEvent.click(closeBtn);
+    expect(mockOnClose).toHaveBeenCalledTimes(2);
   });
 });

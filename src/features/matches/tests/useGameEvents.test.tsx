@@ -432,6 +432,58 @@ describe("useGameEvents Custom Hook", () => {
     );
   });
 
+  it("should throw an error in updateGameEvent if player lineup record is not found", async () => {
+    const store = createTestStore();
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce(undefined);
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.updateGameEvent({
+          eventId: "event-1",
+          selectedPlayerId: "missing-lineup",
+          actionName: "Pass",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow("Player lineup record not found for ID: missing-lineup");
+  });
+
+  it("should throw an error in updateGameEvent if event definition is not found", async () => {
+    const store = createTestStore();
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-1",
+      matchId: "test-match-id",
+      number: 1,
+      playerRosterId: "r-1",
+      positionId: null,
+    });
+
+    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce(
+      undefined,
+    );
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.updateGameEvent({
+          eventId: "event-1",
+          selectedPlayerId: "lineup-1",
+          actionName: "UnknownDef",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow('Event definition not found for action: "UnknownDef"');
+  });
+
   it("should delete a game event via deleteGameEvent and remove from Redux store", async () => {
     const store = createTestStore({
       recentActions: [
