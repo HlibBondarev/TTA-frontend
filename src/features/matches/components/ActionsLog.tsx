@@ -5,9 +5,9 @@ import { useAppSelector } from "../../../hooks/hooks";
 import { type ActionEntry } from "../store/matchSlice";
 import { useGameEvents } from "../hooks/useGameEvents";
 import { EditGameEventModal } from "./EditGameEventModal";
+import { ModalDialog } from "./ModalDialog";
 
 export const ActionsLog: React.FC = () => {
-  // Inline selectors without modifying matchSlice.ts
   const activeMatchId = useAppSelector((state) => state.match.activeMatchId);
   const recentActions = useAppSelector((state) => state.match.recentActions);
 
@@ -22,7 +22,6 @@ export const ActionsLog: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [syncedMap, setSyncedMap] = useState<Record<string, number>>({});
 
-  // Auto-dismiss error message after 2 seconds
   useEffect(() => {
     if (!error) return;
 
@@ -33,7 +32,6 @@ export const ActionsLog: React.FC = () => {
     return () => clearTimeout(timer);
   }, [error]);
 
-  // Reactive subscription to Dexie gameevents table to keep sync statuses up to date
   useEffect(() => {
     if (!db?.gameevents) return;
 
@@ -58,7 +56,6 @@ export const ActionsLog: React.FC = () => {
     return () => subscription.unsubscribe();
   }, [recentActions]);
 
-  // Helper to accurately determine synced status from Dexie DB or fallback to Redux state
   const isActionSynced = (action: ActionEntry): boolean => {
     const dbSynced = syncedMap[action.id];
     if (dbSynced !== undefined) {
@@ -184,7 +181,6 @@ export const ActionsLog: React.FC = () => {
                   </div>
 
                   <div className="flex items-center space-x-2 shrink-0">
-                    {/* Goal Lead Toggle Checkbox */}
                     <label
                       className={`flex items-center space-x-1 text-[9px] ${
                         isSynced || isGoalAction
@@ -210,7 +206,6 @@ export const ActionsLog: React.FC = () => {
                       <span>GL</span>
                     </label>
 
-                    {/* Lock Icon Slot (Fixed w-4 width to prevent layout shift) */}
                     <span
                       className="w-4 inline-flex justify-center text-[10px] select-none"
                       title={
@@ -224,7 +219,6 @@ export const ActionsLog: React.FC = () => {
                       ) : null}
                     </span>
 
-                    {/* Edit Action Button */}
                     <button
                       type="button"
                       onClick={() => handleOpenEditModal(act)}
@@ -241,7 +235,6 @@ export const ActionsLog: React.FC = () => {
                       <span aria-hidden="true">✏️</span>
                     </button>
 
-                    {/* Delete Action Button */}
                     <button
                       type="button"
                       onClick={() => handleDeleteClick(act)}
@@ -271,7 +264,6 @@ export const ActionsLog: React.FC = () => {
         </div>
       </div>
 
-      {/* In-Place Event Editing Modal */}
       {editingAction && activeMatchId && (
         <EditGameEventModal
           isOpen={Boolean(editingAction)}
@@ -281,46 +273,37 @@ export const ActionsLog: React.FC = () => {
         />
       )}
 
-      {/* Custom Delete Confirmation Modal */}
       {actionToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-xl border border-gray-800 bg-gray-900 p-4 text-white shadow-2xl space-y-3">
-            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-rose-400">
-                Delete Action
-              </h3>
-              <button
-                type="button"
-                onClick={() => setActionToDelete(null)}
-                className="text-gray-400 hover:text-white text-xs font-bold"
-              >
-                ✕
-              </button>
-            </div>
+        <ModalDialog
+          isOpen={Boolean(actionToDelete)}
+          onClose={() => setActionToDelete(null)}
+          titleId="delete-action-title"
+          title="Delete Action"
+          titleClassName="text-rose-400"
+          maxWidthClass="max-w-sm"
+        >
+          <p className="text-xs text-gray-300">
+            Are you sure you want to delete this action? (#
+            {actionToDelete.playerNumber} {actionToDelete.actionName})
+          </p>
 
-            <p className="text-xs text-gray-300">
-              Are you sure you want to delete this action? (#
-              {actionToDelete.playerNumber} {actionToDelete.actionName})
-            </p>
-
-            <div className="flex space-x-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setActionToDelete(null)}
-                className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-bold uppercase transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="flex-1 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold uppercase transition-all"
-              >
-                Delete
-              </button>
-            </div>
+          <div className="flex space-x-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setActionToDelete(null)}
+              className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-bold uppercase transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDelete}
+              className="flex-1 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold uppercase transition-all"
+            >
+              Delete
+            </button>
           </div>
-        </div>
+        </ModalDialog>
       )}
     </>
   );
