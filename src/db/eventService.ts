@@ -83,6 +83,65 @@ export interface UpdateGameEventParams {
 }
 
 /**
+ * Helper to update a matching event payload inside a syncQueue item.
+ */
+const processQueueItemUpdate = async (
+  item: SyncQueueItem,
+  params: UpdateGameEventParams,
+): Promise<boolean> => {
+  try {
+    const parsed = JSON.parse(item.payload);
+    if (!Array.isArray(parsed)) return false;
+
+    const targetIndex = parsed.findIndex(
+      (e: { id: string }) => e.id === params.eventId,
+    );
+    if (targetIndex === -1) return false;
+
+    parsed[targetIndex] = {
+      ...parsed[targetIndex],
+      matchLineupId: params.matchLineupId,
+      eventDefinitionId: params.eventDefinitionId,
+      isLeadToGoal: params.isLeadToGoal,
+    };
+
+    await db.syncQueue.update(item.id!, {
+      payload: JSON.stringify(parsed),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Helper to remove a matching event payload inside a syncQueue item.
+ */
+const processQueueItemDelete = async (
+  item: SyncQueueItem,
+  eventId: string,
+): Promise<boolean> => {
+  try {
+    const parsed = JSON.parse(item.payload);
+    if (!Array.isArray(parsed)) return false;
+
+    const filtered = parsed.filter((e: { id: string }) => e.id !== eventId);
+    if (filtered.length === parsed.length) return false;
+
+    if (filtered.length === 0) {
+      await db.syncQueue.delete(item.id!);
+    } else {
+      await db.syncQueue.update(item.id!, {
+        payload: JSON.stringify(filtered),
+      });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
  * Atomically persists a new GameEvent entity to IndexedDB and enqueues the team-scoped sync payload.
  */
 export const createGameEventTx = async (
@@ -174,36 +233,15 @@ export const updateGameEventTx = async (
 
     await db.gameevents.put(updatedEvent);
 
-    // Update pending payload inside syncQueue
     const queueItems = await db.syncQueue
       .filter((item) => item.endpoint.includes("/events"))
       .toArray();
 
     let payloadUpdated = false;
-
     for (const item of queueItems) {
-      try {
-        const parsed = JSON.parse(item.payload);
-        if (Array.isArray(parsed)) {
-          const targetIndex = parsed.findIndex(
-            (e: { id: string }) => e.id === params.eventId,
-          );
-          if (targetIndex !== -1) {
-            parsed[targetIndex] = {
-              ...parsed[targetIndex],
-              matchLineupId: params.matchLineupId,
-              eventDefinitionId: params.eventDefinitionId,
-              isLeadToGoal: params.isLeadToGoal,
-            };
-            await db.syncQueue.update(item.id!, {
-              payload: JSON.stringify(parsed),
-            });
-            payloadUpdated = true;
-            break;
-          }
-        }
-      } catch {
-        // Ignore unparseable non-matching payloads
+      if (await processQueueItemUpdate(item, params)) {
+        payloadUpdated = true;
+        break;
       }
     }
 
@@ -234,34 +272,15 @@ export const deleteGameEventTx = async (eventId: string): Promise<void> => {
 
     await db.gameevents.delete(eventId);
 
-    // Remove or adjust item inside syncQueue
     const queueItems = await db.syncQueue
       .filter((item) => item.endpoint.includes("/events"))
       .toArray();
 
     let payloadRemoved = false;
-
     for (const item of queueItems) {
-      try {
-        const parsed = JSON.parse(item.payload);
-        if (Array.isArray(parsed)) {
-          const filtered = parsed.filter(
-            (e: { id: string }) => e.id !== eventId,
-          );
-          if (filtered.length !== parsed.length) {
-            if (filtered.length === 0) {
-              await db.syncQueue.delete(item.id!);
-            } else {
-              await db.syncQueue.update(item.id!, {
-                payload: JSON.stringify(filtered),
-              });
-            }
-            payloadRemoved = true;
-            break;
-          }
-        }
-      } catch {
-        // Ignore unparseable non-matching payloads
+      if (await processQueueItemDelete(item, eventId)) {
+        payloadRemoved = true;
+        break;
       }
     }
 
