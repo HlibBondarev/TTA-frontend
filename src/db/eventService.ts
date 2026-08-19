@@ -148,7 +148,7 @@ export const createGameEventTx = async (
 
 /**
  * Atomically updates an existing unsynchronized GameEvent entity in IndexedDB and syncQueue.
- * Throws an error if the event is already synchronized (isSynced === 1).
+ * Throws an error if the event is already synchronized (isSynced === 1) or matching syncQueue item is missing.
  */
 export const updateGameEventTx = async (
   params: UpdateGameEventParams,
@@ -179,6 +179,8 @@ export const updateGameEventTx = async (
       .filter((item) => item.endpoint.includes("/events"))
       .toArray();
 
+    let payloadUpdated = false;
+
     for (const item of queueItems) {
       try {
         const parsed = JSON.parse(item.payload);
@@ -196,12 +198,19 @@ export const updateGameEventTx = async (
             await db.syncQueue.update(item.id!, {
               payload: JSON.stringify(parsed),
             });
+            payloadUpdated = true;
             break;
           }
         }
       } catch {
         // Ignore unparseable non-matching payloads
       }
+    }
+
+    if (!payloadUpdated) {
+      throw new Error(
+        `Matching sync queue payload not found for event ID: ${params.eventId}`,
+      );
     }
   });
 
@@ -210,7 +219,7 @@ export const updateGameEventTx = async (
 
 /**
  * Atomically removes an unsynchronized GameEvent entity from IndexedDB and syncQueue.
- * Throws an error if the event is already synchronized (isSynced === 1).
+ * Throws an error if the event is already synchronized (isSynced === 1) or matching syncQueue item is missing.
  */
 export const deleteGameEventTx = async (eventId: string): Promise<void> => {
   await db.transaction("rw", [db.gameevents, db.syncQueue], async () => {
@@ -230,6 +239,8 @@ export const deleteGameEventTx = async (eventId: string): Promise<void> => {
       .filter((item) => item.endpoint.includes("/events"))
       .toArray();
 
+    let payloadRemoved = false;
+
     for (const item of queueItems) {
       try {
         const parsed = JSON.parse(item.payload);
@@ -237,17 +248,27 @@ export const deleteGameEventTx = async (eventId: string): Promise<void> => {
           const filtered = parsed.filter(
             (e: { id: string }) => e.id !== eventId,
           );
-          if (filtered.length === 0) {
-            await db.syncQueue.delete(item.id!);
-          } else if (filtered.length !== parsed.length) {
-            await db.syncQueue.update(item.id!, {
-              payload: JSON.stringify(filtered),
-            });
+          if (filtered.length !== parsed.length) {
+            if (filtered.length === 0) {
+              await db.syncQueue.delete(item.id!);
+            } else {
+              await db.syncQueue.update(item.id!, {
+                payload: JSON.stringify(filtered),
+              });
+            }
+            payloadRemoved = true;
+            break;
           }
         }
       } catch {
         // Ignore unparseable non-matching payloads
       }
+    }
+
+    if (!payloadRemoved) {
+      throw new Error(
+        `Matching sync queue payload not found for event ID: ${eventId}`,
+      );
     }
   });
 };

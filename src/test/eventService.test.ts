@@ -257,6 +257,28 @@ describe("Event Database Service (eventService)", () => {
     ).rejects.toThrow("Cannot edit a synchronized event.");
   });
 
+  it("should throw error when matching sync queue payload is missing during update", async () => {
+    mockGameEventsGet.mockResolvedValueOnce({
+      id: "event-orphaned",
+      isSynced: 0,
+    });
+
+    mockSyncQueueFilter.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([]),
+    });
+
+    await expect(
+      updateGameEventTx({
+        eventId: "event-orphaned",
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-2",
+        isLeadToGoal: true,
+      }),
+    ).rejects.toThrow(
+      "Matching sync queue payload not found for event ID: event-orphaned",
+    );
+  });
+
   it("should delete an unsynchronized GameEvent entity and update syncQueue array payload", async () => {
     mockGameEventsGet.mockResolvedValueOnce({
       id: "event-del-1",
@@ -322,6 +344,21 @@ describe("Event Database Service (eventService)", () => {
 
     await expect(deleteGameEventTx("event-synced")).rejects.toThrow(
       "Cannot delete a synchronized event.",
+    );
+  });
+
+  it("should throw error when matching sync queue payload is missing during deletion", async () => {
+    mockGameEventsGet.mockResolvedValueOnce({
+      id: "event-orphaned",
+      isSynced: 0,
+    });
+
+    mockSyncQueueFilter.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([]),
+    });
+
+    await expect(deleteGameEventTx("event-orphaned")).rejects.toThrow(
+      "Matching sync queue payload not found for event ID: event-orphaned",
     );
   });
 });
