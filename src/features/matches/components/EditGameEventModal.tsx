@@ -151,7 +151,7 @@ const EditGameEventModalContent: React.FC<{
                     : "bg-gray-800 text-gray-300 hover:bg-gray-700"
                 }`}
               >
-                {`#${l.number || ""}`}
+                {`#${l.number ?? ""}`}
               </button>
             ))}
           </div>
