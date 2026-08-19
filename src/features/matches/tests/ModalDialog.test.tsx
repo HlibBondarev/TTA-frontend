@@ -80,8 +80,8 @@ describe("ModalDialog Component", () => {
     expect(mockOnClose).toHaveBeenCalledTimes(1);
   });
 
-  it("calls onClose when clicking the backdrop overlay", () => {
-    render(
+  it("calls onClose when clicking the backdrop overlay button", () => {
+    const { container } = render(
       <ModalDialog
         isOpen={true}
         onClose={mockOnClose}
@@ -92,9 +92,10 @@ describe("ModalDialog Component", () => {
       </ModalDialog>,
     );
 
-    const dialog = screen.getByRole("dialog");
+    const backdropBtn = container.querySelector('button[aria-hidden="true"]');
+    expect(backdropBtn).not.toBeNull();
 
-    fireEvent.click(dialog);
+    fireEvent.click(backdropBtn!);
 
     expect(mockOnClose).toHaveBeenCalledTimes(1);
   });

@@ -33,6 +33,11 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
         dialogRef.current.querySelectorAll<HTMLElement>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
         ),
+      ).filter(
+        (el) =>
+          el.getAttribute("tabindex") !== "-1" &&
+          el.getAttribute("aria-hidden") !== "true" &&
+          !el.hasAttribute("disabled"),
       );
     };
 
@@ -85,20 +90,20 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
       open={isOpen}
       aria-modal="true"
       aria-labelledby={titleId}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm overflow-y-auto w-full h-full max-w-none max-h-none border-0 text-white m-0"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          onClose();
-        }
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") {
-          onClose();
-        }
-      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 overflow-y-auto w-full h-full max-w-none max-h-none border-0 bg-transparent text-white m-0"
     >
+      {/* Backdrop overlay button */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-hidden="true"
+        onClick={onClose}
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm cursor-default border-0 p-0 m-0 w-full h-full block"
+      />
+
+      {/* Dialog content box */}
       <div
-        className={`w-full ${maxWidthClass} rounded-xl border border-gray-800 bg-gray-900 p-4 text-white shadow-2xl space-y-4 max-h-[92vh] flex flex-col justify-between`}
+        className={`relative z-10 w-full ${maxWidthClass} rounded-xl border border-gray-800 bg-gray-900 p-4 text-white shadow-2xl space-y-4 max-h-[92vh] flex flex-col justify-between`}
       >
         <div className="flex justify-between items-center border-b border-gray-800 pb-2 shrink-0">
           <h3
