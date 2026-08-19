@@ -75,14 +75,11 @@ describe("TTDActionsPanel Component", () => {
 
   it("allows selecting actions loaded dynamically from Dexie DB and switching tabs", async () => {
     const mockOnActionSelect = vi.fn();
-    const mockOnIsLeadToGoalChange = vi.fn();
 
     render(
       <TTDActionsPanel
         onActionSelect={mockOnActionSelect}
         selectedAction={null}
-        isLeadToGoal={false}
-        onIsLeadToGoalChange={mockOnIsLeadToGoalChange}
         disabled={false}
       />,
     );
@@ -101,47 +98,35 @@ describe("TTDActionsPanel Component", () => {
     expect(mockOnActionSelect).toHaveBeenCalledWith("Foul", false);
   });
 
-  it("applies selected styling and toggles isLeadToGoal checkbox", async () => {
-    const mockOnIsLeadToGoalChange = vi.fn();
-
+  it("applies selected styling to the active action button", async () => {
     render(
       <TTDActionsPanel
         onActionSelect={vi.fn()}
         selectedAction="Goal"
-        isLeadToGoal={true}
-        onIsLeadToGoalChange={mockOnIsLeadToGoalChange}
         disabled={false}
       />,
     );
 
     const goalBtn = await screen.findByText("Goal");
     expect(goalBtn).toHaveClass("bg-blue-600");
-
-    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
-    expect(checkbox.checked).toBe(true);
-
-    fireEvent.click(checkbox);
-    expect(mockOnIsLeadToGoalChange).toHaveBeenCalledWith(false);
   });
 
-  it("respects disabled prop", async () => {
+  it("respects disabled prop for tabs and action buttons", async () => {
     const { container } = render(
       <TTDActionsPanel
         onActionSelect={vi.fn()}
         selectedAction={null}
-        isLeadToGoal={false}
-        onIsLeadToGoalChange={vi.fn()}
         disabled={true}
       />,
     );
 
     expect(container.firstChild).toHaveClass("opacity-50");
 
-    // Verify buttons and checkbox natively receive disabled state
+    // Verify buttons natively receive disabled state
     const positiveTabBtn = screen.getByRole("button", { name: /Positive/i });
     expect(positiveTabBtn).toBeDisabled();
 
-    const checkbox = screen.getByRole("checkbox");
-    expect(checkbox).toBeDisabled();
+    const negativeTabBtn = screen.getByRole("button", { name: /Negative/i });
+    expect(negativeTabBtn).toBeDisabled();
   });
 });

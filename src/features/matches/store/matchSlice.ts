@@ -6,6 +6,10 @@ export interface ActionEntry {
   actionName: string;
   isPositive: boolean;
   timestamp: string;
+  matchLineupId: string;
+  eventDefinitionId: string;
+  isLeadToGoal: boolean;
+  isSynced: number; // 0 = Pending, 1 = Synced
 }
 
 export interface MatchState {
@@ -116,6 +120,25 @@ const matchSlice = createSlice({
         10,
       );
     },
+    updateRecentAction(
+      state,
+      action: PayloadAction<Partial<ActionEntry> & { id: string }>,
+    ) {
+      const index = state.recentActions.findIndex(
+        (a) => a.id === action.payload.id,
+      );
+      if (index !== -1) {
+        state.recentActions[index] = {
+          ...state.recentActions[index],
+          ...action.payload,
+        };
+      }
+    },
+    deleteRecentAction(state, action: PayloadAction<string>) {
+      state.recentActions = state.recentActions.filter(
+        (a) => a.id !== action.payload,
+      );
+    },
     resetMatchState() {
       return initialState;
     },
@@ -135,6 +158,8 @@ export const {
   incrementSequence,
   setGlobalSequenceNumber,
   addRecentAction,
+  updateRecentAction,
+  deleteRecentAction,
   resetMatchState,
 } = matchSlice.actions;
 

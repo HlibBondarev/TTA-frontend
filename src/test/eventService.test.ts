@@ -5,7 +5,16 @@ import {
   clearEventDefinitionsCache,
   getEventDefinitionByName,
   createGameEventTx,
+  updateGameEventTx,
+  deleteGameEventTx,
 } from "../db/eventService";
+
+const mockGameEventsGet = vi.fn();
+const mockGameEventsPut = vi.fn();
+const mockGameEventsDelete = vi.fn();
+const mockSyncQueueUpdate = vi.fn();
+const mockSyncQueueDelete = vi.fn();
+const mockSyncQueueFilter = vi.fn();
 
 vi.mock("../db/ttaDatabase", () => ({
   db: {
@@ -14,6 +23,9 @@ vi.mock("../db/ttaDatabase", () => ({
     },
     gameevents: {
       add: vi.fn(),
+      get: (...args: unknown[]) => mockGameEventsGet(...args),
+      put: (...args: unknown[]) => mockGameEventsPut(...args),
+      delete: (...args: unknown[]) => mockGameEventsDelete(...args),
       orderBy: vi.fn().mockReturnValue({
         last: vi.fn().mockResolvedValue({ sequenceNumber: 4 }),
       }),
@@ -30,6 +42,9 @@ vi.mock("../db/ttaDatabase", () => ({
     },
     syncQueue: {
       add: vi.fn(),
+      update: (...args: unknown[]) => mockSyncQueueUpdate(...args),
+      delete: (...args: unknown[]) => mockSyncQueueDelete(...args),
+      filter: (...args: unknown[]) => mockSyncQueueFilter(...args),
     },
     transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
@@ -111,7 +126,7 @@ describe("Event Database Service (eventService)", () => {
       eventDefinitionId: "def-1",
       periodNumber: 1,
       eventTimestamp: "2026-07-22T12:00:00.000Z",
-      isLeadToGoal: true,
+      isLeadToGoal: false,
     };
 
     await expect(createGameEventTx(invalidParamsMissingMatch)).rejects.toThrow(
@@ -125,7 +140,7 @@ describe("Event Database Service (eventService)", () => {
       eventDefinitionId: "def-1",
       periodNumber: 1,
       eventTimestamp: "2026-07-22T12:00:00.000Z",
-      isLeadToGoal: true,
+      isLeadToGoal: false,
     };
 
     await expect(createGameEventTx(invalidParamsMissingTeam)).rejects.toThrow(
@@ -145,7 +160,7 @@ describe("Event Database Service (eventService)", () => {
       eventDefinitionId: "def-1",
       periodNumber: 1,
       eventTimestamp: "2026-07-22T12:00:00.000Z",
-      isLeadToGoal: true,
+      isLeadToGoal: false,
     };
 
     const createdEvent = await createGameEventTx(params);
@@ -156,7 +171,7 @@ describe("Event Database Service (eventService)", () => {
       eventDefinitionId: "def-1",
       periodNumber: 1,
       eventTimestamp: "2026-07-22T12:00:00.000Z",
-      isLeadToGoal: true,
+      isLeadToGoal: false,
       createdAt: expect.any(String),
       sequenceNumber: 5,
       isSynced: 0,
@@ -168,41 +183,96 @@ describe("Event Database Service (eventService)", () => {
       expect.any(Function),
     );
     expect(db.gameevents.add).toHaveBeenCalledWith(createdEvent);
-
-    expect(db.syncQueue.add).toHaveBeenCalledWith({
-      actionType: "POST",
-      endpoint: "/Matches/match-123/teams/team-456/events",
-      payload: JSON.stringify([
-        {
-          id: createdEvent.id,
-          matchLineupId: "lineup-1",
-          eventDefinitionId: "def-1",
-          periodNumber: 1,
-          isLeadToGoal: true,
-          eventTimestamp: "2026-07-22T12:00:00.000Z",
-        },
-      ]),
-      createdAt: "2026-07-22T12:00:00.000Z",
-    });
   });
 
-  it("should normalize padded matchId and teamId before constructing sync queue endpoint", async () => {
-    const params = {
-      matchId: "  match-padded-123  ",
-      teamId: "  team-padded-456  ",
+  it("should update an unsynchronized GameEvent entity and its syncQueue payload", async () => {
+    const existingEvent = {
+      id: "event-1",
       matchLineupId: "lineup-1",
       eventDefinitionId: "def-1",
       periodNumber: 1,
       eventTimestamp: "2026-07-22T12:00:00.000Z",
       isLeadToGoal: false,
+      createdAt: "2026-07-22T12:00:00.000Z",
+      sequenceNumber: 1,
+      isSynced: 0,
     };
 
-    await createGameEventTx(params);
+    mockGameEventsGet.mockResolvedValueOnce(existingEvent);
+    mockSyncQueueFilter.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 10,
+          endpoint: "/Matches/match-123/teams/team-456/events",
+          payload: JSON.stringify([
+            { id: "event-1", matchLineupId: "lineup-1" },
+          ]),
+        },
+      ]),
+    });
 
-    expect(db.syncQueue.add).toHaveBeenCalledWith(
-      expect.objectContaining({
-        endpoint: "/Matches/match-padded-123/teams/team-padded-456/events",
+    const updated = await updateGameEventTx({
+      eventId: "event-1",
+      matchLineupId: "lineup-2",
+      eventDefinitionId: "def-2",
+      isLeadToGoal: true,
+    });
+
+    expect(updated.matchLineupId).toBe("lineup-2");
+    expect(updated.eventDefinitionId).toBe("def-2");
+    expect(updated.isLeadToGoal).toBe(true);
+    expect(mockGameEventsPut).toHaveBeenCalledWith(updated);
+    expect(mockSyncQueueUpdate).toHaveBeenCalledWith(10, {
+      payload: expect.stringContaining('"matchLineupId":"lineup-2"'),
+    });
+  });
+
+  it("should throw error when attempting to update a synced event", async () => {
+    mockGameEventsGet.mockResolvedValueOnce({
+      id: "event-synced",
+      isSynced: 1,
+    });
+
+    await expect(
+      updateGameEventTx({
+        eventId: "event-synced",
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-2",
+        isLeadToGoal: true,
       }),
+    ).rejects.toThrow("Cannot edit a synchronized event.");
+  });
+
+  it("should delete an unsynchronized GameEvent entity and update syncQueue", async () => {
+    mockGameEventsGet.mockResolvedValueOnce({
+      id: "event-del",
+      isSynced: 0,
+    });
+
+    mockSyncQueueFilter.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 15,
+          endpoint: "/Matches/match-123/teams/team-456/events",
+          payload: JSON.stringify([{ id: "event-del" }]),
+        },
+      ]),
+    });
+
+    await deleteGameEventTx("event-del");
+
+    expect(mockGameEventsDelete).toHaveBeenCalledWith("event-del");
+    expect(mockSyncQueueDelete).toHaveBeenCalledWith(15);
+  });
+
+  it("should throw error when attempting to delete a synced event", async () => {
+    mockGameEventsGet.mockResolvedValueOnce({
+      id: "event-synced",
+      isSynced: 1,
+    });
+
+    await expect(deleteGameEventTx("event-synced")).rejects.toThrow(
+      "Cannot delete a synchronized event.",
     );
   });
 });

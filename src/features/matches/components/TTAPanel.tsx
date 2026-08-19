@@ -5,8 +5,6 @@ import { db, type EventDefinitionLookup } from "../../../db/ttaDatabase";
 interface TTDActionsPanelProps {
   onActionSelect: (action: string, isPositive: boolean) => void;
   selectedAction: string | null;
-  isLeadToGoal: boolean;
-  onIsLeadToGoalChange: (isLeadToGoal: boolean) => void;
   disabled: boolean;
 }
 
@@ -20,8 +18,6 @@ const checkIsPositive = (def: EventDefinitionLookup): boolean => {
 export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
   onActionSelect,
   selectedAction,
-  isLeadToGoal,
-  onIsLeadToGoalChange,
   disabled,
 }) => {
   const [activeTab, setActiveTab] = useState<"positive" | "negative">(
@@ -119,20 +115,6 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
             </button>
           );
         })}
-      </div>
-
-      {/* Strictly English UI Text */}
-      <div className="mt-3 pt-2 border-t border-gray-800 flex items-center justify-between px-1">
-        <label className="flex items-center space-x-2 text-xs font-semibold text-gray-300 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={isLeadToGoal}
-            onChange={(e) => onIsLeadToGoalChange(e.target.checked)}
-            disabled={disabled || !selectedAction}
-            className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
-          />
-          <span>Leads to Goal</span>
-        </label>
       </div>
     </div>
   );
