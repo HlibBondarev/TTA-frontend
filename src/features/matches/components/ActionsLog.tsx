@@ -165,6 +165,13 @@ export const ActionsLog: React.FC = () => {
                 act.actionName.trim().toLowerCase() === "goal";
               const isSynced = isActionSynced(act);
 
+              let checkboxTitle = "Toggle Leads to Goal";
+              if (isSynced) {
+                checkboxTitle = "Cannot edit synchronized event";
+              } else if (isGoalAction) {
+                checkboxTitle = "Goal action cannot lead to goal";
+              }
+
               return (
                 <div
                   key={act.id}
@@ -187,13 +194,7 @@ export const ActionsLog: React.FC = () => {
                           ? "text-gray-600 cursor-not-allowed"
                           : "text-gray-400 cursor-pointer"
                       }`}
-                      title={
-                        isSynced
-                          ? "Cannot edit synchronized event"
-                          : isGoalAction
-                            ? "Goal action cannot lead to goal"
-                            : "Toggle Leads to Goal"
-                      }
+                      title={checkboxTitle}
                     >
                       <input
                         type="checkbox"
