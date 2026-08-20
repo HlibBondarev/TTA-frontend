@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { liveQuery } from "dexie";
 import { db } from "../../../db/ttaDatabase";
 import { useAppSelector } from "../../../hooks/hooks";
@@ -32,13 +32,18 @@ export const ActionsLog: React.FC = () => {
     return () => clearTimeout(timer);
   }, [error]);
 
+  const actionIdsKey = useMemo(
+    () => recentActions.map((a) => a.id).join(","),
+    [recentActions],
+  );
+
   useEffect(() => {
     if (!db?.gameevents) return;
 
     const subscription = liveQuery(async () => {
-      if (!db?.gameevents || recentActions.length === 0) return {};
+      const ids = actionIdsKey ? actionIdsKey.split(",") : [];
+      if (!db?.gameevents || ids.length === 0) return {};
       try {
-        const ids = recentActions.map((a) => a.id);
         const events = await db.gameevents.where("id").anyOf(ids).toArray();
         const map: Record<string, number> = {};
         events?.forEach((e) => {
@@ -54,16 +59,14 @@ export const ActionsLog: React.FC = () => {
     });
 
     return () => subscription.unsubscribe();
-  }, [recentActions]);
+  }, [actionIdsKey]);
 
   const isActionSynced = (action: ActionEntry): boolean => {
     const dbSynced = syncedMap[action.id];
     if (dbSynced !== undefined) {
       return dbSynced === 1;
     }
-    return Boolean(
-      action.isSynced === 1 || (action.isSynced as unknown) === true,
-    );
+    return action.isSynced === 1;
   };
 
   const handleToggleLeadToGoal = async (action: ActionEntry) => {
