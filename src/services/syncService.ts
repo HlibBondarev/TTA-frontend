@@ -314,9 +314,3 @@ export const processSyncQueue = async (): Promise<number> => {
 
   return processedCount;
 };
-
-export const initSyncEngine = () => {
-  window.addEventListener("online", () => {
-    processSyncQueue();
-  });
-};

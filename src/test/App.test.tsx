@@ -44,7 +44,7 @@ vi.mock("../services/hydrationService", () => ({
 }));
 
 vi.mock("../services/syncService", () => ({
-  initSyncEngine: vi.fn(),
+  processSyncQueue: vi.fn().mockResolvedValue(0),
 }));
 
 const createTestStore = (
