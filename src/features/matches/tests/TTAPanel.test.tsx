@@ -122,11 +122,15 @@ describe("TTDActionsPanel Component", () => {
 
     expect(container.firstChild).toHaveClass("opacity-50");
 
-    // Verify buttons natively receive disabled state
+    // Verify tab buttons natively receive disabled state
     const positiveTabBtn = screen.getByRole("button", { name: /Positive/i });
     expect(positiveTabBtn).toBeDisabled();
 
     const negativeTabBtn = screen.getByRole("button", { name: /Negative/i });
     expect(negativeTabBtn).toBeDisabled();
+
+    // Verify dynamically rendered action buttons receive disabled state
+    const actionBtn = await screen.findByText("Goal");
+    expect(actionBtn).toBeDisabled();
   });
 });
