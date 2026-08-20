@@ -200,7 +200,7 @@ describe("ActionsLog Component", () => {
     });
   });
 
-  it("renders lock icon 🔒 and shows inline error messages without opening modals for synced events (isSynced === 1)", () => {
+  it("renders lock icon 🔒 and shows inline error messages when Dexie reports event as synced (isSynced === 1 in DB while Redux is 0)", async () => {
     const store = createStoreWithActions([
       {
         id: "action-synced",
@@ -211,7 +211,7 @@ describe("ActionsLog Component", () => {
         matchLineupId: "lineup-1",
         eventDefinitionId: "def-1",
         isLeadToGoal: false,
-        isSynced: 1,
+        isSynced: 0,
       },
     ]);
 
@@ -221,8 +221,8 @@ describe("ActionsLog Component", () => {
       </Provider>,
     );
 
-    // 1. Verify lock icon is visible
-    expect(screen.getByText("🔒")).toBeInTheDocument();
+    // 1. Verify lock icon becomes visible after Dexie liveQuery resolves isSynced === 1
+    expect(await screen.findByText("🔒")).toBeInTheDocument();
 
     // 2. Click edit button -> Displays inline error and blocks modal
     const editBtn = screen.getByTitle("Cannot edit synced event");
