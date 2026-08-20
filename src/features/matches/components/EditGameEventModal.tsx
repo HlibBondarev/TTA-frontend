@@ -39,6 +39,8 @@ const EditGameEventModalContent: React.FC<{
   const [selectedActionName, setSelectedActionName] = useState<string>(
     action.actionName,
   );
+  const [selectedEventDefinitionId, setSelectedEventDefinitionId] =
+    useState<string>(action.eventDefinitionId);
   const [isPositive, setIsPositive] = useState<boolean>(action.isPositive);
   const [activeTab, setActiveTab] = useState<"positive" | "negative">(
     action.isPositive ? "positive" : "negative",
@@ -90,11 +92,18 @@ const EditGameEventModalContent: React.FC<{
   const handleActionSelect = (def: EventDefinitionLookup) => {
     const isPos = checkIsPositive(def);
     setSelectedActionName(def.name);
+    setSelectedEventDefinitionId(def.id);
     setIsPositive(isPos);
   };
 
   const handleSave = async () => {
-    if (!selectedMatchLineupId || !selectedActionName || isSaving) return;
+    if (
+      !selectedMatchLineupId ||
+      !selectedActionName ||
+      !selectedEventDefinitionId ||
+      isSaving
+    )
+      return;
 
     setIsSaving(true);
     setError(null);
@@ -104,6 +113,7 @@ const EditGameEventModalContent: React.FC<{
         eventId: action.id,
         selectedPlayerId: selectedMatchLineupId,
         actionName: selectedActionName,
+        eventDefinitionId: selectedEventDefinitionId,
         isPositive,
         isLeadToGoal: isGoalAction ? false : action.isLeadToGoal,
       });
@@ -218,7 +228,12 @@ const EditGameEventModalContent: React.FC<{
         <button
           type="button"
           onClick={handleSave}
-          disabled={isSaving || !selectedMatchLineupId || !selectedActionName}
+          disabled={
+            isSaving ||
+            !selectedMatchLineupId ||
+            !selectedActionName ||
+            !selectedEventDefinitionId
+          }
           className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 text-white rounded-lg text-xs font-bold uppercase transition-all"
         >
           Save

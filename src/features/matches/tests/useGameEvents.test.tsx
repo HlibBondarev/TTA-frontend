@@ -354,7 +354,7 @@ describe("useGameEvents Custom Hook", () => {
     });
   });
 
-  it("should update an existing game event via updateGameEvent and update Redux store", async () => {
+  it("should update an existing game event via updateGameEvent using passed eventDefinitionId without name lookup", async () => {
     const store = createTestStore({
       recentActions: [
         {
@@ -379,19 +379,10 @@ describe("useGameEvents Custom Hook", () => {
       positionId: null,
     });
 
-    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValueOnce({
-      id: "def-steal",
-      sportId: "s1",
-      name: "Steal",
-      shortName: "ST",
-      isPositive: true,
-      createdAt: new Date().toISOString(),
-    });
-
     vi.mocked(eventService.updateGameEventTx).mockResolvedValueOnce({
       id: "event-to-update",
       matchLineupId: "lineup-10",
-      eventDefinitionId: "def-steal",
+      eventDefinitionId: "def-steal-direct",
       periodNumber: 2,
       eventTimestamp: new Date().toISOString(),
       isLeadToGoal: true,
@@ -409,16 +400,18 @@ describe("useGameEvents Custom Hook", () => {
         eventId: "event-to-update",
         selectedPlayerId: "lineup-10",
         actionName: "Steal",
+        eventDefinitionId: "def-steal-direct",
         isPositive: true,
         isLeadToGoal: true,
       });
       expect(success).toBe(true);
     });
 
+    expect(eventService.getEventDefinitionByName).not.toHaveBeenCalled();
     expect(eventService.updateGameEventTx).toHaveBeenCalledWith({
       eventId: "event-to-update",
       matchLineupId: "lineup-10",
-      eventDefinitionId: "def-steal",
+      eventDefinitionId: "def-steal-direct",
       isLeadToGoal: true,
     });
 
@@ -427,6 +420,7 @@ describe("useGameEvents Custom Hook", () => {
         id: "event-to-update",
         playerNumber: 10,
         actionName: "Steal",
+        eventDefinitionId: "def-steal-direct",
         isLeadToGoal: true,
       }),
     );
@@ -482,7 +476,7 @@ describe("useGameEvents Custom Hook", () => {
     );
   });
 
-  it("should throw an error in updateGameEvent if event definition is not found", async () => {
+  it("should throw an error in updateGameEvent if event definition is not found and eventDefinitionId was not provided", async () => {
     const store = createTestStore();
     vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
       id: "lineup-1",

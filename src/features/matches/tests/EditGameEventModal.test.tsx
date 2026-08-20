@@ -136,15 +136,6 @@ describe("EditGameEventModal Component", () => {
   });
 
   it("allows selecting a different player and action, then saving updates", async () => {
-    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValue({
-      id: "def-2",
-      sportId: "s1",
-      name: "Goal",
-      shortName: "GL",
-      isPositive: true,
-      createdAt: "",
-    });
-
     vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
       id: "action-123",
       matchLineupId: "lineup-2",
@@ -175,7 +166,7 @@ describe("EditGameEventModal Component", () => {
     const player10Btn = await screen.findByText("#10");
     fireEvent.click(player10Btn);
 
-    // Select new action "Goal"
+    // Select new action "Goal" (def-2)
     const goalBtn = screen.getByText("Goal");
     fireEvent.click(goalBtn);
 
@@ -184,6 +175,7 @@ describe("EditGameEventModal Component", () => {
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
+      expect(eventService.getEventDefinitionByName).not.toHaveBeenCalled();
       expect(eventService.updateGameEventTx).toHaveBeenCalledWith({
         eventId: "action-123",
         matchLineupId: "lineup-2",
@@ -195,15 +187,6 @@ describe("EditGameEventModal Component", () => {
   });
 
   it("displays error alert when updateGameEventTx fails on save", async () => {
-    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValue({
-      id: "def-1",
-      sportId: "s1",
-      name: "Pass",
-      shortName: "PS",
-      isPositive: true,
-      createdAt: "",
-    });
-
     vi.mocked(eventService.updateGameEventTx).mockRejectedValueOnce(
       new Error("Database write error"),
     );

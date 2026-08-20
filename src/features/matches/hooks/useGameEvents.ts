@@ -26,6 +26,7 @@ export interface UpdateGameEventParams {
   actionName: string;
   isPositive: boolean;
   isLeadToGoal: boolean;
+  eventDefinitionId?: string;
 }
 
 export const useGameEvents = (matchId: string) => {
@@ -109,8 +110,14 @@ export const useGameEvents = (matchId: string) => {
   const updateGameEvent = async (
     params: UpdateGameEventParams,
   ): Promise<boolean> => {
-    const { eventId, selectedPlayerId, actionName, isPositive, isLeadToGoal } =
-      params;
+    const {
+      eventId,
+      selectedPlayerId,
+      actionName,
+      isPositive,
+      isLeadToGoal,
+      eventDefinitionId,
+    } = params;
 
     const normalizedMatchId = matchId?.trim();
     if (!normalizedMatchId) {
@@ -130,15 +137,21 @@ export const useGameEvents = (matchId: string) => {
       );
     }
 
-    const eventDef = await getEventDefinitionByName(actionName);
-    if (!eventDef) {
-      throw new Error(`Event definition not found for action: "${actionName}"`);
+    let resolvedEventDefId = eventDefinitionId;
+    if (!resolvedEventDefId) {
+      const eventDef = await getEventDefinitionByName(actionName);
+      if (!eventDef) {
+        throw new Error(
+          `Event definition not found for action: "${actionName}"`,
+        );
+      }
+      resolvedEventDefId = eventDef.id;
     }
 
     const updatedEvent = await updateGameEventTx({
       eventId,
       matchLineupId: lineup.id,
-      eventDefinitionId: eventDef.id,
+      eventDefinitionId: resolvedEventDefId,
       isLeadToGoal,
     });
 
@@ -149,7 +162,7 @@ export const useGameEvents = (matchId: string) => {
         actionName,
         isPositive,
         matchLineupId: lineup.id,
-        eventDefinitionId: eventDef.id,
+        eventDefinitionId: resolvedEventDefId,
         isLeadToGoal: updatedEvent.isLeadToGoal,
       }),
     );
