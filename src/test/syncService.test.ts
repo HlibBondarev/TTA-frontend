@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { processSyncQueue, initSyncEngine } from "../services/syncService";
+import { processSyncQueue } from "../services/syncService";
 import { db } from "../db/ttaDatabase";
 import { apiClient } from "../api/client";
 
@@ -667,12 +667,9 @@ describe("Sync Engine Service", () => {
     expect(mockModify).toHaveBeenCalledWith({ isSynced: 1 });
   });
 
-  it("attaches online event listener in initSyncEngine", () => {
-    const addEventListenerSpy = vi.spyOn(window, "addEventListener");
-    initSyncEngine();
-    expect(addEventListenerSpy).toHaveBeenCalledWith(
-      "online",
-      expect.any(Function),
-    );
+  it("does not trigger processSyncQueue automatically when window online event fires", () => {
+    const orderBySpy = vi.spyOn(db.syncQueue, "orderBy");
+    window.dispatchEvent(new Event("online"));
+    expect(orderBySpy).not.toHaveBeenCalled();
   });
 });

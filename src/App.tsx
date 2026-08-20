@@ -6,7 +6,6 @@ import { MatchSetupWizard } from "./features/setup/components/MatchSetupWizard";
 import { setPresenceLimits } from "./features/playerpresences/store/presenceSlice";
 import { setActiveMatch } from "./features/matches/store/matchSlice";
 import { hydrateMatchData } from "./services/hydrationService";
-import { initSyncEngine } from "./services/syncService";
 import { setTokenGetter } from "./services/tokenService";
 import type { RootState } from "./store";
 
@@ -41,8 +40,6 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (initStarted.current) return;
     initStarted.current = true;
-
-    initSyncEngine();
 
     const initializeApp = async () => {
       setIsInitializing(false);
