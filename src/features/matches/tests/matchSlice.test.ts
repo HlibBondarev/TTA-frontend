@@ -12,6 +12,8 @@ import matchReducer, {
   setGlobalSequenceNumber,
   resetMatchState,
   addRecentAction,
+  updateRecentAction,
+  deleteRecentAction,
   type ActionEntry,
   type MatchState,
 } from "../store/matchSlice";
@@ -28,6 +30,18 @@ describe("matchSlice Reducers", () => {
     isPeriodEnded: false,
     globalSequenceNumber: 0,
     recentActions: [],
+  };
+
+  const sampleAction: ActionEntry = {
+    id: "act-1",
+    playerNumber: 7,
+    actionName: "Pass",
+    isPositive: true,
+    timestamp: "2026-08-19T10:00:00.000Z",
+    matchLineupId: "lineup-1",
+    eventDefinitionId: "def-1",
+    isLeadToGoal: false,
+    isSynced: 0,
   };
 
   it("should return the initial state on first run", () => {
@@ -149,6 +163,10 @@ describe("matchSlice Reducers", () => {
         actionName: `Action ${i}`,
         isPositive: i % 2 === 0,
         timestamp: new Date().toISOString(),
+        matchLineupId: `lineup-${i}`,
+        eventDefinitionId: `def-${i}`,
+        isLeadToGoal: false,
+        isSynced: 0,
       };
       currentState = matchReducer(currentState, addRecentAction(actionEntry));
     }
@@ -159,6 +177,41 @@ describe("matchSlice Reducers", () => {
     expect(
       currentState.recentActions.some((act) => act.id === "action-1"),
     ).toBe(false);
+  });
+
+  it("should handle updating recent actions via updateRecentAction reducer", () => {
+    const stateWithAction = {
+      ...initialState,
+      recentActions: [sampleAction],
+    };
+
+    const nextState = matchReducer(
+      stateWithAction,
+      updateRecentAction({
+        id: "act-1",
+        playerNumber: 10,
+        actionName: "Goal",
+        isLeadToGoal: false,
+      }),
+    );
+
+    expect(nextState.recentActions[0].playerNumber).toBe(10);
+    expect(nextState.recentActions[0].actionName).toBe("Goal");
+    expect(nextState.recentActions[0].isLeadToGoal).toBe(false);
+  });
+
+  it("should handle deleting recent actions via deleteRecentAction reducer", () => {
+    const stateWithAction = {
+      ...initialState,
+      recentActions: [sampleAction],
+    };
+
+    const nextState = matchReducer(
+      stateWithAction,
+      deleteRecentAction("act-1"),
+    );
+
+    expect(nextState.recentActions).toHaveLength(0);
   });
 
   it("should reset the match state back to its initial state", () => {

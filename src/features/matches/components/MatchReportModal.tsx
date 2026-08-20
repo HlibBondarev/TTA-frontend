@@ -157,6 +157,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   return (
     <dialog
       ref={dialogRef}
+      open={isOpen}
       onCancel={handleCancel}
       aria-labelledby="report-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-2 sm:p-4 w-full h-full max-w-none max-h-none border-none m-0"

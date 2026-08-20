@@ -29,7 +29,6 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
     name: string;
     isPositive: boolean;
   } | null>(null);
-  const [isLeadToGoal, setIsLeadToGoal] = useState<boolean>(false);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [consoleError, setConsoleError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,7 +38,6 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
   if (periodNumber !== prevPeriod) {
     setPrevPeriod(periodNumber);
     setPendingAction(null);
-    setIsLeadToGoal(false);
     setSelectedPlayerId(null);
     setConsoleError(null);
   }
@@ -63,12 +61,11 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
           selectedPlayerId,
           actionName: pendingAction.name,
           isPositive: pendingAction.isPositive,
-          isLeadToGoal,
+          isLeadToGoal: false, // Default is false for all new actions
         });
 
         setPendingAction(null);
         setSelectedPlayerId(null);
-        setIsLeadToGoal(false);
       } catch (err: unknown) {
         console.error("Failed to record game event:", err);
         setConsoleError(
@@ -115,12 +112,9 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
             <TTDActionsPanel
               disabled={!isRecordingEnabled}
               selectedAction={pendingAction?.name || null}
-              isLeadToGoal={isLeadToGoal}
-              onIsLeadToGoalChange={setIsLeadToGoal}
               onActionSelect={(name, isPositive) => {
                 setConsoleError(null);
                 setPendingAction({ name, isPositive });
-                setIsLeadToGoal(name.trim().toLowerCase() === "goal");
               }}
             />
           </div>

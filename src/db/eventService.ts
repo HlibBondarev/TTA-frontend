@@ -75,6 +75,72 @@ export interface CreateGameEventParams {
   isLeadToGoal: boolean;
 }
 
+export interface UpdateGameEventParams {
+  eventId: string;
+  matchLineupId: string;
+  eventDefinitionId: string;
+  isLeadToGoal: boolean;
+}
+
+/**
+ * Helper to update a matching event payload inside a syncQueue item.
+ */
+const processQueueItemUpdate = async (
+  item: SyncQueueItem,
+  params: UpdateGameEventParams,
+): Promise<boolean> => {
+  try {
+    const parsed = JSON.parse(item.payload);
+    if (!Array.isArray(parsed)) return false;
+
+    const targetIndex = parsed.findIndex(
+      (e: { id: string }) => e.id === params.eventId,
+    );
+    if (targetIndex === -1) return false;
+
+    parsed[targetIndex] = {
+      ...parsed[targetIndex],
+      matchLineupId: params.matchLineupId,
+      eventDefinitionId: params.eventDefinitionId,
+      isLeadToGoal: params.isLeadToGoal,
+    };
+
+    await db.syncQueue.update(item.id!, {
+      payload: JSON.stringify(parsed),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Helper to remove a matching event payload inside a syncQueue item.
+ */
+const processQueueItemDelete = async (
+  item: SyncQueueItem,
+  eventId: string,
+): Promise<boolean> => {
+  try {
+    const parsed = JSON.parse(item.payload);
+    if (!Array.isArray(parsed)) return false;
+
+    const filtered = parsed.filter((e: { id: string }) => e.id !== eventId);
+    if (filtered.length === parsed.length) return false;
+
+    if (filtered.length === 0) {
+      await db.syncQueue.delete(item.id!);
+    } else {
+      await db.syncQueue.update(item.id!, {
+        payload: JSON.stringify(filtered),
+      });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Atomically persists a new GameEvent entity to IndexedDB and enqueues the team-scoped sync payload.
  */
@@ -137,4 +203,91 @@ export const createGameEventTx = async (
   );
 
   return createdEvent!;
+};
+
+/**
+ * Atomically updates an existing unsynchronized GameEvent entity in IndexedDB and syncQueue.
+ * Throws an error if the event is already synchronized (isSynced === 1) or matching syncQueue item is missing.
+ */
+export const updateGameEventTx = async (
+  params: UpdateGameEventParams,
+): Promise<GameEvent> => {
+  let updatedEvent: GameEvent | null = null;
+
+  await db.transaction("rw", [db.gameevents, db.syncQueue], async () => {
+    const existing = await db.gameevents.get(params.eventId);
+    if (!existing) {
+      throw new Error(`Game event not found for ID: ${params.eventId}`);
+    }
+
+    if (existing.isSynced === 1) {
+      throw new Error("Cannot edit a synchronized event.");
+    }
+
+    updatedEvent = {
+      ...existing,
+      matchLineupId: params.matchLineupId,
+      eventDefinitionId: params.eventDefinitionId,
+      isLeadToGoal: params.isLeadToGoal,
+    };
+
+    await db.gameevents.put(updatedEvent);
+
+    const queueItems = await db.syncQueue
+      .filter((item) => item.endpoint.includes("/events"))
+      .toArray();
+
+    let payloadUpdated = false;
+    for (const item of queueItems) {
+      if (await processQueueItemUpdate(item, params)) {
+        payloadUpdated = true;
+        break;
+      }
+    }
+
+    if (!payloadUpdated) {
+      throw new Error(
+        `Matching sync queue payload not found for event ID: ${params.eventId}`,
+      );
+    }
+  });
+
+  return updatedEvent!;
+};
+
+/**
+ * Atomically removes an unsynchronized GameEvent entity from IndexedDB and syncQueue.
+ * Throws an error if the event is already synchronized (isSynced === 1) or matching syncQueue item is missing.
+ */
+export const deleteGameEventTx = async (eventId: string): Promise<void> => {
+  await db.transaction("rw", [db.gameevents, db.syncQueue], async () => {
+    const existing = await db.gameevents.get(eventId);
+    if (!existing) {
+      throw new Error(`Game event not found for ID: ${eventId}`);
+    }
+
+    if (existing.isSynced === 1) {
+      throw new Error("Cannot delete a synchronized event.");
+    }
+
+    await db.gameevents.delete(eventId);
+
+    const queueItems = await db.syncQueue
+      .filter((item) => item.endpoint.includes("/events"))
+      .toArray();
+
+    let payloadRemoved = false;
+    for (const item of queueItems) {
+      if (await processQueueItemDelete(item, eventId)) {
+        payloadRemoved = true;
+        break;
+      }
+    }
+
+    if (!payloadRemoved) {
+      throw new Error(
+        `Matching sync queue payload not found for event ID: ${eventId}`,
+      );
+    }
+  });
 };
