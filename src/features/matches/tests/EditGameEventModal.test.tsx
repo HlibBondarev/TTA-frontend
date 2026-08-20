@@ -135,7 +135,7 @@ describe("EditGameEventModal Component", () => {
     expect(screen.queryByText("Pass")).not.toBeInTheDocument();
   });
 
-  it("allows selecting a different player and action, then saving updates", async () => {
+  it("forces isLeadToGoal to false when switching action to Goal", async () => {
     vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
       id: "action-123",
       matchLineupId: "lineup-2",
@@ -155,7 +155,7 @@ describe("EditGameEventModal Component", () => {
       <Provider store={store}>
         <EditGameEventModal
           isOpen={true}
-          action={sampleAction}
+          action={sampleAction} // action with isLeadToGoal: true
           matchId="match-1"
           onClose={mockOnClose}
         />
@@ -180,7 +180,53 @@ describe("EditGameEventModal Component", () => {
         eventId: "action-123",
         matchLineupId: "lineup-2",
         eventDefinitionId: "def-2",
-        isLeadToGoal: false,
+        isLeadToGoal: false, // forced to false for Goal actions
+      });
+      expect(mockOnClose).toHaveBeenCalled();
+    });
+  });
+
+  it("preserves isLeadToGoal flag as true when saving a non-goal action", async () => {
+    vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
+      id: "action-123",
+      matchLineupId: "lineup-2",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "",
+      isLeadToGoal: true,
+      createdAt: "",
+      sequenceNumber: 1,
+      isSynced: 0,
+    });
+
+    const mockOnClose = vi.fn();
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction} // action with isLeadToGoal: true and actionName: "Pass"
+          matchId="match-1"
+          onClose={mockOnClose}
+        />
+      </Provider>,
+    );
+
+    // Select player #10
+    const player10Btn = await screen.findByText("#10");
+    fireEvent.click(player10Btn);
+
+    // Save changes without switching to "Goal"
+    const saveBtn = screen.getByRole("button", { name: /Save/i });
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(eventService.updateGameEventTx).toHaveBeenCalledWith({
+        eventId: "action-123",
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-1",
+        isLeadToGoal: true, // preserves existing isLeadToGoal: true
       });
       expect(mockOnClose).toHaveBeenCalled();
     });
