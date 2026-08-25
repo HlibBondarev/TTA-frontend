@@ -5,17 +5,25 @@ import { configureStore } from "@reduxjs/toolkit";
 import App from "../App";
 import matchReducer from "../features/matches/store/matchSlice";
 import presenceReducer from "../features/playerpresences/store/presenceSlice";
+import uiReducer from "../store/slices/uiSlice";
+import navigationReducer from "../store/slices/navigationSlice";
 import { apiClient } from "../api/client";
 import { sportService } from "../services/sportService";
 import { teamService } from "../services/teamService";
 import { hydrateMatchData } from "../services/hydrationService";
 
+let mockIsAuthenticated = true;
+
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
-    isAuthenticated: true,
+    get isAuthenticated() {
+      return mockIsAuthenticated;
+    },
     isLoading: false,
     getAccessTokenSilently: vi.fn().mockResolvedValue("mock-token"),
     loginWithRedirect: vi.fn(),
+    logout: vi.fn(),
+    user: { email: "tester@tta.com" },
   }),
 }));
 
@@ -39,6 +47,14 @@ vi.mock("../services/teamService", () => ({
   },
 }));
 
+vi.mock("../services/userMatchService", () => ({
+  userMatchService: {
+    getCatchedMatches: vi.fn().mockResolvedValue([]),
+    uncatchMatch: vi.fn(),
+    addUserToTrackedMatch: vi.fn(),
+  },
+}));
+
 vi.mock("../services/hydrationService", () => ({
   hydrateMatchData: vi.fn().mockResolvedValue(undefined),
 }));
@@ -54,6 +70,8 @@ const createTestStore = (
     reducer: {
       match: matchReducer,
       presence: presenceReducer,
+      ui: uiReducer,
+      navigation: navigationReducer,
     },
     preloadedState,
   });
@@ -94,26 +112,28 @@ describe("App Bootstrapping Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsAuthenticated = true;
   });
 
-  it("should render MatchSetupWizard when no active match is set", async () => {
-    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
-    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
-      mockConfigs,
+  it("should render Auth Gate Login screen when user is unauthenticated", async () => {
+    mockIsAuthenticated = false;
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
     );
 
+    expect(
+      await screen.findByRole("button", { name: /Log In \/ Register/i }),
+    ).toBeDefined();
+  });
+
+  it("should render MainDashboard when user is authenticated and navigation view is HUB", async () => {
     const store = createTestStore({
-      match: {
-        activeMatchId: null,
-        activeTeamId: null,
-        periodNumber: 1,
-        homeScore: 0,
-        guestScore: 0,
-        isPeriodActive: false,
-        isInsideStoppage: false,
-        globalSequenceNumber: 0,
-        recentActions: [],
-      },
+      navigation: { currentView: "HUB" },
     });
 
     render(
@@ -122,8 +142,29 @@ describe("App Bootstrapping Component", () => {
       </Provider>,
     );
 
+    expect(await screen.findByText("TTA Hub Navigation")).toBeDefined();
+    expect(screen.getByText("tester@tta.com")).toBeDefined();
+  });
+
+  it("should navigate from Hub to MatchSetupWizard when clicking Quick Start Match card", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    const store = createTestStore({
+      navigation: { currentView: "HUB" },
+    });
+
+    render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    fireEvent.click(await screen.findByText("Quick Start Match"));
+
     expect(await screen.findByText("Match Setup Wizard")).toBeDefined();
-    expect(await screen.findByText("Water Polo")).toBeDefined();
   });
 
   it("should execute quick start flow with team selection, hydrate data, set match and team IDs in Redux, and render TTAConsole", async () => {
@@ -139,17 +180,7 @@ describe("App Bootstrapping Component", () => {
       .mockResolvedValueOnce(mockGuestTeam as never);
 
     const store = createTestStore({
-      match: {
-        activeMatchId: null,
-        activeTeamId: null,
-        periodNumber: 1,
-        homeScore: 0,
-        guestScore: 0,
-        isPeriodActive: false,
-        isInsideStoppage: false,
-        globalSequenceNumber: 0,
-        recentActions: [],
-      },
+      navigation: { currentView: "QUICK_START" },
     });
 
     render(
@@ -162,17 +193,13 @@ describe("App Bootstrapping Component", () => {
       await screen.findByRole("button", { name: /Periods: 4/i }),
     ).toBeDefined();
 
-    const quickStartButton = screen.getByRole("button", {
-      name: /Quick Start Match/i,
-    });
-    fireEvent.click(quickStartButton);
+    fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
 
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
 
-    const confirmButton = screen.getByRole("button", {
-      name: /Confirm & Start Tracking/i,
-    });
-    fireEvent.click(confirmButton);
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
 
     await waitFor(() => {
       expect(hydrateMatchData).toHaveBeenCalledWith(
@@ -203,17 +230,7 @@ describe("App Bootstrapping Component", () => {
     );
 
     const store = createTestStore({
-      match: {
-        activeMatchId: null,
-        activeTeamId: null,
-        periodNumber: 1,
-        homeScore: 0,
-        guestScore: 0,
-        isPeriodActive: false,
-        isInsideStoppage: false,
-        globalSequenceNumber: 0,
-        recentActions: [],
-      },
+      navigation: { currentView: "QUICK_START" },
     });
 
     render(

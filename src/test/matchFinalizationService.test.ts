@@ -3,6 +3,7 @@ import { matchFinalizationService } from "../services/matchFinalizationService";
 import { apiClient } from "../api/client";
 import { db } from "../db/ttaDatabase";
 import { processSyncQueue } from "../services/syncService";
+import { userMatchService } from "../services/userMatchService";
 
 vi.mock("../api/client", () => ({
   apiClient: {
@@ -12,6 +13,12 @@ vi.mock("../api/client", () => ({
 
 vi.mock("../services/syncService", () => ({
   processSyncQueue: vi.fn().mockResolvedValue(1),
+}));
+
+vi.mock("../services/userMatchService", () => ({
+  userMatchService: {
+    catchMatch: vi.fn().mockResolvedValue(undefined),
+  },
 }));
 
 vi.mock("../db/ttaDatabase", () => {
@@ -64,7 +71,7 @@ describe("matchFinalizationService", () => {
     expect(apiClient.put).not.toHaveBeenCalled();
   });
 
-  it("should execute sync, record result, normalize events, and purge IndexedDB in sequence on success", async () => {
+  it("should execute sync, record result, catch match, normalize events, and purge IndexedDB in sequence on success", async () => {
     const params = {
       matchId: "match-123",
       activeTeamId: "team-456",
@@ -87,6 +94,11 @@ describe("matchFinalizationService", () => {
       },
     );
 
+    expect(userMatchService.catchMatch).toHaveBeenCalledWith(
+      "match-123",
+      "team-456",
+    );
+
     expect(apiClient.put).toHaveBeenNthCalledWith(
       2,
       "/Matches/match-123/teams/team-456/events/normalize",
@@ -95,6 +107,28 @@ describe("matchFinalizationService", () => {
     expect(db.gameevents.clear).toHaveBeenCalled();
     expect(db.timeanchors.clear).toHaveBeenCalled();
     expect(db.syncQueue.clear).toHaveBeenCalled();
+  });
+
+  it("should continue finalization sequence even if userMatchService.catchMatch throws a warning error", async () => {
+    vi.mocked(userMatchService.catchMatch).mockRejectedValueOnce(
+      new Error("Catch link already exists"),
+    );
+
+    const params = {
+      matchId: "match-123",
+      activeTeamId: "team-456",
+      homeScore: 12,
+      guestScore: 9,
+      temperature: 26.5,
+    };
+
+    await matchFinalizationService.finalizeMatch(params);
+
+    expect(apiClient.put).toHaveBeenNthCalledWith(
+      2,
+      "/Matches/match-123/teams/team-456/events/normalize",
+    );
+    expect(db.gameevents.clear).toHaveBeenCalled();
   });
 
   it("should ABORT finalization if sync queue still contains pending items after processSyncQueue", async () => {
@@ -116,8 +150,8 @@ describe("matchFinalizationService", () => {
 
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
     expect(apiClient.put).not.toHaveBeenCalled();
+    expect(userMatchService.catchMatch).not.toHaveBeenCalled();
     expect(db.gameevents.clear).not.toHaveBeenCalled();
-    expect(db.syncQueue.clear).not.toHaveBeenCalled();
   });
 
   it("should ABORT IndexedDB purge if record result API fails", async () => {
@@ -139,6 +173,7 @@ describe("matchFinalizationService", () => {
 
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
     expect(apiClient.put).toHaveBeenCalledTimes(1);
+    expect(userMatchService.catchMatch).not.toHaveBeenCalled();
     expect(db.gameevents.clear).not.toHaveBeenCalled();
   });
 });

@@ -1,0 +1,101 @@
+import React from "react";
+import { useDispatch } from "react-redux";
+import { useAuth0 } from "@auth0/auth0-react";
+import { setCurrentView } from "../../../store/slices/navigationSlice";
+
+export const MainDashboard: React.FC = () => {
+  const dispatch = useDispatch();
+  const { user, logout } = useAuth0();
+
+  return (
+    <div className="w-full max-w-sm mx-auto flex flex-col flex-1 p-4 bg-gray-950 text-gray-100 overflow-y-auto">
+      {/* Header with User Profile */}
+      <header className="flex items-center justify-between pb-4 border-b border-gray-800 mb-6">
+        <div className="flex flex-col min-w-0 pr-2">
+          <span className="text-[10px] uppercase font-bold text-gray-500">
+            Logged in as
+          </span>
+          <span className="text-xs font-semibold text-emerald-400 truncate">
+            {user?.email ?? user?.name ?? "User"}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() =>
+            void logout({ logoutParams: { returnTo: window.location.origin } })
+          }
+          className="text-xs bg-red-950/60 hover:bg-red-900 border border-red-800/80 text-red-200 px-3 py-1.5 rounded-lg transition-colors font-medium"
+        >
+          Log Out
+        </button>
+      </header>
+
+      <h2 className="text-sm font-black uppercase text-blue-500 mb-6 text-center tracking-wider">
+        TTA Hub Navigation
+      </h2>
+
+      {/* Navigation Pathways */}
+      <div className="space-y-4 flex-1 flex flex-col justify-center">
+        {/* Pathway 1: Quick Start Match */}
+        <button
+          type="button"
+          onClick={() => dispatch(setCurrentView("QUICK_START"))}
+          className="p-4 bg-linear-to-r from-blue-900/40 to-indigo-900/40 hover:from-blue-900/60 hover:to-indigo-900/60 border border-blue-700/50 rounded-2xl text-left transition-all shadow-lg group"
+        >
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-black uppercase text-blue-400 group-hover:text-blue-300">
+              Quick Start Match
+            </h3>
+            <span className="text-xs text-blue-400 font-bold group-hover:translate-x-1 transition-transform">
+              →
+            </span>
+          </div>
+          <p className="text-[11px] text-gray-400 leading-tight">
+            Create an instant match, select sport and configuration, and record
+            player actions in real-time.
+          </p>
+        </button>
+
+        {/* Pathway 2: My Tracked Matches */}
+        <button
+          type="button"
+          onClick={() => dispatch(setCurrentView("MY_MATCHES"))}
+          className="p-4 bg-linear-to-r from-emerald-900/40 to-teal-900/40 hover:from-emerald-900/60 hover:to-teal-900/60 border border-emerald-700/50 rounded-2xl text-left transition-all shadow-lg group"
+        >
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-black uppercase text-emerald-400 group-hover:text-emerald-300">
+              My Tracked Matches
+            </h3>
+            <span className="text-xs text-emerald-400 font-bold group-hover:translate-x-1 transition-transform">
+              →
+            </span>
+          </div>
+          <p className="text-[11px] text-gray-400 leading-tight">
+            View completed matches, analyze team summary and detailed player TTA
+            reports, or share matches.
+          </p>
+        </button>
+
+        {/* Pathway 3: Tournament Management */}
+        <button
+          type="button"
+          onClick={() => dispatch(setCurrentView("TOURNAMENT_STUB"))}
+          className="p-4 bg-linear-to-r from-purple-900/40 to-fuchsia-900/40 hover:from-purple-900/60 hover:to-fuchsia-900/60 border border-purple-700/50 rounded-2xl text-left transition-all shadow-lg group"
+        >
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-black uppercase text-purple-400 group-hover:text-purple-300">
+              Tournaments
+            </h3>
+            <span className="text-xs text-purple-400 font-bold group-hover:translate-x-1 transition-transform">
+              →
+            </span>
+          </div>
+          <p className="text-[11px] text-gray-400 leading-tight">
+            Participate in club and team tournament structures. View policy
+            permissions and scopes.
+          </p>
+        </button>
+      </div>
+    </div>
+  );
+};

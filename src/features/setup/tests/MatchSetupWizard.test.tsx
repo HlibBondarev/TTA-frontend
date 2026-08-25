@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { Provider } from "react-redux";
+import { configureStore } from "@reduxjs/toolkit";
 import { MatchSetupWizard } from "../components/MatchSetupWizard";
 import { sportService } from "../../../services/sportService";
 import { teamService } from "../../../services/teamService";
 import { apiClient } from "../../../api/client";
 import { db } from "../../../db/ttaDatabase";
+import navigationReducer from "../../../store/slices/navigationSlice";
 import type { TeamLookup } from "../../../db/ttaDatabase";
 
 vi.mock("../../../services/sportService", () => ({
@@ -35,6 +38,14 @@ vi.mock("../../../db/ttaDatabase", () => ({
     tournaments: { get: vi.fn().mockResolvedValue(null), put: vi.fn() },
   },
 }));
+
+const createTestStore = () => {
+  return configureStore({
+    reducer: {
+      navigation: navigationReducer,
+    },
+  });
+};
 
 describe("MatchSetupWizard Component", () => {
   const mockSports = [
@@ -96,6 +107,34 @@ describe("MatchSetupWizard Component", () => {
     vi.clearAllMocks();
   });
 
+  const renderWithRedux = (
+    ui: React.ReactElement,
+    store = createTestStore(),
+  ) => {
+    return {
+      ...render(<Provider store={store}>{ui}</Provider>),
+      store,
+    };
+  };
+
+  it("should navigate back to Hub when clicking Back to Menu button", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    const { store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    const backBtn = await screen.findByRole("button", {
+      name: /Back to Menu/i,
+    });
+    fireEvent.click(backBtn);
+
+    expect(store.getState().navigation.currentView).toBe("HUB");
+  });
+
   it("should render wizard steps, load teams on Quick Start, allow team selection and trigger onQuickStart", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
@@ -109,7 +148,7 @@ describe("MatchSetupWizard Component", () => {
 
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
 
-    render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
     expect(await screen.findByText("Water Polo")).toBeDefined();
     expect(await screen.findByText(/Periods: 4/i)).toBeDefined();
@@ -156,25 +195,22 @@ describe("MatchSetupWizard Component", () => {
       .mockResolvedValueOnce(mockHomeTeam)
       .mockResolvedValueOnce(mockGuestTeam);
 
-    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
 
     const quickStartBtn = await screen.findByRole("button", {
       name: /Quick Start Match/i,
     });
 
-    // First attempt: POST succeeds, GET fails
     fireEvent.click(quickStartBtn);
 
     expect(
       await screen.findByText("Failed to load match details"),
     ).toBeDefined();
 
-    // Retry initialization
     fireEvent.click(quickStartBtn);
 
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
 
-    // Verify /Matches/quick POST was only executed once
     expect(apiClient.post).toHaveBeenCalledTimes(1);
   });
 
@@ -216,28 +252,24 @@ describe("MatchSetupWizard Component", () => {
 
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
 
-    render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
     expect(await screen.findByText(/Periods: 4/i)).toBeDefined();
 
-    // Initialize quick match (pendingMatchId is now set)
     fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
 
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
 
-    // Attempt to click second configuration button
     const config2Btn = screen.getByText(/Periods: 2/i).closest("button");
     expect(config2Btn).toBeDisabled();
     if (config2Btn) {
       fireEvent.click(config2Btn);
     }
 
-    // Confirm tracking session
     fireEvent.click(
       screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
     );
 
-    // Should still use config-1 and activePlayersLimit: 7
     await waitFor(() => {
       expect(handleQuickStart).toHaveBeenCalledWith(
         "match-123",
@@ -254,7 +286,7 @@ describe("MatchSetupWizard Component", () => {
       new Error("Network error"),
     );
 
-    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
 
     expect(await screen.findByText("Network error")).toBeDefined();
   });
@@ -265,7 +297,7 @@ describe("MatchSetupWizard Component", () => {
       new Error("Config fetch error"),
     );
 
-    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
 
     expect(await screen.findByText("Config fetch error")).toBeDefined();
     expect(
@@ -280,7 +312,7 @@ describe("MatchSetupWizard Component", () => {
     );
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([]);
 
-    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
 
     expect(await screen.findByText("Basketball")).toBeDefined();
 
@@ -306,7 +338,7 @@ describe("MatchSetupWizard Component", () => {
       new Error("Quick match creation failed"),
     );
 
-    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
 
     const quickStartBtn = await screen.findByRole("button", {
       name: /Quick Start Match/i,
@@ -353,7 +385,7 @@ describe("MatchSetupWizard Component", () => {
       .mockResolvedValueOnce(mockGuestTeam);
 
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
-    render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
     expect(await screen.findByText(/Periods: 2/i)).toBeDefined();
 
@@ -388,7 +420,7 @@ describe("MatchSetupWizard Component", () => {
       .fn()
       .mockImplementation(() => Promise.reject(new Error("API Timeout")));
 
-    render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
@@ -441,12 +473,11 @@ describe("MatchSetupWizard Component", () => {
 
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
 
-    render(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
     expect(await screen.findByText(/Periods: 4/i)).toBeDefined();
     expect(screen.getByText(/Periods: 2/i)).toBeDefined();
 
-    // Select second configuration
     fireEvent.click(screen.getByText(/Periods: 2/i));
 
     fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
@@ -471,7 +502,7 @@ describe("MatchSetupWizard Component", () => {
       mockConfigs,
     );
 
-    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
 
     await waitFor(() => {
       expect(db.sports.bulkPut).toHaveBeenCalledWith(mockSports);
@@ -498,7 +529,7 @@ describe("MatchSetupWizard Component", () => {
       .mockResolvedValueOnce(mockHomeTeam)
       .mockResolvedValueOnce(mockGuestTeam);
 
-    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
 
     const quickStartBtn = await screen.findByRole("button", {
       name: /Quick Start Match/i,
@@ -525,7 +556,6 @@ describe("MatchSetupWizard Component", () => {
       .mockResolvedValueOnce(mockConfigs)
       .mockResolvedValueOnce([]);
 
-    // Delay bulkPut execution to simulate a race condition during DB persistence
     vi.mocked(db.sportconfigurations.bulkPut).mockImplementationOnce(
       () =>
         new Promise((resolve) =>
@@ -533,11 +563,10 @@ describe("MatchSetupWizard Component", () => {
         ) as unknown as ReturnType<typeof db.sportconfigurations.bulkPut>,
     );
 
-    render(<MatchSetupWizard onQuickStart={vi.fn()} />);
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
 
     expect(await screen.findByText("Water Polo")).toBeDefined();
 
-    // Switch rapidly to the second discipline while bulkPut for the first is still pending
     fireEvent.click(screen.getByText("Basketball"));
 
     await waitFor(() => {
