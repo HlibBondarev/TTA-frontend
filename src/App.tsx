@@ -3,6 +3,10 @@ import { useDispatch, useSelector } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 import { TTAConsole } from "./features/matches/components/TTAConsole";
 import { MatchSetupWizard } from "./features/setup/components/MatchSetupWizard";
+import { MainDashboard } from "./features/dashboard/components/MainDashboard";
+import { MyMatchesView } from "./features/matches/components/MyMatchesView";
+import { TournamentStubView } from "./features/tournaments/components/TournamentStubView";
+
 import { setPresenceLimits } from "./features/playerpresences/store/presenceSlice";
 import { setActiveMatch } from "./features/matches/store/matchSlice";
 import { hydrateMatchData } from "./services/hydrationService";
@@ -16,6 +20,9 @@ export const App: React.FC = () => {
 
   const activeMatchId = useSelector(
     (state: RootState) => state.match.activeMatchId,
+  );
+  const currentView = useSelector(
+    (state: RootState) => state.navigation.currentView,
   );
 
   const {
@@ -85,25 +92,53 @@ export const App: React.FC = () => {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col justify-between p-4">
-      {!isLoading && !isAuthenticated && (
-        <div className="mb-2 flex justify-end">
+  // Auth Gate: Unauthenticated users are gated at the Welcome screen
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-full max-w-xs space-y-6">
+          <header className="space-y-2">
+            <h1 className="text-xl font-black uppercase text-blue-500 tracking-wider">
+              TTA Match Recorder
+            </h1>
+            <p className="text-xs text-gray-400">
+              Technical & Tactical Actions recording and match performance
+              analytics.
+            </p>
+          </header>
+
           <button
             type="button"
             onClick={() => void loginWithRedirect()}
-            className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded transition-colors"
+            className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase rounded-xl transition-all shadow-lg text-xs tracking-wider"
           >
-            Log In
+            Log In / Register
           </button>
         </div>
-      )}
+      </div>
+    );
+  }
 
-      {activeMatchId ? (
+  // Active Match Mode or explicit CONSOLE view: Show Console
+  if (activeMatchId || currentView === "CONSOLE") {
+    return (
+      <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col justify-between p-4">
         <TTAConsole />
-      ) : (
+      </div>
+    );
+  }
+
+  // Authenticated Dashboard & Hub View Router
+  return (
+    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col justify-between p-4">
+      {(currentView === "HUB" || currentView === "AUTH_GATE") && (
+        <MainDashboard />
+      )}
+      {currentView === "QUICK_START" && (
         <MatchSetupWizard onQuickStart={handleQuickStart} />
       )}
+      {currentView === "MY_MATCHES" && <MyMatchesView />}
+      {currentView === "TOURNAMENT_STUB" && <TournamentStubView />}
     </div>
   );
 };

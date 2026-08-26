@@ -1,6 +1,7 @@
 import { apiClient } from "../api/client";
 import { db } from "../db/ttaDatabase";
 import { processSyncQueue } from "./syncService";
+import { userMatchService } from "./userMatchService";
 
 export interface FinalizeMatchParams {
   matchId: string;
@@ -13,7 +14,7 @@ export interface FinalizeMatchParams {
 export const matchFinalizationService = {
   /**
    * Sequentially completes match recording by syncing offline queue,
-   * sending match results, normalizing event times, and purging local DB.
+   * sending match results, linking user tracking, normalizing event times, and purging local DB.
    */
   async finalizeMatch(params: FinalizeMatchParams): Promise<void> {
     const { matchId, activeTeamId, homeScore, guestScore, temperature } =
@@ -42,12 +43,33 @@ export const matchFinalizationService = {
       temperature,
     });
 
-    // Step 3: Trigger event time normalization for the active tracking team
+    // Step 3: Link current user to this match context upon successful result record
+    try {
+      await userMatchService.catchMatch(matchId, activeTeamId);
+    } catch (catchErr) {
+      const errMessage =
+        catchErr instanceof Error ? catchErr.message : String(catchErr);
+      const isAlreadyExists =
+        errMessage.includes("409") ||
+        errMessage.toLowerCase().includes("conflict") ||
+        errMessage.toLowerCase().includes("already exists");
+
+      if (isAlreadyExists) {
+        console.warn(
+          "User match catch link already exists (idempotent step):",
+          catchErr,
+        );
+      } else {
+        throw catchErr;
+      }
+    }
+
+    // Step 4: Trigger event time normalization for the active tracking team
     await apiClient.put(
       `/Matches/${matchId}/teams/${activeTeamId}/events/normalize`,
     );
 
-    // Step 4: Conditionally purge local IndexedDB tables ONLY after 100% success of steps 1-3
+    // Step 5: Conditionally purge local IndexedDB tables ONLY after 100% success of steps 1-4
     await db.transaction(
       "rw",
       [

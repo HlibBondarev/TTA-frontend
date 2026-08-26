@@ -1,8 +1,10 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import { useDispatch } from "react-redux";
 import { sportService } from "../../../services/sportService";
 import { teamService } from "../../../services/teamService";
 import { apiClient } from "../../../api/client";
 import { db } from "../../../db/ttaDatabase";
+import { navigateToHub } from "../../../store/slices/navigationSlice";
 import type {
   SportLookup,
   SportConfigurationLookup,
@@ -60,6 +62,8 @@ async function ensureTournamentPersisted(
 export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   onQuickStart,
 }) => {
+  const dispatch = useDispatch();
+
   const [sports, setSports] = useState<SportLookup[]>([]);
   const [selectedSportId, setSelectedSportId] = useState<string | null>(null);
 
@@ -351,11 +355,23 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     );
   }
 
+  const isNavDisabled = isSubmitting || isLoadingTeams;
+
   return (
     <div className="w-full max-w-sm mx-auto flex flex-col flex-1 p-4 bg-gray-950 text-gray-100 overflow-y-auto">
-      <h2 className="text-sm font-black uppercase text-blue-500 mb-4 text-center tracking-wider">
-        Match Setup Wizard
-      </h2>
+      <header className="flex items-center justify-between pb-3 border-b border-gray-800 mb-4">
+        <h2 className="text-sm font-black uppercase text-blue-500 tracking-wider">
+          Match Setup Wizard
+        </h2>
+        <button
+          type="button"
+          disabled={isNavDisabled}
+          onClick={() => dispatch(navigateToHub())}
+          className="text-xs bg-gray-900 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed text-gray-300 px-3 py-1 rounded border border-gray-700 transition-colors"
+        >
+          Back to Menu
+        </button>
+      </header>
 
       {errorMessage && (
         <div
