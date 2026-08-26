@@ -73,7 +73,9 @@ export const MyMatchesView: React.FC = () => {
     }
   };
 
-  const handleExecuteShare = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleExecuteShare = async (
+    e: React.SyntheticEvent<HTMLFormElement>,
+  ) => {
     e.preventDefault();
     if (!shareMatchTarget || !shareEmail.trim() || isSharing) return;
 
