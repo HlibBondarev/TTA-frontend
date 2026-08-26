@@ -3,7 +3,9 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { MainDashboard } from "../components/MainDashboard";
-import navigationReducer from "../../../store/slices/navigationSlice";
+import navigationReducer, {
+  type AppCurrentView,
+} from "../../../store/slices/navigationSlice";
 
 const mockLogout = vi.fn();
 
@@ -43,47 +45,26 @@ describe("MainDashboard Component", () => {
     expect(screen.getByText("Tournaments")).toBeDefined();
   });
 
-  it("should dispatch setCurrentView('QUICK_START') when clicking Quick Start card", () => {
-    const store = createTestStore();
+  it.each<{ cardText: string; expectedView: AppCurrentView }>([
+    { cardText: "Quick Start Match", expectedView: "QUICK_START" },
+    { cardText: "My Tracked Matches", expectedView: "MY_MATCHES" },
+    { cardText: "Tournaments", expectedView: "TOURNAMENT_STUB" },
+  ])(
+    "should dispatch setCurrentView('$expectedView') when clicking $cardText card",
+    ({ cardText, expectedView }) => {
+      const store = createTestStore();
 
-    render(
-      <Provider store={store}>
-        <MainDashboard />
-      </Provider>,
-    );
+      render(
+        <Provider store={store}>
+          <MainDashboard />
+        </Provider>,
+      );
 
-    fireEvent.click(screen.getByText("Quick Start Match"));
+      fireEvent.click(screen.getByText(cardText));
 
-    expect(store.getState().navigation.currentView).toBe("QUICK_START");
-  });
-
-  it("should dispatch setCurrentView('MY_MATCHES') when clicking My Tracked Matches card", () => {
-    const store = createTestStore();
-
-    render(
-      <Provider store={store}>
-        <MainDashboard />
-      </Provider>,
-    );
-
-    fireEvent.click(screen.getByText("My Tracked Matches"));
-
-    expect(store.getState().navigation.currentView).toBe("MY_MATCHES");
-  });
-
-  it("should dispatch setCurrentView('TOURNAMENT_STUB') when clicking Tournaments card", () => {
-    const store = createTestStore();
-
-    render(
-      <Provider store={store}>
-        <MainDashboard />
-      </Provider>,
-    );
-
-    fireEvent.click(screen.getByText("Tournaments"));
-
-    expect(store.getState().navigation.currentView).toBe("TOURNAMENT_STUB");
-  });
+      expect(store.getState().navigation.currentView).toBe(expectedView);
+    },
+  );
 
   it("should invoke logout when clicking Log Out button", () => {
     const store = createTestStore();

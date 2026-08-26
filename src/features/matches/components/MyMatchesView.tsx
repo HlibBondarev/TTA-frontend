@@ -73,7 +73,7 @@ export const MyMatchesView: React.FC = () => {
     }
   };
 
-  const handleExecuteShare = async (e: React.FormEvent) => {
+  const handleExecuteShare = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!shareMatchTarget || !shareEmail.trim() || isSharing) return;
 
@@ -113,6 +113,98 @@ export const MyMatchesView: React.FC = () => {
     }
   };
 
+  const renderContent = () => {
+    if (isLoading) {
+      return (
+        <div className="flex-1 flex items-center justify-center text-xs text-gray-500">
+          Loading tracked matches...
+        </div>
+      );
+    }
+
+    if (matches.length === 0) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-500 space-y-3">
+          <div className="text-xs">No tracked matches found.</div>
+          <p className="text-[11px] text-gray-600">
+            Completed quick matches will automatically appear here once
+            finalized.
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-3 flex-1 overflow-y-auto pr-0.5">
+        {matches.map((match) => (
+          <div
+            key={match.id}
+            className="p-3 bg-gray-900 border border-gray-800 rounded-xl space-y-2.5 shadow-md"
+          >
+            {/* Date & Score Header */}
+            <div className="flex justify-between items-center text-[11px] text-gray-400 border-b border-gray-800/60 pb-1.5">
+              <span>{formatDate(match.scheduledAt)}</span>
+              <span className="font-mono font-bold text-xs text-emerald-400">
+                {match.homeScore ?? 0} : {match.guestScore ?? 0}
+              </span>
+            </div>
+
+            {/* Teams Display */}
+            <div className="grid grid-cols-2 gap-2 text-xs font-bold text-center">
+              <div className="p-1.5 bg-black/30 rounded border border-gray-800 truncate text-indigo-300">
+                <span className="text-[9px] uppercase text-gray-500 block font-normal">
+                  Home
+                </span>
+                {match.homeTeamName}
+              </div>
+              <div className="p-1.5 bg-black/30 rounded border border-gray-800 truncate text-emerald-300">
+                <span className="text-[9px] uppercase text-gray-500 block font-normal">
+                  Guest
+                </span>
+                {match.guestTeamName}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-1.5 pt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveReportContext({
+                    matchId: match.id,
+                    teamId: match.homeTeamId,
+                  })
+                }
+                className="flex-1 py-1.5 bg-emerald-700/80 hover:bg-emerald-600 text-white font-bold text-[11px] rounded transition-colors"
+              >
+                View Report
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShareMatchTarget(match);
+                  setShareEmail("");
+                  setShareError(null);
+                  setShareSuccess(null);
+                }}
+                className="px-2.5 py-1.5 bg-indigo-950 hover:bg-indigo-900 text-indigo-200 border border-indigo-700/60 font-semibold text-[11px] rounded transition-colors"
+              >
+                Share
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleUncatch(match.id, match.homeTeamId)}
+                className="px-2.5 py-1.5 bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800/80 font-semibold text-[11px] rounded transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="w-full max-w-sm mx-auto flex flex-col flex-1 p-4 bg-gray-950 text-gray-100 overflow-y-auto">
       <header className="flex items-center justify-between pb-3 border-b border-gray-800 mb-4">
@@ -137,87 +229,7 @@ export const MyMatchesView: React.FC = () => {
         </div>
       )}
 
-      {isLoading ? (
-        <div className="flex-1 flex items-center justify-center text-xs text-gray-500">
-          Loading tracked matches...
-        </div>
-      ) : matches.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-500 space-y-3">
-          <div className="text-xs">No tracked matches found.</div>
-          <p className="text-[11px] text-gray-600">
-            Completed quick matches will automatically appear here once
-            finalized.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3 flex-1 overflow-y-auto pr-0.5">
-          {matches.map((match) => (
-            <div
-              key={match.id}
-              className="p-3 bg-gray-900 border border-gray-800 rounded-xl space-y-2.5 shadow-md"
-            >
-              {/* Date & Score Header */}
-              <div className="flex justify-between items-center text-[11px] text-gray-400 border-b border-gray-800/60 pb-1.5">
-                <span>{formatDate(match.scheduledAt)}</span>
-                <span className="font-mono font-bold text-xs text-emerald-400">
-                  {match.homeScore ?? 0} : {match.guestScore ?? 0}
-                </span>
-              </div>
-
-              {/* Teams Display */}
-              <div className="grid grid-cols-2 gap-2 text-xs font-bold text-center">
-                <div className="p-1.5 bg-black/30 rounded border border-gray-800 truncate text-indigo-300">
-                  <span className="text-[9px] uppercase text-gray-500 block font-normal">
-                    Home
-                  </span>
-                  {match.homeTeamName}
-                </div>
-                <div className="p-1.5 bg-black/30 rounded border border-gray-800 truncate text-emerald-300">
-                  <span className="text-[9px] uppercase text-gray-500 block font-normal">
-                    Guest
-                  </span>
-                  {match.guestTeamName}
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center gap-1.5 pt-1">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setActiveReportContext({
-                      matchId: match.id,
-                      teamId: match.homeTeamId,
-                    })
-                  }
-                  className="flex-1 py-1.5 bg-emerald-700/80 hover:bg-emerald-600 text-white font-bold text-[11px] rounded transition-colors"
-                >
-                  View Report
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShareMatchTarget(match);
-                    setShareEmail("");
-                    setShareError(null);
-                    setShareSuccess(null);
-                  }}
-                  className="px-2.5 py-1.5 bg-indigo-950 hover:bg-indigo-900 text-indigo-200 border border-indigo-700/60 font-semibold text-[11px] rounded transition-colors"
-                >
-                  Share
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleUncatch(match.id, match.homeTeamId)}
-                  className="px-2.5 py-1.5 bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800/80 font-semibold text-[11px] rounded transition-colors"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {renderContent()}
 
       {/* Share Match Modal Dialog */}
       {shareMatchTarget && (
