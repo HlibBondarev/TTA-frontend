@@ -39,11 +39,14 @@ vi.mock("../../../db/ttaDatabase", () => ({
   },
 }));
 
-const createTestStore = () => {
+const createTestStore = (
+  preloadedState?: Parameters<typeof configureStore>[0]["preloadedState"],
+) => {
   return configureStore({
     reducer: {
       navigation: navigationReducer,
     },
+    preloadedState,
   });
 };
 
@@ -123,9 +126,13 @@ describe("MatchSetupWizard Component", () => {
       mockConfigs,
     );
 
-    const { store } = renderWithRedux(
-      <MatchSetupWizard onQuickStart={vi.fn()} />,
-    );
+    const store = createTestStore({
+      navigation: { currentView: "QUICK_START" },
+    });
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />, store);
+
+    expect(store.getState().navigation.currentView).toBe("QUICK_START");
 
     const backBtn = await screen.findByRole("button", {
       name: /Back to Menu/i,
