@@ -82,7 +82,7 @@ export const apiClient = {
 
       // Safe JSON parsing for HTTP 200/201 responses with empty body
       const text = await response.text();
-      return text && text.trim() ? (JSON.parse(text) as T) : ({} as T);
+      return text?.trim() ? (JSON.parse(text) as T) : ({} as T);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
         // Suppress or format user-friendly message for aborted signals
