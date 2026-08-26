@@ -146,6 +146,34 @@ describe("App Bootstrapping Component", () => {
     expect(screen.getByText("tester@tta.com")).toBeDefined();
   });
 
+  it("should render MainDashboard when user is authenticated and navigation view is AUTH_GATE", async () => {
+    const store = createTestStore({
+      navigation: { currentView: "AUTH_GATE" },
+    });
+
+    render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("TTA Hub Navigation")).toBeDefined();
+  });
+
+  it("should render TTAConsole when navigation view is CONSOLE", async () => {
+    const store = createTestStore({
+      navigation: { currentView: "CONSOLE" },
+    });
+
+    render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("TTA Match Recorder")).toBeDefined();
+  });
+
   it("should navigate from Hub to MatchSetupWizard when clicking Quick Start Match card", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(

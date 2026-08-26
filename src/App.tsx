@@ -119,8 +119,8 @@ export const App: React.FC = () => {
     );
   }
 
-  // Active Match Mode: Show Console
-  if (activeMatchId) {
+  // Active Match Mode or explicit CONSOLE view: Show Console
+  if (activeMatchId || currentView === "CONSOLE") {
     return (
       <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col justify-between p-4">
         <TTAConsole />
@@ -131,7 +131,9 @@ export const App: React.FC = () => {
   // Authenticated Dashboard & Hub View Router
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col justify-between p-4">
-      {currentView === "HUB" && <MainDashboard />}
+      {(currentView === "HUB" || currentView === "AUTH_GATE") && (
+        <MainDashboard />
+      )}
       {currentView === "QUICK_START" && (
         <MatchSetupWizard onQuickStart={handleQuickStart} />
       )}
