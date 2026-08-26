@@ -135,7 +135,35 @@ describe("MatchSetupWizard Component", () => {
     expect(store.getState().navigation.currentView).toBe("HUB");
   });
 
+  it("should disable Back to Menu button while quick match initialization is in progress", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockImplementationOnce(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ id: "match-123" }), 100),
+        ),
+    );
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    const backBtn = screen.getByRole("button", { name: /Back to Menu/i });
+
+    expect(backBtn).not.toBeDisabled();
+
+    fireEvent.click(quickStartBtn);
+
+    expect(backBtn).toBeDisabled();
+  });
+
   it("should render wizard steps, load teams on Quick Start, allow team selection and trigger onQuickStart", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -145,8 +173,6 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(teamService.getTeamById)
       .mockResolvedValueOnce(mockHomeTeam)
       .mockResolvedValueOnce(mockGuestTeam);
-
-    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
 
     renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
@@ -162,10 +188,8 @@ describe("MatchSetupWizard Component", () => {
     expect(screen.getByText("Home Squad")).toBeDefined();
     expect(screen.getByText("Opponent Squad")).toBeDefined();
 
-    // Select Guest Team
     fireEvent.click(screen.getByText("Opponent Squad"));
 
-    // Confirm tracking session
     const confirmBtn = screen.getByRole("button", {
       name: /Confirm & Start Tracking/i,
     });
@@ -215,6 +239,7 @@ describe("MatchSetupWizard Component", () => {
   });
 
   it("should prevent changing configuration after match initialization and preserve original configuration on confirm", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
     const multipleConfigs = [
       {
         id: "config-1",
@@ -249,8 +274,6 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(teamService.getTeamById)
       .mockResolvedValueOnce(mockHomeTeam)
       .mockResolvedValueOnce(mockGuestTeam);
-
-    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
 
     renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
@@ -351,6 +374,7 @@ describe("MatchSetupWizard Component", () => {
   });
 
   it("should select the first available configuration if defaultConfigId does not match any config", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
     const modifiedSports = [
       {
         id: "sport-1",
@@ -384,7 +408,6 @@ describe("MatchSetupWizard Component", () => {
       .mockResolvedValueOnce(mockHomeTeam)
       .mockResolvedValueOnce(mockGuestTeam);
 
-    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
     renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
     expect(await screen.findByText(/Periods: 2/i)).toBeDefined();
@@ -406,6 +429,10 @@ describe("MatchSetupWizard Component", () => {
   });
 
   it("should handle submission error during final confirmation gracefully and reset submitting state", async () => {
+    const handleQuickStart = vi
+      .fn()
+      .mockImplementation(() => Promise.reject(new Error("API Timeout")));
+
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -415,10 +442,6 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(teamService.getTeamById)
       .mockResolvedValueOnce(mockHomeTeam)
       .mockResolvedValueOnce(mockGuestTeam);
-
-    const handleQuickStart = vi
-      .fn()
-      .mockImplementation(() => Promise.reject(new Error("API Timeout")));
 
     renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
@@ -436,6 +459,7 @@ describe("MatchSetupWizard Component", () => {
   });
 
   it("should allow selecting a different configuration when multiple configurations are available", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
     const multipleConfigs = [
       {
         id: "config-1",
@@ -470,8 +494,6 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(teamService.getTeamById)
       .mockResolvedValueOnce(mockHomeTeam)
       .mockResolvedValueOnce(mockGuestTeam);
-
-    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
 
     renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 

@@ -355,6 +355,8 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     );
   }
 
+  const isNavDisabled = isSubmitting || isLoadingTeams;
+
   return (
     <div className="w-full max-w-sm mx-auto flex flex-col flex-1 p-4 bg-gray-950 text-gray-100 overflow-y-auto">
       <header className="flex items-center justify-between pb-3 border-b border-gray-800 mb-4">
@@ -363,8 +365,9 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         </h2>
         <button
           type="button"
+          disabled={isNavDisabled}
           onClick={() => dispatch(navigateToHub())}
-          className="text-xs bg-gray-900 hover:bg-gray-800 text-gray-300 px-3 py-1 rounded border border-gray-700 transition-colors"
+          className="text-xs bg-gray-900 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed text-gray-300 px-3 py-1 rounded border border-gray-700 transition-colors"
         >
           Back to Menu
         </button>
