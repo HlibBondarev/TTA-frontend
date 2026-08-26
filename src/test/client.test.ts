@@ -17,7 +17,7 @@ describe("API Client", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ success: true }),
+      text: async () => JSON.stringify({ success: true }),
     } as Response);
 
     await apiClient.get("test-endpoint");
@@ -41,7 +41,7 @@ describe("API Client", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ success: true }),
+      text: async () => JSON.stringify({ success: true }),
     } as Response);
 
     await apiClient.get("/test-endpoint", { token: "explicit-token" });
@@ -67,6 +67,17 @@ describe("API Client", () => {
     expect(res).toEqual({});
   });
 
+  it("returns empty object on 200 OK response with empty body text", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => "",
+    } as Response);
+
+    const res = await apiClient.get("/empty-200");
+    expect(res).toEqual({});
+  });
+
   it("throws error with status property on non-ok HTTP response", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: false,
@@ -84,7 +95,7 @@ describe("API Client", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ success: true }),
+      text: async () => JSON.stringify({ success: true }),
     } as Response);
 
     await apiClient.post("events", { name: "goal" });
