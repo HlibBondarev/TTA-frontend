@@ -47,10 +47,21 @@ export const matchFinalizationService = {
     try {
       await userMatchService.catchMatch(matchId, activeTeamId);
     } catch (catchErr) {
-      console.warn(
-        "User match catch link creation failed or already exists:",
-        catchErr,
-      );
+      const errMessage =
+        catchErr instanceof Error ? catchErr.message : String(catchErr);
+      const isAlreadyExists =
+        errMessage.includes("409") ||
+        errMessage.toLowerCase().includes("conflict") ||
+        errMessage.toLowerCase().includes("already exists");
+
+      if (isAlreadyExists) {
+        console.warn(
+          "User match catch link already exists (idempotent step):",
+          catchErr,
+        );
+      } else {
+        throw catchErr;
+      }
     }
 
     // Step 4: Trigger event time normalization for the active tracking team

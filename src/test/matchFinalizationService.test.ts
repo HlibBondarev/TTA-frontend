@@ -109,9 +109,9 @@ describe("matchFinalizationService", () => {
     expect(db.syncQueue.clear).toHaveBeenCalled();
   });
 
-  it("should continue finalization sequence even if userMatchService.catchMatch throws a warning error", async () => {
+  it("should continue finalization sequence if userMatchService.catchMatch throws an idempotent conflict error (409)", async () => {
     vi.mocked(userMatchService.catchMatch).mockRejectedValueOnce(
-      new Error("Catch link already exists"),
+      new Error("409 Conflict: Catch link already exists"),
     );
 
     const params = {
@@ -129,6 +129,27 @@ describe("matchFinalizationService", () => {
       "/Matches/match-123/teams/team-456/events/normalize",
     );
     expect(db.gameevents.clear).toHaveBeenCalled();
+  });
+
+  it("should ABORT finalization and throw if userMatchService.catchMatch fails due to server or network error", async () => {
+    vi.mocked(userMatchService.catchMatch).mockRejectedValueOnce(
+      new Error("500 Internal Server Error"),
+    );
+
+    const params = {
+      matchId: "match-123",
+      activeTeamId: "team-456",
+      homeScore: 12,
+      guestScore: 9,
+      temperature: 26.5,
+    };
+
+    await expect(
+      matchFinalizationService.finalizeMatch(params),
+    ).rejects.toThrow("500 Internal Server Error");
+
+    expect(apiClient.put).toHaveBeenCalledTimes(1);
+    expect(db.gameevents.clear).not.toHaveBeenCalled();
   });
 
   it("should ABORT finalization if sync queue still contains pending items after processSyncQueue", async () => {
