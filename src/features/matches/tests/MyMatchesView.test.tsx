@@ -71,7 +71,7 @@ describe("MyMatchesView Component", () => {
     expect(screen.getByText("8 : 6")).toBeDefined();
   });
 
-  it("should render empty state message when no tracked matches exist", async () => {
+  it("should render empty state message when no tracked matches exist on successful fetch", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce([]);
 
     const store = createTestStore();
@@ -83,6 +83,24 @@ describe("MyMatchesView Component", () => {
     );
 
     expect(await screen.findByText("No tracked matches found.")).toBeDefined();
+  });
+
+  it("should render error banner and hide empty list state when fetching catched matches fails", async () => {
+    vi.mocked(userMatchService.getCatchedMatches).mockRejectedValueOnce(
+      new Error("Failed to connect to backend"),
+    );
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MyMatchesView />
+      </Provider>,
+    );
+
+    expect(await screen.findByRole("alert")).toBeDefined();
+    expect(screen.getByText("Failed to connect to backend")).toBeDefined();
+    expect(screen.queryByText("No tracked matches found.")).toBeNull();
   });
 
   it("should handle uncatch/delete action and update list", async () => {

@@ -122,6 +122,10 @@ export const MyMatchesView: React.FC = () => {
       );
     }
 
+    if (errorMessage && matches.length === 0) {
+      return null;
+    }
+
     if (matches.length === 0) {
       return (
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-500 space-y-3">
