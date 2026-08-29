@@ -26,8 +26,12 @@ const navigationSlice = createSlice({
     navigateToHub(state) {
       state.currentView = "HUB";
     },
+    navigateToMyMatches(state) {
+      state.currentView = "MY_MATCHES";
+    },
   },
 });
 
-export const { setCurrentView, navigateToHub } = navigationSlice.actions;
+export const { setCurrentView, navigateToHub, navigateToMyMatches } =
+  navigationSlice.actions;
 export default navigationSlice.reducer;

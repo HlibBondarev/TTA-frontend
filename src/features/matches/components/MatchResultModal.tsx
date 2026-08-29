@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import { resetMatchState } from "../store/matchSlice";
+import { navigateToMyMatches } from "../../../store/slices/navigationSlice";
 import { matchFinalizationService } from "../../../services/matchFinalizationService";
 import { MatchReportModal } from "./MatchReportModal";
 
@@ -145,6 +146,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     setCompletedMatchContext(null);
 
     // NOW reset Redux match state and trigger parent onClose/onSuccess navigation
+    dispatch(navigateToMyMatches());
     dispatch(resetMatchState());
 
     if (onSuccess) {
