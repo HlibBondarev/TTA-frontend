@@ -4,6 +4,9 @@ import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { MatchResultModal } from "../components/MatchResultModal";
 import matchReducer, { type MatchState } from "../store/matchSlice";
+import navigationReducer, {
+  type NavigationState,
+} from "../../../store/slices/navigationSlice";
 import { matchFinalizationService } from "../../../services/matchFinalizationService";
 import { reportService } from "../../../services/reportService";
 
@@ -20,10 +23,19 @@ vi.mock("../../../services/reportService", () => ({
   },
 }));
 
-const createTestStore = (preloadedMatchState: Partial<MatchState> = {}) => {
+const createTestStore = (
+  preloadedMatchState: Partial<MatchState> = {},
+  preloadedNavigationState: Partial<NavigationState> = {},
+) => {
+  const initialNavigationState: NavigationState = {
+    currentView: "QUICK_START",
+    ...preloadedNavigationState,
+  };
+
   return configureStore({
     reducer: {
       match: matchReducer,
+      navigation: navigationReducer,
     },
     preloadedState: {
       match: {
@@ -39,6 +51,7 @@ const createTestStore = (preloadedMatchState: Partial<MatchState> = {}) => {
         recentActions: [],
         ...preloadedMatchState,
       },
+      navigation: initialNavigationState,
     },
   });
 };
@@ -198,7 +211,7 @@ describe("MatchResultModal Component", () => {
     });
   });
 
-  test("should reset Redux state and call onClose when report modal is closed after finalization", async () => {
+  test("should reset Redux state, switch navigation to MY_MATCHES, and call onClose when report modal is closed after finalization", async () => {
     vi.mocked(matchFinalizationService.finalizeMatch).mockResolvedValueOnce(
       undefined,
     );
@@ -225,8 +238,9 @@ describe("MatchResultModal Component", () => {
     });
     fireEvent.click(closeReportBtn);
 
-    // Check Redux state was reset after closing report
+    // Check Redux match state was reset AND navigation switched to MY_MATCHES after closing report
     expect(store.getState().match.activeMatchId).toBeNull();
+    expect(store.getState().navigation.currentView).toBe("MY_MATCHES");
     expect(mockOnClose).toHaveBeenCalledTimes(1);
   });
 

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import navigationReducer, {
   setCurrentView,
   navigateToHub,
+  navigateToMyMatches,
   type NavigationState,
 } from "../store/slices/navigationSlice";
 
@@ -28,5 +29,11 @@ describe("navigationSlice Reducer", () => {
     const modifiedState: NavigationState = { currentView: "MY_MATCHES" };
     const nextState = navigationReducer(modifiedState, navigateToHub());
     expect(nextState.currentView).toBe("HUB");
+  });
+
+  it("should handle navigateToMyMatches", () => {
+    const modifiedState: NavigationState = { currentView: "QUICK_START" };
+    const nextState = navigationReducer(modifiedState, navigateToMyMatches());
+    expect(nextState.currentView).toBe("MY_MATCHES");
   });
 });
