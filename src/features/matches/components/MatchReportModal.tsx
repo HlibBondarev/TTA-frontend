@@ -65,10 +65,9 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     }
   }
 
-  // Manage native dialog showModal, focus restoration, and auto-switch ref reset
+  // Manage native dialog showModal and focus restoration strictly bound to modal visibility
   useEffect(() => {
     if (isOpen) {
-      hasAttemptedAutoSwitchRef.current = false;
       previousFocusRef.current = document.activeElement as HTMLElement | null;
       const dialog = dialogRef.current;
       if (dialog && !dialog.open) {
@@ -88,6 +87,13 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
         previousFocusRef.current.focus();
       }
     };
+  }, [isOpen]);
+
+  // Reset auto-switch guard ref when report context props transition while modal is open
+  useEffect(() => {
+    if (isOpen) {
+      hasAttemptedAutoSwitchRef.current = false;
+    }
   }, [isOpen, matchId, teamId, guestTeamId]);
 
   // Event handler for selecting a player row

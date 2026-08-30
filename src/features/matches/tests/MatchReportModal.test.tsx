@@ -392,6 +392,37 @@ describe("MatchReportModal", () => {
     });
   });
 
+  it("retains focus inside dialog and does not trigger focus restoration when report context props change while open", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
+      mockTeamSummary,
+    );
+
+    const triggerBtn = document.createElement("button");
+    document.body.appendChild(triggerBtn);
+    triggerBtn.focus();
+    expect(document.activeElement).toBe(triggerBtn);
+
+    const { rerender } = render(<MatchReportModal {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Michael Jordan/i }),
+      ).toBeInTheDocument();
+    });
+
+    const closeButton = screen.getByRole("button", { name: /close report/i });
+    closeButton.focus();
+    expect(document.activeElement).toBe(closeButton);
+
+    // Context prop change while remaining open
+    rerender(<MatchReportModal {...defaultProps} matchId="match-999" />);
+
+    // Focus must remain on elements inside the dialog and not restore prematurely to triggerBtn
+    expect(document.activeElement).not.toBe(triggerBtn);
+
+    document.body.removeChild(triggerBtn);
+  });
+
   it("navigates to player detailed report and displays summary cards when a player row is clicked", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
       mockTeamSummary,
