@@ -246,23 +246,33 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         throw new Error("Failed to load match details.");
       }
 
+      const normalizedMatch: MatchLookup = {
+        ...match,
+        id: match.id.trim(),
+        homeTeamId: match.homeTeamId.trim(),
+        guestTeamId: match.guestTeamId.trim(),
+        ...(typeof match.tournamentId === "string" && match.tournamentId.trim()
+          ? { tournamentId: match.tournamentId.trim() }
+          : {}),
+      };
+
       // Store match locally
       if (db.matches) {
-        await db.matches.put(match);
+        await db.matches.put(normalizedMatch);
       }
 
       // If match points to a tournament, ensure tournament is also stored
-      if (match.tournamentId) {
+      if (normalizedMatch.tournamentId) {
         await ensureTournamentPersisted(
-          match.tournamentId,
+          normalizedMatch.tournamentId,
           selectedSportId,
           selectedConfigId,
         );
       }
 
       const [home, guest] = await Promise.all([
-        teamService.getTeamById(match.homeTeamId),
-        teamService.getTeamById(match.guestTeamId),
+        teamService.getTeamById(normalizedMatch.homeTeamId),
+        teamService.getTeamById(normalizedMatch.guestTeamId),
       ]);
 
       setTeams({ home, guest });
