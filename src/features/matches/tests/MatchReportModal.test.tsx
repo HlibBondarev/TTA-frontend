@@ -143,6 +143,81 @@ describe("MatchReportModal", () => {
     });
   });
 
+  it("handles error gracefully when fetching player detailed report fails", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
+      mockTeamSummary,
+    );
+    vi.mocked(reportService.getPlayerDetailedReport).mockRejectedValueOnce(
+      new Error("Player report error"),
+    );
+
+    render(<MatchReportModal {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Michael Jordan/i }),
+      ).toBeInTheDocument();
+    });
+
+    const playerButton = screen.getByRole("button", {
+      name: /Michael Jordan/i,
+    });
+    fireEvent.click(playerButton);
+
+    await waitFor(() => {
+      expect(reportService.getPlayerDetailedReport).toHaveBeenCalledWith(
+        "match-101",
+        "lineup-1",
+      );
+    });
+  });
+
+  it("falls back to setAttribute('open', '') when dialog.showModal is not a function", () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
+      mockTeamSummary,
+    );
+
+    const originalShowModal = HTMLDialogElement.prototype.showModal;
+    // @ts-expect-error Simulate older browser environment without showModal
+    delete HTMLDialogElement.prototype.showModal;
+
+    render(<MatchReportModal {...defaultProps} />);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    HTMLDialogElement.prototype.showModal = originalShowModal;
+  });
+
+  it("synchronizes state when teamId prop changes or modal transitions from closed to open", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
+      mockTeamSummary,
+    );
+
+    const { rerender } = render(
+      <MatchReportModal {...defaultProps} isOpen={false} />,
+    );
+
+    rerender(<MatchReportModal {...defaultProps} isOpen={true} />);
+
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+        "match-101",
+        "team-202",
+      );
+    });
+
+    rerender(
+      <MatchReportModal {...defaultProps} isOpen={true} teamId="team-999" />,
+    );
+
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+        "match-101",
+        "team-999",
+      );
+    });
+  });
+
   it("navigates to player detailed report and displays summary cards when a player row is clicked", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
       mockTeamSummary,
@@ -303,12 +378,10 @@ describe("MatchReportModal", () => {
 
     const { unmount } = render(<MatchReportModal {...defaultProps} />);
 
-    // Shift focus to an internal modal control first
     const closeButton = screen.getByRole("button", { name: /close report/i });
     closeButton.focus();
     expect(document.activeElement).toBe(closeButton);
 
-    // Unmount modal and assert focus is restored to triggerBtn
     unmount();
 
     expect(document.activeElement).toBe(triggerBtn);
