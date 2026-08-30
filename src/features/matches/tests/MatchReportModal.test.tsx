@@ -380,7 +380,7 @@ describe("MatchReportModal", () => {
     playerButton.focus();
     expect(document.activeElement).toBe(playerButton);
 
-    fireEvent.click(playerButton);
+    fireEvent.keyDown(playerButton, { key: "Enter", code: "Enter" });
 
     await waitFor(() => {
       expect(

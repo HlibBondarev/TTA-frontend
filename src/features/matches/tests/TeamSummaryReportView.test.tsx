@@ -91,4 +91,31 @@ describe("TeamSummaryReportView", () => {
     fireEvent.click(playerButton);
     expect(handleSelectPlayer).toHaveBeenCalledWith("lineup-1");
   });
+
+  it("supports keyboard activation via Enter and Space keydown events", () => {
+    const handleSelectPlayer = vi.fn();
+
+    render(
+      <TeamSummaryReportView
+        reports={mockReports}
+        isLoading={false}
+        onSelectPlayer={handleSelectPlayer}
+      />,
+    );
+
+    const playerButton = screen.getByRole("button", {
+      name: "Michael Jordan",
+    });
+
+    playerButton.focus();
+    expect(document.activeElement).toBe(playerButton);
+
+    // Check Enter
+    fireEvent.keyDown(playerButton, { key: "Enter", code: "Enter" });
+    expect(handleSelectPlayer).toHaveBeenLastCalledWith("lineup-1");
+
+    // Check Space
+    fireEvent.keyDown(playerButton, { key: " ", code: "Space" });
+    expect(handleSelectPlayer).toHaveBeenLastCalledWith("lineup-1");
+  });
 });

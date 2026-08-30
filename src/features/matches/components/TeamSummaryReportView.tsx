@@ -66,6 +66,15 @@ export const TeamSummaryReportView: React.FC<TeamSummaryReportViewProps> = ({
                       onClick={() =>
                         p.matchLineupId && onSelectPlayer(p.matchLineupId)
                       }
+                      onKeyDown={(e) => {
+                        if (
+                          (e.key === "Enter" || e.key === " ") &&
+                          p.matchLineupId
+                        ) {
+                          e.preventDefault();
+                          onSelectPlayer(p.matchLineupId);
+                        }
+                      }}
                       className="text-left font-sans font-semibold text-gray-100 hover:text-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 focus:text-emerald-400 rounded transition-colors"
                     >
                       {fullName}
