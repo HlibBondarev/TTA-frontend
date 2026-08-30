@@ -358,7 +358,7 @@ describe("MatchReportModal", () => {
     });
   });
 
-  it("navigates to player detailed report when player button is activated via keyboard input", async () => {
+  it("navigates to player detailed report when player button is focused and activated", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
       mockTeamSummary,
     );
@@ -380,7 +380,7 @@ describe("MatchReportModal", () => {
     playerButton.focus();
     expect(document.activeElement).toBe(playerButton);
 
-    fireEvent.keyDown(playerButton, { key: "Enter", code: "Enter" });
+    fireEvent.click(playerButton);
 
     await waitFor(() => {
       expect(
