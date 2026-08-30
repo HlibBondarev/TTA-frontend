@@ -32,6 +32,8 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   const [activeTeamId, setActiveTeamId] = useState<string>(teamId);
   // Track auto-switch attempt guard with ref to prevent effect cleanup during pending async requests
   const hasAttemptedAutoSwitchRef = useRef<boolean>(false);
+  // Request sequence token to invalidate pending auto-switches if manual tab selection occurs
+  const requestIdRef = useRef<number>(0);
 
   const [summaryReports, setSummaryReports] = useState<
     TeamMatchSummaryReportResponse[]
@@ -125,10 +127,11 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     if (!isOpen || !matchId || !activeTeamId) return;
 
     let isMounted = true;
+    const currentRequestId = ++requestIdRef.current;
 
     const fetchSummaryReport = async () => {
       await Promise.resolve();
-      if (!isMounted) return;
+      if (!isMounted || currentRequestId !== requestIdRef.current) return;
 
       setIsSummaryLoading(true);
       setSummaryError(null);
@@ -138,7 +141,9 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
           matchId,
           activeTeamId,
         );
-        if (!isMounted) return;
+        if (!isMounted || currentRequestId !== requestIdRef.current) return;
+
+        setSummaryReports(data);
 
         // Smart auto-select guest team if home team has 0 actions and guest team has recorded actions
         if (
@@ -153,7 +158,11 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
               matchId,
               guestTeamId,
             );
-            if (isMounted && hasTrackedActions(guestData)) {
+            if (
+              isMounted &&
+              currentRequestId === requestIdRef.current &&
+              hasTrackedActions(guestData)
+            ) {
               setActiveTeamId(guestTeamId);
               setSummaryReports(guestData);
               return;
@@ -162,15 +171,13 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
             // Keep primary team data if guest fetch fails
           }
         }
-
-        setSummaryReports(data);
       } catch (err) {
-        if (isMounted) {
+        if (isMounted && currentRequestId === requestIdRef.current) {
           console.error("Failed to load team summary report:", err);
           setSummaryError("Failed to load match summary report.");
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && currentRequestId === requestIdRef.current) {
           setIsSummaryLoading(false);
         }
       }
@@ -263,9 +270,13 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  requestIdRef.current++;
                   hasAttemptedAutoSwitchRef.current = true;
                   setSelectedLineupId(null);
-                  setActiveTeamId(teamId);
+                  setIsSummaryLoading(false);
+                  if (activeTeamId !== teamId) {
+                    setActiveTeamId(teamId);
+                  }
                 }}
                 className={`flex-1 py-1.5 px-2 text-[11px] font-bold rounded-lg transition-colors ${
                   activeTeamId === teamId
@@ -278,9 +289,13 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  requestIdRef.current++;
                   hasAttemptedAutoSwitchRef.current = true;
                   setSelectedLineupId(null);
-                  setActiveTeamId(guestTeamId);
+                  setIsSummaryLoading(false);
+                  if (activeTeamId !== guestTeamId) {
+                    setActiveTeamId(guestTeamId);
+                  }
                 }}
                 className={`flex-1 py-1.5 px-2 text-[11px] font-bold rounded-lg transition-colors ${
                   activeTeamId === guestTeamId

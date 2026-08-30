@@ -219,6 +219,78 @@ describe("MatchReportModal", () => {
     });
   });
 
+  it("prevents automatic guest switch from overriding manual selection if Home Team tab is clicked while guest request is pending", async () => {
+    const mockEmptyHomeSummary = [
+      {
+        matchLineupId: "lineup-home-1",
+        firstName: "HomePlayer",
+        lastName: "One",
+        number: 1,
+        goals: 0,
+        positiveGoalLeadingActions: 0,
+        negativeGoalLeadingActions: 0,
+        totalPositiveActions: 0,
+        totalNegativeActions: 0,
+        playPercentage: 100.0,
+      },
+    ];
+
+    const mockGuestSummary = [
+      {
+        matchLineupId: "lineup-guest-1",
+        firstName: "GuestPlayer",
+        lastName: "Two",
+        number: 10,
+        goals: 2,
+        positiveGoalLeadingActions: 1,
+        negativeGoalLeadingActions: 0,
+        totalPositiveActions: 8,
+        totalNegativeActions: 1,
+        playPercentage: 90.0,
+      },
+    ];
+
+    let resolveGuestReport: (value: typeof mockGuestSummary) => void;
+    const guestReportPromise = new Promise<typeof mockGuestSummary>(
+      (resolve) => {
+        resolveGuestReport = resolve;
+      },
+    );
+
+    vi.mocked(reportService.getTeamSummaryReport)
+      .mockResolvedValueOnce(mockEmptyHomeSummary)
+      .mockReturnValueOnce(guestReportPromise);
+
+    render(
+      <MatchReportModal
+        {...defaultProps}
+        teamName="Home Squad"
+        guestTeamId="guest-team-303"
+        guestTeamName="Opponent Squad"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+        "match-101",
+        "team-202",
+      );
+    });
+
+    // User explicitly clicks Home Squad tab while guest report request is pending
+    const homeTab = screen.getByRole("button", { name: /Home Squad/i });
+    fireEvent.click(homeTab);
+
+    // Resolve guest report promise
+    resolveGuestReport!(mockGuestSummary);
+
+    // Verify Home Player is rendered and Guest Player is NOT rendered
+    await waitFor(() => {
+      expect(screen.getByText(/HomePlayer One/i)).toBeInTheDocument();
+      expect(screen.queryByText(/GuestPlayer Two/i)).not.toBeInTheDocument();
+    });
+  });
+
   it("renders team switcher tabs with team names and fetches guest team summary report when Guest Team tab is clicked", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
       mockTeamSummary,
