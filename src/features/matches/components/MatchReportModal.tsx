@@ -11,7 +11,9 @@ export interface MatchReportModalProps {
   isOpen: boolean;
   matchId: string;
   teamId: string;
+  teamName?: string;
   guestTeamId?: string;
+  guestTeamName?: string;
   onClose: () => void;
 }
 
@@ -19,7 +21,9 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   isOpen,
   matchId,
   teamId,
+  teamName,
   guestTeamId,
+  guestTeamName,
   onClose,
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -270,7 +274,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
                     : "text-gray-400 hover:text-gray-200"
                 }`}
               >
-                Home Team
+                {teamName || "Home Team"}
               </button>
               <button
                 type="button"
@@ -285,7 +289,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
                     : "text-gray-400 hover:text-gray-200"
                 }`}
               >
-                Guest Team
+                {guestTeamName || "Guest Team"}
               </button>
             </div>
           )}

@@ -15,6 +15,7 @@ describe("MatchReportModal", () => {
     isOpen: true,
     matchId: "match-101",
     teamId: "team-202",
+    teamName: "Home Squad",
     onClose: vi.fn(),
   };
 
@@ -129,7 +130,13 @@ describe("MatchReportModal", () => {
       .mockResolvedValueOnce(mockEmptyHomeSummary)
       .mockResolvedValueOnce(mockGuestSummary);
 
-    render(<MatchReportModal {...defaultProps} guestTeamId="guest-team-303" />);
+    render(
+      <MatchReportModal
+        {...defaultProps}
+        guestTeamId="guest-team-303"
+        guestTeamName="Opponent Squad"
+      />,
+    );
 
     await waitFor(() => {
       expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
@@ -146,21 +153,28 @@ describe("MatchReportModal", () => {
     });
   });
 
-  it("renders team switcher tabs and fetches guest team summary report when Guest Team tab is clicked", async () => {
+  it("renders team switcher tabs with team names and fetches guest team summary report when Guest Team tab is clicked", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
       mockTeamSummary,
     );
 
-    render(<MatchReportModal {...defaultProps} guestTeamId="guest-team-303" />);
+    render(
+      <MatchReportModal
+        {...defaultProps}
+        teamName="Home Squad"
+        guestTeamId="guest-team-303"
+        guestTeamName="Opponent Squad"
+      />,
+    );
 
     expect(
-      await screen.findByRole("button", { name: /Home Team/i }),
+      await screen.findByRole("button", { name: /Home Squad/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Guest Team/i }),
+      screen.getByRole("button", { name: /Opponent Squad/i }),
     ).toBeInTheDocument();
 
-    const guestTab = screen.getByRole("button", { name: /Guest Team/i });
+    const guestTab = screen.getByRole("button", { name: /Opponent Squad/i });
     fireEvent.click(guestTab);
 
     await waitFor(() => {
@@ -170,7 +184,7 @@ describe("MatchReportModal", () => {
       );
     });
 
-    const homeTab = screen.getByRole("button", { name: /Home Team/i });
+    const homeTab = screen.getByRole("button", { name: /Home Squad/i });
     fireEvent.click(homeTab);
 
     await waitFor(() => {
@@ -179,6 +193,29 @@ describe("MatchReportModal", () => {
         "team-202",
       );
     });
+  });
+
+  it("renders fallback default tab labels when team names are omitted", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
+      mockTeamSummary,
+    );
+
+    render(
+      <MatchReportModal
+        isOpen={true}
+        matchId="match-101"
+        teamId="team-202"
+        guestTeamId="guest-team-303"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /Home Team/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Guest Team/i }),
+    ).toBeInTheDocument();
   });
 
   it("renders error banner if fetching summary report fails", async () => {
