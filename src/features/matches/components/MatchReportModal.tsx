@@ -30,8 +30,8 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
   const [activeTeamId, setActiveTeamId] = useState<string>(teamId);
-  const [hasAttemptedAutoSwitch, setHasAttemptedAutoSwitch] =
-    useState<boolean>(false);
+  // Track auto-switch attempt guard with ref to prevent effect cleanup during pending async requests
+  const hasAttemptedAutoSwitchRef = useRef<boolean>(false);
 
   const [summaryReports, setSummaryReports] = useState<
     TeamMatchSummaryReportResponse[]
@@ -62,13 +62,13 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     if (isOpen) {
       setActiveTeamId(teamId);
       setSelectedLineupId(null);
-      setHasAttemptedAutoSwitch(false);
     }
   }
 
-  // Manage native dialog showModal and focus restoration
+  // Manage native dialog showModal, focus restoration, and auto-switch ref reset
   useEffect(() => {
     if (isOpen) {
+      hasAttemptedAutoSwitchRef.current = false;
       previousFocusRef.current = document.activeElement as HTMLElement | null;
       const dialog = dialogRef.current;
       if (dialog && !dialog.open) {
@@ -88,7 +88,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
         previousFocusRef.current.focus();
       }
     };
-  }, [isOpen]);
+  }, [isOpen, matchId, teamId, guestTeamId]);
 
   // Event handler for selecting a player row
   const handleSelectPlayer = (lineupId: string) => {
@@ -136,12 +136,12 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
 
         // Smart auto-select guest team if home team has 0 actions and guest team has recorded actions
         if (
-          !hasAttemptedAutoSwitch &&
+          !hasAttemptedAutoSwitchRef.current &&
           activeTeamId === teamId &&
           guestTeamId &&
           !hasTrackedActions(data)
         ) {
-          setHasAttemptedAutoSwitch(true);
+          hasAttemptedAutoSwitchRef.current = true;
           try {
             const guestData = await reportService.getTeamSummaryReport(
               matchId,
@@ -175,14 +175,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [
-    isOpen,
-    matchId,
-    activeTeamId,
-    teamId,
-    guestTeamId,
-    hasAttemptedAutoSwitch,
-  ]);
+  }, [isOpen, matchId, activeTeamId, teamId, guestTeamId]);
 
   // Fetch Player Detailed Report when a lineup is selected
   useEffect(() => {
@@ -264,7 +257,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  setHasAttemptedAutoSwitch(true);
+                  hasAttemptedAutoSwitchRef.current = true;
                   setSelectedLineupId(null);
                   setActiveTeamId(teamId);
                 }}
@@ -279,7 +272,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  setHasAttemptedAutoSwitch(true);
+                  hasAttemptedAutoSwitchRef.current = true;
                   setSelectedLineupId(null);
                   setActiveTeamId(guestTeamId);
                 }}

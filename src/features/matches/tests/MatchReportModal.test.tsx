@@ -153,6 +153,72 @@ describe("MatchReportModal", () => {
     });
   });
 
+  it("preserves guest team selection when guest summary report promise resolves after a delay", async () => {
+    const mockEmptyHomeSummary = [
+      {
+        matchLineupId: "lineup-home-1",
+        firstName: "Home",
+        lastName: "Player",
+        number: 1,
+        goals: 0,
+        positiveGoalLeadingActions: 0,
+        negativeGoalLeadingActions: 0,
+        totalPositiveActions: 0,
+        totalNegativeActions: 0,
+        playPercentage: 100.0,
+      },
+    ];
+
+    const mockGuestSummary = [
+      {
+        matchLineupId: "lineup-guest-1",
+        firstName: "Guest",
+        lastName: "Player",
+        number: 10,
+        goals: 2,
+        positiveGoalLeadingActions: 1,
+        negativeGoalLeadingActions: 0,
+        totalPositiveActions: 8,
+        totalNegativeActions: 1,
+        playPercentage: 90.0,
+      },
+    ];
+
+    let resolveGuestReport: (value: typeof mockGuestSummary) => void;
+    const guestReportPromise = new Promise<typeof mockGuestSummary>(
+      (resolve) => {
+        resolveGuestReport = resolve;
+      },
+    );
+
+    vi.mocked(reportService.getTeamSummaryReport)
+      .mockResolvedValueOnce(mockEmptyHomeSummary)
+      .mockReturnValueOnce(guestReportPromise);
+
+    render(
+      <MatchReportModal
+        {...defaultProps}
+        guestTeamId="guest-team-303"
+        guestTeamName="Opponent Squad"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+        "match-101",
+        "team-202",
+      );
+    });
+
+    resolveGuestReport!(mockGuestSummary);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Guest Player/i }),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("renders team switcher tabs with team names and fetches guest team summary report when Guest Team tab is clicked", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
       mockTeamSummary,
