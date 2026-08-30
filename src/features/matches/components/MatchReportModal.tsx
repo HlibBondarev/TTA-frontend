@@ -38,10 +38,21 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     useState<PlayerDetailedMatchReportResponse | null>(null);
   const [isPlayerLoading, setIsPlayerLoading] = useState<boolean>(false);
 
-  // Synchronize state during render when isOpen or teamId transitions
-  const [prevProps, setPrevProps] = useState({ isOpen, teamId });
-  if (isOpen !== prevProps.isOpen || teamId !== prevProps.teamId) {
-    setPrevProps({ isOpen, teamId });
+  // Synchronize state during render when isOpen, matchId, teamId, or guestTeamId transitions
+  const [prevProps, setPrevProps] = useState({
+    isOpen,
+    matchId,
+    teamId,
+    guestTeamId,
+  });
+
+  if (
+    isOpen !== prevProps.isOpen ||
+    matchId !== prevProps.matchId ||
+    teamId !== prevProps.teamId ||
+    guestTeamId !== prevProps.guestTeamId
+  ) {
+    setPrevProps({ isOpen, matchId, teamId, guestTeamId });
     if (isOpen) {
       setActiveTeamId(teamId);
       setSelectedLineupId(null);

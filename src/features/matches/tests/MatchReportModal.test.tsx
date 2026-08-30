@@ -188,7 +188,7 @@ describe("MatchReportModal", () => {
     HTMLDialogElement.prototype.showModal = originalShowModal;
   });
 
-  it("synchronizes state when teamId prop changes or modal transitions from closed to open", async () => {
+  it("synchronizes state when props (isOpen, matchId, teamId, guestTeamId) change", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
       mockTeamSummary,
     );
@@ -214,6 +214,22 @@ describe("MatchReportModal", () => {
       expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
         "match-101",
         "team-999",
+      );
+    });
+
+    rerender(
+      <MatchReportModal
+        {...defaultProps}
+        isOpen={true}
+        matchId="match-999"
+        guestTeamId="guest-team-888"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+        "match-999",
+        "team-202",
       );
     });
   });
