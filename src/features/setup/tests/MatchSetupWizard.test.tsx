@@ -307,6 +307,30 @@ describe("MatchSetupWizard Component", () => {
     ).toBeDefined();
   });
 
+  it("should reject match initialization when match object contains blank or non-string team identifiers", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      id: "match-123",
+      homeTeamId: "   ",
+      guestTeamId: "team-guest",
+    } as MatchLookup);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    expect(
+      await screen.findByText("Failed to load match details."),
+    ).toBeDefined();
+  });
+
   it("should prevent changing configuration after match initialization and preserve original configuration on confirm", async () => {
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
     const multipleConfigs = [

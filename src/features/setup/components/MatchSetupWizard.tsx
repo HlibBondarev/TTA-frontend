@@ -234,7 +234,15 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
       const match = await apiClient.get<MatchLookup>(`/Matches/${matchId}`);
 
-      if (!match?.id || !match?.homeTeamId || !match?.guestTeamId) {
+      const isValidString = (val: unknown): val is string =>
+        typeof val === "string" && val.trim().length > 0;
+
+      if (
+        !match ||
+        !isValidString(match.id) ||
+        !isValidString(match.homeTeamId) ||
+        !isValidString(match.guestTeamId)
+      ) {
         throw new Error("Failed to load match details.");
       }
 
