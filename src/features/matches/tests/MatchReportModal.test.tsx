@@ -258,6 +258,9 @@ describe("MatchReportModal", () => {
         "match-101",
         "lineup-1",
       );
+      expect(
+        screen.getByText(/failed to load player report details/i),
+      ).toBeInTheDocument();
     });
   });
 
