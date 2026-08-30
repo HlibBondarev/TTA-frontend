@@ -224,7 +224,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
       const match = await apiClient.get<MatchLookup>(`/Matches/${matchId}`);
 
-      if (!match) {
+      if (!match || !match.id || !match.homeTeamId || !match.guestTeamId) {
         throw new Error("Failed to load match details.");
       }
 

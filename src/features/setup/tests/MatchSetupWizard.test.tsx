@@ -8,7 +8,7 @@ import { teamService } from "../../../services/teamService";
 import { apiClient } from "../../../api/client";
 import { db } from "../../../db/ttaDatabase";
 import navigationReducer from "../../../store/slices/navigationSlice";
-import type { TeamLookup } from "../../../db/ttaDatabase";
+import type { TeamLookup, MatchLookup } from "../../../db/ttaDatabase";
 
 vi.mock("../../../services/sportService", () => ({
   sportService: {
@@ -172,7 +172,6 @@ describe("MatchSetupWizard Component", () => {
 
     expect(backBtn).toBeDisabled();
 
-    // Cleanly complete async operation before test ends
     resolvePostPromise!({ id: "match-123" });
     await waitFor(() => {
       expect(backBtn).not.toBeDisabled();
@@ -254,6 +253,28 @@ describe("MatchSetupWizard Component", () => {
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
 
     expect(apiClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("should handle incomplete match response during initialization step", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      id: "match-123",
+    } as MatchLookup);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    expect(
+      await screen.findByText("Failed to load match details."),
+    ).toBeDefined();
   });
 
   it("should prevent changing configuration after match initialization and preserve original configuration on confirm", async () => {
