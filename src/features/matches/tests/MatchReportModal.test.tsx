@@ -164,7 +164,7 @@ describe("MatchReportModal", () => {
     fireEvent.click(guestTab);
 
     await waitFor(() => {
-      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+      expect(reportService.getTeamSummaryReport).toHaveBeenLastCalledWith(
         "match-101",
         "guest-team-303",
       );
@@ -174,7 +174,7 @@ describe("MatchReportModal", () => {
     fireEvent.click(homeTab);
 
     await waitFor(() => {
-      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+      expect(reportService.getTeamSummaryReport).toHaveBeenLastCalledWith(
         "match-101",
         "team-202",
       );
