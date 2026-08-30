@@ -307,7 +307,7 @@ describe("MatchSetupWizard Component", () => {
     ).toBeDefined();
   });
 
-  it("should reject match initialization when match object contains blank or non-string team identifiers", async () => {
+  it("should reject match initialization when match object contains blank team identifiers", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -316,6 +316,30 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({
       id: "match-123",
       homeTeamId: "   ",
+      guestTeamId: "team-guest",
+    } as MatchLookup);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    expect(
+      await screen.findByText("Failed to load match details."),
+    ).toBeDefined();
+  });
+
+  it("should reject match initialization when match object contains non-string team identifiers", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      id: "match-123",
+      homeTeamId: 12345 as unknown as string,
       guestTeamId: "team-guest",
     } as MatchLookup);
 
