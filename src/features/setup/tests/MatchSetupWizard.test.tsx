@@ -255,6 +255,36 @@ describe("MatchSetupWizard Component", () => {
     expect(apiClient.post).toHaveBeenCalledTimes(1);
   });
 
+  it("should reject operation and reset pendingMatchId when quick match POST returns an invalid or empty id", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "   " });
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    expect(
+      await screen.findByText("Failed to initialize quick match session."),
+    ).toBeDefined();
+
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-456" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    fireEvent.click(quickStartBtn);
+
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+  });
+
   it("should handle incomplete match response during initialization step", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(

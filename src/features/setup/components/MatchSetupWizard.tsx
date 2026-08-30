@@ -218,7 +218,17 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
             configurationId: selectedConfigId,
           },
         );
-        matchId = response.id;
+
+        if (
+          !response ||
+          typeof response.id !== "string" ||
+          !response.id.trim()
+        ) {
+          setPendingMatchId(null);
+          throw new Error("Failed to initialize quick match session.");
+        }
+
+        matchId = response.id.trim();
         setPendingMatchId(matchId);
       }
 
