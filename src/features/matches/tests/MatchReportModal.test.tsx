@@ -94,6 +94,58 @@ describe("MatchReportModal", () => {
     });
   });
 
+  it("auto-selects guest team tab when home team report has zero recorded actions and guest team has actions", async () => {
+    const mockEmptyHomeSummary = [
+      {
+        matchLineupId: "lineup-home-1",
+        firstName: "Home",
+        lastName: "Player",
+        number: 1,
+        goals: 0,
+        positiveGoalLeadingActions: 0,
+        negativeGoalLeadingActions: 0,
+        totalPositiveActions: 0,
+        totalNegativeActions: 0,
+        playPercentage: 100.0,
+      },
+    ];
+
+    const mockGuestSummary = [
+      {
+        matchLineupId: "lineup-guest-1",
+        firstName: "Guest",
+        lastName: "Player",
+        number: 10,
+        goals: 2,
+        positiveGoalLeadingActions: 1,
+        negativeGoalLeadingActions: 0,
+        totalPositiveActions: 8,
+        totalNegativeActions: 1,
+        playPercentage: 90.0,
+      },
+    ];
+
+    vi.mocked(reportService.getTeamSummaryReport)
+      .mockResolvedValueOnce(mockEmptyHomeSummary)
+      .mockResolvedValueOnce(mockGuestSummary);
+
+    render(<MatchReportModal {...defaultProps} guestTeamId="guest-team-303" />);
+
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+        "match-101",
+        "team-202",
+      );
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+        "match-101",
+        "guest-team-303",
+      );
+      expect(
+        screen.getByRole("button", { name: /Guest Player/i }),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("renders team switcher tabs and fetches guest team summary report when Guest Team tab is clicked", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
       mockTeamSummary,
@@ -291,10 +343,17 @@ describe("MatchReportModal", () => {
     playerButton.focus();
     expect(document.activeElement).toBe(playerButton);
 
-    fireEvent.keyDown(playerButton, { key: "Enter", code: "Enter" });
     fireEvent.click(playerButton);
 
-    expect(screen.getByText("Player TTA Detailed Report")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText("Player TTA Detailed Report"),
+      ).toBeInTheDocument();
+      expect(reportService.getPlayerDetailedReport).toHaveBeenCalledWith(
+        "match-101",
+        "lineup-1",
+      );
+    });
   });
 
   it("navigates back to team summary view when back button is clicked in player view", async () => {
@@ -376,6 +435,12 @@ describe("MatchReportModal", () => {
 
     render(<MatchReportModal {...defaultProps} />);
 
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Michael Jordan/i }),
+      ).toBeInTheDocument();
+    });
+
     const dialog = screen.getByRole("dialog");
     fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
 
@@ -393,6 +458,12 @@ describe("MatchReportModal", () => {
     expect(document.activeElement).toBe(triggerBtn);
 
     const { unmount } = render(<MatchReportModal {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Michael Jordan/i }),
+      ).toBeInTheDocument();
+    });
 
     const closeButton = screen.getByRole("button", { name: /close report/i });
     closeButton.focus();

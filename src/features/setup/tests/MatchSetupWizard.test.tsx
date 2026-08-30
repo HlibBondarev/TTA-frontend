@@ -147,12 +147,17 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
     );
-    vi.mocked(apiClient.post).mockImplementationOnce(
-      () =>
-        new Promise((resolve) =>
-          setTimeout(() => resolve({ id: "match-123" }), 100),
-        ),
-    );
+
+    let resolvePostPromise: (value: { id: string }) => void;
+    const postPromise = new Promise<{ id: string }>((resolve) => {
+      resolvePostPromise = resolve;
+    });
+
+    vi.mocked(apiClient.post).mockReturnValueOnce(postPromise);
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
 
@@ -166,6 +171,12 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(quickStartBtn);
 
     expect(backBtn).toBeDisabled();
+
+    // Cleanly complete async operation before test ends
+    resolvePostPromise!({ id: "match-123" });
+    await waitFor(() => {
+      expect(backBtn).not.toBeDisabled();
+    });
   });
 
   it("should render wizard steps, load teams on Quick Start, allow team selection and trigger onQuickStart", async () => {
