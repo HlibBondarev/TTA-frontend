@@ -94,6 +94,41 @@ describe("MatchReportModal", () => {
     });
   });
 
+  it("renders team switcher tabs and fetches guest team summary report when Guest Team tab is clicked", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
+      mockTeamSummary,
+    );
+
+    render(<MatchReportModal {...defaultProps} guestTeamId="guest-team-303" />);
+
+    expect(
+      await screen.findByRole("button", { name: /Home Team/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Guest Team/i }),
+    ).toBeInTheDocument();
+
+    const guestTab = screen.getByRole("button", { name: /Guest Team/i });
+    fireEvent.click(guestTab);
+
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+        "match-101",
+        "guest-team-303",
+      );
+    });
+
+    const homeTab = screen.getByRole("button", { name: /Home Team/i });
+    fireEvent.click(homeTab);
+
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+        "match-101",
+        "team-202",
+      );
+    });
+  });
+
   it("renders error banner if fetching summary report fails", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockRejectedValueOnce(
       new Error("Network Error"),

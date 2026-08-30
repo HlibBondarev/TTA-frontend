@@ -11,6 +11,7 @@ export interface MatchReportModalProps {
   isOpen: boolean;
   matchId: string;
   teamId: string;
+  guestTeamId?: string;
   onClose: () => void;
 }
 
@@ -18,10 +19,13 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   isOpen,
   matchId,
   teamId,
+  guestTeamId,
   onClose,
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  const [activeTeamId, setActiveTeamId] = useState<string>(teamId);
 
   const [summaryReports, setSummaryReports] = useState<
     TeamMatchSummaryReportResponse[]
@@ -33,6 +37,16 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   const [playerReport, setPlayerReport] =
     useState<PlayerDetailedMatchReportResponse | null>(null);
   const [isPlayerLoading, setIsPlayerLoading] = useState<boolean>(false);
+
+  // Synchronize state during render when isOpen or teamId transitions
+  const [prevProps, setPrevProps] = useState({ isOpen, teamId });
+  if (isOpen !== prevProps.isOpen || teamId !== prevProps.teamId) {
+    setPrevProps({ isOpen, teamId });
+    if (isOpen) {
+      setActiveTeamId(teamId);
+      setSelectedLineupId(null);
+    }
+  }
 
   // Manage native dialog showModal and focus restoration
   useEffect(() => {
@@ -71,9 +85,9 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     setPlayerReport(null);
   };
 
-  // Fetch Team Summary when modal opens
+  // Fetch Team Summary when modal opens or active team changes
   useEffect(() => {
-    if (!isOpen || !matchId || !teamId) return;
+    if (!isOpen || !matchId || !activeTeamId) return;
 
     let isMounted = true;
 
@@ -85,7 +99,10 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
       setSummaryError(null);
 
       try {
-        const data = await reportService.getTeamSummaryReport(matchId, teamId);
+        const data = await reportService.getTeamSummaryReport(
+          matchId,
+          activeTeamId,
+        );
         if (isMounted) {
           setSummaryReports(data);
         }
@@ -106,7 +123,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, matchId, teamId]);
+  }, [isOpen, matchId, activeTeamId]);
 
   // Fetch Player Detailed Report when a lineup is selected
   useEffect(() => {
@@ -163,22 +180,58 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-2 sm:p-4 w-full h-full max-w-none max-h-none border-none m-0"
     >
       <div className="w-full max-w-sm sm:max-w-md bg-gray-900 border border-gray-800 text-white rounded-2xl shadow-2xl p-3 sm:p-4 flex flex-col space-y-3 max-h-[94vh] overflow-hidden">
-        <header className="border-b border-gray-800 pb-2 flex items-center justify-between">
-          <h3
-            id="report-modal-title"
-            className="text-xs sm:text-sm font-black uppercase text-emerald-400 tracking-wider"
-          >
-            {selectedLineupId
-              ? "Player TTA Detailed Report"
-              : "Team TTA Summary Report"}
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-400 hover:text-white font-bold text-base px-2 py-0.5 rounded"
-          >
-            ✕
-          </button>
+        <header className="border-b border-gray-800 pb-2 flex flex-col space-y-2">
+          <div className="flex items-center justify-between">
+            <h3
+              id="report-modal-title"
+              className="text-xs sm:text-sm font-black uppercase text-emerald-400 tracking-wider"
+            >
+              {selectedLineupId
+                ? "Player TTA Detailed Report"
+                : "Team TTA Summary Report"}
+            </h3>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-gray-400 hover:text-white font-bold text-base px-2 py-0.5 rounded"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Team Switcher Tabs */}
+          {!selectedLineupId && guestTeamId && (
+            <div className="flex bg-gray-950 p-1 rounded-xl border border-gray-800 gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedLineupId(null);
+                  setActiveTeamId(teamId);
+                }}
+                className={`flex-1 py-1.5 px-2 text-[11px] font-bold rounded-lg transition-colors ${
+                  activeTeamId === teamId
+                    ? "bg-indigo-600 text-white"
+                    : "text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                Home Team
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedLineupId(null);
+                  setActiveTeamId(guestTeamId);
+                }}
+                className={`flex-1 py-1.5 px-2 text-[11px] font-bold rounded-lg transition-colors ${
+                  activeTeamId === guestTeamId
+                    ? "bg-emerald-600 text-white"
+                    : "text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                Guest Team
+              </button>
+            </div>
+          )}
         </header>
 
         {summaryError && (
