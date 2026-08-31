@@ -219,6 +219,71 @@ describe("MatchReportModal", () => {
     });
   });
 
+  it("triggers a replacement summary request when the already-active Home Squad tab is clicked before initial home summary resolves", async () => {
+    let resolveInitialHomeReport: (value: typeof mockTeamSummary) => void;
+    const initialHomePromise = new Promise<typeof mockTeamSummary>(
+      (resolve) => {
+        resolveInitialHomeReport = resolve;
+      },
+    );
+
+    let resolveReplacementHomeReport: (value: typeof mockTeamSummary) => void;
+    const replacementHomePromise = new Promise<typeof mockTeamSummary>(
+      (resolve) => {
+        resolveReplacementHomeReport = resolve;
+      },
+    );
+
+    const replacementSummary = [
+      {
+        ...mockTeamSummary[0],
+        firstName: "Replacement",
+        lastName: "Player",
+      },
+    ];
+
+    vi.mocked(reportService.getTeamSummaryReport)
+      .mockReturnValueOnce(initialHomePromise)
+      .mockReturnValueOnce(replacementHomePromise);
+
+    render(
+      <MatchReportModal
+        {...defaultProps}
+        teamName="Home Squad"
+        guestTeamId="guest-team-303"
+        guestTeamName="Opponent Squad"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledTimes(1);
+      expect(reportService.getTeamSummaryReport).toHaveBeenLastCalledWith(
+        "match-101",
+        "team-202",
+      );
+    });
+
+    // User clicks active "Home Squad" tab while initial request is pending
+    const homeTab = screen.getByRole("button", { name: /Home Squad/i });
+    fireEvent.click(homeTab);
+
+    // A replacement request should be triggered immediately
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledTimes(2);
+      expect(reportService.getTeamSummaryReport).toHaveBeenLastCalledWith(
+        "match-101",
+        "team-202",
+      );
+    });
+
+    resolveInitialHomeReport!(mockTeamSummary);
+    resolveReplacementHomeReport!(replacementSummary);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Replacement Player/i)).toBeInTheDocument();
+    });
+  });
+
   it("prevents automatic guest switch from overriding manual selection if Home Team tab is clicked while guest request is pending", async () => {
     const mockEmptyHomeSummary = [
       {
@@ -259,7 +324,8 @@ describe("MatchReportModal", () => {
 
     vi.mocked(reportService.getTeamSummaryReport)
       .mockResolvedValueOnce(mockEmptyHomeSummary)
-      .mockReturnValueOnce(guestReportPromise);
+      .mockReturnValueOnce(guestReportPromise)
+      .mockResolvedValueOnce(mockEmptyHomeSummary);
 
     render(
       <MatchReportModal

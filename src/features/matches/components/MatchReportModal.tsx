@@ -30,6 +30,8 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
   const [activeTeamId, setActiveTeamId] = useState<string>(teamId);
+  // Fetch generation counter to trigger refetch when clicking the already-active team tab
+  const [fetchGeneration, setFetchGeneration] = useState<number>(0);
   // Track auto-switch attempt guard with ref to prevent effect cleanup during pending async requests
   const hasAttemptedAutoSwitchRef = useRef<boolean>(false);
   // Request sequence token to invalidate pending auto-switches if manual tab selection occurs
@@ -122,7 +124,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
         (r.negativeGoalLeadingActions ?? 0) > 0,
     );
 
-  // Fetch Team Summary when modal opens or active team changes
+  // Fetch Team Summary when modal opens, active team changes, or same team is re-selected
   useEffect(() => {
     if (!isOpen || !matchId || !activeTeamId) return;
 
@@ -188,7 +190,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, matchId, activeTeamId, teamId, guestTeamId]);
+  }, [isOpen, matchId, activeTeamId, teamId, guestTeamId, fetchGeneration]);
 
   // Fetch Player Detailed Report when a lineup is selected
   useEffect(() => {
@@ -270,12 +272,12 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  requestIdRef.current++;
                   hasAttemptedAutoSwitchRef.current = true;
                   setSelectedLineupId(null);
-                  setIsSummaryLoading(false);
                   if (activeTeamId !== teamId) {
                     setActiveTeamId(teamId);
+                  } else {
+                    setFetchGeneration((prev) => prev + 1);
                   }
                 }}
                 className={`flex-1 py-1.5 px-2 text-[11px] font-bold rounded-lg transition-colors ${
@@ -289,12 +291,12 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  requestIdRef.current++;
                   hasAttemptedAutoSwitchRef.current = true;
                   setSelectedLineupId(null);
-                  setIsSummaryLoading(false);
                   if (activeTeamId !== guestTeamId) {
                     setActiveTeamId(guestTeamId);
+                  } else {
+                    setFetchGeneration((prev) => prev + 1);
                   }
                 }}
                 className={`flex-1 py-1.5 px-2 text-[11px] font-bold rounded-lg transition-colors ${
