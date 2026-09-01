@@ -392,6 +392,40 @@ describe("MatchSetupWizard Component", () => {
     });
   });
 
+  it("should normalize whitespace-only tournamentId to an empty string and prevent persistence", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      id: "match-123",
+      homeTeamId: "team-home",
+      guestTeamId: "team-guest",
+      tournamentId: "   ",
+    } as MatchLookup);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    await waitFor(() => {
+      expect(db.matches.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "match-123",
+          tournamentId: "",
+        }),
+      );
+      expect(db.tournaments.put).not.toHaveBeenCalled();
+    });
+  });
+
   it("should prevent changing configuration after match initialization and preserve original configuration on confirm", async () => {
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
     const multipleConfigs = [

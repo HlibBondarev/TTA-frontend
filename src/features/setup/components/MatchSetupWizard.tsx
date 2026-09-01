@@ -251,9 +251,10 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         id: match.id.trim(),
         homeTeamId: match.homeTeamId.trim(),
         guestTeamId: match.guestTeamId.trim(),
-        ...(typeof match.tournamentId === "string" && match.tournamentId.trim()
-          ? { tournamentId: match.tournamentId.trim() }
-          : {}),
+        tournamentId:
+          typeof match.tournamentId === "string"
+            ? match.tournamentId.trim()
+            : "",
       };
 
       // Store match locally
