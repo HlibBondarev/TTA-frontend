@@ -70,7 +70,7 @@ describe("TeamSummaryReportView", () => {
     expect(handleSelectPlayer).toHaveBeenCalledWith("lineup-1");
   });
 
-  it("supports keyboard activation via focus and click/Enter", () => {
+  it("supports keyboard activation via element focus and click invocation", () => {
     const handleSelectPlayer = vi.fn();
 
     render(

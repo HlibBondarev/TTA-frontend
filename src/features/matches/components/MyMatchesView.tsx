@@ -18,6 +18,9 @@ export const MyMatchesView: React.FC = () => {
   const [activeReportContext, setActiveReportContext] = useState<{
     matchId: string;
     teamId: string;
+    teamName?: string;
+    guestTeamId?: string;
+    guestTeamName?: string;
   } | null>(null);
 
   // Modal State for Sharing
@@ -179,6 +182,9 @@ export const MyMatchesView: React.FC = () => {
                   setActiveReportContext({
                     matchId: match.id,
                     teamId: match.homeTeamId,
+                    teamName: match.homeTeamName,
+                    guestTeamId: match.guestTeamId,
+                    guestTeamName: match.guestTeamName,
                   })
                 }
                 className="flex-1 py-1.5 bg-emerald-700/80 hover:bg-emerald-600 text-white font-bold text-[11px] rounded transition-colors"
@@ -297,6 +303,9 @@ export const MyMatchesView: React.FC = () => {
           isOpen={!!activeReportContext}
           matchId={activeReportContext.matchId}
           teamId={activeReportContext.teamId}
+          teamName={activeReportContext.teamName}
+          guestTeamId={activeReportContext.guestTeamId}
+          guestTeamName={activeReportContext.guestTeamName}
           onClose={() => setActiveReportContext(null)}
         />
       )}

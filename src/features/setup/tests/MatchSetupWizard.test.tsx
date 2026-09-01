@@ -8,7 +8,7 @@ import { teamService } from "../../../services/teamService";
 import { apiClient } from "../../../api/client";
 import { db } from "../../../db/ttaDatabase";
 import navigationReducer from "../../../store/slices/navigationSlice";
-import type { TeamLookup } from "../../../db/ttaDatabase";
+import type { TeamLookup, MatchLookup } from "../../../db/ttaDatabase";
 
 vi.mock("../../../services/sportService", () => ({
   sportService: {
@@ -147,12 +147,17 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
     );
-    vi.mocked(apiClient.post).mockImplementationOnce(
-      () =>
-        new Promise((resolve) =>
-          setTimeout(() => resolve({ id: "match-123" }), 100),
-        ),
-    );
+
+    let resolvePostPromise: (value: { id: string }) => void;
+    const postPromise = new Promise<{ id: string }>((resolve) => {
+      resolvePostPromise = resolve;
+    });
+
+    vi.mocked(apiClient.post).mockReturnValueOnce(postPromise);
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
 
@@ -166,6 +171,11 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(quickStartBtn);
 
     expect(backBtn).toBeDisabled();
+
+    resolvePostPromise!({ id: "match-123" });
+    await waitFor(() => {
+      expect(backBtn).not.toBeDisabled();
+    });
   });
 
   it("should render wizard steps, load teams on Quick Start, allow team selection and trigger onQuickStart", async () => {
@@ -243,6 +253,177 @@ describe("MatchSetupWizard Component", () => {
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
 
     expect(apiClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("should reject operation and reset pendingMatchId when quick match POST returns an invalid or empty id", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "   " });
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    expect(
+      await screen.findByText("Failed to initialize quick match session."),
+    ).toBeDefined();
+
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-456" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    fireEvent.click(quickStartBtn);
+
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+  });
+
+  it("should handle incomplete match response during initialization step", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      id: "match-123",
+    } as MatchLookup);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    expect(
+      await screen.findByText("Failed to load match details."),
+    ).toBeDefined();
+  });
+
+  it("should reject match initialization when match object contains blank team identifiers", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      id: "match-123",
+      homeTeamId: "   ",
+      guestTeamId: "team-guest",
+    } as MatchLookup);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    expect(
+      await screen.findByText("Failed to load match details."),
+    ).toBeDefined();
+  });
+
+  it("should reject match initialization when match object contains non-string team identifiers", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      id: "match-123",
+      homeTeamId: 12345 as unknown as string,
+      guestTeamId: "team-guest",
+    } as MatchLookup);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    expect(
+      await screen.findByText("Failed to load match details."),
+    ).toBeDefined();
+  });
+
+  it("should normalize match and team identifiers with whitespace before persisting and fetching teams", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: " match-123 " });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      id: " match-123 ",
+      homeTeamId: " team-home ",
+      guestTeamId: " team-guest ",
+      tournamentId: " tourn-789 ",
+    } as MatchLookup);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    await waitFor(() => {
+      expect(db.matches.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "match-123",
+          homeTeamId: "team-home",
+          guestTeamId: "team-guest",
+          tournamentId: "tourn-789",
+        }),
+      );
+      expect(teamService.getTeamById).toHaveBeenCalledWith("team-home");
+      expect(teamService.getTeamById).toHaveBeenCalledWith("team-guest");
+    });
+  });
+
+  it("should normalize whitespace-only tournamentId to an empty string and prevent persistence", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      id: "match-123",
+      homeTeamId: "team-home",
+      guestTeamId: "team-guest",
+      tournamentId: "   ",
+    } as MatchLookup);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    await waitFor(() => {
+      expect(db.matches.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "match-123",
+          tournamentId: "",
+        }),
+      );
+      expect(db.tournaments.put).not.toHaveBeenCalled();
+    });
   });
 
   it("should prevent changing configuration after match initialization and preserve original configuration on confirm", async () => {

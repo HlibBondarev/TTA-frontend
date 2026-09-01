@@ -218,29 +218,62 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
             configurationId: selectedConfigId,
           },
         );
-        matchId = response.id;
+
+        if (
+          !response ||
+          typeof response.id !== "string" ||
+          !response.id.trim()
+        ) {
+          setPendingMatchId(null);
+          throw new Error("Failed to initialize quick match session.");
+        }
+
+        matchId = response.id.trim();
         setPendingMatchId(matchId);
       }
 
       const match = await apiClient.get<MatchLookup>(`/Matches/${matchId}`);
 
+      const isValidString = (val: unknown): val is string =>
+        typeof val === "string" && val.trim().length > 0;
+
+      if (
+        !match ||
+        !isValidString(match.id) ||
+        !isValidString(match.homeTeamId) ||
+        !isValidString(match.guestTeamId)
+      ) {
+        throw new Error("Failed to load match details.");
+      }
+
+      const normalizedMatch: MatchLookup = {
+        ...match,
+        id: match.id.trim(),
+        homeTeamId: match.homeTeamId.trim(),
+        guestTeamId: match.guestTeamId.trim(),
+        tournamentId:
+          typeof match.tournamentId === "string"
+            ? match.tournamentId.trim()
+            : "",
+      };
+
       // Store match locally
-      if (match && db.matches) {
-        await db.matches.put(match);
+      if (db.matches) {
+        await db.matches.put(normalizedMatch);
       }
 
       // If match points to a tournament, ensure tournament is also stored
-      if (match.tournamentId) {
+      if (normalizedMatch.tournamentId) {
         await ensureTournamentPersisted(
-          match.tournamentId,
+          normalizedMatch.tournamentId,
           selectedSportId,
           selectedConfigId,
         );
       }
 
       const [home, guest] = await Promise.all([
-        teamService.getTeamById(match.homeTeamId),
-        teamService.getTeamById(match.guestTeamId),
+        teamService.getTeamById(normalizedMatch.homeTeamId),
+        teamService.getTeamById(normalizedMatch.guestTeamId),
       ]);
 
       setTeams({ home, guest });

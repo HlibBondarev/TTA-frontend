@@ -15,8 +15,20 @@ vi.mock("../../../services/userMatchService", () => ({
 }));
 
 vi.mock("../components/MatchReportModal", () => ({
-  MatchReportModal: ({ isOpen }: { isOpen: boolean }) =>
-    isOpen ? <div data-testid="report-modal">Mock Report Modal</div> : null,
+  MatchReportModal: ({
+    isOpen,
+    teamId,
+    guestTeamId,
+  }: {
+    isOpen: boolean;
+    teamId?: string;
+    guestTeamId?: string;
+  }) =>
+    isOpen ? (
+      <div data-testid="report-modal">
+        Mock Report Modal (team: {teamId}, guest: {guestTeamId})
+      </div>
+    ) : null,
 }));
 
 const createTestStore = () => {
@@ -166,7 +178,7 @@ describe("MyMatchesView Component", () => {
     });
   });
 
-  it("should open MatchReportModal when clicking View Report button", async () => {
+  it("should open MatchReportModal with teamId and guestTeamId when clicking View Report button", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
@@ -183,7 +195,11 @@ describe("MyMatchesView Component", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /View Report/i }));
 
-    expect(await screen.findByTestId("report-modal")).toBeDefined();
+    const reportModal = await screen.findByTestId("report-modal");
+    expect(reportModal).toBeDefined();
+    expect(reportModal).toHaveTextContent(
+      "Mock Report Modal (team: home-team-1, guest: guest-team-2)",
+    );
   });
 
   it("should navigate to Hub when clicking Back to Menu button", async () => {

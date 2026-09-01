@@ -11,6 +11,9 @@ export interface MatchReportModalProps {
   isOpen: boolean;
   matchId: string;
   teamId: string;
+  teamName?: string;
+  guestTeamId?: string;
+  guestTeamName?: string;
   onClose: () => void;
 }
 
@@ -18,10 +21,21 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   isOpen,
   matchId,
   teamId,
+  teamName,
+  guestTeamId,
+  guestTeamName,
   onClose,
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  const [activeTeamId, setActiveTeamId] = useState<string>(teamId);
+  // Fetch generation counter to trigger refetch when clicking the already-active team tab
+  const [fetchGeneration, setFetchGeneration] = useState<number>(0);
+  // Track auto-switch attempt guard with ref to prevent effect cleanup during pending async requests
+  const hasAttemptedAutoSwitchRef = useRef<boolean>(false);
+  // Request sequence token to invalidate pending auto-switches if manual tab selection occurs
+  const requestIdRef = useRef<number>(0);
 
   const [summaryReports, setSummaryReports] = useState<
     TeamMatchSummaryReportResponse[]
@@ -34,7 +48,28 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     useState<PlayerDetailedMatchReportResponse | null>(null);
   const [isPlayerLoading, setIsPlayerLoading] = useState<boolean>(false);
 
-  // Manage native dialog showModal and focus restoration
+  // Synchronize state during render when isOpen, matchId, teamId, or guestTeamId transitions
+  const [prevProps, setPrevProps] = useState({
+    isOpen,
+    matchId,
+    teamId,
+    guestTeamId,
+  });
+
+  if (
+    isOpen !== prevProps.isOpen ||
+    matchId !== prevProps.matchId ||
+    teamId !== prevProps.teamId ||
+    guestTeamId !== prevProps.guestTeamId
+  ) {
+    setPrevProps({ isOpen, matchId, teamId, guestTeamId });
+    if (isOpen) {
+      setActiveTeamId(teamId);
+      setSelectedLineupId(null);
+    }
+  }
+
+  // Manage native dialog showModal and focus restoration strictly bound to modal visibility
   useEffect(() => {
     if (isOpen) {
       previousFocusRef.current = document.activeElement as HTMLElement | null;
@@ -58,6 +93,13 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     };
   }, [isOpen]);
 
+  // Reset auto-switch guard ref when report context props transition while modal is open
+  useEffect(() => {
+    if (isOpen) {
+      hasAttemptedAutoSwitchRef.current = false;
+    }
+  }, [isOpen, matchId, teamId, guestTeamId]);
+
   // Event handler for selecting a player row
   const handleSelectPlayer = (lineupId: string) => {
     setSelectedLineupId(lineupId);
@@ -71,31 +113,73 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     setPlayerReport(null);
   };
 
-  // Fetch Team Summary when modal opens
+  // Helper to check if summary report contains any recorded TTA actions
+  const hasTrackedActions = (reports: TeamMatchSummaryReportResponse[]) =>
+    reports.some(
+      (r) =>
+        (r.totalPositiveActions ?? 0) > 0 ||
+        (r.totalNegativeActions ?? 0) > 0 ||
+        (r.goals ?? 0) > 0 ||
+        (r.positiveGoalLeadingActions ?? 0) > 0 ||
+        (r.negativeGoalLeadingActions ?? 0) > 0,
+    );
+
+  // Fetch Team Summary when modal opens, active team changes, or same team is re-selected
   useEffect(() => {
-    if (!isOpen || !matchId || !teamId) return;
+    if (!isOpen || !matchId || !activeTeamId) return;
 
     let isMounted = true;
+    const currentRequestId = ++requestIdRef.current;
 
     const fetchSummaryReport = async () => {
       await Promise.resolve();
-      if (!isMounted) return;
+      if (!isMounted || currentRequestId !== requestIdRef.current) return;
 
       setIsSummaryLoading(true);
       setSummaryError(null);
 
       try {
-        const data = await reportService.getTeamSummaryReport(matchId, teamId);
-        if (isMounted) {
-          setSummaryReports(data);
+        const data = await reportService.getTeamSummaryReport(
+          matchId,
+          activeTeamId,
+        );
+        if (!isMounted || currentRequestId !== requestIdRef.current) return;
+
+        setSummaryReports(data);
+
+        // Smart auto-select guest team if home team has 0 actions and guest team has recorded actions
+        if (
+          !hasAttemptedAutoSwitchRef.current &&
+          activeTeamId === teamId &&
+          guestTeamId &&
+          !hasTrackedActions(data)
+        ) {
+          hasAttemptedAutoSwitchRef.current = true;
+          try {
+            const guestData = await reportService.getTeamSummaryReport(
+              matchId,
+              guestTeamId,
+            );
+            if (
+              isMounted &&
+              currentRequestId === requestIdRef.current &&
+              hasTrackedActions(guestData)
+            ) {
+              setActiveTeamId(guestTeamId);
+              setSummaryReports(guestData);
+              return;
+            }
+          } catch {
+            // Keep primary team data if guest fetch fails
+          }
         }
       } catch (err) {
-        if (isMounted) {
+        if (isMounted && currentRequestId === requestIdRef.current) {
           console.error("Failed to load team summary report:", err);
           setSummaryError("Failed to load match summary report.");
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && currentRequestId === requestIdRef.current) {
           setIsSummaryLoading(false);
         }
       }
@@ -106,7 +190,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, matchId, teamId]);
+  }, [isOpen, matchId, activeTeamId, teamId, guestTeamId, fetchGeneration]);
 
   // Fetch Player Detailed Report when a lineup is selected
   useEffect(() => {
@@ -163,22 +247,68 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-2 sm:p-4 w-full h-full max-w-none max-h-none border-none m-0"
     >
       <div className="w-full max-w-sm sm:max-w-md bg-gray-900 border border-gray-800 text-white rounded-2xl shadow-2xl p-3 sm:p-4 flex flex-col space-y-3 max-h-[94vh] overflow-hidden">
-        <header className="border-b border-gray-800 pb-2 flex items-center justify-between">
-          <h3
-            id="report-modal-title"
-            className="text-xs sm:text-sm font-black uppercase text-emerald-400 tracking-wider"
-          >
-            {selectedLineupId
-              ? "Player TTA Detailed Report"
-              : "Team TTA Summary Report"}
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-400 hover:text-white font-bold text-base px-2 py-0.5 rounded"
-          >
-            ✕
-          </button>
+        <header className="border-b border-gray-800 pb-2 flex flex-col space-y-2">
+          <div className="flex items-center justify-between">
+            <h3
+              id="report-modal-title"
+              className="text-xs sm:text-sm font-black uppercase text-emerald-400 tracking-wider"
+            >
+              {selectedLineupId
+                ? "Player TTA Detailed Report"
+                : "Team TTA Summary Report"}
+            </h3>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-gray-400 hover:text-white font-bold text-base px-2 py-0.5 rounded"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Team Switcher Tabs */}
+          {!selectedLineupId && guestTeamId && (
+            <div className="flex bg-gray-950 p-1 rounded-xl border border-gray-800 gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  hasAttemptedAutoSwitchRef.current = true;
+                  setSelectedLineupId(null);
+                  if (activeTeamId !== teamId) {
+                    setActiveTeamId(teamId);
+                  } else {
+                    setFetchGeneration((prev) => prev + 1);
+                  }
+                }}
+                className={`flex-1 py-1.5 px-2 text-[11px] font-bold rounded-lg transition-colors ${
+                  activeTeamId === teamId
+                    ? "bg-indigo-600 text-white"
+                    : "text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                {teamName || "Home Team"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  hasAttemptedAutoSwitchRef.current = true;
+                  setSelectedLineupId(null);
+                  if (activeTeamId !== guestTeamId) {
+                    setActiveTeamId(guestTeamId);
+                  } else {
+                    setFetchGeneration((prev) => prev + 1);
+                  }
+                }}
+                className={`flex-1 py-1.5 px-2 text-[11px] font-bold rounded-lg transition-colors ${
+                  activeTeamId === guestTeamId
+                    ? "bg-emerald-600 text-white"
+                    : "text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                {guestTeamName || "Guest Team"}
+              </button>
+            </div>
+          )}
         </header>
 
         {summaryError && (
