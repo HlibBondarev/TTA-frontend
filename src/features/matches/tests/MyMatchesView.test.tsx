@@ -56,6 +56,7 @@ describe("MyMatchesView Component", () => {
       homeScore: 8,
       guestScore: 6,
       createdAt: "2026-08-25T14:00:00.000Z",
+      trackedTeamId: "guest-team-2", // Tracked team is guest team instead of home team
     },
   ];
 
@@ -115,7 +116,7 @@ describe("MyMatchesView Component", () => {
     expect(screen.queryByText("No tracked matches found.")).toBeNull();
   });
 
-  it("should handle uncatch/delete action and update list", async () => {
+  it("should handle uncatch/delete action using trackedTeamId and update list", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
@@ -136,13 +137,13 @@ describe("MyMatchesView Component", () => {
     await waitFor(() => {
       expect(userMatchService.uncatchMatch).toHaveBeenCalledWith(
         "match-101",
-        "home-team-1",
+        "guest-team-2", // Uses trackedTeamId instead of homeTeamId
       );
       expect(screen.queryByText("Dolphins")).toBeNull();
     });
   });
 
-  it("should open share modal and submit target email", async () => {
+  it("should open share modal and submit target email using trackedTeamId", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
@@ -172,13 +173,13 @@ describe("MyMatchesView Component", () => {
     await waitFor(() => {
       expect(userMatchService.addUserToTrackedMatch).toHaveBeenCalledWith(
         "match-101",
-        "home-team-1",
+        "guest-team-2", // Uses trackedTeamId instead of homeTeamId
         "assistant@tta.com",
       );
     });
   });
 
-  it("should open MatchReportModal with teamId and guestTeamId when clicking View Report button", async () => {
+  it("should open MatchReportModal with tracked teamId and correct guestTeamId when clicking View Report button", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
@@ -198,7 +199,7 @@ describe("MyMatchesView Component", () => {
     const reportModal = await screen.findByTestId("report-modal");
     expect(reportModal).toBeDefined();
     expect(reportModal).toHaveTextContent(
-      "Mock Report Modal (team: home-team-1, guest: guest-team-2)",
+      "Mock Report Modal (team: guest-team-2, guest: home-team-1)",
     );
   });
 
