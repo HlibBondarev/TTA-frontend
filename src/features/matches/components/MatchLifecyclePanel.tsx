@@ -146,14 +146,24 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
       <div className="grid grid-cols-2 gap-1 mb-2">
         {!isPeriodEnded ? (
           <>
-            <button
-              type="button"
-              onClick={() => handleStartPeriod()}
-              disabled={isPeriodActive || isConfigDisabled}
-              className="py-1 min-h-11 bg-emerald-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
-            >
-              START PERIOD
-            </button>
+            <div className="col-span-1 flex gap-1">
+              <button
+                type="button"
+                onClick={() => handleStartPeriod()}
+                disabled={isPeriodActive || isConfigDisabled}
+                className="flex-1 py-1 min-h-11 bg-emerald-700 hover:bg-emerald-600 rounded text-[10px] font-bold uppercase disabled:opacity-30"
+              >
+                START PERIOD
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsResultModalOpen(true)}
+                disabled={isConfigDisabled}
+                className="px-2 py-1 min-h-11 bg-emerald-900 hover:bg-emerald-800 text-emerald-200 border border-emerald-700/60 rounded text-[9px] font-extrabold uppercase disabled:opacity-30"
+              >
+                FINALIZE
+              </button>
+            </div>
             <button
               type="button"
               onClick={handleEndPeriod}
