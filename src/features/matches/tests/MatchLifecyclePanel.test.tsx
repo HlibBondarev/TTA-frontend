@@ -963,7 +963,10 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog")).toBeInTheDocument();
       expect(screen.getByText("Match Result Finalization")).toBeInTheDocument();
-      expect(screen.getByRole("note")).toBeInTheDocument();
+
+      const noteElement = screen.getByRole("note");
+      expect(noteElement).toBeInTheDocument();
+      expect(noteElement).toHaveTextContent(/active period/i);
     });
   });
 });
