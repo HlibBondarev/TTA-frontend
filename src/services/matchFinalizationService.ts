@@ -23,7 +23,13 @@ const autoCloseOpenPeriodAndPresences = async (
 
   await db.transaction(
     "rw",
-    [db.timeanchors, db.playerpresences, db.matchlineups, db.syncQueue],
+    [
+      db.timeanchors,
+      db.playerpresences,
+      db.matchlineups,
+      db.syncQueue,
+      db.gameevents, // Included gameevents to grant read permission for getNextSequenceNumber()
+    ],
     async () => {
       const timestamp = new Date().toISOString();
 
