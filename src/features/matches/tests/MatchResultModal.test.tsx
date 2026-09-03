@@ -323,4 +323,21 @@ describe("MatchResultModal Component", () => {
       "Request timed out or was cancelled. Please check backend sync and retry.",
     );
   });
+
+  test("should display active period warning banner when modal is opened while period is active", () => {
+    const store = createTestStore({
+      isPeriodActive: true,
+      periodNumber: 3,
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={vi.fn()} />
+      </Provider>,
+    );
+
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "Period 3 is currently active. Finalizing will automatically end the active period and close player lineups.",
+    );
+  });
 });

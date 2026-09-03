@@ -893,4 +893,33 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
+
+  test("should render FINALIZE button alongside START PERIOD 2 and open MatchResultModal when clicked", async () => {
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 1,
+        isPeriodActive: false,
+        isInsideStoppage: false,
+        isPeriodEnded: true,
+        globalSequenceNumber: 2,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const finalizeBtn = await screen.findByRole("button", { name: "FINALIZE" });
+    expect(finalizeBtn).toBeInTheDocument();
+
+    fireEvent.click(finalizeBtn);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Match Result Finalization")).toBeInTheDocument();
+  });
 });

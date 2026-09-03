@@ -123,9 +123,17 @@ vi.mock("../../../db/ttaDatabase", () => ({
             })),
         })),
       }),
-      orderBy: vi.fn().mockReturnValue({
-        last: vi.fn().mockResolvedValue(undefined),
-      }),
+      orderBy: vi.fn().mockImplementation((field: string) => ({
+        last: vi.fn().mockImplementation(() => {
+          if (field === "sequenceNumber" && mockTimeAnchors.length > 0) {
+            const sorted = [...mockTimeAnchors].sort(
+              (a, b) => a.sequenceNumber - b.sequenceNumber,
+            );
+            return Promise.resolve(sorted[sorted.length - 1]);
+          }
+          return Promise.resolve(undefined);
+        }),
+      })),
     },
     matchlineups: {
       where: vi.fn().mockReturnValue({
@@ -802,7 +810,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(db.timeanchors.add).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 1,
-        sequenceNumber: 1,
+        sequenceNumber: 2,
       }),
     );
     expect(db.syncQueue.add).toHaveBeenCalledWith(
@@ -1931,5 +1939,29 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     );
 
     consoleSpy.mockRestore();
+  });
+
+  test("should auto-close active period and stoppage seamlessly when autoCloseActivePeriod is called", async () => {
+    const store = createTestStore({
+      isPeriodActive: true,
+      isInsideStoppage: true,
+    });
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
+    let endAnchorId: string | undefined;
+    await act(async () => {
+      endAnchorId = await result.current.autoCloseActivePeriod();
+    });
+
+    expect(endAnchorId).toBeDefined();
+    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.isPeriodEnded).toBe(true);
   });
 });

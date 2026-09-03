@@ -58,10 +58,7 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
     let anchorId: string | null | undefined = null;
 
     try {
-      // Step 1: Log time anchor first to ensure atomic coordination
       anchorId = await startPeriod(targetPeriod);
-
-      // Step 2: Initialize roster presence transaction for the TARGET period explicitly
       await startPeriodWithRoster(new Date().toISOString(), effectivePeriod);
     } catch (err) {
       console.error(err);
@@ -88,14 +85,11 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
     setPanelError(null);
     let anchorId: string | null | undefined = null;
     try {
-      // Step 1: Log time anchor first and receive final-period status
       const endResult = await endPeriod();
       anchorId = endResult?.anchorId;
 
-      // Step 2: Terminate roster presence transaction for current period
       await endPeriodWithRoster(new Date().toISOString(), periodNumber);
 
-      // Step 3: Open result modal ONLY after successful roster termination on final period
       if (endResult?.isFinal) {
         setIsResultModalOpen(true);
       }
@@ -172,14 +166,24 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
         ) : (
           <>
             {!hasReachedMaxPeriods ? (
-              <button
-                type="button"
-                onClick={() => handleStartPeriod(periodNumber + 1)}
-                disabled={isConfigDisabled}
-                className="py-1 min-h-11 bg-emerald-700 hover:bg-emerald-600 rounded text-[10px] font-bold uppercase disabled:opacity-30"
-              >
-                START PERIOD {periodNumber + 1}
-              </button>
+              <div className="col-span-1 flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleStartPeriod(periodNumber + 1)}
+                  disabled={isConfigDisabled}
+                  className="flex-1 py-1 min-h-11 bg-emerald-700 hover:bg-emerald-600 rounded text-[10px] font-bold uppercase disabled:opacity-30"
+                >
+                  START PERIOD {periodNumber + 1}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsResultModalOpen(true)}
+                  disabled={isConfigDisabled}
+                  className="px-2 py-1 min-h-11 bg-emerald-900 hover:bg-emerald-800 text-emerald-200 border border-emerald-700/60 rounded text-[9px] font-extrabold uppercase disabled:opacity-30"
+                >
+                  FINALIZE
+                </button>
+              </div>
             ) : (
               <button
                 type="button"

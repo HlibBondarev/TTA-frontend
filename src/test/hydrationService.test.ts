@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { hydrateMatchData } from "../services/hydrationService";
+import {
+  hydrateMatchData,
+  checkUnfinishedMatch,
+} from "../services/hydrationService";
 import { apiClient } from "../api/client";
 import { sportService } from "../services/sportService";
 import { db } from "../db/ttaDatabase";
@@ -24,7 +27,7 @@ vi.mock("../db/seed", () => ({
 vi.mock("../db/ttaDatabase", () => ({
   db: {
     transaction: vi.fn(),
-    matches: { put: vi.fn() },
+    matches: { put: vi.fn(), toArray: vi.fn().mockResolvedValue([]) },
     tournaments: { put: vi.fn() },
     sportconfigurations: { put: vi.fn() },
     matchlineups: { where: vi.fn(), bulkPut: vi.fn() },
@@ -41,6 +44,19 @@ describe("Hydration Service", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("should return null for checkUnfinishedMatch when IndexedDB matches table is empty", async () => {
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([]);
+    const unfinished = await checkUnfinishedMatch();
+    expect(unfinished).toBeNull();
+  });
+
+  it("should return the first match for checkUnfinishedMatch when IndexedDB contains a match draft", async () => {
+    const mockMatch = { id: "m-active", tournamentId: "t-1" };
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([mockMatch as never]);
+    const unfinished = await checkUnfinishedMatch();
+    expect(unfinished).toEqual(mockMatch);
   });
 
   it("successfully fetches server data with team-specific lineup endpoint and writes to IndexedDB", async () => {
@@ -264,7 +280,7 @@ describe("Hydration Service", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce({ id: tournamentId }); // missing sportId & configurationId
+      .mockResolvedValueOnce({ id: tournamentId });
 
     await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
       "Hydration Metadata Error: Tournament 'tourn-incomplete' is missing sportId or configurationId.",

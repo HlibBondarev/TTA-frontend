@@ -92,9 +92,6 @@ const syncEvents = async (
   }
 };
 
-/**
- * Fetches and validates tournament and sport configuration metadata for a given tournamentId.
- */
 const fetchTournamentMetadata = async (
   tournamentId: string,
 ): Promise<{
@@ -150,6 +147,15 @@ const fetchTournamentMetadata = async (
   }
 
   return { tournament, sportConfig };
+};
+
+/**
+ * Checks IndexedDB for an unfinished active match draft for session recovery gate.
+ */
+export const checkUnfinishedMatch = async (): Promise<MatchLookup | null> => {
+  if (!db?.matches) return null;
+  const matches = await db.matches.toArray();
+  return matches.length > 0 ? matches[0] : null;
 };
 
 export const hydrateMatchData = async (
