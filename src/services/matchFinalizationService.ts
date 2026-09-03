@@ -35,8 +35,7 @@ const autoCloseOpenPeriodAndPresences = async (
     return a.timestamp.localeCompare(b.timestamp);
   });
 
-  const lastAnchor =
-    sortedAnchors.length > 0 ? sortedAnchors[sortedAnchors.length - 1] : null;
+  const lastAnchor = sortedAnchors.at(-1) ?? null;
 
   const isPeriodActive =
     lastAnchor !== null && (lastAnchor.type === 0 || lastAnchor.type === 2);
