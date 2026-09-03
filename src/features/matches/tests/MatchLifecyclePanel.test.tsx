@@ -917,9 +917,16 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     const finalizeBtn = await screen.findByRole("button", { name: "FINALIZE" });
     expect(finalizeBtn).toBeInTheDocument();
 
+    // Ensure async configuration resolution completes in CI prior to clicking
+    await waitFor(() => {
+      expect(finalizeBtn).not.toBeDisabled();
+    });
+
     fireEvent.click(finalizeBtn);
 
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText("Match Result Finalization")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText("Match Result Finalization")).toBeInTheDocument();
+    });
   });
 });
