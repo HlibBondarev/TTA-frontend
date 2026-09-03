@@ -286,4 +286,78 @@ describe("matchFinalizationService", () => {
     expect(userMatchService.catchMatch).not.toHaveBeenCalled();
     expect(db.gameevents.clear).not.toHaveBeenCalled();
   });
+
+  it("should auto-close active period when latest anchor is StoppageEnd (type 3)", async () => {
+    const matchId = "match-resumed-stoppage";
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([
+          {
+            id: "start-anchor-1",
+            matchId,
+            periodNumber: 1,
+            type: 0, // PeriodStart
+            sequenceNumber: 1,
+            timestamp: "2026-09-03T10:00:00.000Z",
+          },
+          {
+            id: "stoppage-start-1",
+            matchId,
+            periodNumber: 1,
+            type: 2, // StoppageStart
+            sequenceNumber: 2,
+            timestamp: "2026-09-03T10:05:00.000Z",
+          },
+          {
+            id: "stoppage-end-1",
+            matchId,
+            periodNumber: 1,
+            type: 3, // StoppageEnd
+            sequenceNumber: 3,
+            timestamp: "2026-09-03T10:06:00.000Z",
+          },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ id: "lineup-1" }]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.playerpresences.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        filter: vi.fn().mockReturnValueOnce({
+          toArray: vi
+            .fn()
+            .mockResolvedValueOnce([
+              { id: "presence-1", matchLineupId: "lineup-1", timeOut: null },
+            ]),
+        }),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    await matchFinalizationService.finalizeMatch({
+      matchId,
+      activeTeamId: "team-456",
+      homeScore: 10,
+      guestScore: 8,
+      temperature: 25,
+    });
+
+    expect(db.timeanchors.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        matchId,
+        periodNumber: 1,
+        type: 1, // PeriodEnd
+      }),
+    );
+    expect(db.playerpresences.update).toHaveBeenCalledWith(
+      "presence-1",
+      expect.objectContaining({
+        timeOut: expect.any(String),
+      }),
+    );
+  });
 });

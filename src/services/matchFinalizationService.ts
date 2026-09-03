@@ -38,7 +38,8 @@ const autoCloseOpenPeriodAndPresences = async (
   const lastAnchor = sortedAnchors.at(-1) ?? null;
 
   const isPeriodActive =
-    lastAnchor !== null && (lastAnchor.type === 0 || lastAnchor.type === 2);
+    lastAnchor !== null &&
+    (lastAnchor.type === 0 || lastAnchor.type === 2 || lastAnchor.type === 3);
 
   if (isPeriodActive) {
     const periodNumber = lastAnchor.periodNumber;
