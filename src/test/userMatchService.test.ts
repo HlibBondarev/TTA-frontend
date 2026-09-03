@@ -15,7 +15,7 @@ describe("userMatchService", () => {
     vi.clearAllMocks();
   });
 
-  it("getCatchedMatches should invoke GET /api/Matches/catch", async () => {
+  it("getCatchedMatches should invoke GET /api/Matches/catch and include trackedTeamId", async () => {
     const mockMatches = [
       {
         id: "match-1",
@@ -32,6 +32,7 @@ describe("userMatchService", () => {
         homeScore: 10,
         guestScore: 8,
         createdAt: "2026-08-25T09:00:00.000Z",
+        trackedTeamId: "team-2",
       },
     ];
 
@@ -41,6 +42,7 @@ describe("userMatchService", () => {
 
     expect(apiClient.get).toHaveBeenCalledWith("/Matches/catch");
     expect(result).toEqual(mockMatches);
+    expect(result[0].trackedTeamId).toBe("team-2");
   });
 
   it("catchMatch should invoke POST /api/Matches/{matchId}/teams/{teamId}/catch", async () => {

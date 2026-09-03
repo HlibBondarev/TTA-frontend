@@ -88,7 +88,7 @@ export const MyMatchesView: React.FC = () => {
       setShareSuccess(null);
       await userMatchService.addUserToTrackedMatch(
         shareMatchTarget.id,
-        shareMatchTarget.homeTeamId,
+        shareMatchTarget.trackedTeamId,
         shareEmail.trim(),
       );
       setShareSuccess(`Match successfully shared with ${shareEmail}`);
@@ -145,74 +145,100 @@ export const MyMatchesView: React.FC = () => {
 
     return (
       <div className="space-y-3 flex-1 overflow-y-auto pr-0.5">
-        {matches.map((match) => (
-          <div
-            key={match.id}
-            className="p-3 bg-gray-900 border border-gray-800 rounded-xl space-y-2.5 shadow-md"
-          >
-            {/* Date & Score Header */}
-            <div className="flex justify-between items-center text-[11px] text-gray-400 border-b border-gray-800/60 pb-1.5">
-              <span>{formatDate(match.scheduledAt)}</span>
-              <span className="font-mono font-bold text-xs text-emerald-400">
-                {match.homeScore ?? 0} : {match.guestScore ?? 0}
-              </span>
-            </div>
+        {matches.map((match) => {
+          const isTrackedHome = match.trackedTeamId === match.homeTeamId;
+          const trackedTeamName = isTrackedHome
+            ? match.homeTeamName
+            : match.guestTeamName;
+          const opposingTeamName = isTrackedHome
+            ? match.guestTeamName
+            : match.homeTeamName;
 
-            {/* Teams Display */}
-            <div className="grid grid-cols-2 gap-2 text-xs font-bold text-center">
-              <div className="p-1.5 bg-black/30 rounded border border-gray-800 truncate text-indigo-300">
-                <span className="text-[9px] uppercase text-gray-500 block font-normal">
-                  Home
+          return (
+            <div
+              key={match.id}
+              className="p-3 bg-gray-900 border border-gray-800 rounded-xl space-y-2.5 shadow-md"
+            >
+              {/* Date & Score Header */}
+              <div className="flex justify-between items-center text-[11px] text-gray-400 border-b border-gray-800/60 pb-1.5">
+                <span>{formatDate(match.scheduledAt)}</span>
+                <span className="font-mono font-bold text-xs text-emerald-400">
+                  {match.homeScore ?? 0} : {match.guestScore ?? 0}
                 </span>
-                {match.homeTeamName}
               </div>
-              <div className="p-1.5 bg-black/30 rounded border border-gray-800 truncate text-emerald-300">
-                <span className="text-[9px] uppercase text-gray-500 block font-normal">
-                  Guest
-                </span>
-                {match.guestTeamName}
-              </div>
-            </div>
 
-            {/* Action Buttons */}
-            <div className="flex items-center gap-1.5 pt-1">
-              <button
-                type="button"
-                onClick={() =>
-                  setActiveReportContext({
-                    matchId: match.id,
-                    teamId: match.homeTeamId,
-                    teamName: match.homeTeamName,
-                    guestTeamId: match.guestTeamId,
-                    guestTeamName: match.guestTeamName,
-                  })
-                }
-                className="flex-1 py-1.5 bg-emerald-700/80 hover:bg-emerald-600 text-white font-bold text-[11px] rounded transition-colors"
-              >
-                View Report
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShareMatchTarget(match);
-                  setShareEmail("");
-                  setShareError(null);
-                  setShareSuccess(null);
-                }}
-                className="px-2.5 py-1.5 bg-indigo-950 hover:bg-indigo-900 text-indigo-200 border border-indigo-700/60 font-semibold text-[11px] rounded transition-colors"
-              >
-                Share
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleUncatch(match.id, match.homeTeamId)}
-                className="px-2.5 py-1.5 bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800/80 font-semibold text-[11px] rounded transition-colors"
-              >
-                Delete
-              </button>
+              {/* Teams Display with Tracked Context Highlight */}
+              <div className="grid grid-cols-2 gap-2 text-xs font-bold text-center">
+                <div
+                  className={`p-1.5 bg-black/30 rounded border truncate ${
+                    isTrackedHome
+                      ? "border-emerald-500 text-emerald-300 ring-1 ring-emerald-500/30"
+                      : "border-gray-800 text-indigo-300"
+                  }`}
+                >
+                  <span className="text-[9px] uppercase text-gray-500 block font-normal">
+                    Home {isTrackedHome && "(Tracked)"}
+                  </span>
+                  {match.homeTeamName}
+                </div>
+                <div
+                  className={`p-1.5 bg-black/30 rounded border truncate ${
+                    !isTrackedHome
+                      ? "border-emerald-500 text-emerald-300 ring-1 ring-emerald-500/30"
+                      : "border-gray-800 text-emerald-300"
+                  }`}
+                >
+                  <span className="text-[9px] uppercase text-gray-500 block font-normal">
+                    Guest {!isTrackedHome && "(Tracked)"}
+                  </span>
+                  {match.guestTeamName}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveReportContext({
+                      matchId: match.id,
+                      teamId: match.trackedTeamId,
+                      teamName: trackedTeamName,
+                      guestTeamId: isTrackedHome
+                        ? match.guestTeamId
+                        : match.homeTeamId,
+                      guestTeamName: opposingTeamName,
+                    })
+                  }
+                  className="flex-1 py-1.5 bg-emerald-700/80 hover:bg-emerald-600 text-white font-bold text-[11px] rounded transition-colors"
+                >
+                  View Report
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShareMatchTarget(match);
+                    setShareEmail("");
+                    setShareError(null);
+                    setShareSuccess(null);
+                  }}
+                  className="px-2.5 py-1.5 bg-indigo-950 hover:bg-indigo-900 text-indigo-200 border border-indigo-700/60 font-semibold text-[11px] rounded transition-colors"
+                >
+                  Share
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void handleUncatch(match.id, match.trackedTeamId)
+                  }
+                  className="px-2.5 py-1.5 bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800/80 font-semibold text-[11px] rounded transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   };

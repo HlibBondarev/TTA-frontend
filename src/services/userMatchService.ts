@@ -15,6 +15,7 @@ export interface MatchWithDetailsResponse {
   homeScore: number | null;
   guestScore: number | null;
   createdAt: string;
+  trackedTeamId: string;
 }
 
 export interface AddUserToTrackedMatchRequest {

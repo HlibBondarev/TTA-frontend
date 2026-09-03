@@ -56,6 +56,7 @@ describe("MyMatchesView Component", () => {
       homeScore: 8,
       guestScore: 6,
       createdAt: "2026-08-25T14:00:00.000Z",
+      trackedTeamId: "guest-team-2",
     },
   ];
 
@@ -115,7 +116,7 @@ describe("MyMatchesView Component", () => {
     expect(screen.queryByText("No tracked matches found.")).toBeNull();
   });
 
-  it("should handle uncatch/delete action and update list", async () => {
+  it("should handle uncatch/delete action using trackedTeamId and update list", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
@@ -136,13 +137,39 @@ describe("MyMatchesView Component", () => {
     await waitFor(() => {
       expect(userMatchService.uncatchMatch).toHaveBeenCalledWith(
         "match-101",
-        "home-team-1",
+        "guest-team-2",
       );
       expect(screen.queryByText("Dolphins")).toBeNull();
     });
   });
 
-  it("should open share modal and submit target email", async () => {
+  it("should handle uncatch/delete error gracefully when uncatchMatch fails", async () => {
+    vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
+      mockMatches,
+    );
+    vi.mocked(userMatchService.uncatchMatch).mockRejectedValueOnce(
+      new Error("Delete failed"),
+    );
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MyMatchesView />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Dolphins")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /Delete/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeDefined();
+      expect(screen.getByText("Delete failed")).toBeDefined();
+    });
+  });
+
+  it("should open share modal and submit target email using trackedTeamId", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
@@ -172,15 +199,18 @@ describe("MyMatchesView Component", () => {
     await waitFor(() => {
       expect(userMatchService.addUserToTrackedMatch).toHaveBeenCalledWith(
         "match-101",
-        "home-team-1",
+        "guest-team-2",
         "assistant@tta.com",
       );
     });
   });
 
-  it("should open MatchReportModal with teamId and guestTeamId when clicking View Report button", async () => {
+  it("should handle share error gracefully when addUserToTrackedMatch fails", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
+    );
+    vi.mocked(userMatchService.addUserToTrackedMatch).mockRejectedValueOnce(
+      new Error("Share error"),
     );
 
     const store = createTestStore();
@@ -192,6 +222,40 @@ describe("MyMatchesView Component", () => {
     );
 
     expect(await screen.findByText("Dolphins")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /Share/i }));
+
+    const input = screen.getByPlaceholderText("user@example.com");
+    fireEvent.change(input, { target: { value: "assistant@tta.com" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm Share/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Share error")).toBeDefined();
+    });
+  });
+
+  it("should support home team tracked context (isTrackedHome = true) and fallback invalid date formatting", async () => {
+    const homeTrackedMatch = {
+      ...mockMatches[0],
+      trackedTeamId: "home-team-1",
+      scheduledAt: "invalid-date-string",
+    };
+
+    vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce([
+      homeTrackedMatch,
+    ]);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MyMatchesView />
+      </Provider>,
+    );
+
+    // Expect fallback "Invalid Date" rendered by formatDate catch block[cite: 12]
+    expect(await screen.findByText("Invalid Date")).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: /View Report/i }));
 
