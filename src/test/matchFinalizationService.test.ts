@@ -198,6 +198,28 @@ describe("matchFinalizationService", () => {
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
   });
 
+  it("should ABORT finalization if autoCloseOpenPeriodAndPresences transaction fails", async () => {
+    vi.mocked(db.transaction).mockImplementationOnce((() =>
+      Promise.reject(
+        new Error("IndexedDB write failed inside transaction"),
+      )) as unknown as typeof db.transaction);
+
+    const params = {
+      matchId: "match-123",
+      activeTeamId: "team-456",
+      homeScore: 10,
+      guestScore: 8,
+      temperature: 25,
+    };
+
+    await expect(
+      matchFinalizationService.finalizeMatch(params),
+    ).rejects.toThrow("IndexedDB write failed inside transaction");
+
+    expect(processSyncQueue).not.toHaveBeenCalled();
+    expect(apiClient.put).not.toHaveBeenCalled();
+  });
+
   it("should continue finalization sequence if userMatchService.catchMatch throws an idempotent conflict error (409)", async () => {
     vi.mocked(userMatchService.catchMatch).mockRejectedValueOnce(
       new Error("409 Conflict: Catch link already exists"),
