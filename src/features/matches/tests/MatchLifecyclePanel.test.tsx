@@ -259,6 +259,9 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     );
 
     const finalizeBtn = await screen.findByRole("button", { name: "FINALIZE" });
+    const startPeriodBtn = screen.getByRole("button", { name: "START PERIOD" });
+    await waitFor(() => expect(startPeriodBtn).toBeEnabled());
+
     expect(finalizeBtn).toBeInTheDocument();
     expect(finalizeBtn).toBeDisabled();
   });
