@@ -40,7 +40,6 @@ export const App: React.FC = () => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (activeMatchId || isPeriodActive) {
         event.preventDefault();
-        event.returnValue = "";
       }
     };
 

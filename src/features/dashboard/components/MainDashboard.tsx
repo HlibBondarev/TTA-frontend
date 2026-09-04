@@ -83,8 +83,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
 
       {/* Session Recovery Gate Prompt */}
       {unfinishedMatch && (
-        <div
-          role="region"
+        <section
           aria-label="Session Recovery Prompt"
           className="mb-6 p-4 bg-amber-950/40 border border-amber-600/60 rounded-2xl shadow-xl flex flex-col space-y-3"
         >
@@ -121,7 +120,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
               Discard / Dismiss
             </button>
           </div>
-        </div>
+        </section>
       )}
 
       <h2 className="text-sm font-black uppercase text-blue-500 mb-6 text-center tracking-wider">
