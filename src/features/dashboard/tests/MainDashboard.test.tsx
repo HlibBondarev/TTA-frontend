@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { MainDashboard } from "../components/MainDashboard";
 import navigationReducer, {
   type AppCurrentView,
 } from "../../../store/slices/navigationSlice";
+import { checkUnfinishedMatch } from "../../../services/hydrationService";
 
 const mockLogout = vi.fn();
 
@@ -14,6 +15,10 @@ vi.mock("@auth0/auth0-react", () => ({
     user: { email: "coach@tta.com", name: "Coach User" },
     logout: mockLogout,
   }),
+}));
+
+vi.mock("../../../services/hydrationService", () => ({
+  checkUnfinishedMatch: vi.fn().mockResolvedValue(null),
 }));
 
 const createTestStore = () => {
@@ -43,6 +48,105 @@ describe("MainDashboard Component", () => {
     expect(screen.getByText("Quick Start Match")).toBeDefined();
     expect(screen.getByText("My Tracked Matches")).toBeDefined();
     expect(screen.getByText("Tournaments")).toBeDefined();
+  });
+
+  it("should display Session Recovery prompt when an unfinished match is found", async () => {
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-unfinished-123",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+    });
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+    expect(screen.getByText(/Interrupted Match Found/i)).toBeDefined();
+  });
+
+  it("should trigger onResumeMatch callback when clicking Resume Match button", async () => {
+    const onResumeMatchMock = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-unfinished-123",
+      homeTeamId: "team-home-abc",
+      guestTeamId: "team-guest-xyz",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+    });
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    const resumeBtn = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    fireEvent.click(resumeBtn);
+
+    await waitFor(() => {
+      expect(onResumeMatchMock).toHaveBeenCalledWith(
+        "m-unfinished-123",
+        "team-home-abc",
+      );
+    });
+  });
+
+  it("should dismiss Session Recovery prompt when clicking Discard / Dismiss button", async () => {
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-unfinished-123",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+    });
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    const dismissBtn = await screen.findByRole("button", {
+      name: /Discard \/ Dismiss/i,
+    });
+    fireEvent.click(dismissBtn);
+
+    expect(
+      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeNull();
   });
 
   it.each<{ cardText: string; expectedView: AppCurrentView }>([

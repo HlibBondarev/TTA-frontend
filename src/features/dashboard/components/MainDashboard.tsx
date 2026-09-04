@@ -1,11 +1,62 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useDispatch } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 import { setCurrentView } from "../../../store/slices/navigationSlice";
+import { checkUnfinishedMatch } from "../../../services/hydrationService";
+import type { MatchLookup } from "../../../db/ttaDatabase";
 
-export const MainDashboard: React.FC = () => {
+export interface MainDashboardProps {
+  onResumeMatch?: (matchId: string, teamId: string) => Promise<void>;
+}
+
+export const MainDashboard: React.FC<MainDashboardProps> = ({
+  onResumeMatch,
+}) => {
   const dispatch = useDispatch();
   const { user, logout } = useAuth0();
+
+  const [unfinishedMatch, setUnfinishedMatch] = useState<MatchLookup | null>(
+    null,
+  );
+  const [isResuming, setIsResuming] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const checkForInterruptedMatch = async () => {
+      try {
+        const match = await checkUnfinishedMatch();
+        if (isMounted) {
+          setUnfinishedMatch(match);
+        }
+      } catch (err) {
+        console.error("Failed to check unfinished match:", err);
+      }
+    };
+
+    checkForInterruptedMatch();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleResume = async () => {
+    if (!unfinishedMatch || isResuming) return;
+    setIsResuming(true);
+    try {
+      if (onResumeMatch) {
+        await onResumeMatch(
+          unfinishedMatch.id,
+          unfinishedMatch.homeTeamId || "",
+        );
+      }
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
+  const handleDismiss = () => {
+    setUnfinishedMatch(null);
+  };
 
   return (
     <div className="w-full max-w-sm mx-auto flex flex-col flex-1 p-4 bg-gray-950 text-gray-100 overflow-y-auto">
@@ -29,6 +80,49 @@ export const MainDashboard: React.FC = () => {
           Log Out
         </button>
       </header>
+
+      {/* Session Recovery Gate Prompt */}
+      {unfinishedMatch && (
+        <div
+          role="region"
+          aria-label="Session Recovery Prompt"
+          className="mb-6 p-4 bg-amber-950/40 border border-amber-600/60 rounded-2xl shadow-xl flex flex-col space-y-3"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center space-x-1.5">
+              <span>⚠️</span>
+              <span>Interrupted Match Found</span>
+            </span>
+            <span className="text-[10px] text-amber-300/80 font-mono">
+              ID: {unfinishedMatch.id.slice(0, 8)}...
+            </span>
+          </div>
+
+          <p className="text-[11px] text-gray-300 leading-relaxed">
+            An active unfinished match session was detected in local storage.
+            Would you like to resume tracking?
+          </p>
+
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <button
+              type="button"
+              disabled={isResuming}
+              onClick={() => void handleResume()}
+              className="py-2.5 px-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-black uppercase text-[10px] rounded-xl transition-all tracking-wider text-center"
+            >
+              {isResuming ? "Resuming..." : "Resume Match"}
+            </button>
+            <button
+              type="button"
+              disabled={isResuming}
+              onClick={handleDismiss}
+              className="py-2.5 px-3 bg-gray-900 hover:bg-gray-800 disabled:opacity-50 text-gray-300 font-bold uppercase text-[10px] rounded-xl border border-gray-700 transition-all text-center"
+            >
+              Discard / Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       <h2 className="text-sm font-black uppercase text-blue-500 mb-6 text-center tracking-wider">
         TTA Hub Navigation
