@@ -106,28 +106,25 @@ export const App: React.FC = () => {
 
   const handleResumeMatch = async (matchId: string, teamId: string) => {
     try {
-      await hydrateMatchData(matchId, teamId);
+      const { recoveredPeriod, activePlayersLimit } =
+        await getMatchRecoveryState(matchId);
+
+      dispatch(
+        setPresenceLimits({
+          limit: activePlayersLimit,
+          period: recoveredPeriod,
+        }),
+      );
+
+      dispatch(
+        setActiveMatch({
+          matchId,
+          teamId,
+        }),
+      );
     } catch (error) {
-      console.error("Session recovery hydration failed (non-critical):", error);
-      return;
+      console.error("Session recovery failed (non-critical):", error);
     }
-
-    const { recoveredPeriod, activePlayersLimit } =
-      await getMatchRecoveryState(matchId);
-
-    dispatch(
-      setPresenceLimits({
-        limit: activePlayersLimit,
-        period: recoveredPeriod,
-      }),
-    );
-
-    dispatch(
-      setActiveMatch({
-        matchId,
-        teamId,
-      }),
-    );
   };
 
   if (isInitializing || isLoading) {

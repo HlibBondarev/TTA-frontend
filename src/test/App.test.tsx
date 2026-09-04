@@ -274,7 +274,7 @@ describe("App Bootstrapping Component", () => {
     expect(await screen.findByText("TTA Match Recorder")).toBeDefined();
   });
 
-  it("should resume interrupted match session from MainDashboard prompt and set recovered period and presence limits", async () => {
+  it("should resume interrupted match session directly from IndexedDB without calling hydrateMatchData", async () => {
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-interrupted",
       homeTeamId: "team-home-99",
@@ -297,10 +297,7 @@ describe("App Bootstrapping Component", () => {
     fireEvent.click(screen.getByRole("button", { name: /Resume Match/i }));
 
     await waitFor(() => {
-      expect(hydrateMatchData).toHaveBeenCalledWith(
-        "m-interrupted",
-        "team-home-99",
-      );
+      expect(hydrateMatchData).not.toHaveBeenCalled();
       expect(getMatchRecoveryState).toHaveBeenCalledWith("m-interrupted");
       expect(store.getState().presence.currentPeriod).toBe(2);
       expect(store.getState().presence.activePlayersLimit).toBe(5);
@@ -309,7 +306,7 @@ describe("App Bootstrapping Component", () => {
     });
   });
 
-  it("should not set active match or team in Redux if hydration throws an error", async () => {
+  it("should not set active match or team in Redux if hydration throws an error during Quick Start", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -348,14 +345,14 @@ describe("App Bootstrapping Component", () => {
     });
   });
 
-  it("should not set active match or team in Redux if session recovery hydration throws an error", async () => {
+  it("should not set active match or team in Redux if getMatchRecoveryState throws an error during session recovery", async () => {
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-interrupted-failed",
       homeTeamId: "team-home-99",
     } as never);
 
-    vi.mocked(hydrateMatchData).mockRejectedValueOnce(
-      new Error("Hydration failed during recovery"),
+    vi.mocked(getMatchRecoveryState).mockRejectedValueOnce(
+      new Error("IndexedDB recovery error"),
     );
 
     const store = createTestStore({
@@ -375,9 +372,9 @@ describe("App Bootstrapping Component", () => {
     fireEvent.click(screen.getByRole("button", { name: /Resume Match/i }));
 
     await waitFor(() => {
-      expect(hydrateMatchData).toHaveBeenCalledWith(
+      expect(hydrateMatchData).not.toHaveBeenCalled();
+      expect(getMatchRecoveryState).toHaveBeenCalledWith(
         "m-interrupted-failed",
-        "team-home-99",
       );
       expect(store.getState().match.activeMatchId).toBeNull();
       expect(store.getState().match.activeTeamId).toBeNull();
