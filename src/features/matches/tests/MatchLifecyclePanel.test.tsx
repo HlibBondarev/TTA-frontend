@@ -242,6 +242,27 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     expect(screen.getByText("START PERIOD")).toBeDefined();
   });
 
+  test("should disable FINALIZE button before period 1 has started", async () => {
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        periodNumber: 1,
+        isPeriodActive: false,
+        isPeriodEnded: false,
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const finalizeBtn = await screen.findByRole("button", { name: "FINALIZE" });
+    expect(finalizeBtn).toBeInTheDocument();
+    expect(finalizeBtn).toBeDisabled();
+  });
+
   test("should disable END PERIOD button when stoppage is active", async () => {
     const store = createTestStore({
       match: {
@@ -917,7 +938,6 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     const finalizeBtn = await screen.findByRole("button", { name: "FINALIZE" });
     expect(finalizeBtn).toBeInTheDocument();
 
-    // Ensure async configuration resolution completes in CI prior to clicking
     await waitFor(() => {
       expect(finalizeBtn).not.toBeDisabled();
     });
@@ -953,7 +973,6 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     const finalizeBtn = await screen.findByRole("button", { name: "FINALIZE" });
     expect(finalizeBtn).toBeInTheDocument();
 
-    // Ensure async configuration resolution completes prior to clicking
     await waitFor(() => {
       expect(finalizeBtn).not.toBeDisabled();
     });
