@@ -5,7 +5,7 @@ import {
 } from "../services/hydrationService";
 import { apiClient } from "../api/client";
 import { sportService } from "../services/sportService";
-import { db } from "../db/ttaDatabase";
+import { db, type MatchLookup } from "../db/ttaDatabase";
 import { seedTestData } from "../db/seed";
 
 vi.mock("../api/client", () => ({
@@ -52,16 +52,42 @@ describe("Hydration Service", () => {
     expect(unfinished).toBeNull();
   });
 
-  it("should return the first match for checkUnfinishedMatch when IndexedDB contains a match draft", async () => {
-    const mockMatch = {
-      id: "m-active",
+  it("should return the first match for checkUnfinishedMatch when IndexedDB contains multiple match drafts", async () => {
+    const firstDraft: MatchLookup = {
+      id: "m-active-1",
       tournamentId: "t-1",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      scheduledAt: "2026-09-01T10:00:00Z",
+      matchNumber: "1",
+      venue: "Arena 1",
+      temperature: 22,
       homeScore: null,
       guestScore: null,
+      createdAt: "2026-09-01T10:00:00Z",
     };
-    vi.mocked(db.matches.toArray).mockResolvedValueOnce([mockMatch as never]);
+
+    const secondDraft: MatchLookup = {
+      id: "m-active-2",
+      tournamentId: "t-1",
+      homeTeamId: "team-3",
+      guestTeamId: "team-4",
+      scheduledAt: "2026-09-01T12:00:00Z",
+      matchNumber: "2",
+      venue: "Arena 2",
+      temperature: 24,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "2026-09-01T10:30:00Z",
+    };
+
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([
+      firstDraft,
+      secondDraft,
+    ]);
+
     const unfinished = await checkUnfinishedMatch();
-    expect(unfinished).toEqual(mockMatch);
+    expect(unfinished).toEqual(firstDraft);
   });
 
   it("successfully fetches server data with team-specific lineup endpoint and writes to IndexedDB", async () => {
