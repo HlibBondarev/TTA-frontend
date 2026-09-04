@@ -123,9 +123,17 @@ vi.mock("../../../db/ttaDatabase", () => ({
             })),
         })),
       }),
-      orderBy: vi.fn().mockReturnValue({
-        last: vi.fn().mockResolvedValue(undefined),
-      }),
+      orderBy: vi.fn().mockImplementation((field: string) => ({
+        last: vi.fn().mockImplementation(() => {
+          if (field === "sequenceNumber" && mockTimeAnchors.length > 0) {
+            const sorted = [...mockTimeAnchors].sort(
+              (a, b) => a.sequenceNumber - b.sequenceNumber,
+            );
+            return Promise.resolve(sorted[sorted.length - 1]);
+          }
+          return Promise.resolve(undefined);
+        }),
+      })),
     },
     matchlineups: {
       where: vi.fn().mockReturnValue({
@@ -802,7 +810,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(db.timeanchors.add).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 1,
-        sequenceNumber: 1,
+        sequenceNumber: 2,
       }),
     );
     expect(db.syncQueue.add).toHaveBeenCalledWith(
@@ -1931,5 +1939,100 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     );
 
     consoleSpy.mockRestore();
+  });
+
+  test("should auto-close active period and stoppage seamlessly when autoCloseActivePeriod is called", async () => {
+    const store = createTestStore({
+      isPeriodActive: true,
+      isInsideStoppage: true,
+    });
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
+    let endAnchorId: string | undefined;
+    await act(async () => {
+      endAnchorId = await result.current.autoCloseActivePeriod();
+    });
+
+    expect(endAnchorId).toBeDefined();
+    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.isPeriodEnded).toBe(true);
+  });
+
+  test("should correctly track and increment globalSequenceNumber during chained autoCloseActivePeriod when inside stoppage", async () => {
+    const initialSeq = 5;
+    const store = createTestStore({
+      isPeriodActive: true,
+      isInsideStoppage: true,
+      globalSequenceNumber: initialSeq,
+    });
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
+    let endAnchorId: string | undefined;
+    await act(async () => {
+      endAnchorId = await result.current.autoCloseActivePeriod();
+    });
+
+    expect(endAnchorId).toBeDefined();
+    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.isInsideStoppage).toBe(false);
+    expect(store.getState().match.isPeriodEnded).toBe(true);
+    // Sequence should increment twice: +1 for startTime (StoppageEnd) and +1 for endPeriod (PeriodEnd)
+    expect(store.getState().match.globalSequenceNumber).toBe(initialSeq + 2);
+  });
+
+  test("should preserve post-stoppage-end globalSequenceNumber if endPeriod fails during autoCloseActivePeriod", async () => {
+    let callCount = 0;
+    // Fail only on second transaction call (endPeriod)
+    vi.mocked(db.transaction).mockImplementation(((...args: unknown[]) => {
+      callCount++;
+      if (callCount === 2) {
+        return Promise.reject(
+          new Error("IndexedDB failure on PeriodEnd anchor"),
+        );
+      }
+      const cb = args[args.length - 1];
+      return typeof cb === "function" ? cb() : Promise.resolve();
+    }) as unknown as typeof db.transaction);
+
+    const initialSeq = 10;
+    const store = createTestStore({
+      isPeriodActive: true,
+      isInsideStoppage: true,
+      globalSequenceNumber: initialSeq,
+    });
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.autoCloseActivePeriod();
+      }),
+    ).rejects.toThrow("IndexedDB failure on PeriodEnd anchor");
+
+    // startTime succeeded (isInsideStoppage: false, sequence: initialSeq + 1)
+    // endPeriod failed and rolled back sequence to post-startTime state (initialSeq + 1)
+    expect(store.getState().match.isInsideStoppage).toBe(false);
+    expect(store.getState().match.isPeriodActive).toBe(true);
+    expect(store.getState().match.globalSequenceNumber).toBe(initialSeq + 1);
   });
 });

@@ -18,9 +18,14 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
 }) => {
   const dispatch = useAppDispatch();
 
-  const { activeMatchId, activeTeamId, homeScore, guestScore } = useAppSelector(
-    (state) => state.match,
-  );
+  const {
+    activeMatchId,
+    activeTeamId,
+    homeScore,
+    guestScore,
+    isPeriodActive,
+    periodNumber,
+  } = useAppSelector((state) => state.match);
 
   const [homeScoreInput, setHomeScoreInput] = useState<string>("0");
   const [guestScoreInput, setGuestScoreInput] = useState<string>("0");
@@ -29,14 +34,12 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // States for post-finalization report modal
   const [completedMatchContext, setCompletedMatchContext] = useState<{
     matchId: string;
     teamId: string;
   } | null>(null);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
 
-  // Synchronize inputs with Redux scores during render when modal transitions to open
   const [prevIsOpen, setPrevIsOpen] = useState(false);
   if (isOpen !== prevIsOpen) {
     setPrevIsOpen(isOpen);
@@ -51,7 +54,6 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
 
   if (!isOpen && !isReportOpen) return null;
 
-  // Validation Rules
   const isValidHomeScore =
     homeScoreInput.trim() !== "" &&
     /^\d+$/.test(homeScoreInput.trim()) &&
@@ -115,13 +117,11 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
         temperature: parsedTemperature,
       });
 
-      // Save match identifiers BEFORE resetting Redux state
       setCompletedMatchContext({
         matchId: currentMatchId,
         teamId: currentTeamId,
       });
 
-      // Open report view and keep match active in Redux until user explicitly closes report
       setIsReportOpen(true);
     } catch (err) {
       console.error("Failed to finalize match:", err);
@@ -145,7 +145,6 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     setIsReportOpen(false);
     setCompletedMatchContext(null);
 
-    // NOW reset Redux match state and trigger parent onClose/onSuccess navigation
     dispatch(navigateToMyMatches());
     dispatch(resetMatchState());
 
@@ -185,6 +184,16 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
             Confirm scores and weather/pool temperature
           </p>
         </header>
+
+        {isPeriodActive && (
+          <div
+            role="note"
+            className="p-2 text-[10px] bg-amber-900/40 border border-amber-800 text-amber-200 rounded-lg text-center font-medium"
+          >
+            Period {periodNumber} is currently active. Finalizing will
+            automatically end the active period and close player lineups.
+          </div>
+        )}
 
         {errorMessage && (
           <div

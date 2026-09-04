@@ -893,4 +893,80 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
+
+  test("should render FINALIZE button alongside START PERIOD 2 and open MatchResultModal when clicked", async () => {
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 1,
+        isPeriodActive: false,
+        isInsideStoppage: false,
+        isPeriodEnded: true,
+        globalSequenceNumber: 2,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const finalizeBtn = await screen.findByRole("button", { name: "FINALIZE" });
+    expect(finalizeBtn).toBeInTheDocument();
+
+    // Ensure async configuration resolution completes in CI prior to clicking
+    await waitFor(() => {
+      expect(finalizeBtn).not.toBeDisabled();
+    });
+
+    fireEvent.click(finalizeBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText("Match Result Finalization")).toBeInTheDocument();
+    });
+  });
+
+  test("should render FINALIZE button when period is active and open MatchResultModal when clicked", async () => {
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 1,
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        isPeriodEnded: false,
+        globalSequenceNumber: 1,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const finalizeBtn = await screen.findByRole("button", { name: "FINALIZE" });
+    expect(finalizeBtn).toBeInTheDocument();
+
+    // Ensure async configuration resolution completes prior to clicking
+    await waitFor(() => {
+      expect(finalizeBtn).not.toBeDisabled();
+    });
+
+    fireEvent.click(finalizeBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText("Match Result Finalization")).toBeInTheDocument();
+
+      const noteElement = screen.getByRole("note");
+      expect(noteElement).toBeInTheDocument();
+      expect(noteElement).toHaveTextContent(/active period/i);
+    });
+  });
 });

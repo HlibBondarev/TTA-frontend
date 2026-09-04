@@ -1,7 +1,8 @@
 import { apiClient } from "../api/client";
-import { db } from "../db/ttaDatabase";
+import { db, type TimeAnchor } from "../db/ttaDatabase";
 import { processSyncQueue } from "./syncService";
 import { userMatchService } from "./userMatchService";
+import { getNextSequenceNumber } from "../db/eventService";
 
 export interface FinalizeMatchParams {
   matchId: string;
@@ -10,6 +11,142 @@ export interface FinalizeMatchParams {
   guestScore: number;
   temperature: number | null;
 }
+
+/**
+ * Auto-closes any currently open period anchors and active player presences in IndexedDB
+ * prior to flushing sync queue during finalization.
+ */
+const autoCloseOpenPeriodAndPresences = async (
+  matchId: string,
+): Promise<void> => {
+  if (!db?.timeanchors || !db?.playerpresences) return;
+
+  await db.transaction(
+    "rw",
+    [
+      db.timeanchors,
+      db.playerpresences,
+      db.matchlineups,
+      db.syncQueue,
+      db.gameevents, // Included gameevents to grant read permission for getNextSequenceNumber()
+    ],
+    async () => {
+      const timestamp = new Date().toISOString();
+
+      const anchors = await db.timeanchors
+        .where("matchId")
+        .equals(matchId)
+        .toArray();
+
+      const sortedAnchors = [...anchors].sort((a, b) => {
+        if (a.sequenceNumber !== b.sequenceNumber) {
+          return a.sequenceNumber - b.sequenceNumber;
+        }
+        return a.timestamp.localeCompare(b.timestamp);
+      });
+
+      const lastAnchor = sortedAnchors.at(-1) ?? null;
+
+      const isPeriodActive =
+        lastAnchor !== null &&
+        (lastAnchor.type === 0 ||
+          lastAnchor.type === 2 ||
+          lastAnchor.type === 3);
+
+      if (isPeriodActive) {
+        const periodNumber = lastAnchor.periodNumber;
+
+        // 1. If currently inside stoppage, close stoppage anchor first
+        if (lastAnchor.type === 2) {
+          const stoppageSeq = await getNextSequenceNumber();
+          const stoppageEndAnchor: TimeAnchor = {
+            id: crypto.randomUUID(),
+            matchId,
+            periodNumber,
+            type: 3, // StoppageEnd
+            timestamp,
+            sequenceNumber: stoppageSeq,
+            isSynced: 0,
+          };
+          await db.timeanchors.add(stoppageEndAnchor);
+          await db.syncQueue.add({
+            actionType: "POST",
+            endpoint: `/Matches/${matchId}/anchors`,
+            payload: JSON.stringify([
+              {
+                id: stoppageEndAnchor.id,
+                periodNumber,
+                type: 3,
+                timestamp,
+              },
+            ]),
+            createdAt: timestamp,
+          });
+        }
+
+        // 2. Add PeriodEnd anchor
+        const periodEndSeq = await getNextSequenceNumber();
+        const periodEndAnchor: TimeAnchor = {
+          id: crypto.randomUUID(),
+          matchId,
+          periodNumber,
+          type: 1, // PeriodEnd
+          timestamp,
+          sequenceNumber: periodEndSeq,
+          isSynced: 0,
+        };
+        await db.timeanchors.add(periodEndAnchor);
+        await db.syncQueue.add({
+          actionType: "POST",
+          endpoint: `/Matches/${matchId}/anchors`,
+          payload: JSON.stringify([
+            {
+              id: periodEndAnchor.id,
+              periodNumber,
+              type: 1,
+              timestamp,
+            },
+          ]),
+          createdAt: timestamp,
+        });
+
+        // 3. Auto-close open player presences for active period
+        const lineups = await db.matchlineups
+          .where("matchId")
+          .equals(matchId)
+          .toArray();
+        const lineupIds = new Set(lineups.map((l) => l.id));
+
+        const activePresences = await db.playerpresences
+          .where("periodNumber")
+          .equals(periodNumber)
+          .filter((p) => p.timeOut === null && lineupIds.has(p.matchLineupId))
+          .toArray();
+
+        if (activePresences.length > 0) {
+          const activeLineupIds = activePresences.map((p) => p.matchLineupId);
+          for (const p of activePresences) {
+            await db.playerpresences.update(p.id, {
+              timeOut: timestamp,
+              isSynced: 0,
+            });
+          }
+
+          await db.syncQueue.add({
+            actionType: "PUT",
+            endpoint: `/Matches/${matchId}/presence/terminate`,
+            payload: JSON.stringify({
+              periodNumber,
+              timeOut: timestamp,
+              playerLineupIds: activeLineupIds,
+            }),
+            createdAt: timestamp,
+          });
+        }
+      }
+    },
+  );
+};
 
 export const matchFinalizationService = {
   /**
@@ -25,6 +162,9 @@ export const matchFinalizationService = {
         "Missing required matchId or activeTeamId for match finalization.",
       );
     }
+
+    // Step 0: Auto-close any active open period or player presence sessions in IndexedDB
+    await autoCloseOpenPeriodAndPresences(matchId);
 
     // Step 1: Flush all pending offline sync queue items to backend
     await processSyncQueue();

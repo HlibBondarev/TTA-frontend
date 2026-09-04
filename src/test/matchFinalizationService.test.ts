@@ -21,13 +21,43 @@ vi.mock("../services/userMatchService", () => ({
   },
 }));
 
+vi.mock("../db/eventService", () => ({
+  getNextSequenceNumber: vi.fn().mockResolvedValue(10),
+}));
+
 vi.mock("../db/ttaDatabase", () => {
   const clearMocks = {
     gameevents: { clear: vi.fn().mockResolvedValue(undefined) },
-    timeanchors: { clear: vi.fn().mockResolvedValue(undefined) },
-    playerpresences: { clear: vi.fn().mockResolvedValue(undefined) },
-    matchlineups: { clear: vi.fn().mockResolvedValue(undefined) },
+    timeanchors: {
+      clear: vi.fn().mockResolvedValue(undefined),
+      add: vi.fn().mockResolvedValue("anchor-id"),
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+    },
+    playerpresences: {
+      clear: vi.fn().mockResolvedValue(undefined),
+      update: vi.fn().mockResolvedValue(1),
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+      }),
+    },
+    matchlineups: {
+      clear: vi.fn().mockResolvedValue(undefined),
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+    },
     syncQueue: {
+      add: vi.fn().mockResolvedValue(1),
       clear: vi.fn().mockResolvedValue(undefined),
       count: vi.fn().mockResolvedValue(0),
     },
@@ -107,6 +137,87 @@ describe("matchFinalizationService", () => {
     expect(db.gameevents.clear).toHaveBeenCalled();
     expect(db.timeanchors.clear).toHaveBeenCalled();
     expect(db.syncQueue.clear).toHaveBeenCalled();
+  });
+
+  it("should auto-close open active period and active presences in IndexedDB prior to syncQueue flush", async () => {
+    const matchId = "match-active-period";
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([
+          {
+            id: "start-anchor-1",
+            matchId,
+            periodNumber: 2,
+            type: 0, // PeriodStart
+            sequenceNumber: 1,
+            timestamp: "2026-09-03T10:00:00.000Z",
+          },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ id: "lineup-1" }]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.playerpresences.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        filter: vi.fn().mockReturnValueOnce({
+          toArray: vi
+            .fn()
+            .mockResolvedValueOnce([
+              { id: "presence-1", matchLineupId: "lineup-1", timeOut: null },
+            ]),
+        }),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    await matchFinalizationService.finalizeMatch({
+      matchId,
+      activeTeamId: "team-456",
+      homeScore: 10,
+      guestScore: 8,
+      temperature: 25,
+    });
+
+    expect(db.timeanchors.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        matchId,
+        periodNumber: 2,
+        type: 1, // PeriodEnd
+      }),
+    );
+    expect(db.playerpresences.update).toHaveBeenCalledWith(
+      "presence-1",
+      expect.objectContaining({
+        timeOut: expect.any(String),
+      }),
+    );
+    expect(processSyncQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("should ABORT finalization if autoCloseOpenPeriodAndPresences transaction fails", async () => {
+    vi.mocked(db.transaction).mockImplementationOnce((() =>
+      Promise.reject(
+        new Error("IndexedDB write failed inside transaction"),
+      )) as unknown as typeof db.transaction);
+
+    const params = {
+      matchId: "match-123",
+      activeTeamId: "team-456",
+      homeScore: 10,
+      guestScore: 8,
+      temperature: 25,
+    };
+
+    await expect(
+      matchFinalizationService.finalizeMatch(params),
+    ).rejects.toThrow("IndexedDB write failed inside transaction");
+
+    expect(processSyncQueue).not.toHaveBeenCalled();
+    expect(apiClient.put).not.toHaveBeenCalled();
   });
 
   it("should continue finalization sequence if userMatchService.catchMatch throws an idempotent conflict error (409)", async () => {
@@ -196,5 +307,79 @@ describe("matchFinalizationService", () => {
     expect(apiClient.put).toHaveBeenCalledTimes(1);
     expect(userMatchService.catchMatch).not.toHaveBeenCalled();
     expect(db.gameevents.clear).not.toHaveBeenCalled();
+  });
+
+  it("should auto-close active period when latest anchor is StoppageEnd (type 3)", async () => {
+    const matchId = "match-resumed-stoppage";
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([
+          {
+            id: "start-anchor-1",
+            matchId,
+            periodNumber: 1,
+            type: 0, // PeriodStart
+            sequenceNumber: 1,
+            timestamp: "2026-09-03T10:00:00.000Z",
+          },
+          {
+            id: "stoppage-start-1",
+            matchId,
+            periodNumber: 1,
+            type: 2, // StoppageStart
+            sequenceNumber: 2,
+            timestamp: "2026-09-03T10:05:00.000Z",
+          },
+          {
+            id: "stoppage-end-1",
+            matchId,
+            periodNumber: 1,
+            type: 3, // StoppageEnd
+            sequenceNumber: 3,
+            timestamp: "2026-09-03T10:06:00.000Z",
+          },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ id: "lineup-1" }]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.playerpresences.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        filter: vi.fn().mockReturnValueOnce({
+          toArray: vi
+            .fn()
+            .mockResolvedValueOnce([
+              { id: "presence-1", matchLineupId: "lineup-1", timeOut: null },
+            ]),
+        }),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    await matchFinalizationService.finalizeMatch({
+      matchId,
+      activeTeamId: "team-456",
+      homeScore: 10,
+      guestScore: 8,
+      temperature: 25,
+    });
+
+    expect(db.timeanchors.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        matchId,
+        periodNumber: 1,
+        type: 1, // PeriodEnd
+      }),
+    );
+    expect(db.playerpresences.update).toHaveBeenCalledWith(
+      "presence-1",
+      expect.objectContaining({
+        timeOut: expect.any(String),
+      }),
+    );
   });
 });

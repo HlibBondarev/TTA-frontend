@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { hydrateMatchData } from "../services/hydrationService";
+import {
+  hydrateMatchData,
+  checkUnfinishedMatch,
+} from "../services/hydrationService";
 import { apiClient } from "../api/client";
 import { sportService } from "../services/sportService";
-import { db } from "../db/ttaDatabase";
+import { db, type MatchLookup } from "../db/ttaDatabase";
 import { seedTestData } from "../db/seed";
 
 vi.mock("../api/client", () => ({
@@ -24,7 +27,7 @@ vi.mock("../db/seed", () => ({
 vi.mock("../db/ttaDatabase", () => ({
   db: {
     transaction: vi.fn(),
-    matches: { put: vi.fn() },
+    matches: { put: vi.fn(), toArray: vi.fn().mockResolvedValue([]) },
     tournaments: { put: vi.fn() },
     sportconfigurations: { put: vi.fn() },
     matchlineups: { where: vi.fn(), bulkPut: vi.fn() },
@@ -41,6 +44,50 @@ describe("Hydration Service", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("should return null for checkUnfinishedMatch when IndexedDB matches table is empty", async () => {
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([]);
+    const unfinished = await checkUnfinishedMatch();
+    expect(unfinished).toBeNull();
+  });
+
+  it("should return the first match for checkUnfinishedMatch when IndexedDB contains multiple match drafts", async () => {
+    const firstDraft: MatchLookup = {
+      id: "m-active-1",
+      tournamentId: "t-1",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      scheduledAt: "2026-09-01T10:00:00Z",
+      matchNumber: "1",
+      venue: "Arena 1",
+      temperature: 22,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "2026-09-01T10:00:00Z",
+    };
+
+    const secondDraft: MatchLookup = {
+      id: "m-active-2",
+      tournamentId: "t-1",
+      homeTeamId: "team-3",
+      guestTeamId: "team-4",
+      scheduledAt: "2026-09-01T12:00:00Z",
+      matchNumber: "2",
+      venue: "Arena 2",
+      temperature: 24,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "2026-09-01T10:30:00Z",
+    };
+
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([
+      firstDraft,
+      secondDraft,
+    ]);
+
+    const unfinished = await checkUnfinishedMatch();
+    expect(unfinished).toEqual(firstDraft);
   });
 
   it("successfully fetches server data with team-specific lineup endpoint and writes to IndexedDB", async () => {
@@ -264,7 +311,7 @@ describe("Hydration Service", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce({ id: tournamentId }); // missing sportId & configurationId
+      .mockResolvedValueOnce({ id: tournamentId });
 
     await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
       "Hydration Metadata Error: Tournament 'tourn-incomplete' is missing sportId or configurationId.",
@@ -507,5 +554,37 @@ describe("Hydration Service", () => {
 
     expect(result).toEqual({ success: true, isOfflineFallback: true });
     expect(seedTestData).toHaveBeenCalledTimes(1);
+  });
+
+  it("should skip finished matches and return the first unfinished match when IndexedDB contains multiple match rows", async () => {
+    const completedMatch = { id: "m-completed", homeScore: 10, guestScore: 8 };
+    const activeMatch = { id: "m-active", homeScore: null, guestScore: null };
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([
+      completedMatch as never,
+      activeMatch as never,
+    ]);
+
+    const unfinished = await checkUnfinishedMatch();
+    expect(unfinished).toEqual(activeMatch);
+  });
+
+  it("should return null when all matches in IndexedDB are marked as finished", async () => {
+    const completedMatch1 = {
+      id: "m-completed-1",
+      homeScore: 10,
+      guestScore: 8,
+    };
+    const completedMatch2 = {
+      id: "m-completed-2",
+      homeScore: 5,
+      guestScore: 3,
+    };
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([
+      completedMatch1 as never,
+      completedMatch2 as never,
+    ]);
+
+    const unfinished = await checkUnfinishedMatch();
+    expect(unfinished).toBeNull();
   });
 });

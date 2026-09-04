@@ -59,7 +59,6 @@ const fetchSportConfigPeriodsCount = async (
         `[useMatchLifecycle] Tournament fallback fetch failed for '${match.tournamentId}':`,
         err,
       );
-      // Fallthrough to strict null check below
     }
   }
 
@@ -390,11 +389,26 @@ export const useMatchLifecycle = () => {
   const syncRequestIdRef = useRef(0);
   const activeMatchIdRef = useRef(activeMatchId);
   const periodNumberRef = useRef(periodNumber);
+  const isPeriodActiveRef = useRef(isPeriodActive);
+  const isInsideStoppageRef = useRef(isInsideStoppage);
+  const isPeriodEndedRef = useRef(isPeriodEnded);
+  const globalSequenceNumberRef = useRef(globalSequenceNumber);
 
   useEffect(() => {
     activeMatchIdRef.current = activeMatchId;
     periodNumberRef.current = periodNumber;
-  }, [activeMatchId, periodNumber]);
+    isPeriodActiveRef.current = isPeriodActive;
+    isInsideStoppageRef.current = isInsideStoppage;
+    isPeriodEndedRef.current = isPeriodEnded;
+    globalSequenceNumberRef.current = globalSequenceNumber;
+  }, [
+    activeMatchId,
+    periodNumber,
+    isPeriodActive,
+    isInsideStoppage,
+    isPeriodEnded,
+    globalSequenceNumber,
+  ]);
 
   // Strict Dynamic Period Resolution from Dexie IndexedDB
   useEffect(() => {
@@ -470,7 +484,7 @@ export const useMatchLifecycle = () => {
 
   const isFinalPeriod = useCallback(
     (targetPeriod?: number): boolean => {
-      const checkPeriod = targetPeriod ?? periodNumber;
+      const checkPeriod = targetPeriod ?? periodNumberRef.current;
       if (periodsCount === null) {
         throw new Error(
           `Cannot evaluate isFinalPeriod: periodsCount is not resolved for active match. ${configError ?? ""}`.trim(),
@@ -478,7 +492,7 @@ export const useMatchLifecycle = () => {
       }
       return checkPeriod === periodsCount;
     },
-    [periodsCount, periodNumber, configError],
+    [periodsCount, configError],
   );
 
   const syncPeriodStateWithDB = useCallback(
@@ -505,6 +519,9 @@ export const useMatchLifecycle = () => {
           targetPeriodNumber === periodNumberRef.current
         ) {
           const computedState = calculatePeriodState(anchors);
+          isPeriodActiveRef.current = computedState.isPeriodActive;
+          isInsideStoppageRef.current = computedState.isInsideStoppage;
+          isPeriodEndedRef.current = computedState.isPeriodEnded;
           dispatch(setPeriodStatePayload(computedState));
         }
       } catch (err) {
@@ -525,12 +542,12 @@ export const useMatchLifecycle = () => {
     type: number,
     targetPeriodNumber?: number,
   ): Promise<string> => {
-    const normalizedMatchId = activeMatchId?.trim();
+    const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
     }
 
-    const anchorPeriod = targetPeriodNumber ?? periodNumber;
+    const anchorPeriod = targetPeriodNumber ?? periodNumberRef.current;
     return createAndSaveTimeAnchor(normalizedMatchId, anchorPeriod, type);
   };
 
@@ -539,7 +556,7 @@ export const useMatchLifecycle = () => {
   };
 
   const revertStartPeriod = async (anchorId?: string | null) => {
-    const normalizedMatchId = activeMatchId?.trim();
+    const normalizedMatchId = activeMatchIdRef.current?.trim();
     const currentPeriod = periodNumberRef.current;
     if (anchorId) {
       await removeTimeAnchor(anchorId);
@@ -547,6 +564,9 @@ export const useMatchLifecycle = () => {
     if (!isCurrentContext(normalizedMatchId, currentPeriod)) {
       return;
     }
+    isPeriodActiveRef.current = false;
+    isInsideStoppageRef.current = false;
+    isPeriodEndedRef.current = false;
     dispatch(
       setPeriodStatePayload({
         isPeriodActive: false,
@@ -558,8 +578,8 @@ export const useMatchLifecycle = () => {
   };
 
   const revertEndPeriod = async (anchorId?: string | null) => {
-    const normalizedMatchId = activeMatchId?.trim();
-    const currentPeriod = periodNumber;
+    const normalizedMatchId = activeMatchIdRef.current?.trim();
+    const currentPeriod = periodNumberRef.current;
 
     await db.transaction(
       "rw",
@@ -580,6 +600,8 @@ export const useMatchLifecycle = () => {
       return;
     }
     setIsResultModalOpen(false);
+    isPeriodActiveRef.current = true;
+    isPeriodEndedRef.current = false;
     dispatch(startPeriodState());
     await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
   };
@@ -587,32 +609,36 @@ export const useMatchLifecycle = () => {
   const startPeriod = async (
     targetPeriodNumber?: number,
   ): Promise<string | undefined> => {
-    const normalizedMatchId = activeMatchId?.trim();
+    const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
     }
 
     const isTargetValid = validateTargetPeriod(
-      periodNumber,
-      isPeriodEnded,
+      periodNumberRef.current,
+      isPeriodEndedRef.current,
       targetPeriodNumber,
     );
 
-    if (isPeriodActive || !isTargetValid) {
+    if (isPeriodActiveRef.current || !isTargetValid) {
       return;
     }
 
-    const priorPeriod = periodNumber;
-    const priorIsPeriodEnded = isPeriodEnded;
-    const priorSequence = globalSequenceNumber;
+    const priorPeriod = periodNumberRef.current;
+    const priorIsPeriodEnded = isPeriodEndedRef.current;
+    const priorSequence = globalSequenceNumberRef.current;
 
-    const currentPeriod = targetPeriodNumber ?? periodNumber;
-    if (targetPeriodNumber && targetPeriodNumber !== periodNumber) {
+    const currentPeriod = targetPeriodNumber ?? periodNumberRef.current;
+    if (targetPeriodNumber && targetPeriodNumber !== periodNumberRef.current) {
       dispatch(incrementPeriodNumber());
     }
 
+    isPeriodActiveRef.current = true;
+    isPeriodEndedRef.current = false;
+
     dispatch(startPeriodState());
     dispatch(incrementSequence());
+    globalSequenceNumberRef.current = priorSequence + 1;
 
     try {
       const anchorId = await logTimeAnchor(0, currentPeriod);
@@ -623,6 +649,8 @@ export const useMatchLifecycle = () => {
         if (targetPeriodNumber && targetPeriodNumber !== priorPeriod) {
           dispatch(decrementPeriodNumber());
         }
+        isPeriodActiveRef.current = false;
+        isPeriodEndedRef.current = priorIsPeriodEnded;
         dispatch(
           setPeriodStatePayload({
             isPeriodActive: false,
@@ -631,6 +659,7 @@ export const useMatchLifecycle = () => {
           }),
         );
         dispatch(setGlobalSequenceNumber(priorSequence));
+        globalSequenceNumberRef.current = priorSequence;
         await syncPeriodStateWithDB(normalizedMatchId, priorPeriod);
       }
       throw error;
@@ -638,18 +667,22 @@ export const useMatchLifecycle = () => {
   };
 
   const endPeriod = async (): Promise<EndPeriodResult | undefined> => {
-    const normalizedMatchId = activeMatchId?.trim();
+    const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
     }
-    if (!isPeriodActive || isInsideStoppage) return;
+    if (!isPeriodActiveRef.current || isInsideStoppageRef.current) return;
 
-    const currentPeriod = periodNumber;
+    const currentPeriod = periodNumberRef.current;
     const isFinal = isFinalPeriod(currentPeriod);
-    const priorSequence = globalSequenceNumber;
+    const priorSequence = globalSequenceNumberRef.current;
+
+    isPeriodActiveRef.current = false;
+    isPeriodEndedRef.current = true;
 
     dispatch(endPeriodState());
     dispatch(incrementSequence());
+    globalSequenceNumberRef.current = priorSequence + 1;
 
     try {
       const anchorId = await logTimeAnchor(1, currentPeriod);
@@ -658,8 +691,11 @@ export const useMatchLifecycle = () => {
       return { anchorId, isFinal };
     } catch (error) {
       if (isCurrentContext(normalizedMatchId, currentPeriod)) {
+        isPeriodActiveRef.current = true;
+        isPeriodEndedRef.current = false;
         dispatch(startPeriodState());
         dispatch(setGlobalSequenceNumber(priorSequence));
+        globalSequenceNumberRef.current = priorSequence;
         await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
       }
       throw error;
@@ -667,23 +703,30 @@ export const useMatchLifecycle = () => {
   };
 
   const stopTime = async () => {
-    const normalizedMatchId = activeMatchId?.trim();
+    const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
     }
-    if (!isPeriodActive || isInsideStoppage) return;
+    if (!isPeriodActiveRef.current || isInsideStoppageRef.current) return;
 
-    const currentPeriod = periodNumber;
-    const priorSequence = globalSequenceNumber;
+    const currentPeriod = periodNumberRef.current;
+    const priorSequence = globalSequenceNumberRef.current;
+
+    isInsideStoppageRef.current = true;
+
     dispatch(startStoppageState());
     dispatch(incrementSequence());
+    globalSequenceNumberRef.current = priorSequence + 1;
+
     try {
       await logTimeAnchor(2, currentPeriod);
       await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
     } catch (error) {
       if (isCurrentContext(normalizedMatchId, currentPeriod)) {
+        isInsideStoppageRef.current = false;
         dispatch(endStoppageState());
         dispatch(setGlobalSequenceNumber(priorSequence));
+        globalSequenceNumberRef.current = priorSequence;
         await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
       }
       throw error;
@@ -691,27 +734,45 @@ export const useMatchLifecycle = () => {
   };
 
   const startTime = async () => {
-    const normalizedMatchId = activeMatchId?.trim();
+    const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
     }
-    if (!isPeriodActive || !isInsideStoppage) return;
+    if (!isPeriodActiveRef.current || !isInsideStoppageRef.current) return;
 
-    const currentPeriod = periodNumber;
-    const priorSequence = globalSequenceNumber;
+    const currentPeriod = periodNumberRef.current;
+    const priorSequence = globalSequenceNumberRef.current;
+
+    isInsideStoppageRef.current = false;
+
     dispatch(endStoppageState());
     dispatch(incrementSequence());
+    globalSequenceNumberRef.current = priorSequence + 1;
+
     try {
       await logTimeAnchor(3, currentPeriod);
       await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
     } catch (error) {
       if (isCurrentContext(normalizedMatchId, currentPeriod)) {
+        isInsideStoppageRef.current = true;
         dispatch(startStoppageState());
         dispatch(setGlobalSequenceNumber(priorSequence));
+        globalSequenceNumberRef.current = priorSequence;
         await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
       }
       throw error;
     }
+  };
+
+  const autoCloseActivePeriod = async (): Promise<string | undefined> => {
+    const normalizedMatchId = activeMatchIdRef.current?.trim();
+    if (!normalizedMatchId || !isPeriodActiveRef.current) return;
+
+    if (isInsideStoppageRef.current) {
+      await startTime();
+    }
+    const endRes = await endPeriod();
+    return endRes?.anchorId;
   };
 
   const nextPeriod = () => {
@@ -737,6 +798,7 @@ export const useMatchLifecycle = () => {
     isFinalPeriod,
     startPeriod,
     endPeriod,
+    autoCloseActivePeriod,
     removeTimeAnchor,
     revertStartPeriod,
     revertEndPeriod,
