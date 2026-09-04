@@ -53,7 +53,12 @@ describe("Hydration Service", () => {
   });
 
   it("should return the first match for checkUnfinishedMatch when IndexedDB contains a match draft", async () => {
-    const mockMatch = { id: "m-active", tournamentId: "t-1" };
+    const mockMatch = {
+      id: "m-active",
+      tournamentId: "t-1",
+      homeScore: null,
+      guestScore: null,
+    };
     vi.mocked(db.matches.toArray).mockResolvedValueOnce([mockMatch as never]);
     const unfinished = await checkUnfinishedMatch();
     expect(unfinished).toEqual(mockMatch);
@@ -523,5 +528,37 @@ describe("Hydration Service", () => {
 
     expect(result).toEqual({ success: true, isOfflineFallback: true });
     expect(seedTestData).toHaveBeenCalledTimes(1);
+  });
+
+  it("should skip finished matches and return the first unfinished match when IndexedDB contains multiple match rows", async () => {
+    const completedMatch = { id: "m-completed", homeScore: 10, guestScore: 8 };
+    const activeMatch = { id: "m-active", homeScore: null, guestScore: null };
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([
+      completedMatch as never,
+      activeMatch as never,
+    ]);
+
+    const unfinished = await checkUnfinishedMatch();
+    expect(unfinished).toEqual(activeMatch);
+  });
+
+  it("should return null when all matches in IndexedDB are marked as finished", async () => {
+    const completedMatch1 = {
+      id: "m-completed-1",
+      homeScore: 10,
+      guestScore: 8,
+    };
+    const completedMatch2 = {
+      id: "m-completed-2",
+      homeScore: 5,
+      guestScore: 3,
+    };
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([
+      completedMatch1 as never,
+      completedMatch2 as never,
+    ]);
+
+    const unfinished = await checkUnfinishedMatch();
+    expect(unfinished).toBeNull();
   });
 });
