@@ -152,8 +152,14 @@ describe("Hydration Service", () => {
     });
   });
 
-  it("should purge all records associated with a match when discardUnfinishedMatch is called", async () => {
+  it("should purge all records associated with a match when discardUnfinishedMatch is called and match is unfinished", async () => {
     const mockDelete = vi.fn().mockResolvedValue(1);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
 
     vi.mocked(db.matchlineups.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({ delete: mockDelete }),
@@ -183,6 +189,29 @@ describe("Hydration Service", () => {
 
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
     expect(mockDelete).toHaveBeenCalledTimes(4);
+  });
+
+  it("should NOT delete match or related records if match was completed before discard", async () => {
+    const mockDelete = vi.fn().mockResolvedValue(1);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      homeScore: 10,
+      guestScore: 8,
+    } as never);
+
+    vi.mocked(db.transaction).mockImplementation((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    await discardUnfinishedMatch(matchId);
+
+    expect(db.matches.delete).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 
   it("successfully fetches server data with team-specific lineup endpoint and writes to IndexedDB", async () => {

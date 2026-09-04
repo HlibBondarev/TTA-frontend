@@ -204,6 +204,7 @@ export const getMatchRecoveryState = async (
 
 /**
  * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
+ * Safety check: verifies the match is still unfinished (both scores null) before deleting.
  */
 export const discardUnfinishedMatch = async (
   matchId: string,
@@ -219,11 +220,14 @@ export const discardUnfinishedMatch = async (
       db.timeanchors,
     ],
     async () => {
-      await db.matches.delete(matchId);
-      await db.matchlineups.where("matchId").equals(matchId).delete();
-      await db.playerpresences.where("matchId").equals(matchId).delete();
-      await db.gameevents.where("matchId").equals(matchId).delete();
-      await db.timeanchors.where("matchId").equals(matchId).delete();
+      const match = await db.matches.get(matchId);
+      if (match && match.homeScore == null && match.guestScore == null) {
+        await db.matches.delete(matchId);
+        await db.matchlineups.where("matchId").equals(matchId).delete();
+        await db.playerpresences.where("matchId").equals(matchId).delete();
+        await db.gameevents.where("matchId").equals(matchId).delete();
+        await db.timeanchors.where("matchId").equals(matchId).delete();
+      }
     },
   );
 };
