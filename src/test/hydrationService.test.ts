@@ -162,15 +162,20 @@ describe("Hydration Service", () => {
     } as never);
 
     vi.mocked(db.matchlineups.where).mockReturnValue({
-      equals: vi.fn().mockReturnValue({ delete: mockDelete }),
+      equals: vi.fn().mockReturnValue({
+        delete: mockDelete,
+        toArray: vi.fn().mockResolvedValue([{ id: "l1", matchId }]),
+      }),
     } as unknown as ReturnType<typeof db.matchlineups.where>);
 
     vi.mocked(db.playerpresences.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({ delete: mockDelete }),
+      anyOf: vi.fn().mockReturnValue({ delete: mockDelete }),
     } as unknown as ReturnType<typeof db.playerpresences.where>);
 
     vi.mocked(db.gameevents.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({ delete: mockDelete }),
+      anyOf: vi.fn().mockReturnValue({ delete: mockDelete }),
     } as unknown as ReturnType<typeof db.gameevents.where>);
 
     vi.mocked(db.timeanchors.where).mockReturnValue({
