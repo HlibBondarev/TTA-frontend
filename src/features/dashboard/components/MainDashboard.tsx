@@ -2,7 +2,10 @@ import React, { useEffect, useState } from "react";
 import { useDispatch } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 import { setCurrentView } from "../../../store/slices/navigationSlice";
-import { checkUnfinishedMatch } from "../../../services/hydrationService";
+import {
+  checkUnfinishedMatch,
+  discardUnfinishedMatch,
+} from "../../../services/hydrationService";
 import type { MatchLookup } from "../../../db/ttaDatabase";
 
 export interface MainDashboardProps {
@@ -54,8 +57,17 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     }
   };
 
-  const handleDismiss = () => {
-    setUnfinishedMatch(null);
+  const handleDiscard = async () => {
+    if (!unfinishedMatch || isResuming) return;
+    setIsResuming(true);
+    try {
+      await discardUnfinishedMatch(unfinishedMatch.id);
+      setUnfinishedMatch(null);
+    } catch (err) {
+      console.error("Failed to discard unfinished match:", err);
+    } finally {
+      setIsResuming(false);
+    }
   };
 
   return (
@@ -75,7 +87,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           onClick={() =>
             void logout({ logoutParams: { returnTo: window.location.origin } })
           }
-          className="text-xs bg-red-950/60 hover:bg-red-900 border border-red-800/80 text-red-200 px-3 py-1.5 rounded-lg transition-colors font-medium"
+          className="text-xs bg-red-950/60 hover:bg-red-900 border border-red-800/80 text-red-200 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
         >
           Log Out
         </button>
@@ -107,17 +119,17 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
               type="button"
               disabled={isResuming}
               onClick={() => void handleResume()}
-              className="py-2.5 px-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-black uppercase text-[10px] rounded-xl transition-all tracking-wider text-center"
+              className="py-2.5 px-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-black uppercase text-[10px] rounded-xl transition-all tracking-wider text-center cursor-pointer"
             >
               {isResuming ? "Resuming..." : "Resume Match"}
             </button>
             <button
               type="button"
               disabled={isResuming}
-              onClick={handleDismiss}
-              className="py-2.5 px-3 bg-gray-900 hover:bg-gray-800 disabled:opacity-50 text-gray-300 font-bold uppercase text-[10px] rounded-xl border border-gray-700 transition-all text-center"
+              onClick={() => void handleDiscard()}
+              className="py-2.5 px-3 bg-rose-950/80 hover:bg-rose-900 border border-rose-800/80 text-rose-200 disabled:opacity-50 font-bold uppercase text-[10px] rounded-xl transition-all text-center cursor-pointer"
             >
-              Discard / Dismiss
+              {isResuming ? "Discarding..." : "Discard Match"}
             </button>
           </div>
         </section>
@@ -133,7 +145,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         <button
           type="button"
           onClick={() => dispatch(setCurrentView("QUICK_START"))}
-          className="p-4 bg-linear-to-r from-blue-900/40 to-indigo-900/40 hover:from-blue-900/60 hover:to-indigo-900/60 border border-blue-700/50 rounded-2xl text-left transition-all shadow-lg group"
+          className="p-4 bg-linear-to-r from-blue-900/40 to-indigo-900/40 hover:from-blue-900/60 hover:to-indigo-900/60 border border-blue-700/50 rounded-2xl text-left transition-all shadow-lg group cursor-pointer"
         >
           <div className="flex items-center justify-between mb-1">
             <h3 className="text-sm font-black uppercase text-blue-400 group-hover:text-blue-300">
@@ -153,7 +165,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         <button
           type="button"
           onClick={() => dispatch(setCurrentView("MY_MATCHES"))}
-          className="p-4 bg-linear-to-r from-emerald-900/40 to-teal-900/40 hover:from-emerald-900/60 hover:to-teal-900/60 border border-emerald-700/50 rounded-2xl text-left transition-all shadow-lg group"
+          className="p-4 bg-linear-to-r from-emerald-900/40 to-teal-900/40 hover:from-emerald-900/60 hover:to-teal-900/60 border border-emerald-700/50 rounded-2xl text-left transition-all shadow-lg group cursor-pointer"
         >
           <div className="flex items-center justify-between mb-1">
             <h3 className="text-sm font-black uppercase text-emerald-400 group-hover:text-emerald-300">
@@ -173,7 +185,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         <button
           type="button"
           onClick={() => dispatch(setCurrentView("TOURNAMENT_STUB"))}
-          className="p-4 bg-linear-to-r from-purple-900/40 to-fuchsia-900/40 hover:from-purple-900/60 hover:to-fuchsia-900/60 border border-purple-700/50 rounded-2xl text-left transition-all shadow-lg group"
+          className="p-4 bg-linear-to-r from-purple-900/40 to-fuchsia-900/40 hover:from-purple-900/60 hover:to-fuchsia-900/60 border border-purple-700/50 rounded-2xl text-left transition-all shadow-lg group cursor-pointer"
         >
           <div className="flex items-center justify-between mb-1">
             <h3 className="text-sm font-black uppercase text-purple-400 group-hover:text-purple-300">

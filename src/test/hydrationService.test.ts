@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   hydrateMatchData,
   checkUnfinishedMatch,
+  discardUnfinishedMatch,
+  getMatchRecoveryState,
 } from "../services/hydrationService";
 import { apiClient } from "../api/client";
 import { sportService } from "../services/sportService";
@@ -27,13 +29,28 @@ vi.mock("../db/seed", () => ({
 vi.mock("../db/ttaDatabase", () => ({
   db: {
     transaction: vi.fn(),
-    matches: { put: vi.fn(), toArray: vi.fn().mockResolvedValue([]) },
-    tournaments: { put: vi.fn() },
-    sportconfigurations: { put: vi.fn() },
+    matches: {
+      put: vi.fn(),
+      get: vi.fn(),
+      delete: vi.fn(),
+      toArray: vi.fn().mockResolvedValue([]),
+    },
+    tournaments: { put: vi.fn(), get: vi.fn() },
+    sportconfigurations: { put: vi.fn(), get: vi.fn() },
     matchlineups: { where: vi.fn(), bulkPut: vi.fn() },
     timeanchors: { where: vi.fn(), bulkPut: vi.fn() },
-    playerpresences: { filter: vi.fn(), bulkPut: vi.fn(), bulkDelete: vi.fn() },
-    gameevents: { filter: vi.fn(), bulkPut: vi.fn(), bulkDelete: vi.fn() },
+    playerpresences: {
+      filter: vi.fn(),
+      where: vi.fn(),
+      bulkPut: vi.fn(),
+      bulkDelete: vi.fn(),
+    },
+    gameevents: {
+      filter: vi.fn(),
+      where: vi.fn(),
+      bulkPut: vi.fn(),
+      bulkDelete: vi.fn(),
+    },
     eventdefinitions: { bulkPut: vi.fn() },
   },
 }));
@@ -88,6 +105,84 @@ describe("Hydration Service", () => {
 
     const unfinished = await checkUnfinishedMatch();
     expect(unfinished).toEqual(firstDraft);
+  });
+
+  it("should calculate match recovery state from timeanchors and sportconfigurations", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi
+          .fn()
+          .mockResolvedValueOnce([{ periodNumber: 1 }, { periodNumber: 2 }]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      configurationId: "cfg-1",
+    } as never);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      activePlayersLimit: 5,
+    } as never);
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+    expect(recoveryState).toEqual({
+      recoveredPeriod: 2,
+      activePlayersLimit: 5,
+    });
+  });
+
+  it("should fallback to default period 1 and limit 7 when recovery state tables are empty", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce(undefined as never);
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+    expect(recoveryState).toEqual({
+      recoveredPeriod: 1,
+      activePlayersLimit: 7,
+    });
+  });
+
+  it("should purge all records associated with a match when discardUnfinishedMatch is called", async () => {
+    const mockDelete = vi.fn().mockResolvedValue(1);
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({ delete: mockDelete }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({ delete: mockDelete }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    vi.mocked(db.gameevents.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({ delete: mockDelete }),
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({ delete: mockDelete }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.transaction).mockImplementation((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    await discardUnfinishedMatch(matchId);
+
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+    expect(mockDelete).toHaveBeenCalledTimes(4);
   });
 
   it("successfully fetches server data with team-specific lineup endpoint and writes to IndexedDB", async () => {

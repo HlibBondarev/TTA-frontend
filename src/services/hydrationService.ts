@@ -160,6 +160,74 @@ export const checkUnfinishedMatch = async (): Promise<MatchLookup | null> => {
   );
 };
 
+/**
+ * Computes recovery parameters (last active period and active player presence limit)
+ * from hydrated IndexedDB tables.
+ */
+export const getMatchRecoveryState = async (
+  matchId: string,
+): Promise<{ recoveredPeriod: number; activePlayersLimit: number }> => {
+  let recoveredPeriod = 1;
+  let activePlayersLimit = 7;
+
+  try {
+    if (db?.timeanchors) {
+      const anchors = await db.timeanchors
+        .where("matchId")
+        .equals(matchId)
+        .toArray();
+      if (anchors.length > 0) {
+        recoveredPeriod = Math.max(...anchors.map((a) => a.periodNumber));
+      }
+    }
+
+    if (db?.matches && db?.tournaments && db?.sportconfigurations) {
+      const match = await db.matches.get(matchId);
+      if (match?.tournamentId) {
+        const tournament = await db.tournaments.get(match.tournamentId);
+        if (tournament?.configurationId) {
+          const config = await db.sportconfigurations.get(
+            tournament.configurationId,
+          );
+          if (config?.activePlayersLimit) {
+            activePlayersLimit = config.activePlayersLimit;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to calculate match recovery state:", err);
+  }
+
+  return { recoveredPeriod, activePlayersLimit };
+};
+
+/**
+ * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
+ */
+export const discardUnfinishedMatch = async (
+  matchId: string,
+): Promise<void> => {
+  if (!db?.matches) return;
+  await db.transaction(
+    "rw",
+    [
+      db.matches,
+      db.matchlineups,
+      db.playerpresences,
+      db.gameevents,
+      db.timeanchors,
+    ],
+    async () => {
+      await db.matches.delete(matchId);
+      await db.matchlineups.where("matchId").equals(matchId).delete();
+      await db.playerpresences.where("matchId").equals(matchId).delete();
+      await db.gameevents.where("matchId").equals(matchId).delete();
+      await db.timeanchors.where("matchId").equals(matchId).delete();
+    },
+  );
+};
+
 export const hydrateMatchData = async (
   matchId: string,
   teamId: string,

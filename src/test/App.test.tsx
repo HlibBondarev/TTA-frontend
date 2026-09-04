@@ -13,6 +13,7 @@ import { teamService } from "../services/teamService";
 import {
   hydrateMatchData,
   checkUnfinishedMatch,
+  getMatchRecoveryState,
 } from "../services/hydrationService";
 
 let mockIsAuthenticated = true;
@@ -61,6 +62,10 @@ vi.mock("../services/userMatchService", () => ({
 vi.mock("../services/hydrationService", () => ({
   hydrateMatchData: vi.fn().mockResolvedValue(undefined),
   checkUnfinishedMatch: vi.fn().mockResolvedValue(null),
+  discardUnfinishedMatch: vi.fn().mockResolvedValue(undefined),
+  getMatchRecoveryState: vi
+    .fn()
+    .mockResolvedValue({ recoveredPeriod: 2, activePlayersLimit: 5 }),
 }));
 
 vi.mock("../services/syncService", () => ({
@@ -269,7 +274,7 @@ describe("App Bootstrapping Component", () => {
     expect(await screen.findByText("TTA Match Recorder")).toBeDefined();
   });
 
-  it("should resume interrupted match session from MainDashboard prompt", async () => {
+  it("should resume interrupted match session from MainDashboard prompt and set recovered period and presence limits", async () => {
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-interrupted",
       homeTeamId: "team-home-99",
@@ -296,6 +301,9 @@ describe("App Bootstrapping Component", () => {
         "m-interrupted",
         "team-home-99",
       );
+      expect(getMatchRecoveryState).toHaveBeenCalledWith("m-interrupted");
+      expect(store.getState().presence.currentPeriod).toBe(2);
+      expect(store.getState().presence.activePlayersLimit).toBe(5);
       expect(store.getState().match.activeMatchId).toBe("m-interrupted");
       expect(store.getState().match.activeTeamId).toBe("team-home-99");
     });

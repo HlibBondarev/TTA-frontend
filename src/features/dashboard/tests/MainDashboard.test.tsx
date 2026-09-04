@@ -6,7 +6,10 @@ import { MainDashboard } from "../components/MainDashboard";
 import navigationReducer, {
   type AppCurrentView,
 } from "../../../store/slices/navigationSlice";
-import { checkUnfinishedMatch } from "../../../services/hydrationService";
+import {
+  checkUnfinishedMatch,
+  discardUnfinishedMatch,
+} from "../../../services/hydrationService";
 
 const mockLogout = vi.fn();
 
@@ -19,6 +22,7 @@ vi.mock("@auth0/auth0-react", () => ({
 
 vi.mock("../../../services/hydrationService", () => ({
   checkUnfinishedMatch: vi.fn().mockResolvedValue(null),
+  discardUnfinishedMatch: vi.fn().mockResolvedValue(undefined),
 }));
 
 const createTestStore = () => {
@@ -116,7 +120,7 @@ describe("MainDashboard Component", () => {
     });
   });
 
-  it("should dismiss Session Recovery prompt when clicking Discard / Dismiss button", async () => {
+  it("should invoke discardUnfinishedMatch and purge prompt when clicking Discard Match button", async () => {
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-unfinished-123",
       homeTeamId: "team-1",
@@ -139,14 +143,17 @@ describe("MainDashboard Component", () => {
       </Provider>,
     );
 
-    const dismissBtn = await screen.findByRole("button", {
-      name: /Discard \/ Dismiss/i,
+    const discardBtn = await screen.findByRole("button", {
+      name: /Discard Match/i,
     });
-    fireEvent.click(dismissBtn);
+    fireEvent.click(discardBtn);
 
-    expect(
-      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
-    ).toBeNull();
+    await waitFor(() => {
+      expect(discardUnfinishedMatch).toHaveBeenCalledWith("m-unfinished-123");
+      expect(
+        screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+      ).toBeNull();
+    });
   });
 
   it.each<{ cardText: string; expectedView: AppCurrentView }>([

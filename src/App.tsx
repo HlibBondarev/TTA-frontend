@@ -9,7 +9,10 @@ import { TournamentStubView } from "./features/tournaments/components/Tournament
 
 import { setPresenceLimits } from "./features/playerpresences/store/presenceSlice";
 import { setActiveMatch } from "./features/matches/store/matchSlice";
-import { hydrateMatchData } from "./services/hydrationService";
+import {
+  hydrateMatchData,
+  getMatchRecoveryState,
+} from "./services/hydrationService";
 import { setTokenGetter } from "./services/tokenService";
 import type { RootState } from "./store";
 
@@ -102,19 +105,22 @@ export const App: React.FC = () => {
   };
 
   const handleResumeMatch = async (matchId: string, teamId: string) => {
-    dispatch(
-      setPresenceLimits({
-        limit: 7,
-        period: 1,
-      }),
-    );
-
     try {
       await hydrateMatchData(matchId, teamId);
     } catch (error) {
       console.error("Session recovery hydration failed (non-critical):", error);
       return;
     }
+
+    const { recoveredPeriod, activePlayersLimit } =
+      await getMatchRecoveryState(matchId);
+
+    dispatch(
+      setPresenceLimits({
+        limit: activePlayersLimit,
+        period: recoveredPeriod,
+      }),
+    );
 
     dispatch(
       setActiveMatch({
