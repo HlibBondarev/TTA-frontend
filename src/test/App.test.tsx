@@ -339,4 +339,40 @@ describe("App Bootstrapping Component", () => {
       expect(store.getState().match.activeTeamId).toBeNull();
     });
   });
+
+  it("should not set active match or team in Redux if session recovery hydration throws an error", async () => {
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-interrupted-failed",
+      homeTeamId: "team-home-99",
+    } as never);
+
+    vi.mocked(hydrateMatchData).mockRejectedValueOnce(
+      new Error("Hydration failed during recovery"),
+    );
+
+    const store = createTestStore({
+      navigation: { currentView: "HUB" },
+    });
+
+    render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /Resume Match/i }));
+
+    await waitFor(() => {
+      expect(hydrateMatchData).toHaveBeenCalledWith(
+        "m-interrupted-failed",
+        "team-home-99",
+      );
+      expect(store.getState().match.activeMatchId).toBeNull();
+      expect(store.getState().match.activeTeamId).toBeNull();
+    });
+  });
 });

@@ -113,6 +113,7 @@ export const App: React.FC = () => {
       await hydrateMatchData(matchId, teamId);
     } catch (error) {
       console.error("Session recovery hydration failed (non-critical):", error);
+      return;
     }
 
     dispatch(
