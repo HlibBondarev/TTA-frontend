@@ -392,6 +392,7 @@ export const useMatchLifecycle = () => {
   const isPeriodActiveRef = useRef(isPeriodActive);
   const isInsideStoppageRef = useRef(isInsideStoppage);
   const isPeriodEndedRef = useRef(isPeriodEnded);
+  const globalSequenceNumberRef = useRef(globalSequenceNumber);
 
   useEffect(() => {
     activeMatchIdRef.current = activeMatchId;
@@ -399,12 +400,14 @@ export const useMatchLifecycle = () => {
     isPeriodActiveRef.current = isPeriodActive;
     isInsideStoppageRef.current = isInsideStoppage;
     isPeriodEndedRef.current = isPeriodEnded;
+    globalSequenceNumberRef.current = globalSequenceNumber;
   }, [
     activeMatchId,
     periodNumber,
     isPeriodActive,
     isInsideStoppage,
     isPeriodEnded,
+    globalSequenceNumber,
   ]);
 
   // Strict Dynamic Period Resolution from Dexie IndexedDB
@@ -623,7 +626,7 @@ export const useMatchLifecycle = () => {
 
     const priorPeriod = periodNumberRef.current;
     const priorIsPeriodEnded = isPeriodEndedRef.current;
-    const priorSequence = globalSequenceNumber;
+    const priorSequence = globalSequenceNumberRef.current;
 
     const currentPeriod = targetPeriodNumber ?? periodNumberRef.current;
     if (targetPeriodNumber && targetPeriodNumber !== periodNumberRef.current) {
@@ -635,6 +638,7 @@ export const useMatchLifecycle = () => {
 
     dispatch(startPeriodState());
     dispatch(incrementSequence());
+    globalSequenceNumberRef.current = priorSequence + 1;
 
     try {
       const anchorId = await logTimeAnchor(0, currentPeriod);
@@ -655,6 +659,7 @@ export const useMatchLifecycle = () => {
           }),
         );
         dispatch(setGlobalSequenceNumber(priorSequence));
+        globalSequenceNumberRef.current = priorSequence;
         await syncPeriodStateWithDB(normalizedMatchId, priorPeriod);
       }
       throw error;
@@ -670,13 +675,14 @@ export const useMatchLifecycle = () => {
 
     const currentPeriod = periodNumberRef.current;
     const isFinal = isFinalPeriod(currentPeriod);
-    const priorSequence = globalSequenceNumber;
+    const priorSequence = globalSequenceNumberRef.current;
 
     isPeriodActiveRef.current = false;
     isPeriodEndedRef.current = true;
 
     dispatch(endPeriodState());
     dispatch(incrementSequence());
+    globalSequenceNumberRef.current = priorSequence + 1;
 
     try {
       const anchorId = await logTimeAnchor(1, currentPeriod);
@@ -689,6 +695,7 @@ export const useMatchLifecycle = () => {
         isPeriodEndedRef.current = false;
         dispatch(startPeriodState());
         dispatch(setGlobalSequenceNumber(priorSequence));
+        globalSequenceNumberRef.current = priorSequence;
         await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
       }
       throw error;
@@ -703,12 +710,14 @@ export const useMatchLifecycle = () => {
     if (!isPeriodActiveRef.current || isInsideStoppageRef.current) return;
 
     const currentPeriod = periodNumberRef.current;
-    const priorSequence = globalSequenceNumber;
+    const priorSequence = globalSequenceNumberRef.current;
 
     isInsideStoppageRef.current = true;
 
     dispatch(startStoppageState());
     dispatch(incrementSequence());
+    globalSequenceNumberRef.current = priorSequence + 1;
+
     try {
       await logTimeAnchor(2, currentPeriod);
       await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
@@ -717,6 +726,7 @@ export const useMatchLifecycle = () => {
         isInsideStoppageRef.current = false;
         dispatch(endStoppageState());
         dispatch(setGlobalSequenceNumber(priorSequence));
+        globalSequenceNumberRef.current = priorSequence;
         await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
       }
       throw error;
@@ -731,12 +741,14 @@ export const useMatchLifecycle = () => {
     if (!isPeriodActiveRef.current || !isInsideStoppageRef.current) return;
 
     const currentPeriod = periodNumberRef.current;
-    const priorSequence = globalSequenceNumber;
+    const priorSequence = globalSequenceNumberRef.current;
 
     isInsideStoppageRef.current = false;
 
     dispatch(endStoppageState());
     dispatch(incrementSequence());
+    globalSequenceNumberRef.current = priorSequence + 1;
+
     try {
       await logTimeAnchor(3, currentPeriod);
       await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
@@ -745,6 +757,7 @@ export const useMatchLifecycle = () => {
         isInsideStoppageRef.current = true;
         dispatch(startStoppageState());
         dispatch(setGlobalSequenceNumber(priorSequence));
+        globalSequenceNumberRef.current = priorSequence;
         await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
       }
       throw error;
