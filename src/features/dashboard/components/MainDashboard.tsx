@@ -18,9 +18,9 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   const dispatch = useDispatch();
   const { user, logout } = useAuth0();
 
-  const [unfinishedMatch, setUnfinishedMatch] = useState<MatchLookup | null>(
-    null,
-  );
+  const [unfinishedMatch, setUnfinishedMatch] = useState<
+    (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string }) | null
+  >(null);
   const [isResuming, setIsResuming] = useState(false);
 
   useEffect(() => {
@@ -47,10 +47,12 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     setIsResuming(true);
     try {
       if (onResumeMatch) {
-        await onResumeMatch(
-          unfinishedMatch.id,
-          unfinishedMatch.homeTeamId || "",
-        );
+        const teamToResume =
+          unfinishedMatch.trackedTeamId ||
+          unfinishedMatch.selectedTeamId ||
+          unfinishedMatch.homeTeamId ||
+          "";
+        await onResumeMatch(unfinishedMatch.id, teamToResume);
       }
     } finally {
       setIsResuming(false);

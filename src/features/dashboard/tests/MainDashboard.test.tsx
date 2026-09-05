@@ -120,6 +120,44 @@ describe("MainDashboard Component", () => {
     });
   });
 
+  it("should trigger onResumeMatch with guestTeamId when trackedTeamId or selectedTeamId corresponds to guest team", async () => {
+    const onResumeMatchMock = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-unfinished-456",
+      homeTeamId: "team-home-abc",
+      guestTeamId: "team-guest-xyz",
+      trackedTeamId: "team-guest-xyz",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+    } as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    const resumeBtn = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    fireEvent.click(resumeBtn);
+
+    await waitFor(() => {
+      expect(onResumeMatchMock).toHaveBeenCalledWith(
+        "m-unfinished-456",
+        "team-guest-xyz",
+      );
+    });
+  });
+
   it("should invoke discardUnfinishedMatch and purge prompt when clicking Discard Match button", async () => {
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-unfinished-123",
