@@ -9,7 +9,10 @@ import { TournamentStubView } from "./features/tournaments/components/Tournament
 
 import { setPresenceLimits } from "./features/playerpresences/store/presenceSlice";
 import { setActiveMatch } from "./features/matches/store/matchSlice";
-import { hydrateMatchData } from "./services/hydrationService";
+import {
+  hydrateMatchData,
+  getMatchRecoveryState,
+} from "./services/hydrationService";
 import { setTokenGetter } from "./services/tokenService";
 import type { RootState } from "./store";
 
@@ -21,6 +24,9 @@ export const App: React.FC = () => {
   const activeMatchId = useSelector(
     (state: RootState) => state.match.activeMatchId,
   );
+  const isPeriodActive = useSelector(
+    (state: RootState) => state.match.isPeriodActive,
+  );
   const currentView = useSelector(
     (state: RootState) => state.navigation.currentView,
   );
@@ -31,6 +37,20 @@ export const App: React.FC = () => {
     isLoading,
     loginWithRedirect,
   } = useAuth0();
+
+  // Tab protection during active match session (even during inter-period breaks)
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (activeMatchId || isPeriodActive) {
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [activeMatchId, isPeriodActive]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -84,6 +104,29 @@ export const App: React.FC = () => {
     );
   };
 
+  const handleResumeMatch = async (matchId: string, teamId: string) => {
+    try {
+      const { recoveredPeriod, activePlayersLimit } =
+        await getMatchRecoveryState(matchId);
+
+      dispatch(
+        setPresenceLimits({
+          limit: activePlayersLimit,
+          period: recoveredPeriod,
+        }),
+      );
+
+      dispatch(
+        setActiveMatch({
+          matchId,
+          teamId,
+        }),
+      );
+    } catch (error) {
+      console.error("Session recovery failed (non-critical):", error);
+    }
+  };
+
   if (isInitializing || isLoading) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-gray-950 text-gray-100 font-medium text-sm">
@@ -132,7 +175,7 @@ export const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col justify-between p-4">
       {(currentView === "HUB" || currentView === "AUTH_GATE") && (
-        <MainDashboard />
+        <MainDashboard onResumeMatch={handleResumeMatch} />
       )}
       {currentView === "QUICK_START" && (
         <MatchSetupWizard onQuickStart={handleQuickStart} />

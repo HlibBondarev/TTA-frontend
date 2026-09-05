@@ -10,7 +10,11 @@ import navigationReducer from "../store/slices/navigationSlice";
 import { apiClient } from "../api/client";
 import { sportService } from "../services/sportService";
 import { teamService } from "../services/teamService";
-import { hydrateMatchData } from "../services/hydrationService";
+import {
+  hydrateMatchData,
+  checkUnfinishedMatch,
+  getMatchRecoveryState,
+} from "../services/hydrationService";
 
 let mockIsAuthenticated = true;
 
@@ -57,6 +61,11 @@ vi.mock("../services/userMatchService", () => ({
 
 vi.mock("../services/hydrationService", () => ({
   hydrateMatchData: vi.fn().mockResolvedValue(undefined),
+  checkUnfinishedMatch: vi.fn().mockResolvedValue(null),
+  discardUnfinishedMatch: vi.fn().mockResolvedValue(undefined),
+  getMatchRecoveryState: vi
+    .fn()
+    .mockResolvedValue({ recoveredPeriod: 2, activePlayersLimit: 5 }),
 }));
 
 vi.mock("../services/syncService", () => ({
@@ -113,6 +122,29 @@ describe("App Bootstrapping Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsAuthenticated = true;
+  });
+
+  it("should prevent tab unload when match session is active even during breaks", async () => {
+    const store = createTestStore({
+      match: {
+        isPeriodActive: false,
+        activeMatchId: "m-123",
+        activeTeamId: "t-123",
+      } as never,
+    });
+
+    render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    const event = new Event("beforeunload", {
+      cancelable: true,
+    }) as BeforeUnloadEvent;
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it("should render Auth Gate Login screen when user is unauthenticated", async () => {
@@ -242,7 +274,39 @@ describe("App Bootstrapping Component", () => {
     expect(await screen.findByText("TTA Match Recorder")).toBeDefined();
   });
 
-  it("should not set active match or team in Redux if hydration throws an error", async () => {
+  it("should resume interrupted match session directly from IndexedDB without calling hydrateMatchData", async () => {
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-interrupted",
+      homeTeamId: "team-home-99",
+    } as never);
+
+    const store = createTestStore({
+      navigation: { currentView: "HUB" },
+    });
+
+    render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /Resume Match/i }));
+
+    await waitFor(() => {
+      expect(hydrateMatchData).not.toHaveBeenCalled();
+      expect(getMatchRecoveryState).toHaveBeenCalledWith("m-interrupted");
+      expect(store.getState().presence.currentPeriod).toBe(2);
+      expect(store.getState().presence.activePlayersLimit).toBe(5);
+      expect(store.getState().match.activeMatchId).toBe("m-interrupted");
+      expect(store.getState().match.activeTeamId).toBe("team-home-99");
+    });
+  });
+
+  it("should not set active match or team in Redux if hydration throws an error during Quick Start", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -276,6 +340,42 @@ describe("App Bootstrapping Component", () => {
 
     await waitFor(() => {
       expect(hydrateMatchData).toHaveBeenCalled();
+      expect(store.getState().match.activeMatchId).toBeNull();
+      expect(store.getState().match.activeTeamId).toBeNull();
+    });
+  });
+
+  it("should not set active match or team in Redux if getMatchRecoveryState throws an error during session recovery", async () => {
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-interrupted-failed",
+      homeTeamId: "team-home-99",
+    } as never);
+
+    vi.mocked(getMatchRecoveryState).mockRejectedValueOnce(
+      new Error("IndexedDB recovery error"),
+    );
+
+    const store = createTestStore({
+      navigation: { currentView: "HUB" },
+    });
+
+    render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /Resume Match/i }));
+
+    await waitFor(() => {
+      expect(hydrateMatchData).not.toHaveBeenCalled();
+      expect(getMatchRecoveryState).toHaveBeenCalledWith(
+        "m-interrupted-failed",
+      );
       expect(store.getState().match.activeMatchId).toBeNull();
       expect(store.getState().match.activeTeamId).toBeNull();
     });

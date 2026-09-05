@@ -1,11 +1,76 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useDispatch } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 import { setCurrentView } from "../../../store/slices/navigationSlice";
+import {
+  checkUnfinishedMatch,
+  discardUnfinishedMatch,
+} from "../../../services/hydrationService";
+import type { MatchLookup } from "../../../db/ttaDatabase";
 
-export const MainDashboard: React.FC = () => {
+export interface MainDashboardProps {
+  onResumeMatch?: (matchId: string, teamId: string) => Promise<void>;
+}
+
+export const MainDashboard: React.FC<MainDashboardProps> = ({
+  onResumeMatch,
+}) => {
   const dispatch = useDispatch();
   const { user, logout } = useAuth0();
+
+  const [unfinishedMatch, setUnfinishedMatch] = useState<
+    (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string }) | null
+  >(null);
+  const [isResuming, setIsResuming] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const checkForInterruptedMatch = async () => {
+      try {
+        const match = await checkUnfinishedMatch();
+        if (isMounted) {
+          setUnfinishedMatch(match);
+        }
+      } catch (err) {
+        console.error("Failed to check unfinished match:", err);
+      }
+    };
+
+    checkForInterruptedMatch();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleResume = async () => {
+    if (!unfinishedMatch || isResuming) return;
+    setIsResuming(true);
+    try {
+      if (onResumeMatch) {
+        const teamToResume =
+          unfinishedMatch.trackedTeamId ||
+          unfinishedMatch.selectedTeamId ||
+          unfinishedMatch.homeTeamId ||
+          "";
+        await onResumeMatch(unfinishedMatch.id, teamToResume);
+      }
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
+  const handleDiscard = async () => {
+    if (!unfinishedMatch || isResuming) return;
+    setIsResuming(true);
+    try {
+      await discardUnfinishedMatch(unfinishedMatch.id);
+      setUnfinishedMatch(null);
+    } catch (err) {
+      console.error("Failed to discard unfinished match:", err);
+    } finally {
+      setIsResuming(false);
+    }
+  };
 
   return (
     <div className="w-full max-w-sm mx-auto flex flex-col flex-1 p-4 bg-gray-950 text-gray-100 overflow-y-auto">
@@ -24,11 +89,53 @@ export const MainDashboard: React.FC = () => {
           onClick={() =>
             void logout({ logoutParams: { returnTo: window.location.origin } })
           }
-          className="text-xs bg-red-950/60 hover:bg-red-900 border border-red-800/80 text-red-200 px-3 py-1.5 rounded-lg transition-colors font-medium"
+          className="text-xs bg-red-950/60 hover:bg-red-900 border border-red-800/80 text-red-200 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
         >
           Log Out
         </button>
       </header>
+
+      {/* Session Recovery Gate Prompt */}
+      {unfinishedMatch && (
+        <section
+          aria-label="Session Recovery Prompt"
+          className="mb-6 p-4 bg-amber-950/40 border border-amber-600/60 rounded-2xl shadow-xl flex flex-col space-y-3"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center space-x-1.5">
+              <span>⚠️</span>
+              <span>Interrupted Match Found</span>
+            </span>
+            <span className="text-[10px] text-amber-300/80 font-mono">
+              ID: {unfinishedMatch.id.slice(0, 8)}...
+            </span>
+          </div>
+
+          <p className="text-[11px] text-gray-300 leading-relaxed">
+            An active unfinished match session was detected in local storage.
+            Would you like to resume tracking?
+          </p>
+
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <button
+              type="button"
+              disabled={isResuming}
+              onClick={() => void handleResume()}
+              className="py-2.5 px-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-black uppercase text-[10px] rounded-xl transition-all tracking-wider text-center cursor-pointer"
+            >
+              {isResuming ? "Resuming..." : "Resume Match"}
+            </button>
+            <button
+              type="button"
+              disabled={isResuming}
+              onClick={() => void handleDiscard()}
+              className="py-2.5 px-3 bg-rose-950/80 hover:bg-rose-900 border border-rose-800/80 text-rose-200 disabled:opacity-50 font-bold uppercase text-[10px] rounded-xl transition-all text-center cursor-pointer"
+            >
+              {isResuming ? "Discarding..." : "Discard Match"}
+            </button>
+          </div>
+        </section>
+      )}
 
       <h2 className="text-sm font-black uppercase text-blue-500 mb-6 text-center tracking-wider">
         TTA Hub Navigation
@@ -40,7 +147,7 @@ export const MainDashboard: React.FC = () => {
         <button
           type="button"
           onClick={() => dispatch(setCurrentView("QUICK_START"))}
-          className="p-4 bg-linear-to-r from-blue-900/40 to-indigo-900/40 hover:from-blue-900/60 hover:to-indigo-900/60 border border-blue-700/50 rounded-2xl text-left transition-all shadow-lg group"
+          className="p-4 bg-linear-to-r from-blue-900/40 to-indigo-900/40 hover:from-blue-900/60 hover:to-indigo-900/60 border border-blue-700/50 rounded-2xl text-left transition-all shadow-lg group cursor-pointer"
         >
           <div className="flex items-center justify-between mb-1">
             <h3 className="text-sm font-black uppercase text-blue-400 group-hover:text-blue-300">
@@ -60,7 +167,7 @@ export const MainDashboard: React.FC = () => {
         <button
           type="button"
           onClick={() => dispatch(setCurrentView("MY_MATCHES"))}
-          className="p-4 bg-linear-to-r from-emerald-900/40 to-teal-900/40 hover:from-emerald-900/60 hover:to-teal-900/60 border border-emerald-700/50 rounded-2xl text-left transition-all shadow-lg group"
+          className="p-4 bg-linear-to-r from-emerald-900/40 to-teal-900/40 hover:from-emerald-900/60 hover:to-teal-900/60 border border-emerald-700/50 rounded-2xl text-left transition-all shadow-lg group cursor-pointer"
         >
           <div className="flex items-center justify-between mb-1">
             <h3 className="text-sm font-black uppercase text-emerald-400 group-hover:text-emerald-300">
@@ -80,7 +187,7 @@ export const MainDashboard: React.FC = () => {
         <button
           type="button"
           onClick={() => dispatch(setCurrentView("TOURNAMENT_STUB"))}
-          className="p-4 bg-linear-to-r from-purple-900/40 to-fuchsia-900/40 hover:from-purple-900/60 hover:to-fuchsia-900/60 border border-purple-700/50 rounded-2xl text-left transition-all shadow-lg group"
+          className="p-4 bg-linear-to-r from-purple-900/40 to-fuchsia-900/40 hover:from-purple-900/60 hover:to-fuchsia-900/60 border border-purple-700/50 rounded-2xl text-left transition-all shadow-lg group cursor-pointer"
         >
           <div className="flex items-center justify-between mb-1">
             <h3 className="text-sm font-black uppercase text-purple-400 group-hover:text-purple-300">

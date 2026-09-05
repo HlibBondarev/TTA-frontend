@@ -124,6 +124,7 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
     isLoadingConfig || periodsCount === null || Boolean(configError);
   const hasReachedMaxPeriods =
     periodsCount !== null && periodNumber >= periodsCount;
+  const hasMatchStarted = periodNumber > 1 || isPeriodActive || isPeriodEnded;
 
   return (
     <div className="w-full bg-gray-900 text-white rounded-xl border border-gray-800 p-2">
@@ -158,7 +159,7 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
               <button
                 type="button"
                 onClick={() => setIsResultModalOpen(true)}
-                disabled={isConfigDisabled}
+                disabled={isConfigDisabled || !hasMatchStarted}
                 className="px-2 py-1 min-h-11 bg-emerald-900 hover:bg-emerald-800 text-emerald-200 border border-emerald-700/60 rounded text-[9px] font-extrabold uppercase disabled:opacity-30"
               >
                 FINALIZE
@@ -188,7 +189,7 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsResultModalOpen(true)}
-                  disabled={isConfigDisabled}
+                  disabled={isConfigDisabled || !hasMatchStarted}
                   className="px-2 py-1 min-h-11 bg-emerald-900 hover:bg-emerald-800 text-emerald-200 border border-emerald-700/60 rounded text-[9px] font-extrabold uppercase disabled:opacity-30"
                 >
                   FINALIZE

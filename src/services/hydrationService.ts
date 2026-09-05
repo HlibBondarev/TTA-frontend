@@ -160,6 +160,91 @@ export const checkUnfinishedMatch = async (): Promise<MatchLookup | null> => {
   );
 };
 
+/**
+ * Computes recovery parameters (last active period and active player presence limit)
+ * from hydrated IndexedDB tables.
+ */
+export const getMatchRecoveryState = async (
+  matchId: string,
+): Promise<{ recoveredPeriod: number; activePlayersLimit: number }> => {
+  let recoveredPeriod = 1;
+  let activePlayersLimit = 7;
+
+  try {
+    if (db?.timeanchors) {
+      const anchors = await db.timeanchors
+        .where("matchId")
+        .equals(matchId)
+        .toArray();
+      if (anchors.length > 0) {
+        recoveredPeriod = Math.max(...anchors.map((a) => a.periodNumber));
+      }
+    }
+
+    if (db?.matches && db?.tournaments && db?.sportconfigurations) {
+      const match = await db.matches.get(matchId);
+      if (match?.tournamentId) {
+        const tournament = await db.tournaments.get(match.tournamentId);
+        if (tournament?.configurationId) {
+          const config = await db.sportconfigurations.get(
+            tournament.configurationId,
+          );
+          if (config?.activePlayersLimit) {
+            activePlayersLimit = config.activePlayersLimit;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to calculate match recovery state:", err);
+  }
+
+  return { recoveredPeriod, activePlayersLimit };
+};
+
+/**
+ * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
+ * Safety check: verifies the match is still unfinished (both scores null) before deleting,
+ * and uses matchLineupId index to cascade deletion to playerpresences and gameevents.
+ */
+export const discardUnfinishedMatch = async (
+  matchId: string,
+): Promise<void> => {
+  if (!db?.matches) return;
+  await db.transaction(
+    "rw",
+    [
+      db.matches,
+      db.matchlineups,
+      db.playerpresences,
+      db.gameevents,
+      db.timeanchors,
+    ],
+    async () => {
+      const match = await db.matches.get(matchId);
+      if (match && match.homeScore == null && match.guestScore == null) {
+        const lineups = await db.matchlineups
+          .where("matchId")
+          .equals(matchId)
+          .toArray();
+        const lineupIds = lineups.map((l) => l.id);
+
+        if (lineupIds.length > 0) {
+          await db.playerpresences
+            .where("matchLineupId")
+            .anyOf(lineupIds)
+            .delete();
+          await db.gameevents.where("matchLineupId").anyOf(lineupIds).delete();
+        }
+
+        await db.matches.delete(matchId);
+        await db.matchlineups.where("matchId").equals(matchId).delete();
+        await db.timeanchors.where("matchId").equals(matchId).delete();
+      }
+    },
+  );
+};
+
 export const hydrateMatchData = async (
   matchId: string,
   teamId: string,

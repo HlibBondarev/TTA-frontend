@@ -7,9 +7,12 @@ import { useGameEvents } from "../hooks/useGameEvents";
 import { EditGameEventModal } from "./EditGameEventModal";
 import { ModalDialog } from "./ModalDialog";
 
+const EMPTY_ACTIONS: ActionEntry[] = [];
+
 export const ActionsLog: React.FC = () => {
   const activeMatchId = useAppSelector((state) => state.match.activeMatchId);
-  const recentActions = useAppSelector((state) => state.match.recentActions);
+  const rawRecentActions = useAppSelector((state) => state.match.recentActions);
+  const recentActions = rawRecentActions ?? EMPTY_ACTIONS;
 
   const { updateGameEvent, deleteGameEvent } = useGameEvents(
     activeMatchId || "",
