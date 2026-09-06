@@ -330,4 +330,90 @@ describe("MainDashboard Component", () => {
 
     expect(mockLogout).toHaveBeenCalledTimes(1);
   });
+
+  it("should preserve newer account's unfinished match if account changes while discard is pending", async () => {
+    const userAMatch = {
+      id: "m-userA-123",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+      userId: "auth0|user-coach",
+    };
+
+    const userBMatch = {
+      id: "m-userB-456",
+      homeTeamId: "team-3",
+      guestTeamId: "team-4",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+      userId: "auth0|user-B",
+    };
+
+    let resolveDiscard: () => void = () => {};
+    const deferredDiscard = new Promise<void>((resolve) => {
+      resolveDiscard = resolve;
+    });
+
+    vi.mocked(discardUnfinishedMatch).mockReturnValueOnce(deferredDiscard);
+    vi.mocked(checkUnfinishedMatch).mockImplementation((userId) => {
+      if (userId === "auth0|user-coach") {
+        return Promise.resolve(userAMatch);
+      }
+      if (userId === "auth0|user-B") {
+        return Promise.resolve(userBMatch);
+      }
+      return Promise.resolve(null);
+    });
+
+    const store = createTestStore();
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+
+    const discardBtn = screen.getByRole("button", { name: /Discard Match/i });
+    fireEvent.click(discardBtn);
+
+    // Switch account to User B while User A's discard is pending
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-B");
+    });
+
+    // Resolve User A's discard request
+    resolveDiscard();
+
+    // Verify User B's recovery prompt remains visible and wasn't purged
+    await waitFor(() => {
+      expect(
+        screen.getByRole("region", { name: "Session Recovery Prompt" }),
+      ).toBeDefined();
+      expect(screen.getByText("ID: m-userB-...")).toBeDefined();
+    });
+  });
 });

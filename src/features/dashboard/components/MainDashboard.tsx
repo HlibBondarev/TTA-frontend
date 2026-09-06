@@ -72,10 +72,13 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
 
   const handleDiscard = async () => {
     if (!activeUnfinishedMatch || isResuming) return;
+    const matchIdToDiscard = activeUnfinishedMatch.id;
     setIsResuming(true);
     try {
-      await discardUnfinishedMatch(activeUnfinishedMatch.id);
-      setUnfinishedMatch(null);
+      await discardUnfinishedMatch(matchIdToDiscard);
+      setUnfinishedMatch((prev) =>
+        prev?.id === matchIdToDiscard ? null : prev,
+      );
     } catch (err) {
       console.error("Failed to discard unfinished match:", err);
     } finally {
