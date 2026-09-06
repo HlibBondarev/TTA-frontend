@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useDispatch } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 import { setCurrentView } from "../../../store/slices/navigationSlice";
@@ -19,6 +19,11 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   const { user, logout } = useAuth0();
 
   const currentUserId = user?.sub ?? user?.email;
+  const currentUserIdRef = useRef(currentUserId);
+
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+  }, [currentUserId]);
 
   const [unfinishedMatch, setUnfinishedMatch] = useState<
     (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string }) | null
@@ -53,6 +58,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
 
   const handleResume = async () => {
     if (!activeUnfinishedMatch || isResuming) return;
+    const initiatedUserId = currentUserId;
     setIsResuming(true);
     try {
       if (onResumeMatch) {
@@ -64,23 +70,30 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         await onResumeMatch(activeUnfinishedMatch.id, teamToResume);
       }
     } finally {
-      setIsResuming(false);
+      if (currentUserIdRef.current === initiatedUserId) {
+        setIsResuming(false);
+      }
     }
   };
 
   const handleDiscard = async () => {
     if (!activeUnfinishedMatch || isResuming) return;
+    const initiatedUserId = currentUserId;
     const matchIdToDiscard = activeUnfinishedMatch.id;
     setIsResuming(true);
     try {
       await discardUnfinishedMatch(matchIdToDiscard);
-      setUnfinishedMatch((prev) =>
-        prev?.id === matchIdToDiscard ? null : prev,
-      );
+      if (currentUserIdRef.current === initiatedUserId) {
+        setUnfinishedMatch((prev) =>
+          prev?.id === matchIdToDiscard ? null : prev,
+        );
+      }
     } catch (err) {
       console.error("Failed to discard unfinished match:", err);
     } finally {
-      setIsResuming(false);
+      if (currentUserIdRef.current === initiatedUserId) {
+        setIsResuming(false);
+      }
     }
   };
 

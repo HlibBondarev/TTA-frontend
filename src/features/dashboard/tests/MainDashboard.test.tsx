@@ -448,4 +448,70 @@ describe("MainDashboard Component", () => {
       screen.queryByRole("region", { name: "Session Recovery Prompt" }),
     ).toBeNull();
   });
+
+  it("should invalidate resume request if authenticated user identity changes while resume is in-flight", async () => {
+    const userAMatch = {
+      id: "m-userA-123",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+      userId: "auth0|user-coach",
+    };
+
+    let resolveResume: () => void = () => {};
+    const deferredResume = new Promise<void>((resolve) => {
+      resolveResume = resolve;
+    });
+
+    const onResumeMatchMock = vi.fn().mockReturnValue(deferredResume);
+
+    vi.mocked(checkUnfinishedMatch).mockImplementation((userId) => {
+      if (userId === "auth0|user-coach") {
+        return Promise.resolve(userAMatch);
+      }
+      return Promise.resolve(null);
+    });
+
+    const store = createTestStore();
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    const resumeBtn = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    fireEvent.click(resumeBtn);
+
+    expect(onResumeMatchMock).toHaveBeenCalledWith("m-userA-123", "team-1");
+
+    // Switch active user account while resume is in-flight
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    // Resolve deferred resume call
+    resolveResume();
+
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-B");
+    });
+
+    // Verify recovery prompt for Account A was cleared and not leaked to Account B
+    expect(
+      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeNull();
+  });
 });
