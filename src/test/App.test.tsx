@@ -17,6 +17,7 @@ import {
 } from "../services/hydrationService";
 
 let mockIsAuthenticated = true;
+let mockUser = { email: "tester@tta.com", sub: "auth0|tester-123" };
 
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
@@ -27,7 +28,9 @@ vi.mock("@auth0/auth0-react", () => ({
     getAccessTokenSilently: vi.fn().mockResolvedValue("mock-token"),
     loginWithRedirect: vi.fn(),
     logout: vi.fn(),
-    user: { email: "tester@tta.com", sub: "auth0|tester-123" },
+    get user() {
+      return mockUser;
+    },
   }),
 }));
 
@@ -60,7 +63,9 @@ vi.mock("../services/userMatchService", () => ({
 }));
 
 vi.mock("../services/hydrationService", () => ({
-  hydrateMatchData: vi.fn().mockResolvedValue(undefined),
+  hydrateMatchData: vi
+    .fn()
+    .mockResolvedValue({ success: true, isOfflineFallback: false }),
   checkUnfinishedMatch: vi.fn().mockResolvedValue(null),
   discardUnfinishedMatch: vi.fn().mockResolvedValue(undefined),
   getMatchRecoveryState: vi
@@ -122,6 +127,7 @@ describe("App Bootstrapping Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsAuthenticated = true;
+    mockUser = { email: "tester@tta.com", sub: "auth0|tester-123" };
   });
 
   it("should prevent tab unload when match session is active even during breaks", async () => {
@@ -379,6 +385,67 @@ describe("App Bootstrapping Component", () => {
       expect(getMatchRecoveryState).toHaveBeenCalledWith(
         "m-interrupted-failed",
       );
+      expect(store.getState().match.activeMatchId).toBeNull();
+      expect(store.getState().match.activeTeamId).toBeNull();
+    });
+  });
+
+  it("should abort setting active match if user changes while hydrateMatchData is in-flight during handleQuickStart", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "new-match-id-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam as never)
+      .mockResolvedValueOnce(mockGuestTeam as never);
+
+    let resolveHydrate: (val: {
+      success: boolean;
+      isOfflineFallback: boolean;
+    }) => void;
+    const hydratePromise = new Promise<{
+      success: boolean;
+      isOfflineFallback: boolean;
+    }>((resolve) => {
+      resolveHydrate = resolve;
+    });
+
+    vi.mocked(hydrateMatchData).mockReturnValueOnce(hydratePromise);
+
+    const store = createTestStore({
+      navigation: { currentView: "QUICK_START" },
+    });
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    // Simulate user identity change while hydration is pending
+    mockIsAuthenticated = true;
+    mockUser = { email: "otheruser@tta.com", sub: "auth0|other-user" };
+    rerender(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    // Resolve hydration promise after user change
+    resolveHydrate!({ success: true, isOfflineFallback: false });
+
+    await waitFor(() => {
+      expect(hydrateMatchData).toHaveBeenCalled();
       expect(store.getState().match.activeMatchId).toBeNull();
       expect(store.getState().match.activeTeamId).toBeNull();
     });

@@ -39,6 +39,13 @@ export const App: React.FC = () => {
     user,
   } = useAuth0();
 
+  const currentUserId = user?.sub ?? user?.email;
+  const currentUserIdRef = useRef(currentUserId);
+
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+  }, [currentUserId]);
+
   // Tab protection during active match session (even during inter-period breaks)
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -83,6 +90,8 @@ export const App: React.FC = () => {
     activePlayersLimit: number,
     selectedTeamId: string,
   ) => {
+    const initiatedUserId = currentUserId;
+
     dispatch(
       setPresenceLimits({
         limit: activePlayersLimit,
@@ -90,12 +99,17 @@ export const App: React.FC = () => {
       }),
     );
 
-    const currentUserId = user?.sub ?? user?.email;
-
     try {
-      await hydrateMatchData(matchId, selectedTeamId, currentUserId);
+      await hydrateMatchData(matchId, selectedTeamId, initiatedUserId);
     } catch (error) {
       console.error("Hydration failed (non-critical):", error);
+      return;
+    }
+
+    if (currentUserIdRef.current !== initiatedUserId) {
+      console.warn(
+        "Account changed during Quick Start hydration. Aborting session activation.",
+      );
       return;
     }
 

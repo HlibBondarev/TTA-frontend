@@ -127,6 +127,11 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   const dispatch = useDispatch();
   const { user } = useAuth0();
   const currentUserId = user?.sub ?? user?.email;
+  const currentUserIdRef = useRef(currentUserId);
+
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+  }, [currentUserId]);
 
   const [sports, setSports] = useState<SportLookup[]>([]);
   const [selectedSportId, setSelectedSportId] = useState<string | null>(null);
@@ -268,6 +273,8 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   const handleInitMatch = async () => {
     if (!selectedSportId || !selectedConfigId || isSubmitting) return;
 
+    const initiatedUserId = currentUserId;
+
     try {
       setIsSubmitting(true);
       setIsLoadingTeams(true);
@@ -283,27 +290,34 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
       let matchId = pendingMatchId;
 
-      if (matchId && !(await verifyMatchOwnership(matchId, currentUserId))) {
+      if (matchId && !(await verifyMatchOwnership(matchId, initiatedUserId))) {
         setPendingMatchId(null);
         setTeams(null);
         setSelectedTeamId(null);
         throw new Error("Match session belongs to another user.");
       }
 
+      if (currentUserIdRef.current !== initiatedUserId) return;
+
       if (!matchId) {
         try {
           matchId = await createQuickMatch(selectedSportId, selectedConfigId);
+          if (currentUserIdRef.current !== initiatedUserId) return;
           setPendingMatchId(matchId);
         } catch (err) {
-          setPendingMatchId(null);
+          if (currentUserIdRef.current === initiatedUserId) {
+            setPendingMatchId(null);
+          }
           throw err;
         }
       }
 
       const normalizedMatch = await fetchAndNormalizeMatch(
         matchId,
-        currentUserId,
+        initiatedUserId,
       );
+
+      if (currentUserIdRef.current !== initiatedUserId) return;
 
       // Store match locally
       if (db.matches) {
@@ -319,22 +333,29 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         );
       }
 
+      if (currentUserIdRef.current !== initiatedUserId) return;
+
       const [home, guest] = await Promise.all([
         teamService.getTeamById(normalizedMatch.homeTeamId),
         teamService.getTeamById(normalizedMatch.guestTeamId),
       ]);
 
+      if (currentUserIdRef.current !== initiatedUserId) return;
+
       setTeams({ home, guest });
       setSelectedTeamId((prev) => prev ?? home.id);
     } catch (err) {
+      if (currentUserIdRef.current !== initiatedUserId) return;
       setErrorMessage(
         err instanceof Error
           ? err.message
           : "Failed to initialize quick match session.",
       );
     } finally {
-      setIsSubmitting(false);
-      setIsLoadingTeams(false);
+      if (currentUserIdRef.current === initiatedUserId) {
+        setIsSubmitting(false);
+        setIsLoadingTeams(false);
+      }
     }
   };
 
@@ -348,6 +369,8 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       isSubmitting
     )
       return;
+
+    const initiatedUserId = currentUserId;
 
     const selectedConfig = configurations.find(
       (c) => c.id === selectedConfigId,
@@ -365,11 +388,14 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         selectedTeamId,
       );
     } catch (err) {
+      if (currentUserIdRef.current !== initiatedUserId) return;
       setErrorMessage(
         err instanceof Error ? err.message : "Failed to complete match setup.",
       );
     } finally {
-      setIsSubmitting(false);
+      if (currentUserIdRef.current === initiatedUserId) {
+        setIsSubmitting(false);
+      }
     }
   };
 
