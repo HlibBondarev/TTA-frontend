@@ -150,13 +150,20 @@ const fetchTournamentMetadata = async (
 };
 
 /**
- * Checks IndexedDB for an unfinished active match draft for session recovery gate.
+ * Checks IndexedDB for an unfinished active match draft associated with the current authenticated user.
  */
-export const checkUnfinishedMatch = async (): Promise<MatchLookup | null> => {
+export const checkUnfinishedMatch = async (
+  userId?: string,
+): Promise<MatchLookup | null> => {
   if (!db?.matches) return null;
   const matches = await db.matches.toArray();
   return (
-    matches.find((m) => m.homeScore == null && m.guestScore == null) ?? null
+    matches.find(
+      (m) =>
+        m.homeScore == null &&
+        m.guestScore == null &&
+        (userId ? m.userId === userId : true),
+    ) ?? null
   );
 };
 
@@ -248,6 +255,7 @@ export const discardUnfinishedMatch = async (
 export const hydrateMatchData = async (
   matchId: string,
   teamId: string,
+  userId?: string,
 ): Promise<{ success: boolean; isOfflineFallback: boolean }> => {
   try {
     const [match, lineups, anchors, presence, events, definitions] =
@@ -286,7 +294,10 @@ export const hydrateMatchData = async (
         db.eventdefinitions,
       ],
       async () => {
-        if (match) await db.matches.put(match);
+        if (match) {
+          const matchToStore = userId ? { ...match, userId } : match;
+          await db.matches.put(matchToStore);
+        }
         if (tournament) await db.tournaments.put(tournament);
         if (sportConfig) await db.sportconfigurations.put(sportConfig);
 

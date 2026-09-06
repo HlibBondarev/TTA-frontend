@@ -27,7 +27,7 @@ vi.mock("@auth0/auth0-react", () => ({
     getAccessTokenSilently: vi.fn().mockResolvedValue("mock-token"),
     loginWithRedirect: vi.fn(),
     logout: vi.fn(),
-    user: { email: "tester@tta.com" },
+    user: { email: "tester@tta.com", sub: "auth0|tester-123" },
   }),
 }));
 
@@ -227,7 +227,7 @@ describe("App Bootstrapping Component", () => {
     expect(await screen.findByText("Match Setup Wizard")).toBeDefined();
   });
 
-  it("should execute quick start flow with team selection, hydrate data, set match and team IDs in Redux, and render TTAConsole", async () => {
+  it("should execute quick start flow with team selection, hydrate data with authenticated userId, set match and team IDs in Redux, and render TTAConsole", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -265,6 +265,7 @@ describe("App Bootstrapping Component", () => {
       expect(hydrateMatchData).toHaveBeenCalledWith(
         "new-match-id-123",
         "team-home-1",
+        "auth0|tester-123",
       );
       expect(store.getState().presence.activePlayersLimit).toBe(5);
       expect(store.getState().match.activeMatchId).toBe("new-match-id-123");

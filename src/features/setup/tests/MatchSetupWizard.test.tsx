@@ -10,6 +10,12 @@ import { db } from "../../../db/ttaDatabase";
 import navigationReducer from "../../../store/slices/navigationSlice";
 import type { TeamLookup, MatchLookup } from "../../../db/ttaDatabase";
 
+vi.mock("@auth0/auth0-react", () => ({
+  useAuth0: () => ({
+    user: { email: "tester@tta.com", sub: "auth0|user-tester" },
+  }),
+}));
+
 vi.mock("../../../services/sportService", () => ({
   sportService: {
     getSports: vi.fn(),
@@ -385,6 +391,7 @@ describe("MatchSetupWizard Component", () => {
           homeTeamId: "team-home",
           guestTeamId: "team-guest",
           tournamentId: "tourn-789",
+          userId: "auth0|user-tester",
         }),
       );
       expect(teamService.getTeamById).toHaveBeenCalledWith("team-home");
@@ -720,7 +727,7 @@ describe("MatchSetupWizard Component", () => {
     });
   });
 
-  it("should persist selected config, match and tournament fallback to IndexedDB on handleInitMatch", async () => {
+  it("should persist selected config, match with userId and tournament fallback to IndexedDB on handleInitMatch", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -749,7 +756,10 @@ describe("MatchSetupWizard Component", () => {
     await waitFor(() => {
       expect(db.sportconfigurations.put).toHaveBeenCalledWith(mockConfigs[0]);
       expect(db.matches.put).toHaveBeenCalledWith(
-        expect.objectContaining({ id: "match-123" }),
+        expect.objectContaining({
+          id: "match-123",
+          userId: "auth0|user-tester",
+        }),
       );
       expect(db.tournaments.put).toHaveBeenCalledWith(
         expect.objectContaining({

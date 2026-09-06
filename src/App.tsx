@@ -36,6 +36,7 @@ export const App: React.FC = () => {
     isAuthenticated,
     isLoading,
     loginWithRedirect,
+    user,
   } = useAuth0();
 
   // Tab protection during active match session (even during inter-period breaks)
@@ -89,8 +90,10 @@ export const App: React.FC = () => {
       }),
     );
 
+    const currentUserId = user?.sub ?? user?.email;
+
     try {
-      await hydrateMatchData(matchId, selectedTeamId);
+      await hydrateMatchData(matchId, selectedTeamId, currentUserId);
     } catch (error) {
       console.error("Hydration failed (non-critical):", error);
       return;

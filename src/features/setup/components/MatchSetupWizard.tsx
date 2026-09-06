@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useDispatch } from "react-redux";
+import { useAuth0 } from "@auth0/auth0-react";
 import { sportService } from "../../../services/sportService";
 import { teamService } from "../../../services/teamService";
 import { apiClient } from "../../../api/client";
@@ -63,6 +64,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   onQuickStart,
 }) => {
   const dispatch = useDispatch();
+  const { user } = useAuth0();
 
   const [sports, setSports] = useState<SportLookup[]>([]);
   const [selectedSportId, setSelectedSportId] = useState<string | null>(null);
@@ -246,6 +248,8 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         throw new Error("Failed to load match details.");
       }
 
+      const currentUserId = user?.sub ?? user?.email;
+
       const normalizedMatch: MatchLookup = {
         ...match,
         id: match.id.trim(),
@@ -255,6 +259,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           typeof match.tournamentId === "string"
             ? match.tournamentId.trim()
             : "",
+        userId: currentUserId,
       };
 
       // Store match locally

@@ -65,7 +65,7 @@ describe("Hydration Service", () => {
 
   it("should return null for checkUnfinishedMatch when IndexedDB matches table is empty", async () => {
     vi.mocked(db.matches.toArray).mockResolvedValueOnce([]);
-    const unfinished = await checkUnfinishedMatch();
+    const unfinished = await checkUnfinishedMatch("user-1");
     expect(unfinished).toBeNull();
   });
 
@@ -82,6 +82,7 @@ describe("Hydration Service", () => {
       homeScore: null,
       guestScore: null,
       createdAt: "2026-09-01T10:00:00Z",
+      userId: "user-1",
     };
 
     const secondDraft: MatchLookup = {
@@ -96,6 +97,7 @@ describe("Hydration Service", () => {
       homeScore: null,
       guestScore: null,
       createdAt: "2026-09-01T10:30:00Z",
+      userId: "user-1",
     };
 
     vi.mocked(db.matches.toArray).mockResolvedValueOnce([
@@ -103,8 +105,34 @@ describe("Hydration Service", () => {
       secondDraft,
     ]);
 
-    const unfinished = await checkUnfinishedMatch();
+    const unfinished = await checkUnfinishedMatch("user-1");
     expect(unfinished).toEqual(firstDraft);
+  });
+
+  it("should return unfinished match only if it belongs to the authenticated userId", async () => {
+    const userAMatch: MatchLookup = {
+      id: "m-active-userA",
+      tournamentId: "t-1",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      scheduledAt: "2026-09-01T10:00:00Z",
+      matchNumber: "1",
+      venue: "Arena 1",
+      temperature: 22,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "2026-09-01T10:00:00Z",
+      userId: "user-A",
+    };
+
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([userAMatch]);
+
+    const unfinishedForUserB = await checkUnfinishedMatch("user-B");
+    expect(unfinishedForUserB).toBeNull();
+
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([userAMatch]);
+    const unfinishedForUserA = await checkUnfinishedMatch("user-A");
+    expect(unfinishedForUserA).toEqual(userAMatch);
   });
 
   it("should calculate match recovery state from timeanchors and sportconfigurations", async () => {
@@ -219,7 +247,7 @@ describe("Hydration Service", () => {
     expect(mockDelete).not.toHaveBeenCalled();
   });
 
-  it("successfully fetches server data with team-specific lineup endpoint and writes to IndexedDB", async () => {
+  it("successfully fetches server data with team-specific lineup endpoint and writes to IndexedDB with userId", async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
       .mockResolvedValueOnce([{ id: "l1", matchId }])
@@ -277,7 +305,11 @@ describe("Hydration Service", () => {
       await callback();
     }) as unknown as typeof db.transaction);
 
-    const result = await hydrateMatchData(matchId, teamId);
+    const result = await hydrateMatchData(
+      matchId,
+      teamId,
+      "user-authenticated",
+    );
 
     expect(result).toEqual({ success: true, isOfflineFallback: false });
     expect(apiClient.get).toHaveBeenCalledWith(
@@ -286,6 +318,7 @@ describe("Hydration Service", () => {
     expect(db.matches.put).toHaveBeenCalledWith({
       id: matchId,
       title: "Match 1",
+      userId: "user-authenticated",
     });
     expect(db.matchlineups.bulkPut).toHaveBeenCalledWith([
       { id: "l1", matchId },

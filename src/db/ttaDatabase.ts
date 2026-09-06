@@ -75,6 +75,7 @@ export interface MatchLookup {
   homeScore: number | null;
   guestScore: number | null;
   createdAt: string;
+  userId?: string;
 }
 
 export interface MatchLineupLookup {
@@ -165,7 +166,7 @@ export class TTADatabase extends Dexie {
       players: "id, homeClubId, lastName",
       playerrosters: "id, playerId, tournamentId, teamId, number",
       teams: "id, clubId, sportId",
-      matches: "id, tournamentId, homeTeamId, guestTeamId, scheduledAt",
+      matches: "id, tournamentId, homeTeamId, guestTeamId, scheduledAt, userId",
       matchlineups: "id, matchId, playerRosterId, number",
       eventdefinitions: "id, sportId, shortName",
       gameevents:

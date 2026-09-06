@@ -27,7 +27,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     let isMounted = true;
     const checkForInterruptedMatch = async () => {
       try {
-        const match = await checkUnfinishedMatch();
+        const currentUserId = user?.sub ?? user?.email;
+        const match = await checkUnfinishedMatch(currentUserId);
         if (isMounted) {
           setUnfinishedMatch(match);
         }
@@ -40,7 +41,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [user?.sub, user?.email]);
 
   const handleResume = async () => {
     if (!unfinishedMatch || isResuming) return;

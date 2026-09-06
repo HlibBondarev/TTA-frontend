@@ -12,10 +12,13 @@ import {
 } from "../../../services/hydrationService";
 
 const mockLogout = vi.fn();
+let mockUser = { email: "coach@tta.com", sub: "auth0|user-coach" };
 
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
-    user: { email: "coach@tta.com", name: "Coach User" },
+    get user() {
+      return mockUser;
+    },
     logout: mockLogout,
   }),
 }));
@@ -36,6 +39,7 @@ const createTestStore = () => {
 describe("MainDashboard Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUser = { email: "coach@tta.com", sub: "auth0|user-coach" };
   });
 
   it("should render user profile and navigation cards", () => {
@@ -54,7 +58,7 @@ describe("MainDashboard Component", () => {
     expect(screen.getByText("Tournaments")).toBeDefined();
   });
 
-  it("should display Session Recovery prompt when an unfinished match is found", async () => {
+  it("should display Session Recovery prompt when an unfinished match is found for current user", async () => {
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-unfinished-123",
       homeTeamId: "team-1",
@@ -67,6 +71,7 @@ describe("MainDashboard Component", () => {
       homeScore: null,
       guestScore: null,
       createdAt: "",
+      userId: "auth0|user-coach",
     });
 
     const store = createTestStore();
@@ -77,10 +82,35 @@ describe("MainDashboard Component", () => {
       </Provider>,
     );
 
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-coach");
+    });
+
     expect(
       await screen.findByRole("region", { name: "Session Recovery Prompt" }),
     ).toBeDefined();
     expect(screen.getByText(/Interrupted Match Found/i)).toBeDefined();
+  });
+
+  it("should not display unfinished match recovery prompt if current user does not match the unfinished match owner", async () => {
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce(null);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-B");
+    });
+
+    expect(
+      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeNull();
   });
 
   it("should trigger onResumeMatch callback when clicking Resume Match button", async () => {
