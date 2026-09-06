@@ -245,6 +245,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     setSelectedTeamId(null);
     setIsSubmitting(false);
     setIsLoadingTeams(false);
+    setErrorMessage(null);
   }
 
   const loadConfigurations = useCallback(

@@ -118,6 +118,19 @@ describe("MatchSetupWizard Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(sportService.getSports).mockReset();
+    vi.mocked(sportService.getSportConfigurations).mockReset();
+    vi.mocked(teamService.getTeamById).mockReset();
+    vi.mocked(apiClient.get).mockReset();
+    vi.mocked(apiClient.post).mockReset();
+    vi.mocked(db.sports.bulkPut).mockReset();
+    vi.mocked(db.sportconfigurations.bulkPut).mockReset();
+    vi.mocked(db.sportconfigurations.put).mockReset();
+    vi.mocked(db.matches.put).mockReset();
+    vi.mocked(db.matches.get).mockReset();
+    vi.mocked(db.matches.delete).mockReset();
+    vi.mocked(db.tournaments.get).mockReset().mockResolvedValue(null);
+    vi.mocked(db.tournaments.put).mockReset();
     mockUser = { email: "tester@tta.com", sub: "auth0|user-tester" };
   });
 
@@ -1096,5 +1109,52 @@ describe("MatchSetupWizard Component", () => {
     });
 
     expect(db.matches.put).not.toHaveBeenCalled();
+  });
+
+  it("should clear error message when authenticated user identity changes", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    // Reject POST request directly to prevent proceeding to GET details fetch
+    vi.mocked(apiClient.post).mockRejectedValueOnce(
+      new Error("User 1 error message"),
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    // Assert initial error message from User 1 is displayed
+    expect(await screen.findByText("User 1 error message")).toBeDefined();
+
+    // Prepare fresh resolution mocks for User 2 reconnect flow
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-user2" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    // Change authenticated user identity while wizard remains mounted
+    mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
+
+    // Rerender component with updated mockUser context
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={vi.fn()} />
+      </Provider>,
+    );
+
+    // Verify error banner is completely cleared for the new user
+    await waitFor(() => {
+      expect(screen.queryByText("User 1 error message")).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
   });
 });
