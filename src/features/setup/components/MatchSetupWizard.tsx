@@ -23,6 +23,22 @@ interface MatchSetupWizardProps {
   ) => Promise<void>;
 }
 
+class StaleOperationError extends Error {
+  constructor() {
+    super("Operation cancelled due to user account change.");
+    this.name = "StaleOperationError";
+  }
+}
+
+function checkUserFreshness(
+  initiatedUserId: string | undefined,
+  currentUserIdRef: React.RefObject<string | undefined>,
+): void {
+  if (currentUserIdRef.current !== initiatedUserId) {
+    throw new StaleOperationError();
+  }
+}
+
 async function ensureTournamentPersisted(
   tournamentId: string,
   sportId: string,
@@ -119,6 +135,66 @@ async function fetchAndNormalizeMatch(
       typeof match.tournamentId === "string" ? match.tournamentId.trim() : "",
     userId: currentUserId,
   };
+}
+
+async function saveSelectedConfig(
+  selectedConfigId: string,
+  configurations: SportConfigurationLookup[],
+): Promise<void> {
+  const selectedConfig = configurations.find((c) => c.id === selectedConfigId);
+  if (selectedConfig && db.sportconfigurations) {
+    await db.sportconfigurations.put(selectedConfig);
+  }
+}
+
+async function resolveMatchSessionId(
+  pendingMatchId: string | null,
+  initiatedUserId: string | undefined,
+  sportId: string,
+  configId: string,
+  verifyFreshness: () => void,
+): Promise<string> {
+  let matchId = pendingMatchId;
+
+  if (matchId && !(await verifyMatchOwnership(matchId, initiatedUserId))) {
+    throw new Error("Match session belongs to another user.");
+  }
+
+  verifyFreshness();
+
+  if (!matchId) {
+    matchId = await createQuickMatch(sportId, configId);
+    verifyFreshness();
+  }
+
+  return matchId;
+}
+
+async function persistMatchLocally(
+  normalizedMatch: MatchLookup,
+  verifyFreshness: () => void,
+): Promise<void> {
+  if (!db.matches) return;
+  await db.matches.put(normalizedMatch);
+  try {
+    verifyFreshness();
+  } catch (err) {
+    await db.matches.delete(normalizedMatch.id);
+    throw err;
+  }
+}
+
+async function loadMatchTeams(
+  homeTeamId: string,
+  guestTeamId: string,
+  verifyFreshness: () => void,
+): Promise<{ home: TeamLookup; guest: TeamLookup }> {
+  const [home, guest] = await Promise.all([
+    teamService.getTeamById(homeTeamId),
+    teamService.getTeamById(guestTeamId),
+  ]);
+  verifyFreshness();
+  return { home, guest };
 }
 
 export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
@@ -274,81 +350,62 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     if (!selectedSportId || !selectedConfigId || isSubmitting) return;
 
     const initiatedUserId = currentUserId;
+    const verifyFreshness = () =>
+      checkUserFreshness(initiatedUserId, currentUserIdRef);
 
     try {
       setIsSubmitting(true);
       setIsLoadingTeams(true);
       setErrorMessage(null);
 
-      // Ensure the chosen configuration is explicitly in Dexie before proceeding
-      const selectedConfig = configurations.find(
-        (c) => c.id === selectedConfigId,
+      await saveSelectedConfig(selectedConfigId, configurations);
+
+      const matchId = await resolveMatchSessionId(
+        pendingMatchId,
+        initiatedUserId,
+        selectedSportId,
+        selectedConfigId,
+        verifyFreshness,
       );
-      if (selectedConfig && db.sportconfigurations) {
-        await db.sportconfigurations.put(selectedConfig);
-      }
-
-      let matchId = pendingMatchId;
-
-      if (matchId && !(await verifyMatchOwnership(matchId, initiatedUserId))) {
-        setPendingMatchId(null);
-        setTeams(null);
-        setSelectedTeamId(null);
-        throw new Error("Match session belongs to another user.");
-      }
-
-      if (currentUserIdRef.current !== initiatedUserId) return;
-
-      if (!matchId) {
-        try {
-          matchId = await createQuickMatch(selectedSportId, selectedConfigId);
-          if (currentUserIdRef.current !== initiatedUserId) return;
-          setPendingMatchId(matchId);
-        } catch (err) {
-          if (currentUserIdRef.current === initiatedUserId) {
-            setPendingMatchId(null);
-          }
-          throw err;
-        }
-      }
+      setPendingMatchId(matchId);
 
       const normalizedMatch = await fetchAndNormalizeMatch(
         matchId,
         initiatedUserId,
       );
+      verifyFreshness();
 
-      if (currentUserIdRef.current !== initiatedUserId) return;
+      await persistMatchLocally(normalizedMatch, verifyFreshness);
 
-      // Store match locally and verify identity after write completion
-      if (db.matches) {
-        await db.matches.put(normalizedMatch);
-        if (currentUserIdRef.current !== initiatedUserId) {
-          await db.matches.delete(normalizedMatch.id);
-          return;
-        }
-      }
-
-      // If match points to a tournament, ensure tournament is also stored
       if (normalizedMatch.tournamentId) {
         await ensureTournamentPersisted(
           normalizedMatch.tournamentId,
           selectedSportId,
           selectedConfigId,
         );
-        if (currentUserIdRef.current !== initiatedUserId) return;
+        verifyFreshness();
       }
 
-      const [home, guest] = await Promise.all([
-        teamService.getTeamById(normalizedMatch.homeTeamId),
-        teamService.getTeamById(normalizedMatch.guestTeamId),
-      ]);
+      const loadedTeams = await loadMatchTeams(
+        normalizedMatch.homeTeamId,
+        normalizedMatch.guestTeamId,
+        verifyFreshness,
+      );
 
-      if (currentUserIdRef.current !== initiatedUserId) return;
-
-      setTeams({ home, guest });
-      setSelectedTeamId((prev) => prev ?? home.id);
+      setTeams(loadedTeams);
+      setSelectedTeamId((prev) => prev ?? loadedTeams.home.id);
     } catch (err) {
-      if (currentUserIdRef.current !== initiatedUserId) return;
+      if (err instanceof StaleOperationError) return;
+
+      if (
+        err instanceof Error &&
+        err.message === "Match session belongs to another user."
+      ) {
+        setPendingMatchId(null);
+        setTeams(null);
+        setSelectedTeamId(null);
+      }
+
       setErrorMessage(
         err instanceof Error
           ? err.message
@@ -374,6 +431,8 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       return;
 
     const initiatedUserId = currentUserId;
+    const verifyFreshness = () =>
+      checkUserFreshness(initiatedUserId, currentUserIdRef);
 
     const selectedConfig = configurations.find(
       (c) => c.id === selectedConfigId,
@@ -390,8 +449,9 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         activePlayersLimit,
         selectedTeamId,
       );
+      verifyFreshness();
     } catch (err) {
-      if (currentUserIdRef.current !== initiatedUserId) return;
+      if (err instanceof StaleOperationError) return;
       setErrorMessage(
         err instanceof Error ? err.message : "Failed to complete match setup.",
       );
