@@ -60,6 +60,67 @@ async function ensureTournamentPersisted(
   }
 }
 
+async function verifyMatchOwnership(
+  matchId: string,
+  currentUserId: string | undefined,
+): Promise<boolean> {
+  if (!db.matches) return true;
+  const existingLocalMatch = await db.matches.get(matchId);
+  if (
+    existingLocalMatch?.userId &&
+    existingLocalMatch.userId !== currentUserId
+  ) {
+    return false;
+  }
+  return true;
+}
+
+async function createQuickMatch(
+  sportId: string,
+  configurationId: string,
+): Promise<string> {
+  const response = await apiClient.post<{ id: string }>("/Matches/quick", {
+    sportId,
+    configurationId,
+  });
+
+  const matchId = typeof response?.id === "string" ? response.id.trim() : "";
+  if (!matchId) {
+    throw new Error("Failed to initialize quick match session.");
+  }
+
+  return matchId;
+}
+
+async function fetchAndNormalizeMatch(
+  matchId: string,
+  currentUserId: string | undefined,
+): Promise<MatchLookup> {
+  const match = await apiClient.get<MatchLookup>(`/Matches/${matchId}`);
+
+  const isValidString = (val: unknown): val is string =>
+    typeof val === "string" && val.trim().length > 0;
+
+  if (
+    !match ||
+    !isValidString(match.id) ||
+    !isValidString(match.homeTeamId) ||
+    !isValidString(match.guestTeamId)
+  ) {
+    throw new Error("Failed to load match details.");
+  }
+
+  return {
+    ...match,
+    id: match.id.trim(),
+    homeTeamId: match.homeTeamId.trim(),
+    guestTeamId: match.guestTeamId.trim(),
+    tournamentId:
+      typeof match.tournamentId === "string" ? match.tournamentId.trim() : "",
+    userId: currentUserId,
+  };
+}
+
 export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   onQuickStart,
 }) => {
@@ -222,66 +283,27 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
       let matchId = pendingMatchId;
 
-      if (matchId && db.matches) {
-        const existingLocalMatch = await db.matches.get(matchId);
-        if (
-          existingLocalMatch?.userId &&
-          existingLocalMatch.userId !== currentUserId
-        ) {
-          setPendingMatchId(null);
-          setTeams(null);
-          setSelectedTeamId(null);
-          throw new Error("Match session belongs to another user.");
-        }
+      if (matchId && !(await verifyMatchOwnership(matchId, currentUserId))) {
+        setPendingMatchId(null);
+        setTeams(null);
+        setSelectedTeamId(null);
+        throw new Error("Match session belongs to another user.");
       }
 
       if (!matchId) {
-        const response = await apiClient.post<{ id: string }>(
-          "/Matches/quick",
-          {
-            sportId: selectedSportId,
-            configurationId: selectedConfigId,
-          },
-        );
-
-        if (
-          !response ||
-          typeof response.id !== "string" ||
-          !response.id.trim()
-        ) {
+        try {
+          matchId = await createQuickMatch(selectedSportId, selectedConfigId);
+          setPendingMatchId(matchId);
+        } catch (err) {
           setPendingMatchId(null);
-          throw new Error("Failed to initialize quick match session.");
+          throw err;
         }
-
-        matchId = response.id.trim();
-        setPendingMatchId(matchId);
       }
 
-      const match = await apiClient.get<MatchLookup>(`/Matches/${matchId}`);
-
-      const isValidString = (val: unknown): val is string =>
-        typeof val === "string" && val.trim().length > 0;
-
-      if (
-        !match ||
-        !isValidString(match.id) ||
-        !isValidString(match.homeTeamId) ||
-        !isValidString(match.guestTeamId)
-      ) {
-        throw new Error("Failed to load match details.");
-      }
-
-      const normalizedMatch: MatchLookup = {
-        ...match,
-        id: match.id.trim(),
-        homeTeamId: match.homeTeamId.trim(),
-        guestTeamId: match.guestTeamId.trim(),
-        tournamentId:
-          typeof match.tournamentId === "string"
-            ? match.tournamentId.trim()
-            : "",
-        userId: currentUserId,
-      };
+      const normalizedMatch = await fetchAndNormalizeMatch(
+        matchId,
+        currentUserId,
+      );
 
       // Store match locally
       if (db.matches) {
