@@ -988,4 +988,59 @@ describe("MatchSetupWizard Component", () => {
       expect(screen.queryByText("3. Select Team to Track")).toBeNull();
     });
   });
+
+  it("should NOT delete existing match record if record existed before put and user identity changes while pending", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValue(mockHomeTeam)
+      .mockResolvedValue(mockGuestTeam);
+
+    // Simulate match already existing in IndexedDB before write
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "match-123",
+      userId: "auth0|user-tester",
+    } as never);
+
+    let resolvePut: () => void;
+    const putPromise = new Promise<void>((resolve) => {
+      resolvePut = resolve;
+    });
+
+    vi.mocked(db.matches.put).mockImplementationOnce(() => putPromise as never);
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    await waitFor(() => {
+      expect(db.matches.put).toHaveBeenCalled();
+    });
+
+    // Change authenticated user identity while db.matches.put is pending
+    mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={vi.fn()} />
+      </Provider>,
+    );
+
+    // Resolve the pending db.matches.put write operation
+    resolvePut!();
+
+    // Verify db.matches.delete was NOT called because the record existed before
+    await waitFor(() => {
+      expect(db.matches.delete).not.toHaveBeenCalled();
+      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+    });
+  });
 });

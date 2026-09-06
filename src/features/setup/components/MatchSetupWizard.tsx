@@ -175,11 +175,14 @@ async function persistMatchLocally(
   verifyFreshness: () => void,
 ): Promise<void> {
   if (!db.matches) return;
+  const existedBefore = Boolean(await db.matches.get(normalizedMatch.id));
   await db.matches.put(normalizedMatch);
   try {
     verifyFreshness();
   } catch (err) {
-    await db.matches.delete(normalizedMatch.id);
+    if (!existedBefore) {
+      await db.matches.delete(normalizedMatch.id);
+    }
     throw err;
   }
 }
