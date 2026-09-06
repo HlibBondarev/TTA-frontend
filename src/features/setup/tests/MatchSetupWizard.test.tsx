@@ -1160,4 +1160,46 @@ describe("MatchSetupWizard Component", () => {
       expect(screen.queryByRole("alert")).toBeNull();
     });
   });
+
+  it("should abort IndexedDB writes and match setup if user account changes before saveSelectedConfig completes", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    let resolveConfigPut: () => void;
+    const configPutPromise = new Promise<void>((resolve) => {
+      resolveConfigPut = resolve;
+    });
+
+    vi.mocked(db.sportconfigurations.put).mockImplementationOnce(
+      () => configPutPromise as never,
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    // Change authenticated user identity while saveSelectedConfig is pending
+    mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={vi.fn()} />
+      </Provider>,
+    );
+
+    // Resolve pending config put
+    resolveConfigPut!();
+    await configPutPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Verify subsequent IndexedDB match writes were aborted for the stale operation
+    expect(db.matches.put).not.toHaveBeenCalled();
+    expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+  });
 });

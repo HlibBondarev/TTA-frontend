@@ -43,6 +43,7 @@ async function ensureTournamentPersisted(
   tournamentId: string,
   sportId: string,
   configurationId: string,
+  verifyFreshness: () => void,
 ): Promise<void> {
   if (!db.tournaments) return;
 
@@ -53,13 +54,19 @@ async function ensureTournamentPersisted(
       configurationId: string;
     }>(`/Tournaments/${tournamentId}`);
 
+    verifyFreshness();
+
     if (tournament) {
       await db.tournaments.put(
         tournament as unknown as Parameters<typeof db.tournaments.put>[0],
       );
     }
-  } catch {
+  } catch (err) {
+    if (err instanceof StaleOperationError) throw err;
+
     const existingTourn = await db.tournaments.get(tournamentId);
+    verifyFreshness();
+
     if (!existingTourn) {
       await db.tournaments.put({
         id: tournamentId,
@@ -140,7 +147,9 @@ async function fetchAndNormalizeMatch(
 async function saveSelectedConfig(
   selectedConfigId: string,
   configurations: SportConfigurationLookup[],
+  verifyFreshness: () => void,
 ): Promise<void> {
+  verifyFreshness();
   const selectedConfig = configurations.find((c) => c.id === selectedConfigId);
   if (selectedConfig && db.sportconfigurations) {
     await db.sportconfigurations.put(selectedConfig);
@@ -175,7 +184,9 @@ async function persistMatchLocally(
   verifyFreshness: () => void,
 ): Promise<void> {
   if (!db.matches) return;
+  verifyFreshness();
   const existedBefore = Boolean(await db.matches.get(normalizedMatch.id));
+  verifyFreshness();
   await db.matches.put(normalizedMatch);
   try {
     verifyFreshness();
@@ -208,9 +219,10 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   const currentUserId = user?.sub ?? user?.email;
   const currentUserIdRef = useRef(currentUserId);
 
-  useEffect(() => {
+  // Synchronously update ref during render phase when user identity changes without violating ESLint rules
+  if (currentUserIdRef.current !== currentUserId) {
     currentUserIdRef.current = currentUserId;
-  }, [currentUserId]);
+  }
 
   const [sports, setSports] = useState<SportLookup[]>([]);
   const [selectedSportId, setSelectedSportId] = useState<string | null>(null);
@@ -364,7 +376,11 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       setIsLoadingTeams(true);
       setErrorMessage(null);
 
-      await saveSelectedConfig(selectedConfigId, configurations);
+      await saveSelectedConfig(
+        selectedConfigId,
+        configurations,
+        verifyFreshness,
+      );
 
       const matchId = await resolveMatchSessionId(
         pendingMatchId,
@@ -388,6 +404,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           normalizedMatch.tournamentId,
           selectedSportId,
           selectedConfigId,
+          verifyFreshness,
         );
         verifyFreshness();
       }

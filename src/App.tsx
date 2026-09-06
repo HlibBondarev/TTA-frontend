@@ -42,9 +42,10 @@ export const App: React.FC = () => {
   const currentUserId = user?.sub ?? user?.email;
   const currentUserIdRef = useRef(currentUserId);
 
-  useEffect(() => {
+  // Synchronously sync ref if user changes during render without violating ESLint rules
+  if (currentUserIdRef.current !== currentUserId) {
     currentUserIdRef.current = currentUserId;
-  }, [currentUserId]);
+  }
 
   // Tab protection during active match session (even during inter-period breaks)
   useEffect(() => {
