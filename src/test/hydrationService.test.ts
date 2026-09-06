@@ -69,6 +69,15 @@ describe("Hydration Service", () => {
     expect(unfinished).toBeNull();
   });
 
+  it("should return null for checkUnfinishedMatch when userId argument is missing or empty", async () => {
+    const unfinishedNoUser = await checkUnfinishedMatch();
+    expect(unfinishedNoUser).toBeNull();
+
+    const unfinishedEmptyUser = await checkUnfinishedMatch("");
+    expect(unfinishedEmptyUser).toBeNull();
+    expect(db.matches.toArray).not.toHaveBeenCalled();
+  });
+
   it("should return the first match for checkUnfinishedMatch when IndexedDB contains multiple match drafts", async () => {
     const firstDraft: MatchLookup = {
       id: "m-active-1",
@@ -719,14 +728,24 @@ describe("Hydration Service", () => {
   });
 
   it("should skip finished matches and return the first unfinished match when IndexedDB contains multiple match rows", async () => {
-    const completedMatch = { id: "m-completed", homeScore: 10, guestScore: 8 };
-    const activeMatch = { id: "m-active", homeScore: null, guestScore: null };
+    const completedMatch = {
+      id: "m-completed",
+      homeScore: 10,
+      guestScore: 8,
+      userId: "user-1",
+    };
+    const activeMatch = {
+      id: "m-active",
+      homeScore: null,
+      guestScore: null,
+      userId: "user-1",
+    };
     vi.mocked(db.matches.toArray).mockResolvedValueOnce([
       completedMatch as never,
       activeMatch as never,
     ]);
 
-    const unfinished = await checkUnfinishedMatch();
+    const unfinished = await checkUnfinishedMatch("user-1");
     expect(unfinished).toEqual(activeMatch);
   });
 
@@ -735,18 +754,20 @@ describe("Hydration Service", () => {
       id: "m-completed-1",
       homeScore: 10,
       guestScore: 8,
+      userId: "user-1",
     };
     const completedMatch2 = {
       id: "m-completed-2",
       homeScore: 5,
       guestScore: 3,
+      userId: "user-1",
     };
     vi.mocked(db.matches.toArray).mockResolvedValueOnce([
       completedMatch1 as never,
       completedMatch2 as never,
     ]);
 
-    const unfinished = await checkUnfinishedMatch();
+    const unfinished = await checkUnfinishedMatch("user-1");
     expect(unfinished).toBeNull();
   });
 });

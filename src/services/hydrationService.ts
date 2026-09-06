@@ -155,14 +155,11 @@ const fetchTournamentMetadata = async (
 export const checkUnfinishedMatch = async (
   userId?: string,
 ): Promise<MatchLookup | null> => {
-  if (!db?.matches) return null;
+  if (!db?.matches || !userId) return null;
   const matches = await db.matches.toArray();
   return (
     matches.find(
-      (m) =>
-        m.homeScore == null &&
-        m.guestScore == null &&
-        (userId ? m.userId === userId : true),
+      (m) => m.homeScore == null && m.guestScore == null && m.userId === userId,
     ) ?? null
   );
 };
