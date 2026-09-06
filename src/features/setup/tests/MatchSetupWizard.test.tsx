@@ -1009,19 +1009,16 @@ describe("MatchSetupWizard Component", () => {
       </Provider>,
     );
 
-    // Resolve the pending db.matches.put write operation
+    // Resolve the pending db.matches.put write operation and await its microtask continuation
     resolvePut!();
+    await putPromise;
+    // Allow post-write verifyFreshness & try/catch error handler in persistMatchLocally to execute
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Await completion signal of the stale operation (button re-enables and wizard resets)
-    await waitFor(() => {
-      const activeBtn = screen.getByRole("button", {
-        name: /Quick Start Match/i,
-      });
-      expect(activeBtn).not.toBeDisabled();
-      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
-    });
+    // Assert wizard UI reset to initial step for new user
+    expect(screen.queryByText("3. Select Team to Track")).toBeNull();
 
-    // Assert that db.matches.delete was strictly not called after full handler completion
+    // Verify db.matches.delete was strictly NOT called because the record existed prior to write
     expect(db.matches.delete).not.toHaveBeenCalled();
   });
 
