@@ -1043,4 +1043,50 @@ describe("MatchSetupWizard Component", () => {
       expect(screen.queryByText("3. Select Team to Track")).toBeNull();
     });
   });
+
+  it("should reset isSubmitting and isLoadingTeams flags when authenticated user identity changes while init is in progress", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    let resolvePost: (val: { id: string }) => void;
+    const postPromise = new Promise<{ id: string }>((resolve) => {
+      resolvePost = resolve;
+    });
+
+    vi.mocked(apiClient.post).mockReturnValueOnce(postPromise);
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    // Verify button shows loading text during POST
+    expect(
+      screen.getByRole("button", { name: /Initializing Match\.\.\./i }),
+    ).toBeDefined();
+
+    // Change authenticated user identity while POST is pending
+    mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={vi.fn()} />
+      </Provider>,
+    );
+
+    // Button should immediately revert to normal state and be enabled for the new account
+    await waitFor(() => {
+      const activeBtn = screen.getByRole("button", {
+        name: /Quick Start Match/i,
+      });
+      expect(activeBtn).not.toBeDisabled();
+    });
+
+    resolvePost!({ id: "match-deferred-123" });
+  });
 });
