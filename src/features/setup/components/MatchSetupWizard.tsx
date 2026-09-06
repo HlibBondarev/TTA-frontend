@@ -65,6 +65,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 }) => {
   const dispatch = useDispatch();
   const { user } = useAuth0();
+  const currentUserId = user?.sub ?? user?.email;
 
   const [sports, setSports] = useState<SportLookup[]>([]);
   const [selectedSportId, setSelectedSportId] = useState<string | null>(null);
@@ -89,6 +90,15 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const configRequestRef = useRef(0);
+
+  // Reset pending draft session during render phase if the authenticated user identity changes
+  const [prevUserId, setPrevUserId] = useState(currentUserId);
+  if (prevUserId !== currentUserId) {
+    setPrevUserId(currentUserId);
+    setPendingMatchId(null);
+    setTeams(null);
+    setSelectedTeamId(null);
+  }
 
   const loadConfigurations = useCallback(
     async (sportId: string, sportList: SportLookup[]) => {
@@ -212,6 +222,19 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
       let matchId = pendingMatchId;
 
+      if (matchId && db.matches) {
+        const existingLocalMatch = await db.matches.get(matchId);
+        if (
+          existingLocalMatch?.userId &&
+          existingLocalMatch.userId !== currentUserId
+        ) {
+          setPendingMatchId(null);
+          setTeams(null);
+          setSelectedTeamId(null);
+          throw new Error("Match session belongs to another user.");
+        }
+      }
+
       if (!matchId) {
         const response = await apiClient.post<{ id: string }>(
           "/Matches/quick",
@@ -247,8 +270,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       ) {
         throw new Error("Failed to load match details.");
       }
-
-      const currentUserId = user?.sub ?? user?.email;
 
       const normalizedMatch: MatchLookup = {
         ...match,

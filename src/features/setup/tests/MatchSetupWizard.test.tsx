@@ -10,9 +10,13 @@ import { db } from "../../../db/ttaDatabase";
 import navigationReducer from "../../../store/slices/navigationSlice";
 import type { TeamLookup, MatchLookup } from "../../../db/ttaDatabase";
 
+let mockUser = { email: "tester@tta.com", sub: "auth0|user-tester" };
+
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
-    user: { email: "tester@tta.com", sub: "auth0|user-tester" },
+    get user() {
+      return mockUser;
+    },
   }),
 }));
 
@@ -40,7 +44,7 @@ vi.mock("../../../db/ttaDatabase", () => ({
   db: {
     sports: { bulkPut: vi.fn() },
     sportconfigurations: { bulkPut: vi.fn(), put: vi.fn() },
-    matches: { put: vi.fn() },
+    matches: { put: vi.fn(), get: vi.fn() },
     tournaments: { get: vi.fn().mockResolvedValue(null), put: vi.fn() },
   },
 }));
@@ -114,6 +118,7 @@ describe("MatchSetupWizard Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUser = { email: "tester@tta.com", sub: "auth0|user-tester" };
   });
 
   const renderWithRedux = (
@@ -794,5 +799,106 @@ describe("MatchSetupWizard Component", () => {
         screen.getByText("No configurations available for this sport."),
       ).toBeDefined();
     });
+  });
+
+  it("should reset pending match draft state when authenticated user identity changes while mounted", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-user1" })
+      .mockResolvedValueOnce({ id: "match-user2" });
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({
+        id: "match-user1",
+        homeTeamId: "team-home",
+        guestTeamId: "team-guest",
+      } as MatchLookup)
+      .mockResolvedValueOnce({
+        id: "match-user2",
+        homeTeamId: "team-home",
+        guestTeamId: "team-guest",
+      } as MatchLookup);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValue(mockHomeTeam)
+      .mockResolvedValue(mockGuestTeam);
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    expect(await screen.findByText("Water Polo")).toBeDefined();
+
+    const quickStartBtn = screen.getByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+
+    // Change authenticated user identity while wizard remains mounted
+    mockUser = { email: "newuser@tta.com", sub: "auth0|user-new" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={vi.fn()} />
+      </Provider>,
+    );
+
+    // Pending draft state should be reset
+    await waitFor(() => {
+      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+    });
+
+    // Clicking Quick Start again should trigger a new quick match creation for the new user
+    const quickStartBtn2 = screen.getByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn2);
+
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+    expect(db.matches.put).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: "match-user2",
+        userId: "auth0|user-new",
+      }),
+    );
+  });
+
+  it("should reject operation and reset draft state when pendingMatchId belongs to a different user in IndexedDB", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockRejectedValueOnce(
+      new Error("Transient fetch error"),
+    );
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    expect(await screen.findByText("Transient fetch error")).toBeDefined();
+
+    // Simulate local db.matches returning an existing match owned by another user for this matchId
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "match-123",
+      userId: "auth0|other-user",
+    } as never);
+
+    // Simulate retrying handleInitMatch with pendingMatchId still in state
+    fireEvent.click(quickStartBtn);
+
+    expect(
+      await screen.findByText("Match session belongs to another user."),
+    ).toBeDefined();
+
+    expect(screen.queryByText("3. Select Team to Track")).toBeNull();
   });
 });
