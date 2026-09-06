@@ -18,16 +18,26 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   const dispatch = useDispatch();
   const { user, logout } = useAuth0();
 
+  const currentUserId = user?.sub ?? user?.email;
+
   const [unfinishedMatch, setUnfinishedMatch] = useState<
     (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string }) | null
   >(null);
   const [isResuming, setIsResuming] = useState(false);
 
+  // Derive active match for current user during render to avoid stale renders across account switches
+  const activeUnfinishedMatch =
+    unfinishedMatch &&
+    currentUserId &&
+    (!unfinishedMatch.userId || unfinishedMatch.userId === currentUserId)
+      ? unfinishedMatch
+      : null;
+
   useEffect(() => {
     let isMounted = true;
+
     const checkForInterruptedMatch = async () => {
       try {
-        const currentUserId = user?.sub ?? user?.email;
         const match = await checkUnfinishedMatch(currentUserId);
         if (isMounted) {
           setUnfinishedMatch(match);
@@ -41,19 +51,19 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [user?.sub, user?.email]);
+  }, [currentUserId]);
 
   const handleResume = async () => {
-    if (!unfinishedMatch || isResuming) return;
+    if (!activeUnfinishedMatch || isResuming) return;
     setIsResuming(true);
     try {
       if (onResumeMatch) {
         const teamToResume =
-          unfinishedMatch.trackedTeamId ||
-          unfinishedMatch.selectedTeamId ||
-          unfinishedMatch.homeTeamId ||
+          activeUnfinishedMatch.trackedTeamId ||
+          activeUnfinishedMatch.selectedTeamId ||
+          activeUnfinishedMatch.homeTeamId ||
           "";
-        await onResumeMatch(unfinishedMatch.id, teamToResume);
+        await onResumeMatch(activeUnfinishedMatch.id, teamToResume);
       }
     } finally {
       setIsResuming(false);
@@ -61,10 +71,10 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   };
 
   const handleDiscard = async () => {
-    if (!unfinishedMatch || isResuming) return;
+    if (!activeUnfinishedMatch || isResuming) return;
     setIsResuming(true);
     try {
-      await discardUnfinishedMatch(unfinishedMatch.id);
+      await discardUnfinishedMatch(activeUnfinishedMatch.id);
       setUnfinishedMatch(null);
     } catch (err) {
       console.error("Failed to discard unfinished match:", err);
@@ -97,7 +107,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
       </header>
 
       {/* Session Recovery Gate Prompt */}
-      {unfinishedMatch && (
+      {activeUnfinishedMatch && (
         <section
           aria-label="Session Recovery Prompt"
           className="mb-6 p-4 bg-amber-950/40 border border-amber-600/60 rounded-2xl shadow-xl flex flex-col space-y-3"
@@ -108,7 +118,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
               <span>Interrupted Match Found</span>
             </span>
             <span className="text-[10px] text-amber-300/80 font-mono">
-              ID: {unfinishedMatch.id.slice(0, 8)}...
+              ID: {activeUnfinishedMatch.id.slice(0, 8)}...
             </span>
           </div>
 

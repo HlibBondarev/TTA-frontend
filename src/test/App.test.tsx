@@ -279,6 +279,7 @@ describe("App Bootstrapping Component", () => {
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-interrupted",
       homeTeamId: "team-home-99",
+      userId: "auth0|tester-123",
     } as never);
 
     const store = createTestStore({
@@ -350,6 +351,7 @@ describe("App Bootstrapping Component", () => {
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-interrupted-failed",
       homeTeamId: "team-home-99",
+      userId: "auth0|tester-123",
     } as never);
 
     vi.mocked(getMatchRecoveryState).mockRejectedValueOnce(

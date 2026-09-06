@@ -113,6 +113,75 @@ describe("MainDashboard Component", () => {
     ).toBeNull();
   });
 
+  it("should clear unfinished match prompt immediately on user account change and not expose previous account's match during deferred lookup", async () => {
+    const userAMatch = {
+      id: "m-userA-123",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+      userId: "auth0|user-coach",
+    };
+
+    let resolveUserBLookup: (val: null) => void = () => {};
+    const deferredUserBLookup = new Promise<null>((resolve) => {
+      resolveUserBLookup = resolve;
+    });
+
+    vi.mocked(checkUnfinishedMatch).mockImplementation((userId) => {
+      if (userId === "auth0|user-coach") {
+        return Promise.resolve(userAMatch);
+      }
+      if (userId === "auth0|user-B") {
+        return deferredUserBLookup;
+      }
+      return Promise.resolve(null);
+    });
+
+    const store = createTestStore();
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+
+    // Switch active user account to User B
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+
+    rerender(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    // Verify Account A's recovery prompt is immediately removed while Account B lookup is pending
+    expect(
+      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeNull();
+
+    // Resolve deferred lookup for User B (returns null)
+    resolveUserBLookup(null);
+
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-B");
+    });
+
+    expect(
+      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeNull();
+  });
+
   it("should trigger onResumeMatch callback when clicking Resume Match button", async () => {
     const onResumeMatchMock = vi.fn().mockResolvedValue(undefined);
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
@@ -127,6 +196,7 @@ describe("MainDashboard Component", () => {
       homeScore: null,
       guestScore: null,
       createdAt: "",
+      userId: "auth0|user-coach",
     });
 
     const store = createTestStore();
@@ -165,6 +235,7 @@ describe("MainDashboard Component", () => {
       homeScore: null,
       guestScore: null,
       createdAt: "",
+      userId: "auth0|user-coach",
     } as never);
 
     const store = createTestStore();
@@ -201,6 +272,7 @@ describe("MainDashboard Component", () => {
       homeScore: null,
       guestScore: null,
       createdAt: "",
+      userId: "auth0|user-coach",
     });
 
     const store = createTestStore();
