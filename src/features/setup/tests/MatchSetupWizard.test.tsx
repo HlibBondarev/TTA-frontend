@@ -1012,11 +1012,17 @@ describe("MatchSetupWizard Component", () => {
     // Resolve the pending db.matches.put write operation
     resolvePut!();
 
-    // Verify db.matches.delete was NOT called because the record existed before
+    // Await completion signal of the stale operation (button re-enables and wizard resets)
     await waitFor(() => {
-      expect(db.matches.delete).not.toHaveBeenCalled();
+      const activeBtn = screen.getByRole("button", {
+        name: /Quick Start Match/i,
+      });
+      expect(activeBtn).not.toBeDisabled();
       expect(screen.queryByText("3. Select Team to Track")).toBeNull();
     });
+
+    // Assert that db.matches.delete was strictly not called after full handler completion
+    expect(db.matches.delete).not.toHaveBeenCalled();
   });
 
   it("should reset isSubmitting and isLoadingTeams flags when authenticated user identity changes while init is in progress", async () => {
