@@ -292,7 +292,11 @@ export const hydrateMatchData = async (
       ],
       async () => {
         if (match) {
-          const matchToStore = userId ? { ...match, userId } : match;
+          const existingMatch = await db.matches.get(matchId);
+          const effectiveUserId = userId ?? existingMatch?.userId;
+          const matchToStore = effectiveUserId
+            ? { ...match, userId: effectiveUserId }
+            : match;
           await db.matches.put(matchToStore);
         }
         if (tournament) await db.tournaments.put(tournament);

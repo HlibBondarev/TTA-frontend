@@ -334,6 +334,62 @@ describe("Hydration Service", () => {
     ]);
   });
 
+  it("preserves existing local userId when userId parameter is omitted during hydration", async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      title: "Match 1",
+      userId: "existing-owner-id",
+    } as never);
+
+    vi.mocked(db.transaction).mockImplementation((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          delete: vi.fn().mockResolvedValue(0),
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          and: vi
+            .fn()
+            .mockReturnValue({ delete: vi.fn().mockResolvedValue(0) }),
+        }),
+      } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+      vi.mocked(db.playerpresences.filter).mockImplementation((() => ({
+        primaryKeys: vi.fn().mockResolvedValue([]),
+      })) as unknown as typeof db.playerpresences.filter);
+
+      vi.mocked(db.gameevents.filter).mockImplementation((() => ({
+        primaryKeys: vi.fn().mockResolvedValue([]),
+      })) as unknown as typeof db.gameevents.filter);
+
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    const result = await hydrateMatchData(matchId, teamId);
+
+    expect(result).toEqual({ success: true, isOfflineFallback: false });
+    expect(db.matches.put).toHaveBeenCalledWith({
+      id: matchId,
+      title: "Match 1",
+      userId: "existing-owner-id",
+    });
+  });
+
   it("fetches and stores tournament and sport configuration when match contains tournamentId", async () => {
     const tournamentId = "tourn-789";
     const sportId = "sport-111";
