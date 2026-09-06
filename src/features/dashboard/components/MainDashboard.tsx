@@ -25,11 +25,9 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   >(null);
   const [isResuming, setIsResuming] = useState(false);
 
-  // Derive active match for current user during render to avoid stale renders across account switches
+  // Strict ownership check: activeUnfinishedMatch requires an explicit userId matching currentUserId
   const activeUnfinishedMatch =
-    unfinishedMatch &&
-    currentUserId &&
-    (!unfinishedMatch.userId || unfinishedMatch.userId === currentUserId)
+    unfinishedMatch && currentUserId && unfinishedMatch.userId === currentUserId
       ? unfinishedMatch
       : null;
 

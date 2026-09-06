@@ -416,4 +416,36 @@ describe("MainDashboard Component", () => {
       expect(screen.getByText("ID: m-userB-...")).toBeDefined();
     });
   });
+
+  it("should not display session recovery prompt if unfinished match lacks userId property", async () => {
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-no-user-123",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+    } as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-coach");
+    });
+
+    expect(
+      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeNull();
+  });
 });
