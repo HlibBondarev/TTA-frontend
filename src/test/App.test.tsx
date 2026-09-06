@@ -450,4 +450,71 @@ describe("App Bootstrapping Component", () => {
       expect(store.getState().match.activeTeamId).toBeNull();
     });
   });
+
+  it("should abort setting active match if user changes while hydrateMatchData is in-flight during handleQuickStart", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "new-match-id-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam as never)
+      .mockResolvedValueOnce(mockGuestTeam as never);
+
+    let resolveHydrate: (val: {
+      success: boolean;
+      isOfflineFallback: boolean;
+    }) => void;
+    const hydratePromise = new Promise<{
+      success: boolean;
+      isOfflineFallback: boolean;
+    }>((resolve) => {
+      resolveHydrate = resolve;
+    });
+
+    vi.mocked(hydrateMatchData).mockReturnValueOnce(hydratePromise);
+
+    const store = createTestStore({
+      navigation: { currentView: "QUICK_START" },
+    });
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    // Simulate user identity change while hydration is pending
+    mockIsAuthenticated = true;
+    mockUser = { email: "otheruser@tta.com", sub: "auth0|other-user" };
+    rerender(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // Resolve hydration promise after user change
+    resolveHydrate!({ success: true, isOfflineFallback: false });
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Account changed during Quick Start hydration. Aborting session activation.",
+      );
+    });
+
+    expect(store.getState().match.activeMatchId).toBeNull();
+    expect(store.getState().match.activeTeamId).toBeNull();
+    consoleSpy.mockRestore();
+  });
 });

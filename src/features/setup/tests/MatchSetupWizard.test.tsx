@@ -902,44 +902,6 @@ describe("MatchSetupWizard Component", () => {
     expect(screen.queryByText("3. Select Team to Track")).toBeNull();
   });
 
-  it("should invalidate in-flight match initialization if user identity changes before async operations resolve", async () => {
-    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
-    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
-      mockConfigs,
-    );
-
-    let resolvePost: (val: { id: string }) => void;
-    const postPromise = new Promise<{ id: string }>((resolve) => {
-      resolvePost = resolve;
-    });
-
-    vi.mocked(apiClient.post).mockReturnValueOnce(postPromise);
-
-    const { rerender, store } = renderWithRedux(
-      <MatchSetupWizard onQuickStart={vi.fn()} />,
-    );
-
-    const quickStartBtn = await screen.findByRole("button", {
-      name: /Quick Start Match/i,
-    });
-    fireEvent.click(quickStartBtn);
-
-    // Change user while POST is pending
-    mockUser = { email: "newuser@tta.com", sub: "auth0|user-new" };
-    rerender(
-      <Provider store={store}>
-        <MatchSetupWizard onQuickStart={vi.fn()} />
-      </Provider>,
-    );
-
-    // Resolve POST request after user change
-    resolvePost!({ id: "match-deferred-123" });
-
-    await waitFor(() => {
-      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
-    });
-  });
-
   it("should delete persisted match record if user identity changes while db.matches.put is pending", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
@@ -1088,5 +1050,51 @@ describe("MatchSetupWizard Component", () => {
     });
 
     resolvePost!({ id: "match-deferred-123" });
+  });
+
+  it("should invalidate in-flight match initialization if user identity changes before async operations resolve", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    let resolvePost: (val: { id: string }) => void;
+    const postPromise = new Promise<{ id: string }>((resolve) => {
+      resolvePost = resolve;
+    });
+
+    vi.mocked(apiClient.post).mockReturnValueOnce(postPromise);
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    // Wait until apiClient.post has been invoked and is in-flight
+    await waitFor(() => {
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+    });
+
+    // Change user while POST is pending
+    mockUser = { email: "newuser@tta.com", sub: "auth0|user-new" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={vi.fn()} />
+      </Provider>,
+    );
+
+    // Resolve POST request after user change
+    resolvePost!({ id: "match-deferred-123" });
+
+    // Assert post-invalidation outcomes
+    await waitFor(() => {
+      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+    });
+
+    expect(db.matches.put).not.toHaveBeenCalled();
   });
 });
