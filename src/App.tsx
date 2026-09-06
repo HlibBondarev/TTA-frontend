@@ -122,9 +122,17 @@ export const App: React.FC = () => {
   };
 
   const handleResumeMatch = async (matchId: string, teamId: string) => {
+    const initiatedUserId = currentUserId;
     try {
       const { recoveredPeriod, activePlayersLimit } =
         await getMatchRecoveryState(matchId);
+
+      if (currentUserIdRef.current !== initiatedUserId) {
+        console.warn(
+          "Account changed during match recovery. Aborting session resumption.",
+        );
+        return;
+      }
 
       dispatch(
         setPresenceLimits({

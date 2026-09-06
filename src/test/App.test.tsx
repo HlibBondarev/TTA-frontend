@@ -456,4 +456,73 @@ describe("App Bootstrapping Component", () => {
     expect(store.getState().match.activeTeamId).toBeNull();
     consoleSpy.mockRestore();
   });
+
+  it("should abort setting active match if user identity changes while getMatchRecoveryState is in-flight during handleResumeMatch", async () => {
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-interrupted-stale",
+      homeTeamId: "team-home-99",
+      userId: "auth0|tester-123",
+    } as never);
+
+    let resolveRecovery: (val: {
+      recoveredPeriod: number;
+      activePlayersLimit: number;
+    }) => void;
+    const recoveryPromise = new Promise<{
+      recoveredPeriod: number;
+      activePlayersLimit: number;
+    }>((resolve) => {
+      resolveRecovery = resolve;
+    });
+
+    vi.mocked(getMatchRecoveryState).mockReturnValueOnce(
+      recoveryPromise as never,
+    );
+
+    const store = createTestStore({
+      navigation: { currentView: "HUB" },
+    });
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /Resume Match/i }));
+
+    await waitFor(() => {
+      expect(getMatchRecoveryState).toHaveBeenCalledWith("m-interrupted-stale");
+    });
+
+    // Simulate user identity change while recovery state fetch is in-flight
+    mockIsAuthenticated = true;
+    mockUser = { email: "otheruser@tta.com", sub: "auth0|other-user" };
+    rerender(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // Resolve recovery promise after user account switch
+    resolveRecovery!({ recoveredPeriod: 2, activePlayersLimit: 5 });
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Account changed during match recovery. Aborting session resumption.",
+      );
+    });
+
+    // Verify Redux state remained unaffected for the new account context
+    expect(store.getState().match.activeMatchId).toBeNull();
+    expect(store.getState().match.activeTeamId).toBeNull();
+
+    consoleSpy.mockRestore();
+  });
 });
