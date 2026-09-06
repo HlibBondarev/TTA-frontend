@@ -319,9 +319,13 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
       if (currentUserIdRef.current !== initiatedUserId) return;
 
-      // Store match locally
+      // Store match locally and verify identity after write completion
       if (db.matches) {
         await db.matches.put(normalizedMatch);
+        if (currentUserIdRef.current !== initiatedUserId) {
+          await db.matches.delete(normalizedMatch.id);
+          return;
+        }
       }
 
       // If match points to a tournament, ensure tournament is also stored
@@ -331,9 +335,8 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           selectedSportId,
           selectedConfigId,
         );
+        if (currentUserIdRef.current !== initiatedUserId) return;
       }
-
-      if (currentUserIdRef.current !== initiatedUserId) return;
 
       const [home, guest] = await Promise.all([
         teamService.getTeamById(normalizedMatch.homeTeamId),
