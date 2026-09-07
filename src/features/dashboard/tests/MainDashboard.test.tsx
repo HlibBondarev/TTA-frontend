@@ -39,6 +39,8 @@ const createTestStore = () => {
 describe("MainDashboard Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(checkUnfinishedMatch).mockReset().mockResolvedValue(null);
+    vi.mocked(discardUnfinishedMatch).mockReset().mockResolvedValue(undefined);
     mockUser = { email: "coach@tta.com", sub: "auth0|user-coach" };
   });
 
