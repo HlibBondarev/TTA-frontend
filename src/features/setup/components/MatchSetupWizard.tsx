@@ -305,8 +305,12 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
   const configRequestRef = useRef(0);
 
-  useEffect(() => {
+  // Synchronously sync ref if user changes during render matching App.tsx pattern
+  if (currentUserIdRef.current !== currentUserId) {
     currentUserIdRef.current = currentUserId;
+  }
+
+  useEffect(() => {
     if (prevUserIdRef.current !== currentUserId) {
       prevUserIdRef.current = currentUserId;
       setPendingMatchId(null);
