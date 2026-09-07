@@ -360,6 +360,66 @@ const executeMatchTransaction = async (
   );
 };
 
+const shouldRethrowError = (err: unknown): boolean => {
+  if (
+    err instanceof StaleUserError ||
+    (err instanceof Error && err.name === "StaleUserError")
+  ) {
+    return true;
+  }
+
+  const errorMessage = err instanceof Error ? err.message : String(err);
+  return (
+    errorMessage.includes("401") ||
+    errorMessage.includes("403") ||
+    errorMessage.includes("Hydration Metadata Error:") ||
+    errorMessage.includes("Match draft belongs to another user.")
+  );
+};
+
+const getTournamentAndConfig = async (match?: MatchLookup) => {
+  if (!match?.tournamentId) {
+    return { tournament: null, sportConfig: null };
+  }
+  const metadata = await fetchTournamentMetadata(match.tournamentId);
+  return { tournament: metadata.tournament, sportConfig: metadata.sportConfig };
+};
+
+const persistMatchWithRollback = async (
+  matchId: string,
+  match: MatchLookup | undefined,
+  tournament: TournamentLookup | null | undefined,
+  sportConfig: SportConfigurationLookup | null | undefined,
+  payloads: HydrationPayloads,
+  userId?: string,
+  checkFreshness?: () => void,
+) => {
+  const existedBefore = db.matches
+    ? Boolean(await db.matches.get(matchId))
+    : false;
+
+  try {
+    await executeMatchTransaction({
+      matchId,
+      match,
+      tournament,
+      sportConfig,
+      payloads,
+      userId,
+      checkFreshness,
+    });
+  } catch (txErr) {
+    if (!existedBefore && db.matches) {
+      try {
+        await db.matches.delete(matchId);
+      } catch {
+        // ignore cleanup errors during rollback
+      }
+    }
+    throw txErr;
+  }
+};
+
 export const hydrateMatchData = async (
   matchId: string,
   teamId: string,
@@ -382,59 +442,22 @@ export const hydrateMatchData = async (
       ]);
 
     checkFreshness?.();
-
-    let tournament: TournamentLookup | null = null;
-    let sportConfig: SportConfigurationLookup | null = null;
-
-    if (match?.tournamentId) {
-      const metadata = await fetchTournamentMetadata(match.tournamentId);
-      tournament = metadata.tournament;
-      sportConfig = metadata.sportConfig;
-    }
-
+    const { tournament, sportConfig } = await getTournamentAndConfig(match);
     checkFreshness?.();
 
-    const existedBefore = db.matches
-      ? Boolean(await db.matches.get(matchId))
-      : false;
-
-    try {
-      await executeMatchTransaction({
-        matchId,
-        match,
-        tournament,
-        sportConfig,
-        payloads: { lineups, anchors, presence, events, definitions },
-        userId,
-        checkFreshness,
-      });
-    } catch (txErr) {
-      if (!existedBefore && db.matches) {
-        try {
-          await db.matches.delete(matchId);
-        } catch {
-          // ignore cleanup errors during rollback
-        }
-      }
-      throw txErr;
-    }
+    await persistMatchWithRollback(
+      matchId,
+      match,
+      tournament,
+      sportConfig,
+      { lineups, anchors, presence, events, definitions },
+      userId,
+      checkFreshness,
+    );
 
     return { success: true, isOfflineFallback: false };
   } catch (err) {
-    if (
-      err instanceof StaleUserError ||
-      (err instanceof Error && err.name === "StaleUserError")
-    ) {
-      throw err;
-    }
-
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    if (
-      errorMessage.includes("401") ||
-      errorMessage.includes("403") ||
-      errorMessage.includes("Hydration Metadata Error:") ||
-      errorMessage.includes("Match draft belongs to another user.")
-    ) {
+    if (shouldRethrowError(err)) {
       throw err;
     }
 
