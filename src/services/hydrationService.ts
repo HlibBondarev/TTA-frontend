@@ -394,30 +394,15 @@ const persistMatchWithRollback = async (
   userId?: string,
   checkFreshness?: () => void,
 ) => {
-  const existedBefore = db.matches
-    ? Boolean(await db.matches.get(matchId))
-    : false;
-
-  try {
-    await executeMatchTransaction({
-      matchId,
-      match,
-      tournament,
-      sportConfig,
-      payloads,
-      userId,
-      checkFreshness,
-    });
-  } catch (txErr) {
-    if (!existedBefore && db.matches) {
-      try {
-        await db.matches.delete(matchId);
-      } catch {
-        // ignore cleanup errors during rollback
-      }
-    }
-    throw txErr;
-  }
+  await executeMatchTransaction({
+    matchId,
+    match,
+    tournament,
+    sportConfig,
+    payloads,
+    userId,
+    checkFreshness,
+  });
 };
 
 export const hydrateMatchData = async (

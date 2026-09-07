@@ -867,7 +867,7 @@ describe("Hydration Service", () => {
     expect(unfinished).toBeNull();
   });
 
-  it("should abort at the pre-write boundary and skip cleanup if checkFreshness throws StaleUserError before transaction persistence", async () => {
+  it("should abort at the pre-write boundary and skip persistence if checkFreshness throws StaleUserError before transaction persistence", async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
       .mockResolvedValueOnce([])
@@ -905,7 +905,7 @@ describe("Hydration Service", () => {
     expect(db.matches.put).not.toHaveBeenCalled();
   });
 
-  it("should automatically rollback and perform cleanup if checkFreshness throws StaleUserError after persistence", async () => {
+  it("should rely on transaction rollback if checkFreshness throws StaleUserError after persistence", async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
       .mockResolvedValueOnce([])
@@ -943,7 +943,7 @@ describe("Hydration Service", () => {
     ).rejects.toThrow(StaleUserError);
 
     expect(db.matches.put).toHaveBeenCalled();
-    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+    expect(db.matches.delete).not.toHaveBeenCalled();
   });
 
   it("rejects hydration when existing local match belongs to a different userId", async () => {
@@ -976,7 +976,7 @@ describe("Hydration Service", () => {
     expect(db.matches.put).not.toHaveBeenCalled();
   });
 
-  it("preserves existing local userId when userId argument is an empty string during hydration", async () => {
+  it("preserves existing local userId when userId parameter is empty string during hydration", async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
       .mockResolvedValueOnce([])
