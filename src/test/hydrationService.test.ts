@@ -879,4 +879,47 @@ describe("Hydration Service", () => {
 
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
+
+  it("should automatically rollback IndexedDB writes if checkFreshness throws StaleUserError at the end of db.transaction", async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(db.matches.get).mockResolvedValue(undefined as never);
+
+    let checkCount = 0;
+    const checkFreshnessMock = vi.fn().mockImplementation(() => {
+      checkCount++;
+      // Throw StaleUserError on the 4th freshness check (executed inside transaction right before completion)
+      if (checkCount === 4) {
+        throw new StaleUserError(
+          "User changed at the final moment of transaction",
+        );
+      }
+    });
+
+    vi.mocked(db.transaction).mockImplementation((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    await expect(
+      hydrateMatchData(
+        matchId,
+        teamId,
+        "user-authenticated",
+        checkFreshnessMock,
+      ),
+    ).rejects.toThrow(StaleUserError);
+
+    expect(checkFreshnessMock).toHaveBeenCalledTimes(4);
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+  });
 });

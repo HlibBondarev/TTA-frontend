@@ -340,6 +340,7 @@ export const hydrateMatchData = async (
             await db.eventdefinitions.bulkPut(definitions);
           }
 
+          // Final freshness check inside transaction block ensures Dexie aborts & rolls back writes if user identity changed
           checkFreshness?.();
         },
       );
@@ -353,8 +354,6 @@ export const hydrateMatchData = async (
       }
       throw txErr;
     }
-
-    checkFreshness?.();
 
     return { success: true, isOfflineFallback: false };
   } catch (err) {
