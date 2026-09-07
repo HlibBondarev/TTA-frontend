@@ -39,6 +39,40 @@ function checkUserFreshness(
   }
 }
 
+async function persistOrRollbackTournament(
+  tournamentId: string,
+  tournamentData: {
+    id: string;
+    sportId: string;
+    configurationId: string;
+    cityId: string;
+    ownerId: string;
+    name: string;
+    startDate: string;
+    endDate: null;
+    createdAt: string;
+  },
+  verifyFreshness: () => void,
+): Promise<void> {
+  const existingTournament = await db.tournaments.get(tournamentId);
+  verifyFreshness();
+
+  await db.tournaments.put(
+    tournamentData as unknown as Parameters<typeof db.tournaments.put>[0],
+  );
+
+  try {
+    verifyFreshness();
+  } catch (err) {
+    if (existingTournament) {
+      await db.tournaments.put(existingTournament);
+    } else {
+      await db.tournaments.delete(tournamentId);
+    }
+    throw err;
+  }
+}
+
 async function ensureTournamentPersisted(
   tournamentId: string,
   sportId: string,
@@ -46,6 +80,18 @@ async function ensureTournamentPersisted(
   verifyFreshness: () => void,
 ): Promise<void> {
   if (!db.tournaments) return;
+
+  const quickTournamentPayload = {
+    id: tournamentId,
+    sportId,
+    configurationId,
+    cityId: "",
+    ownerId: "",
+    name: "Quick Tournament",
+    startDate: new Date().toISOString(),
+    endDate: null,
+    createdAt: new Date().toISOString(),
+  };
 
   try {
     const tournament = await apiClient.get<{
@@ -57,23 +103,14 @@ async function ensureTournamentPersisted(
     verifyFreshness();
 
     if (tournament) {
-      const existingTournament = await db.tournaments.get(tournamentId);
-      verifyFreshness();
-
-      await db.tournaments.put(
-        tournament as unknown as Parameters<typeof db.tournaments.put>[0],
+      await persistOrRollbackTournament(
+        tournamentId,
+        {
+          ...quickTournamentPayload,
+          ...tournament,
+        },
+        verifyFreshness,
       );
-
-      try {
-        verifyFreshness();
-      } catch (err) {
-        if (existingTournament) {
-          await db.tournaments.put(existingTournament);
-        } else {
-          await db.tournaments.delete(tournamentId);
-        }
-        throw err;
-      }
     }
   } catch (err) {
     if (err instanceof StaleOperationError) throw err;
@@ -82,24 +119,11 @@ async function ensureTournamentPersisted(
     verifyFreshness();
 
     if (!existingTourn) {
-      await db.tournaments.put({
-        id: tournamentId,
-        sportId,
-        configurationId,
-        cityId: "",
-        ownerId: "",
-        name: "Quick Tournament",
-        startDate: new Date().toISOString(),
-        endDate: null,
-        createdAt: new Date().toISOString(),
-      });
-
-      try {
-        verifyFreshness();
-      } catch (rollbackErr) {
-        await db.tournaments.delete(tournamentId);
-        throw rollbackErr;
-      }
+      await persistOrRollbackTournament(
+        tournamentId,
+        quickTournamentPayload,
+        verifyFreshness,
+      );
     }
   }
 }
@@ -281,7 +305,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
   const configRequestRef = useRef(0);
 
-  // Safe side-effect management via useEffect instead of render-phase assignments
   useEffect(() => {
     currentUserIdRef.current = currentUserId;
     if (prevUserIdRef.current !== currentUserId) {

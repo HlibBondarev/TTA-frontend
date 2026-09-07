@@ -256,6 +256,29 @@ export const discardUnfinishedMatch = async (
   );
 };
 
+const verifyAndStoreMatch = async (
+  matchId: string,
+  match: MatchLookup | undefined,
+  userId?: string,
+): Promise<void> => {
+  if (!match || !db.matches) return;
+  const existingMatch = await db.matches.get(matchId);
+  if (
+    userId?.trim() &&
+    existingMatch?.userId &&
+    existingMatch.userId !== userId.trim()
+  ) {
+    throw new Error("Match draft belongs to another user.");
+  }
+  const effectiveUserId = userId?.trim()
+    ? userId.trim()
+    : existingMatch?.userId;
+  const matchToStore = effectiveUserId
+    ? { ...match, userId: effectiveUserId }
+    : match;
+  await db.matches.put(matchToStore);
+};
+
 export const hydrateMatchData = async (
   matchId: string,
   teamId: string,
@@ -310,23 +333,7 @@ export const hydrateMatchData = async (
         async () => {
           checkFreshness?.();
 
-          if (match) {
-            const existingMatch = await db.matches.get(matchId);
-            if (
-              userId?.trim() &&
-              existingMatch?.userId &&
-              existingMatch.userId !== userId.trim()
-            ) {
-              throw new Error("Match draft belongs to another user.");
-            }
-            const effectiveUserId = userId?.trim()
-              ? userId.trim()
-              : existingMatch?.userId;
-            const matchToStore = effectiveUserId
-              ? { ...match, userId: effectiveUserId }
-              : match;
-            await db.matches.put(matchToStore);
-          }
+          await verifyAndStoreMatch(matchId, match, userId);
           if (tournament) await db.tournaments.put(tournament);
           if (sportConfig) await db.sportconfigurations.put(sportConfig);
 
@@ -349,7 +356,6 @@ export const hydrateMatchData = async (
             await db.eventdefinitions.bulkPut(definitions);
           }
 
-          // Final freshness check inside transaction block ensures Dexie aborts & rolls back writes if user identity changed
           checkFreshness?.();
         },
       );

@@ -69,8 +69,13 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     };
   }, [currentUserId]);
 
-  const generateToken = (): string =>
-    Math.random().toString(36).substring(2) + Date.now().toString(36);
+  const generateToken = (): string => {
+    const array = new Uint32Array(2);
+    crypto.getRandomValues(array);
+    return (
+      array[0].toString(36) + array[1].toString(36) + Date.now().toString(36)
+    );
+  };
 
   const handleResume = useCallback(async () => {
     if (!activeUnfinishedMatch || isRecoveryBusy || !currentUserId) return;
