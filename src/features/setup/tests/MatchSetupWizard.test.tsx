@@ -846,8 +846,10 @@ describe("MatchSetupWizard Component", () => {
         guestTeamId: "team-guest",
       } as MatchLookup);
     vi.mocked(teamService.getTeamById)
-      .mockResolvedValue(mockHomeTeam)
-      .mockResolvedValue(mockGuestTeam);
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     const { rerender, store } = renderWithRedux(
       <MatchSetupWizard onQuickStart={vi.fn()} />,
@@ -935,8 +937,8 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
-      .mockResolvedValue(mockHomeTeam)
-      .mockResolvedValue(mockGuestTeam);
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     let resolvePut: () => void;
     const putPromise = new Promise<void>((resolve) => {
@@ -984,8 +986,8 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
-      .mockResolvedValue(mockHomeTeam)
-      .mockResolvedValue(mockGuestTeam);
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
 
     // Simulate match already existing in IndexedDB before write
     vi.mocked(db.matches.get).mockResolvedValueOnce({
@@ -1173,7 +1175,7 @@ describe("MatchSetupWizard Component", () => {
     });
   });
 
-  it("should abort IndexedDB writes and match setup if user account changes before saveSelectedConfig completes", async () => {
+  it("should abort IndexedDB writes, purge stale config write, and cancel match setup if user account changes before saveSelectedConfig completes", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -1197,6 +1199,11 @@ describe("MatchSetupWizard Component", () => {
     });
     fireEvent.click(quickStartBtn);
 
+    // Wait until saveSelectedConfig has initiated db.sportconfigurations.put and is pending
+    await waitFor(() => {
+      expect(db.sportconfigurations.put).toHaveBeenCalledWith(mockConfigs[0]);
+    });
+
     // Change authenticated user identity while saveSelectedConfig is pending
     mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
     rerender(
@@ -1210,8 +1217,144 @@ describe("MatchSetupWizard Component", () => {
     await configPutPromise;
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Verify subsequent IndexedDB match writes were aborted for the stale operation
+    // Verify stale config was purged and subsequent IndexedDB match writes were aborted
+    expect(db.sportconfigurations.delete).toHaveBeenCalledWith("config-1");
     expect(db.matches.put).not.toHaveBeenCalled();
     expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+  });
+
+  it("should delete fetched tournament record if user identity changes while db.tournaments.put is pending in ensureTournamentPersisted", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({
+        id: "match-123",
+        tournamentId: "tourn-fetched-456",
+        homeTeamId: "team-home",
+        guestTeamId: "team-guest",
+      })
+      .mockResolvedValueOnce({
+        id: "tourn-fetched-456",
+        sportId: "sport-1",
+        configurationId: "config-1",
+      });
+
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    let resolveTournPut: () => void;
+    const tournPutPromise = new Promise<void>((resolve) => {
+      resolveTournPut = resolve;
+    });
+
+    vi.mocked(db.tournaments.put).mockImplementationOnce(
+      () => tournPutPromise as never,
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    await waitFor(() => {
+      expect(db.tournaments.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "tourn-fetched-456",
+        }),
+      );
+    });
+
+    // Change authenticated user identity while db.tournaments.put is pending
+    mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={vi.fn()} />
+      </Provider>,
+    );
+
+    // Resolve the pending db.tournaments.put write operation
+    resolveTournPut!();
+    await tournPutPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Verify post-write rollback triggered db.tournaments.delete to clean up the stale fetched tournament
+    await waitFor(() => {
+      expect(db.tournaments.delete).toHaveBeenCalledWith("tourn-fetched-456");
+      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+    });
+  });
+
+  it("should delete fallback tournament record if user identity changes while fallback db.tournaments.put is pending in ensureTournamentPersisted", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({
+        id: "match-123",
+        tournamentId: "tourn-fallback-789",
+        homeTeamId: "team-home",
+        guestTeamId: "team-guest",
+      })
+      .mockRejectedValueOnce(new Error("Tournament fetch failed 404"));
+
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    let resolveFallbackPut: () => void;
+    const fallbackPutPromise = new Promise<void>((resolve) => {
+      resolveFallbackPut = resolve;
+    });
+
+    vi.mocked(db.tournaments.put).mockImplementationOnce(
+      () => fallbackPutPromise as never,
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    await waitFor(() => {
+      expect(db.tournaments.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "tourn-fallback-789",
+          name: "Quick Tournament",
+        }),
+      );
+    });
+
+    // Change authenticated user identity while fallback db.tournaments.put is pending
+    mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={vi.fn()} />
+      </Provider>,
+    );
+
+    // Resolve the pending fallback db.tournaments.put write operation
+    resolveFallbackPut!();
+    await fallbackPutPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Verify post-write rollback triggered db.tournaments.delete to clean up the stale fallback tournament
+    await waitFor(() => {
+      expect(db.tournaments.delete).toHaveBeenCalledWith("tourn-fallback-789");
+      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+    });
   });
 });
