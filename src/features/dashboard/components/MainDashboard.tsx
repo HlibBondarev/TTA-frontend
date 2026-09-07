@@ -18,7 +18,11 @@ interface ActiveOperation {
   type: "resume" | "discard";
 }
 
-const generateToken = (): string => crypto.randomUUID();
+let tokenCounter = 0;
+const generateToken = (): string =>
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `op-${String(Date.now())}-${String(++tokenCounter)}`;
 
 export const MainDashboard: React.FC<MainDashboardProps> = ({
   onResumeMatch,
