@@ -1361,4 +1361,62 @@ describe("MatchSetupWizard Component", () => {
       expect(screen.queryByText("3. Select Team to Track")).toBeNull();
     });
   });
+
+  it("should clear pending draft state when StaleOperationError is thrown after pendingMatchId was set", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-user1" })
+      .mockResolvedValueOnce({ id: "match-user2" });
+
+    let resolveGetDetails: (val: MatchLookup) => void;
+    const getDetailsPromise = new Promise<MatchLookup>((resolve) => {
+      resolveGetDetails = resolve;
+    });
+
+    vi.mocked(apiClient.get)
+      .mockReturnValueOnce(getDetailsPromise as never)
+      .mockResolvedValueOnce(mockMatch);
+
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    await waitFor(() => {
+      expect(apiClient.get).toHaveBeenCalledWith("/Matches/match-user1");
+    });
+
+    mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={vi.fn()} />
+      </Provider>,
+    );
+
+    resolveGetDetails!(mockMatch as MatchLookup);
+
+    await waitFor(() => {
+      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+    });
+
+    const quickStartBtn2 = screen.getByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn2);
+
+    await waitFor(() => {
+      expect(apiClient.post).toHaveBeenCalledTimes(2);
+    });
+  });
 });

@@ -498,7 +498,14 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       setTeams(loadedTeams);
       setSelectedTeamId((prev) => prev ?? loadedTeams.home.id);
     } catch (err) {
-      if (err instanceof StaleOperationError) return;
+      if (err instanceof StaleOperationError) {
+        if (currentUserIdRef.current !== initiatedUserId) {
+          setPendingMatchId(null);
+          setTeams(null);
+          setSelectedTeamId(null);
+        }
+        return;
+      }
 
       if (err instanceof MatchOwnershipError) {
         setPendingMatchId(null);
