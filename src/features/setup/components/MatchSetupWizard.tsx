@@ -100,38 +100,45 @@ async function ensureTournamentPersisted(
     createdAt: new Date().toISOString(),
   };
 
+  let tournament: {
+    id: string;
+    sportId: string;
+    configurationId: string;
+  } | null = null;
+
   try {
-    const tournament = await apiClient.get<{
+    tournament = await apiClient.get<{
       id: string;
       sportId: string;
       configurationId: string;
     }>(`/Tournaments/${tournamentId}`);
-
-    verifyFreshness();
-
-    if (tournament) {
-      await persistOrRollbackTournament(
-        tournamentId,
-        {
-          ...quickTournamentPayload,
-          ...tournament,
-        },
-        verifyFreshness,
-      );
-    }
   } catch (err) {
     if (err instanceof StaleOperationError) throw err;
+  }
 
-    const existingTourn = await db.tournaments.get(tournamentId);
-    verifyFreshness();
+  verifyFreshness();
 
-    if (!existingTourn) {
-      await persistOrRollbackTournament(
-        tournamentId,
-        quickTournamentPayload,
-        verifyFreshness,
-      );
-    }
+  if (tournament) {
+    await persistOrRollbackTournament(
+      tournamentId,
+      {
+        ...quickTournamentPayload,
+        ...tournament,
+      },
+      verifyFreshness,
+    );
+    return;
+  }
+
+  const existingTourn = await db.tournaments.get(tournamentId);
+  verifyFreshness();
+
+  if (!existingTourn) {
+    await persistOrRollbackTournament(
+      tournamentId,
+      quickTournamentPayload,
+      verifyFreshness,
+    );
   }
 }
 
