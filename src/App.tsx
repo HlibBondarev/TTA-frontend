@@ -12,6 +12,7 @@ import { setActiveMatch } from "./features/matches/store/matchSlice";
 import {
   hydrateMatchData,
   getMatchRecoveryState,
+  StaleUserError,
 } from "./services/hydrationService";
 import { setTokenGetter } from "./services/tokenService";
 import type { RootState } from "./store";
@@ -100,9 +101,26 @@ export const App: React.FC = () => {
       }),
     );
 
+    const verifyFreshness = () => {
+      if (currentUserIdRef.current !== initiatedUserId) {
+        throw new StaleUserError();
+      }
+    };
+
     try {
-      await hydrateMatchData(matchId, selectedTeamId, initiatedUserId);
+      await hydrateMatchData(
+        matchId,
+        selectedTeamId,
+        initiatedUserId,
+        verifyFreshness,
+      );
     } catch (error) {
+      if (error instanceof StaleUserError) {
+        console.warn(
+          "Account changed during Quick Start hydration. Aborting session activation.",
+        );
+        return;
+      }
       console.error("Hydration failed (non-critical):", error);
       return;
     }

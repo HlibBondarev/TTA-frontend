@@ -57,9 +57,21 @@ async function ensureTournamentPersisted(
     verifyFreshness();
 
     if (tournament) {
+      const existedBefore = Boolean(await db.tournaments.get(tournamentId));
+      verifyFreshness();
+
       await db.tournaments.put(
         tournament as unknown as Parameters<typeof db.tournaments.put>[0],
       );
+
+      try {
+        verifyFreshness();
+      } catch (err) {
+        if (!existedBefore) {
+          await db.tournaments.delete(tournamentId);
+        }
+        throw err;
+      }
     }
   } catch (err) {
     if (err instanceof StaleOperationError) throw err;
@@ -79,6 +91,13 @@ async function ensureTournamentPersisted(
         endDate: null,
         createdAt: new Date().toISOString(),
       });
+
+      try {
+        verifyFreshness();
+      } catch (rollbackErr) {
+        await db.tournaments.delete(tournamentId);
+        throw rollbackErr;
+      }
     }
   }
 }
@@ -152,7 +171,21 @@ async function saveSelectedConfig(
   verifyFreshness();
   const selectedConfig = configurations.find((c) => c.id === selectedConfigId);
   if (selectedConfig && db.sportconfigurations) {
+    const existedBefore = Boolean(
+      await db.sportconfigurations.get(selectedConfigId),
+    );
+    verifyFreshness();
+
     await db.sportconfigurations.put(selectedConfig);
+
+    try {
+      verifyFreshness();
+    } catch (err) {
+      if (!existedBefore) {
+        await db.sportconfigurations.delete(selectedConfigId);
+      }
+      throw err;
+    }
   }
 }
 

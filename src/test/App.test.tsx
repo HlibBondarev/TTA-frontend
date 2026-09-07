@@ -14,6 +14,7 @@ import {
   hydrateMatchData,
   checkUnfinishedMatch,
   getMatchRecoveryState,
+  StaleUserError,
 } from "../services/hydrationService";
 
 let mockIsAuthenticated = true;
@@ -71,6 +72,12 @@ vi.mock("../services/hydrationService", () => ({
   getMatchRecoveryState: vi
     .fn()
     .mockResolvedValue({ recoveredPeriod: 2, activePlayersLimit: 5 }),
+  StaleUserError: class StaleUserError extends Error {
+    constructor(message = "Operation aborted due to user account change.") {
+      super(message);
+      this.name = "StaleUserError";
+    }
+  },
 }));
 
 vi.mock("../services/syncService", () => ({
@@ -272,6 +279,7 @@ describe("App Bootstrapping Component", () => {
         "new-match-id-123",
         "team-home-1",
         "auth0|tester-123",
+        expect.any(Function),
       );
       expect(store.getState().presence.activePlayersLimit).toBe(5);
       expect(store.getState().match.activeMatchId).toBe("new-match-id-123");
@@ -351,6 +359,49 @@ describe("App Bootstrapping Component", () => {
       expect(store.getState().match.activeMatchId).toBeNull();
       expect(store.getState().match.activeTeamId).toBeNull();
     });
+  });
+
+  it("should abort session activation and log warning if hydrateMatchData throws StaleUserError due to account switch", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "new-match-id-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam as never)
+      .mockResolvedValueOnce(mockGuestTeam as never);
+
+    vi.mocked(hydrateMatchData).mockRejectedValueOnce(new StaleUserError());
+
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const store = createTestStore({
+      navigation: { currentView: "QUICK_START" },
+    });
+
+    render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Account changed during Quick Start hydration. Aborting session activation.",
+      );
+      expect(store.getState().match.activeMatchId).toBeNull();
+      expect(store.getState().match.activeTeamId).toBeNull();
+    });
+
+    consoleSpy.mockRestore();
   });
 
   it("should not set active match or team in Redux if getMatchRecoveryState throws an error during session recovery", async () => {

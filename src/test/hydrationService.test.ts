@@ -4,6 +4,7 @@ import {
   checkUnfinishedMatch,
   discardUnfinishedMatch,
   getMatchRecoveryState,
+  StaleUserError,
 } from "../services/hydrationService";
 import { apiClient } from "../api/client";
 import { sportService } from "../services/sportService";
@@ -61,6 +62,19 @@ describe("Hydration Service", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(apiClient.get).mockReset();
+    vi.mocked(sportService.getSportConfigurations).mockReset();
+    vi.mocked(seedTestData).mockReset().mockResolvedValue(undefined);
+    vi.mocked(db.matches.get).mockReset();
+    vi.mocked(db.matches.put).mockReset();
+    vi.mocked(db.matches.delete)
+      .mockReset()
+      .mockResolvedValue(1 as never);
+    vi.mocked(db.matches.toArray).mockReset().mockResolvedValue([]);
+    vi.mocked(db.tournaments.get).mockReset().mockResolvedValue(null);
+    vi.mocked(db.tournaments.put).mockReset();
+    vi.mocked(db.sportconfigurations.get).mockReset();
+    vi.mocked(db.sportconfigurations.put).mockReset();
   });
 
   it("should return null for checkUnfinishedMatch when IndexedDB matches table is empty", async () => {
@@ -343,7 +357,7 @@ describe("Hydration Service", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
 
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
       title: "Match 1",
       userId: "existing-owner-id",
@@ -825,5 +839,44 @@ describe("Hydration Service", () => {
 
     const unfinished = await checkUnfinishedMatch("user-1");
     expect(unfinished).toBeNull();
+  });
+
+  it("should perform rollback and purge match records if checkFreshness throws StaleUserError during transaction write", async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(db.matches.get).mockResolvedValue(undefined as never);
+
+    let checkCount = 0;
+    const checkFreshnessMock = vi.fn().mockImplementation(() => {
+      checkCount++;
+      if (checkCount === 3) {
+        throw new StaleUserError();
+      }
+    });
+
+    vi.mocked(db.transaction).mockImplementation((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    await expect(
+      hydrateMatchData(
+        matchId,
+        teamId,
+        "user-authenticated",
+        checkFreshnessMock,
+      ),
+    ).rejects.toThrow(StaleUserError);
+
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 });

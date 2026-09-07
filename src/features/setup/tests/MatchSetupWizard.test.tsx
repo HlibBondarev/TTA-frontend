@@ -43,9 +43,18 @@ vi.mock("../../../api/client", () => ({
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
     sports: { bulkPut: vi.fn() },
-    sportconfigurations: { bulkPut: vi.fn(), put: vi.fn() },
+    sportconfigurations: {
+      bulkPut: vi.fn(),
+      put: vi.fn(),
+      get: vi.fn().mockResolvedValue(null),
+      delete: vi.fn(),
+    },
     matches: { put: vi.fn(), get: vi.fn(), delete: vi.fn() },
-    tournaments: { get: vi.fn().mockResolvedValue(null), put: vi.fn() },
+    tournaments: {
+      get: vi.fn().mockResolvedValue(null),
+      put: vi.fn(),
+      delete: vi.fn(),
+    },
   },
 }));
 
@@ -126,11 +135,14 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(db.sports.bulkPut).mockReset();
     vi.mocked(db.sportconfigurations.bulkPut).mockReset();
     vi.mocked(db.sportconfigurations.put).mockReset();
+    vi.mocked(db.sportconfigurations.get).mockReset().mockResolvedValue(null);
+    vi.mocked(db.sportconfigurations.delete).mockReset();
     vi.mocked(db.matches.put).mockReset();
     vi.mocked(db.matches.get).mockReset();
     vi.mocked(db.matches.delete).mockReset();
     vi.mocked(db.tournaments.get).mockReset().mockResolvedValue(null);
     vi.mocked(db.tournaments.put).mockReset();
+    vi.mocked(db.tournaments.delete).mockReset();
     mockUser = { email: "tester@tta.com", sub: "auth0|user-tester" };
   });
 

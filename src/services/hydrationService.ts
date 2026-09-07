@@ -13,6 +13,13 @@ import type {
 } from "../db/ttaDatabase";
 import { seedTestData } from "../db/seed";
 
+export class StaleUserError extends Error {
+  constructor(message = "Operation aborted due to user account change.") {
+    super(message);
+    this.name = "StaleUserError";
+  }
+}
+
 const syncLineups = async (matchId: string, lineups?: MatchLineupLookup[]) => {
   if (!lineups) return;
   await db.matchlineups.where("matchId").equals(matchId).delete();
@@ -253,6 +260,7 @@ export const hydrateMatchData = async (
   matchId: string,
   teamId: string,
   userId?: string,
+  checkFreshness?: () => void,
 ): Promise<{ success: boolean; isOfflineFallback: boolean }> => {
   try {
     const [match, lineups, anchors, presence, events, definitions] =
@@ -269,6 +277,8 @@ export const hydrateMatchData = async (
         ),
       ]);
 
+    checkFreshness?.();
+
     let tournament: TournamentLookup | null = null;
     let sportConfig: SportConfigurationLookup | null = null;
 
@@ -278,53 +288,83 @@ export const hydrateMatchData = async (
       sportConfig = metadata.sportConfig;
     }
 
-    await db.transaction(
-      "rw",
-      [
-        db.matches,
-        db.tournaments,
-        db.sportconfigurations,
-        db.matchlineups,
-        db.timeanchors,
-        db.playerpresences,
-        db.gameevents,
-        db.eventdefinitions,
-      ],
-      async () => {
-        if (match) {
-          const existingMatch = await db.matches.get(matchId);
-          const effectiveUserId = userId ?? existingMatch?.userId;
-          const matchToStore = effectiveUserId
-            ? { ...match, userId: effectiveUserId }
-            : match;
-          await db.matches.put(matchToStore);
+    checkFreshness?.();
+
+    const existedBefore = db.matches
+      ? Boolean(await db.matches.get(matchId))
+      : false;
+
+    try {
+      await db.transaction(
+        "rw",
+        [
+          db.matches,
+          db.tournaments,
+          db.sportconfigurations,
+          db.matchlineups,
+          db.timeanchors,
+          db.playerpresences,
+          db.gameevents,
+          db.eventdefinitions,
+        ],
+        async () => {
+          checkFreshness?.();
+
+          if (match) {
+            const existingMatch = await db.matches.get(matchId);
+            const effectiveUserId = userId ?? existingMatch?.userId;
+            const matchToStore = effectiveUserId
+              ? { ...match, userId: effectiveUserId }
+              : match;
+            await db.matches.put(matchToStore);
+          }
+          if (tournament) await db.tournaments.put(tournament);
+          if (sportConfig) await db.sportconfigurations.put(sportConfig);
+
+          const existingLineups = await db.matchlineups
+            .where("matchId")
+            .equals(matchId)
+            .toArray();
+
+          const matchLineupIds = new Set([
+            ...existingLineups.map((lineup) => lineup.id),
+            ...(lineups ?? []).map((lineup) => lineup.id),
+          ]);
+
+          await syncLineups(matchId, lineups);
+          await syncAnchors(matchId, anchors);
+          await syncPresence(matchLineupIds, presence);
+          await syncEvents(matchLineupIds, events);
+
+          if (definitions && definitions.length > 0) {
+            await db.eventdefinitions.bulkPut(definitions);
+          }
+
+          checkFreshness?.();
+        },
+      );
+    } catch (txErr) {
+      if (!existedBefore && db.matches) {
+        try {
+          await db.matches.delete(matchId);
+        } catch {
+          // ignore cleanup errors during rollback
         }
-        if (tournament) await db.tournaments.put(tournament);
-        if (sportConfig) await db.sportconfigurations.put(sportConfig);
+      }
+      throw txErr;
+    }
 
-        const existingLineups = await db.matchlineups
-          .where("matchId")
-          .equals(matchId)
-          .toArray();
-
-        const matchLineupIds = new Set([
-          ...existingLineups.map((lineup) => lineup.id),
-          ...(lineups ?? []).map((lineup) => lineup.id),
-        ]);
-
-        await syncLineups(matchId, lineups);
-        await syncAnchors(matchId, anchors);
-        await syncPresence(matchLineupIds, presence);
-        await syncEvents(matchLineupIds, events);
-
-        if (definitions && definitions.length > 0) {
-          await db.eventdefinitions.bulkPut(definitions);
-        }
-      },
-    );
+    checkFreshness?.();
 
     return { success: true, isOfflineFallback: false };
   } catch (err) {
+    if (
+      err instanceof StaleUserError ||
+      (err instanceof Error && err.name === "StaleUserError")
+    ) {
+      throw err;
+    }
+
     const errorMessage = err instanceof Error ? err.message : String(err);
     if (
       errorMessage.includes("401") ||
