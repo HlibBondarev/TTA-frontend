@@ -12,10 +12,13 @@ import {
 } from "../../../services/hydrationService";
 
 const mockLogout = vi.fn();
+let mockUser = { email: "coach@tta.com", sub: "auth0|user-coach" };
 
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
-    user: { email: "coach@tta.com", name: "Coach User" },
+    get user() {
+      return mockUser;
+    },
     logout: mockLogout,
   }),
 }));
@@ -36,6 +39,9 @@ const createTestStore = () => {
 describe("MainDashboard Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(checkUnfinishedMatch).mockReset().mockResolvedValue(null);
+    vi.mocked(discardUnfinishedMatch).mockReset().mockResolvedValue(undefined);
+    mockUser = { email: "coach@tta.com", sub: "auth0|user-coach" };
   });
 
   it("should render user profile and navigation cards", () => {
@@ -54,7 +60,7 @@ describe("MainDashboard Component", () => {
     expect(screen.getByText("Tournaments")).toBeDefined();
   });
 
-  it("should display Session Recovery prompt when an unfinished match is found", async () => {
+  it("should display Session Recovery prompt when an unfinished match is found for current user", async () => {
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-unfinished-123",
       homeTeamId: "team-1",
@@ -67,6 +73,7 @@ describe("MainDashboard Component", () => {
       homeScore: null,
       guestScore: null,
       createdAt: "",
+      userId: "auth0|user-coach",
     });
 
     const store = createTestStore();
@@ -77,10 +84,104 @@ describe("MainDashboard Component", () => {
       </Provider>,
     );
 
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-coach");
+    });
+
     expect(
       await screen.findByRole("region", { name: "Session Recovery Prompt" }),
     ).toBeDefined();
     expect(screen.getByText(/Interrupted Match Found/i)).toBeDefined();
+  });
+
+  it("should not display unfinished match recovery prompt if current user does not match the unfinished match owner", async () => {
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce(null);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-B");
+    });
+
+    expect(
+      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeNull();
+  });
+
+  it("should clear unfinished match prompt immediately on user account change and not expose previous account's match during deferred lookup", async () => {
+    const userAMatch = {
+      id: "m-userA-123",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+      userId: "auth0|user-coach",
+    };
+
+    let resolveUserBLookup: (val: null) => void = () => {};
+    const deferredUserBLookup = new Promise<null>((resolve) => {
+      resolveUserBLookup = resolve;
+    });
+
+    vi.mocked(checkUnfinishedMatch).mockImplementation((userId) => {
+      if (userId === "auth0|user-coach") {
+        return Promise.resolve(userAMatch);
+      }
+      if (userId === "auth0|user-B") {
+        return deferredUserBLookup;
+      }
+      return Promise.resolve(null);
+    });
+
+    const store = createTestStore();
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+
+    // Switch active user account to User B
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+
+    rerender(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    // Verify Account A's recovery prompt is immediately removed while Account B lookup is pending
+    expect(
+      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeNull();
+
+    // Resolve deferred lookup for User B (returns null)
+    resolveUserBLookup(null);
+
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-B");
+    });
+
+    expect(
+      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeNull();
   });
 
   it("should trigger onResumeMatch callback when clicking Resume Match button", async () => {
@@ -97,6 +198,7 @@ describe("MainDashboard Component", () => {
       homeScore: null,
       guestScore: null,
       createdAt: "",
+      userId: "auth0|user-coach",
     });
 
     const store = createTestStore();
@@ -135,6 +237,7 @@ describe("MainDashboard Component", () => {
       homeScore: null,
       guestScore: null,
       createdAt: "",
+      userId: "auth0|user-coach",
     } as never);
 
     const store = createTestStore();
@@ -171,6 +274,7 @@ describe("MainDashboard Component", () => {
       homeScore: null,
       guestScore: null,
       createdAt: "",
+      userId: "auth0|user-coach",
     });
 
     const store = createTestStore();
@@ -227,5 +331,293 @@ describe("MainDashboard Component", () => {
     fireEvent.click(screen.getByRole("button", { name: /Log Out/i }));
 
     expect(mockLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it("should preserve newer account's unfinished match if account changes while discard is pending", async () => {
+    const userAMatch = {
+      id: "m-userA-123",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+      userId: "auth0|user-coach",
+    };
+
+    const userBMatch = {
+      id: "m-userB-456",
+      homeTeamId: "team-3",
+      guestTeamId: "team-4",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+      userId: "auth0|user-B",
+    };
+
+    let resolveDiscard: () => void = () => {};
+    const deferredDiscard = new Promise<void>((resolve) => {
+      resolveDiscard = resolve;
+    });
+
+    vi.mocked(discardUnfinishedMatch).mockReturnValueOnce(deferredDiscard);
+    vi.mocked(checkUnfinishedMatch).mockImplementation((userId) => {
+      if (userId === "auth0|user-coach") {
+        return Promise.resolve(userAMatch);
+      }
+      if (userId === "auth0|user-B") {
+        return Promise.resolve(userBMatch);
+      }
+      return Promise.resolve(null);
+    });
+
+    const store = createTestStore();
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+
+    const discardBtn = screen.getByRole("button", { name: /Discard Match/i });
+    fireEvent.click(discardBtn);
+
+    // Switch account to User B while User A's discard is pending
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-B");
+    });
+
+    // Resolve User A's discard request
+    resolveDiscard();
+
+    // Verify User B's recovery prompt remains visible and wasn't purged
+    await waitFor(() => {
+      expect(
+        screen.getByRole("region", { name: "Session Recovery Prompt" }),
+      ).toBeDefined();
+      expect(screen.getByText("ID: m-userB-...")).toBeDefined();
+    });
+  });
+
+  it("should enable account B's recovery buttons when account switches to User B while User A's recovery operation is pending", async () => {
+    const userAMatch = {
+      id: "m-userA-123",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+      userId: "auth0|user-coach",
+    };
+
+    const userBMatch = {
+      id: "m-userB-456",
+      homeTeamId: "team-3",
+      guestTeamId: "team-4",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+      userId: "auth0|user-B",
+    };
+
+    let resolveUserAResume: () => void = () => {};
+    const deferredUserAResume = new Promise<void>((resolve) => {
+      resolveUserAResume = resolve;
+    });
+
+    const onResumeMatchMock = vi.fn().mockImplementation((matchId) => {
+      if (matchId === "m-userA-123") {
+        return deferredUserAResume;
+      }
+      return Promise.resolve();
+    });
+
+    vi.mocked(checkUnfinishedMatch).mockImplementation((userId) => {
+      if (userId === "auth0|user-coach") {
+        return Promise.resolve(userAMatch);
+      }
+      if (userId === "auth0|user-B") {
+        return Promise.resolve(userBMatch);
+      }
+      return Promise.resolve(null);
+    });
+
+    const store = createTestStore();
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+
+    const resumeBtnA = screen.getByRole("button", { name: /Resume Match/i });
+    fireEvent.click(resumeBtnA);
+
+    expect(onResumeMatchMock).toHaveBeenCalledWith("m-userA-123", "team-1");
+
+    // Switch account to User B while User A's resume operation is pending
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-B");
+    });
+
+    // User B's recovery prompt should be displayed with enabled buttons
+    const resumeBtnB = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    const discardBtnB = screen.getByRole("button", {
+      name: /Discard Match/i,
+    });
+
+    expect(resumeBtnB).not.toBeDisabled();
+    expect(discardBtnB).not.toBeDisabled();
+
+    // User B can click Resume Match on their own draft
+    fireEvent.click(resumeBtnB);
+
+    await waitFor(() => {
+      expect(onResumeMatchMock).toHaveBeenCalledWith("m-userB-456", "team-3");
+    });
+
+    // Clean up User A's deferred promise
+    resolveUserAResume();
+  });
+
+  it("should not display session recovery prompt if unfinished match lacks userId property", async () => {
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-no-user-123",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+    } as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-coach");
+    });
+
+    expect(
+      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeNull();
+  });
+
+  it("should invalidate resume request if authenticated user identity changes while resume is in-flight", async () => {
+    const userAMatch = {
+      id: "m-userA-123",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+      userId: "auth0|user-coach",
+    };
+
+    let resolveResume: () => void = () => {};
+    const deferredResume = new Promise<void>((resolve) => {
+      resolveResume = resolve;
+    });
+
+    const onResumeMatchMock = vi.fn().mockReturnValue(deferredResume);
+
+    vi.mocked(checkUnfinishedMatch).mockImplementation((userId) => {
+      if (userId === "auth0|user-coach") {
+        return Promise.resolve(userAMatch);
+      }
+      return Promise.resolve(null);
+    });
+
+    const store = createTestStore();
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    const resumeBtn = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    fireEvent.click(resumeBtn);
+
+    expect(onResumeMatchMock).toHaveBeenCalledWith("m-userA-123", "team-1");
+
+    // Switch active user account while resume is in-flight
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    // Resolve deferred resume call
+    resolveResume();
+
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-B");
+    });
+
+    // Verify recovery prompt for Account A was cleared and not leaked to Account B
+    expect(
+      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeNull();
   });
 });

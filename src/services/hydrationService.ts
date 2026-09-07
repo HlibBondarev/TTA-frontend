@@ -13,6 +13,13 @@ import type {
 } from "../db/ttaDatabase";
 import { seedTestData } from "../db/seed";
 
+export class StaleUserError extends Error {
+  constructor(message = "Operation aborted due to user account change.") {
+    super(message);
+    this.name = "StaleUserError";
+  }
+}
+
 const syncLineups = async (matchId: string, lineups?: MatchLineupLookup[]) => {
   if (!lineups) return;
   await db.matchlineups.where("matchId").equals(matchId).delete();
@@ -150,13 +157,17 @@ const fetchTournamentMetadata = async (
 };
 
 /**
- * Checks IndexedDB for an unfinished active match draft for session recovery gate.
+ * Checks IndexedDB for an unfinished active match draft associated with the current authenticated user.
  */
-export const checkUnfinishedMatch = async (): Promise<MatchLookup | null> => {
-  if (!db?.matches) return null;
+export const checkUnfinishedMatch = async (
+  userId?: string,
+): Promise<MatchLookup | null> => {
+  if (!db?.matches || !userId) return null;
   const matches = await db.matches.toArray();
   return (
-    matches.find((m) => m.homeScore == null && m.guestScore == null) ?? null
+    matches.find(
+      (m) => m.homeScore == null && m.guestScore == null && m.userId === userId,
+    ) ?? null
   );
 };
 
@@ -245,9 +256,160 @@ export const discardUnfinishedMatch = async (
   );
 };
 
+const verifyAndStoreMatch = async (
+  matchId: string,
+  match: MatchLookup | undefined,
+  userId?: string,
+): Promise<void> => {
+  if (!match || !db.matches) return;
+  const existingMatch = await db.matches.get(matchId);
+  if (
+    userId?.trim() &&
+    existingMatch?.userId &&
+    existingMatch.userId !== userId.trim()
+  ) {
+    throw new Error("Match draft belongs to another user.");
+  }
+  const effectiveUserId = userId?.trim()
+    ? userId.trim()
+    : existingMatch?.userId;
+  const matchToStore = effectiveUserId
+    ? { ...match, userId: effectiveUserId }
+    : match;
+  await db.matches.put(matchToStore);
+};
+
+interface HydrationPayloads {
+  lineups?: MatchLineupLookup[];
+  anchors?: TimeAnchor[];
+  presence?: PlayerPresence[];
+  events?: GameEvent[];
+  definitions?: EventDefinitionLookup[];
+}
+
+const persistHydrationPayloads = async (
+  matchId: string,
+  payloads: HydrationPayloads,
+): Promise<void> => {
+  const existingLineups = await db.matchlineups
+    .where("matchId")
+    .equals(matchId)
+    .toArray();
+
+  const matchLineupIds = new Set([
+    ...existingLineups.map((lineup) => lineup.id),
+    ...(payloads.lineups ?? []).map((lineup) => lineup.id),
+  ]);
+
+  await syncLineups(matchId, payloads.lineups);
+  await syncAnchors(matchId, payloads.anchors);
+  await syncPresence(matchLineupIds, payloads.presence);
+  await syncEvents(matchLineupIds, payloads.events);
+
+  if (payloads.definitions && payloads.definitions.length > 0) {
+    await db.eventdefinitions.bulkPut(payloads.definitions);
+  }
+};
+
+interface MatchHydrationContext {
+  matchId: string;
+  match?: MatchLookup;
+  tournament?: TournamentLookup | null;
+  sportConfig?: SportConfigurationLookup | null;
+  payloads: HydrationPayloads;
+  userId?: string;
+  checkFreshness?: () => void;
+}
+
+const executeMatchTransaction = async (
+  context: MatchHydrationContext,
+): Promise<void> => {
+  const {
+    matchId,
+    match,
+    tournament,
+    sportConfig,
+    payloads,
+    userId,
+    checkFreshness,
+  } = context;
+
+  await db.transaction(
+    "rw",
+    [
+      db.matches,
+      db.tournaments,
+      db.sportconfigurations,
+      db.matchlineups,
+      db.timeanchors,
+      db.playerpresences,
+      db.gameevents,
+      db.eventdefinitions,
+    ],
+    async () => {
+      checkFreshness?.();
+
+      await verifyAndStoreMatch(matchId, match, userId);
+      if (tournament) await db.tournaments.put(tournament);
+      if (sportConfig) await db.sportconfigurations.put(sportConfig);
+
+      await persistHydrationPayloads(matchId, payloads);
+
+      checkFreshness?.();
+    },
+  );
+};
+
+const shouldRethrowError = (err: unknown): boolean => {
+  if (
+    err instanceof StaleUserError ||
+    (err instanceof Error && err.name === "StaleUserError")
+  ) {
+    return true;
+  }
+
+  const errorMessage = err instanceof Error ? err.message : String(err);
+  return (
+    errorMessage.includes("401") ||
+    errorMessage.includes("403") ||
+    errorMessage.includes("Hydration Metadata Error:") ||
+    errorMessage.includes("Match draft belongs to another user.")
+  );
+};
+
+const getTournamentAndConfig = async (match?: MatchLookup) => {
+  if (!match?.tournamentId) {
+    return { tournament: null, sportConfig: null };
+  }
+  const metadata = await fetchTournamentMetadata(match.tournamentId);
+  return { tournament: metadata.tournament, sportConfig: metadata.sportConfig };
+};
+
+const persistMatchWithRollback = async (
+  matchId: string,
+  match: MatchLookup | undefined,
+  tournament: TournamentLookup | null | undefined,
+  sportConfig: SportConfigurationLookup | null | undefined,
+  payloads: HydrationPayloads,
+  userId?: string,
+  checkFreshness?: () => void,
+) => {
+  await executeMatchTransaction({
+    matchId,
+    match,
+    tournament,
+    sportConfig,
+    payloads,
+    userId,
+    checkFreshness,
+  });
+};
+
 export const hydrateMatchData = async (
   matchId: string,
   teamId: string,
+  userId?: string,
+  checkFreshness?: () => void,
 ): Promise<{ success: boolean; isOfflineFallback: boolean }> => {
   try {
     const [match, lineups, anchors, presence, events, definitions] =
@@ -264,61 +426,23 @@ export const hydrateMatchData = async (
         ),
       ]);
 
-    let tournament: TournamentLookup | null = null;
-    let sportConfig: SportConfigurationLookup | null = null;
+    checkFreshness?.();
+    const { tournament, sportConfig } = await getTournamentAndConfig(match);
+    checkFreshness?.();
 
-    if (match?.tournamentId) {
-      const metadata = await fetchTournamentMetadata(match.tournamentId);
-      tournament = metadata.tournament;
-      sportConfig = metadata.sportConfig;
-    }
-
-    await db.transaction(
-      "rw",
-      [
-        db.matches,
-        db.tournaments,
-        db.sportconfigurations,
-        db.matchlineups,
-        db.timeanchors,
-        db.playerpresences,
-        db.gameevents,
-        db.eventdefinitions,
-      ],
-      async () => {
-        if (match) await db.matches.put(match);
-        if (tournament) await db.tournaments.put(tournament);
-        if (sportConfig) await db.sportconfigurations.put(sportConfig);
-
-        const existingLineups = await db.matchlineups
-          .where("matchId")
-          .equals(matchId)
-          .toArray();
-
-        const matchLineupIds = new Set([
-          ...existingLineups.map((lineup) => lineup.id),
-          ...(lineups ?? []).map((lineup) => lineup.id),
-        ]);
-
-        await syncLineups(matchId, lineups);
-        await syncAnchors(matchId, anchors);
-        await syncPresence(matchLineupIds, presence);
-        await syncEvents(matchLineupIds, events);
-
-        if (definitions && definitions.length > 0) {
-          await db.eventdefinitions.bulkPut(definitions);
-        }
-      },
+    await persistMatchWithRollback(
+      matchId,
+      match,
+      tournament,
+      sportConfig,
+      { lineups, anchors, presence, events, definitions },
+      userId,
+      checkFreshness,
     );
 
     return { success: true, isOfflineFallback: false };
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    if (
-      errorMessage.includes("401") ||
-      errorMessage.includes("403") ||
-      errorMessage.includes("Hydration Metadata Error:")
-    ) {
+    if (shouldRethrowError(err)) {
       throw err;
     }
 

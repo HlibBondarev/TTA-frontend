@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 import { TTAConsole } from "./features/matches/components/TTAConsole";
@@ -12,6 +12,7 @@ import { setActiveMatch } from "./features/matches/store/matchSlice";
 import {
   hydrateMatchData,
   getMatchRecoveryState,
+  StaleUserError,
 } from "./services/hydrationService";
 import { setTokenGetter } from "./services/tokenService";
 import type { RootState } from "./store";
@@ -36,7 +37,17 @@ export const App: React.FC = () => {
     isAuthenticated,
     isLoading,
     loginWithRedirect,
+    user,
   } = useAuth0();
+
+  const currentUserId = user?.sub ?? user?.email;
+  const currentUserIdRef = useRef(currentUserId);
+
+  useLayoutEffect(() => {
+    if (currentUserIdRef.current !== currentUserId) {
+      currentUserIdRef.current = currentUserId;
+    }
+  }, [currentUserId]);
 
   // Tab protection during active match session (even during inter-period breaks)
   useEffect(() => {
@@ -82,6 +93,8 @@ export const App: React.FC = () => {
     activePlayersLimit: number,
     selectedTeamId: string,
   ) => {
+    const initiatedUserId = currentUserId;
+
     dispatch(
       setPresenceLimits({
         limit: activePlayersLimit,
@@ -89,10 +102,34 @@ export const App: React.FC = () => {
       }),
     );
 
+    const verifyFreshness = () => {
+      if (currentUserIdRef.current !== initiatedUserId) {
+        throw new StaleUserError();
+      }
+    };
+
     try {
-      await hydrateMatchData(matchId, selectedTeamId);
+      await hydrateMatchData(
+        matchId,
+        selectedTeamId,
+        initiatedUserId,
+        verifyFreshness,
+      );
     } catch (error) {
+      if (error instanceof StaleUserError) {
+        console.warn(
+          "Account changed during Quick Start hydration. Aborting session activation.",
+        );
+        return;
+      }
       console.error("Hydration failed (non-critical):", error);
+      return;
+    }
+
+    if (currentUserIdRef.current !== initiatedUserId) {
+      console.warn(
+        "Account changed during Quick Start hydration. Aborting session activation.",
+      );
       return;
     }
 
@@ -105,9 +142,17 @@ export const App: React.FC = () => {
   };
 
   const handleResumeMatch = async (matchId: string, teamId: string) => {
+    const initiatedUserId = currentUserId;
     try {
       const { recoveredPeriod, activePlayersLimit } =
         await getMatchRecoveryState(matchId);
+
+      if (currentUserIdRef.current !== initiatedUserId) {
+        console.warn(
+          "Account changed during match recovery. Aborting session resumption.",
+        );
+        return;
+      }
 
       dispatch(
         setPresenceLimits({

@@ -1,5 +1,12 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useCallback,
+  useRef,
+} from "react";
 import { useDispatch } from "react-redux";
+import { useAuth0 } from "@auth0/auth0-react";
 import { sportService } from "../../../services/sportService";
 import { teamService } from "../../../services/teamService";
 import { apiClient } from "../../../api/client";
@@ -22,47 +29,278 @@ interface MatchSetupWizardProps {
   ) => Promise<void>;
 }
 
+class StaleOperationError extends Error {
+  constructor() {
+    super("Operation cancelled due to user account change.");
+    this.name = "StaleOperationError";
+  }
+}
+
+class MatchOwnershipError extends Error {
+  constructor() {
+    super("Match session belongs to another user.");
+    this.name = "MatchOwnershipError";
+  }
+}
+
+function checkUserFreshness(
+  initiatedUserId: string | undefined,
+  currentUserIdRef: React.RefObject<string | undefined>,
+): void {
+  if (currentUserIdRef.current !== initiatedUserId) {
+    throw new StaleOperationError();
+  }
+}
+
+async function persistOrRollbackTournament(
+  tournamentId: string,
+  tournamentData: {
+    id: string;
+    sportId: string;
+    configurationId: string;
+    cityId: string;
+    ownerId: string;
+    name: string;
+    startDate: string;
+    endDate: null;
+    createdAt: string;
+  },
+  verifyFreshness: () => void,
+): Promise<void> {
+  const existingTournament = await db.tournaments.get(tournamentId);
+  verifyFreshness();
+
+  await db.tournaments.put(
+    tournamentData as unknown as Parameters<typeof db.tournaments.put>[0],
+  );
+
+  try {
+    verifyFreshness();
+  } catch (err) {
+    if (existingTournament) {
+      await db.tournaments.put(existingTournament);
+    } else {
+      await db.tournaments.delete(tournamentId);
+    }
+    throw err;
+  }
+}
+
 async function ensureTournamentPersisted(
   tournamentId: string,
   sportId: string,
   configurationId: string,
+  verifyFreshness: () => void,
 ): Promise<void> {
   if (!db.tournaments) return;
 
+  const quickTournamentPayload = {
+    id: tournamentId,
+    sportId,
+    configurationId,
+    cityId: "",
+    ownerId: "",
+    name: "Quick Tournament",
+    startDate: new Date().toISOString(),
+    endDate: null,
+    createdAt: new Date().toISOString(),
+  };
+
+  let tournament: {
+    id: string;
+    sportId: string;
+    configurationId: string;
+  } | null = null;
+
   try {
-    const tournament = await apiClient.get<{
+    tournament = await apiClient.get<{
       id: string;
       sportId: string;
       configurationId: string;
     }>(`/Tournaments/${tournamentId}`);
+  } catch (err) {
+    if (err instanceof StaleOperationError) throw err;
+  }
 
-    if (tournament) {
-      await db.tournaments.put(
-        tournament as unknown as Parameters<typeof db.tournaments.put>[0],
-      );
-    }
-  } catch {
-    const existingTourn = await db.tournaments.get(tournamentId);
-    if (!existingTourn) {
-      await db.tournaments.put({
-        id: tournamentId,
-        sportId,
-        configurationId,
-        cityId: "",
-        ownerId: "",
-        name: "Quick Tournament",
-        startDate: new Date().toISOString(),
-        endDate: null,
-        createdAt: new Date().toISOString(),
-      });
+  verifyFreshness();
+
+  if (tournament) {
+    await persistOrRollbackTournament(
+      tournamentId,
+      {
+        ...quickTournamentPayload,
+        ...tournament,
+      },
+      verifyFreshness,
+    );
+    return;
+  }
+
+  const existingTourn = await db.tournaments.get(tournamentId);
+  verifyFreshness();
+
+  if (!existingTourn) {
+    await persistOrRollbackTournament(
+      tournamentId,
+      quickTournamentPayload,
+      verifyFreshness,
+    );
+  }
+}
+
+async function verifyMatchOwnership(
+  matchId: string,
+  currentUserId: string | undefined,
+): Promise<boolean> {
+  if (!db.matches) return true;
+  const existingLocalMatch = await db.matches.get(matchId);
+  if (
+    existingLocalMatch?.userId &&
+    existingLocalMatch.userId !== currentUserId
+  ) {
+    return false;
+  }
+  return true;
+}
+
+async function createQuickMatch(
+  sportId: string,
+  configurationId: string,
+): Promise<string> {
+  const response = await apiClient.post<{ id: string }>("/Matches/quick", {
+    sportId,
+    configurationId,
+  });
+
+  const matchId = typeof response?.id === "string" ? response.id.trim() : "";
+  if (!matchId) {
+    throw new Error("Failed to initialize quick match session.");
+  }
+
+  return matchId;
+}
+
+async function fetchAndNormalizeMatch(
+  matchId: string,
+  currentUserId: string | undefined,
+): Promise<MatchLookup> {
+  const match = await apiClient.get<MatchLookup>(`/Matches/${matchId}`);
+
+  const isValidString = (val: unknown): val is string =>
+    typeof val === "string" && val.trim().length > 0;
+
+  if (
+    !match ||
+    !isValidString(match.id) ||
+    !isValidString(match.homeTeamId) ||
+    !isValidString(match.guestTeamId)
+  ) {
+    throw new Error("Failed to load match details.");
+  }
+
+  return {
+    ...match,
+    id: match.id.trim(),
+    homeTeamId: match.homeTeamId.trim(),
+    guestTeamId: match.guestTeamId.trim(),
+    tournamentId:
+      typeof match.tournamentId === "string" ? match.tournamentId.trim() : "",
+    userId: currentUserId,
+  };
+}
+
+async function saveSelectedConfig(
+  selectedConfigId: string,
+  configurations: SportConfigurationLookup[],
+  verifyFreshness: () => void,
+): Promise<void> {
+  verifyFreshness();
+  const selectedConfig = configurations.find((c) => c.id === selectedConfigId);
+  if (selectedConfig && db.sportconfigurations) {
+    const existingConfig = await db.sportconfigurations.get(selectedConfigId);
+    verifyFreshness();
+
+    await db.sportconfigurations.put(selectedConfig);
+
+    try {
+      verifyFreshness();
+    } catch (err) {
+      if (existingConfig) {
+        await db.sportconfigurations.put(existingConfig);
+      } else {
+        await db.sportconfigurations.delete(selectedConfigId);
+      }
+      throw err;
     }
   }
+}
+
+async function resolveMatchSessionId(
+  pendingMatchId: string | null,
+  initiatedUserId: string | undefined,
+  sportId: string,
+  configId: string,
+  verifyFreshness: () => void,
+): Promise<string> {
+  let matchId = pendingMatchId;
+
+  if (matchId && !(await verifyMatchOwnership(matchId, initiatedUserId))) {
+    throw new MatchOwnershipError();
+  }
+
+  verifyFreshness();
+
+  if (!matchId) {
+    matchId = await createQuickMatch(sportId, configId);
+    verifyFreshness();
+  }
+
+  return matchId;
+}
+
+async function persistMatchLocally(
+  normalizedMatch: MatchLookup,
+  verifyFreshness: () => void,
+): Promise<void> {
+  if (!db.matches) return;
+  verifyFreshness();
+  const existingMatch = await db.matches.get(normalizedMatch.id);
+  verifyFreshness();
+  await db.matches.put(normalizedMatch);
+  try {
+    verifyFreshness();
+  } catch (err) {
+    if (existingMatch) {
+      await db.matches.put(existingMatch);
+    } else {
+      await db.matches.delete(normalizedMatch.id);
+    }
+    throw err;
+  }
+}
+
+async function loadMatchTeams(
+  homeTeamId: string,
+  guestTeamId: string,
+  verifyFreshness: () => void,
+): Promise<{ home: TeamLookup; guest: TeamLookup }> {
+  const [home, guest] = await Promise.all([
+    teamService.getTeamById(homeTeamId),
+    teamService.getTeamById(guestTeamId),
+  ]);
+  verifyFreshness();
+  return { home, guest };
 }
 
 export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   onQuickStart,
 }) => {
   const dispatch = useDispatch();
+  const { user } = useAuth0();
+  const currentUserId = user?.sub ?? user?.email;
+
+  const currentUserIdRef = useRef(currentUserId);
+  const prevUserIdRef = useRef(currentUserId);
 
   const [sports, setSports] = useState<SportLookup[]>([]);
   const [selectedSportId, setSelectedSportId] = useState<string | null>(null);
@@ -72,7 +310,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   >([]);
   const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null);
 
-  // Quick match draft context for team selection
   const [pendingMatchId, setPendingMatchId] = useState<string | null>(null);
   const [teams, setTeams] = useState<{
     home: TeamLookup;
@@ -88,6 +325,24 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
   const configRequestRef = useRef(0);
 
+  useLayoutEffect(() => {
+    if (currentUserIdRef.current !== currentUserId) {
+      currentUserIdRef.current = currentUserId;
+    }
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (prevUserIdRef.current !== currentUserId) {
+      prevUserIdRef.current = currentUserId;
+      setPendingMatchId(null);
+      setTeams(null);
+      setSelectedTeamId(null);
+      setIsSubmitting(false);
+      setIsLoadingTeams(false);
+      setErrorMessage(null);
+    }
+  }, [currentUserId]);
+
   const loadConfigurations = useCallback(
     async (sportId: string, sportList: SportLookup[]) => {
       const requestId = ++configRequestRef.current;
@@ -100,7 +355,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
         setConfigurations(data);
 
-        // Persist retrieved configurations to IndexedDB immediately
         if (data.length > 0 && db.sportconfigurations) {
           await db.sportconfigurations.bulkPut(data);
         }
@@ -150,7 +404,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
         setSports(data);
 
-        // Persist sports to IndexedDB
         if (data.length > 0 && db.sports) {
           await db.sports.bulkPut(data);
         }
@@ -174,7 +427,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       }
     };
 
-    fetchSports();
+    void fetchSports();
 
     return () => {
       isMounted = false;
@@ -191,106 +444,88 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     await loadConfigurations(sportId, sports);
   };
 
-  // Step A: Create quick match (or reuse pendingMatchId) and load participating teams
   const handleInitMatch = async () => {
     if (!selectedSportId || !selectedConfigId || isSubmitting) return;
+
+    const initiatedUserId = currentUserId;
+    const verifyFreshness = () =>
+      checkUserFreshness(initiatedUserId, currentUserIdRef);
 
     try {
       setIsSubmitting(true);
       setIsLoadingTeams(true);
       setErrorMessage(null);
 
-      // Ensure the chosen configuration is explicitly in Dexie before proceeding
-      const selectedConfig = configurations.find(
-        (c) => c.id === selectedConfigId,
+      await saveSelectedConfig(
+        selectedConfigId,
+        configurations,
+        verifyFreshness,
       );
-      if (selectedConfig && db.sportconfigurations) {
-        await db.sportconfigurations.put(selectedConfig);
-      }
 
-      let matchId = pendingMatchId;
+      const matchId = await resolveMatchSessionId(
+        pendingMatchId,
+        initiatedUserId,
+        selectedSportId,
+        selectedConfigId,
+        verifyFreshness,
+      );
+      setPendingMatchId(matchId);
 
-      if (!matchId) {
-        const response = await apiClient.post<{ id: string }>(
-          "/Matches/quick",
-          {
-            sportId: selectedSportId,
-            configurationId: selectedConfigId,
-          },
-        );
+      const normalizedMatch = await fetchAndNormalizeMatch(
+        matchId,
+        initiatedUserId,
+      );
+      verifyFreshness();
 
-        if (
-          !response ||
-          typeof response.id !== "string" ||
-          !response.id.trim()
-        ) {
-          setPendingMatchId(null);
-          throw new Error("Failed to initialize quick match session.");
-        }
+      await persistMatchLocally(normalizedMatch, verifyFreshness);
 
-        matchId = response.id.trim();
-        setPendingMatchId(matchId);
-      }
-
-      const match = await apiClient.get<MatchLookup>(`/Matches/${matchId}`);
-
-      const isValidString = (val: unknown): val is string =>
-        typeof val === "string" && val.trim().length > 0;
-
-      if (
-        !match ||
-        !isValidString(match.id) ||
-        !isValidString(match.homeTeamId) ||
-        !isValidString(match.guestTeamId)
-      ) {
-        throw new Error("Failed to load match details.");
-      }
-
-      const normalizedMatch: MatchLookup = {
-        ...match,
-        id: match.id.trim(),
-        homeTeamId: match.homeTeamId.trim(),
-        guestTeamId: match.guestTeamId.trim(),
-        tournamentId:
-          typeof match.tournamentId === "string"
-            ? match.tournamentId.trim()
-            : "",
-      };
-
-      // Store match locally
-      if (db.matches) {
-        await db.matches.put(normalizedMatch);
-      }
-
-      // If match points to a tournament, ensure tournament is also stored
       if (normalizedMatch.tournamentId) {
         await ensureTournamentPersisted(
           normalizedMatch.tournamentId,
           selectedSportId,
           selectedConfigId,
+          verifyFreshness,
         );
+        verifyFreshness();
       }
 
-      const [home, guest] = await Promise.all([
-        teamService.getTeamById(normalizedMatch.homeTeamId),
-        teamService.getTeamById(normalizedMatch.guestTeamId),
-      ]);
+      const loadedTeams = await loadMatchTeams(
+        normalizedMatch.homeTeamId,
+        normalizedMatch.guestTeamId,
+        verifyFreshness,
+      );
 
-      setTeams({ home, guest });
-      setSelectedTeamId((prev) => prev ?? home.id);
+      setTeams(loadedTeams);
+      setSelectedTeamId((prev) => prev ?? loadedTeams.home.id);
     } catch (err) {
+      if (err instanceof StaleOperationError) {
+        if (currentUserIdRef.current !== initiatedUserId) {
+          setPendingMatchId(null);
+          setTeams(null);
+          setSelectedTeamId(null);
+        }
+        return;
+      }
+
+      if (err instanceof MatchOwnershipError) {
+        setPendingMatchId(null);
+        setTeams(null);
+        setSelectedTeamId(null);
+      }
+
       setErrorMessage(
         err instanceof Error
           ? err.message
           : "Failed to initialize quick match session.",
       );
     } finally {
-      setIsSubmitting(false);
-      setIsLoadingTeams(false);
+      if (currentUserIdRef.current === initiatedUserId) {
+        setIsSubmitting(false);
+        setIsLoadingTeams(false);
+      }
     }
   };
 
-  // Step B: Confirm team selection and proceed to console
   const handleConfirmQuickStart = async () => {
     if (
       !pendingMatchId ||
@@ -300,6 +535,10 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       isSubmitting
     )
       return;
+
+    const initiatedUserId = currentUserId;
+    const verifyFreshness = () =>
+      checkUserFreshness(initiatedUserId, currentUserIdRef);
 
     const selectedConfig = configurations.find(
       (c) => c.id === selectedConfigId,
@@ -316,12 +555,16 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         activePlayersLimit,
         selectedTeamId,
       );
+      verifyFreshness();
     } catch (err) {
+      if (err instanceof StaleOperationError) return;
       setErrorMessage(
         err instanceof Error ? err.message : "Failed to complete match setup.",
       );
     } finally {
-      setIsSubmitting(false);
+      if (currentUserIdRef.current === initiatedUserId) {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -415,7 +658,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         </div>
       )}
 
-      {/* Step 1: Sport Discipline Selection */}
       <fieldset className="mb-4 min-w-0 border-0 p-0 m-0">
         <legend className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold p-0">
           1. Select Sport Discipline
@@ -443,7 +685,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         </div>
       </fieldset>
 
-      {/* Step 2: Sport Configuration Selection */}
       <fieldset className="mb-6 flex-1 min-w-0 border-0 p-0 m-0">
         <legend className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold p-0">
           2. Select Configuration Profile
@@ -451,7 +692,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         {renderConfigurationsContent()}
       </fieldset>
 
-      {/* Step 3: Team Selection (Revealed once match is initialized) */}
       {teams && (
         <fieldset className="mb-6 min-w-0 border-0 p-0 m-0">
           <legend className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold p-0">
@@ -492,7 +732,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         </fieldset>
       )}
 
-      {/* Action Button */}
       {!teams ? (
         <button
           type="button"

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useDispatch } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 import { setCurrentView } from "../../../store/slices/navigationSlice";
@@ -12,22 +12,55 @@ export interface MainDashboardProps {
   onResumeMatch?: (matchId: string, teamId: string) => Promise<void>;
 }
 
+interface ActiveOperation {
+  userId: string;
+  token: string;
+  type: "resume" | "discard";
+}
+
+let tokenCounter = 0;
+const generateToken = (): string =>
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `op-${String(Date.now())}-${String(++tokenCounter)}`;
+
 export const MainDashboard: React.FC<MainDashboardProps> = ({
   onResumeMatch,
 }) => {
   const dispatch = useDispatch();
   const { user, logout } = useAuth0();
 
+  const currentUserId = user?.sub ?? user?.email;
+  const currentUserIdRef = useRef(currentUserId);
+
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+  }, [currentUserId]);
+
   const [unfinishedMatch, setUnfinishedMatch] = useState<
     (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string }) | null
   >(null);
-  const [isResuming, setIsResuming] = useState(false);
+
+  const [activeOp, setActiveOp] = useState<ActiveOperation | null>(null);
+
+  const isCurrentOp = Boolean(
+    activeOp && currentUserId && activeOp.userId === currentUserId,
+  );
+  const isResuming = isCurrentOp && activeOp?.type === "resume";
+  const isDiscarding = isCurrentOp && activeOp?.type === "discard";
+  const isRecoveryBusy = isCurrentOp;
+
+  const activeUnfinishedMatch =
+    unfinishedMatch && currentUserId && unfinishedMatch.userId === currentUserId
+      ? unfinishedMatch
+      : null;
 
   useEffect(() => {
     let isMounted = true;
+
     const checkForInterruptedMatch = async () => {
       try {
-        const match = await checkUnfinishedMatch();
+        const match = await checkUnfinishedMatch(currentUserId);
         if (isMounted) {
           setUnfinishedMatch(match);
         }
@@ -36,45 +69,61 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
       }
     };
 
-    checkForInterruptedMatch();
+    void checkForInterruptedMatch();
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [currentUserId]);
 
-  const handleResume = async () => {
-    if (!unfinishedMatch || isResuming) return;
-    setIsResuming(true);
+  const handleResume = useCallback(async () => {
+    if (!activeUnfinishedMatch || isRecoveryBusy || !currentUserId) return;
+    const initiatedUserId = currentUserId;
+    const token = generateToken();
+    setActiveOp({ userId: initiatedUserId, token, type: "resume" });
     try {
       if (onResumeMatch) {
         const teamToResume =
-          unfinishedMatch.trackedTeamId ||
-          unfinishedMatch.selectedTeamId ||
-          unfinishedMatch.homeTeamId ||
+          activeUnfinishedMatch.trackedTeamId ||
+          activeUnfinishedMatch.selectedTeamId ||
+          activeUnfinishedMatch.homeTeamId ||
           "";
-        await onResumeMatch(unfinishedMatch.id, teamToResume);
+        await onResumeMatch(activeUnfinishedMatch.id, teamToResume);
       }
     } finally {
-      setIsResuming(false);
+      setActiveOp((prev) =>
+        prev?.userId === initiatedUserId && prev?.token === token ? null : prev,
+      );
     }
-  };
+  }, [activeUnfinishedMatch, isRecoveryBusy, currentUserId, onResumeMatch]);
 
-  const handleDiscard = async () => {
-    if (!unfinishedMatch || isResuming) return;
-    setIsResuming(true);
+  const handleDiscard = useCallback(async () => {
+    if (!activeUnfinishedMatch || isRecoveryBusy || !currentUserId) return;
+    const initiatedUserId = currentUserId;
+    const matchIdToDiscard = activeUnfinishedMatch.id;
+    const token = generateToken();
+    setActiveOp({ userId: initiatedUserId, token, type: "discard" });
     try {
-      await discardUnfinishedMatch(unfinishedMatch.id);
-      setUnfinishedMatch(null);
+      await discardUnfinishedMatch(matchIdToDiscard);
+      if (currentUserIdRef.current === initiatedUserId) {
+        setUnfinishedMatch((prev) =>
+          prev?.id === matchIdToDiscard ? null : prev,
+        );
+      }
     } catch (err) {
       console.error("Failed to discard unfinished match:", err);
     } finally {
-      setIsResuming(false);
+      setActiveOp((prev) =>
+        prev?.userId === initiatedUserId && prev?.token === token ? null : prev,
+      );
     }
+  }, [activeUnfinishedMatch, isRecoveryBusy, currentUserId]);
+
+  const handleLogout = () => {
+    void logout({ logoutParams: { returnTo: window.location.origin } });
   };
 
   return (
     <div className="w-full max-w-sm mx-auto flex flex-col flex-1 p-4 bg-gray-950 text-gray-100 overflow-y-auto">
-      {/* Header with User Profile */}
       <header className="flex items-center justify-between pb-4 border-b border-gray-800 mb-6">
         <div className="flex flex-col min-w-0 pr-2">
           <span className="text-[10px] uppercase font-bold text-gray-500">
@@ -86,17 +135,14 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         </div>
         <button
           type="button"
-          onClick={() =>
-            void logout({ logoutParams: { returnTo: window.location.origin } })
-          }
+          onClick={handleLogout}
           className="text-xs bg-red-950/60 hover:bg-red-900 border border-red-800/80 text-red-200 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
         >
           Log Out
         </button>
       </header>
 
-      {/* Session Recovery Gate Prompt */}
-      {unfinishedMatch && (
+      {activeUnfinishedMatch && (
         <section
           aria-label="Session Recovery Prompt"
           className="mb-6 p-4 bg-amber-950/40 border border-amber-600/60 rounded-2xl shadow-xl flex flex-col space-y-3"
@@ -107,7 +153,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
               <span>Interrupted Match Found</span>
             </span>
             <span className="text-[10px] text-amber-300/80 font-mono">
-              ID: {unfinishedMatch.id.slice(0, 8)}...
+              ID: {activeUnfinishedMatch.id.slice(0, 8)}...
             </span>
           </div>
 
@@ -119,7 +165,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           <div className="grid grid-cols-2 gap-2 pt-1">
             <button
               type="button"
-              disabled={isResuming}
+              disabled={isRecoveryBusy}
               onClick={() => void handleResume()}
               className="py-2.5 px-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-black uppercase text-[10px] rounded-xl transition-all tracking-wider text-center cursor-pointer"
             >
@@ -127,11 +173,11 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
             </button>
             <button
               type="button"
-              disabled={isResuming}
+              disabled={isRecoveryBusy}
               onClick={() => void handleDiscard()}
               className="py-2.5 px-3 bg-rose-950/80 hover:bg-rose-900 border border-rose-800/80 text-rose-200 disabled:opacity-50 font-bold uppercase text-[10px] rounded-xl transition-all text-center cursor-pointer"
             >
-              {isResuming ? "Discarding..." : "Discard Match"}
+              {isDiscarding ? "Discarding..." : "Discard Match"}
             </button>
           </div>
         </section>
@@ -141,9 +187,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         TTA Hub Navigation
       </h2>
 
-      {/* Navigation Pathways */}
       <div className="space-y-4 flex-1 flex flex-col justify-center">
-        {/* Pathway 1: Quick Start Match */}
         <button
           type="button"
           onClick={() => dispatch(setCurrentView("QUICK_START"))}
@@ -163,7 +207,6 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           </p>
         </button>
 
-        {/* Pathway 2: My Tracked Matches */}
         <button
           type="button"
           onClick={() => dispatch(setCurrentView("MY_MATCHES"))}
@@ -183,7 +226,6 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           </p>
         </button>
 
-        {/* Pathway 3: Tournament Management */}
         <button
           type="button"
           onClick={() => dispatch(setCurrentView("TOURNAMENT_STUB"))}
