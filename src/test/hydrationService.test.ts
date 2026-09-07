@@ -65,6 +65,18 @@ describe("Hydration Service", () => {
     vi.mocked(apiClient.get).mockReset();
     vi.mocked(sportService.getSportConfigurations).mockReset();
     vi.mocked(seedTestData).mockReset().mockResolvedValue(undefined);
+
+    // Reset db.transaction and set default pass-through execution
+    vi.mocked(db.transaction)
+      .mockReset()
+      .mockImplementation((async (
+        _mode: string,
+        _tables: unknown,
+        callback: () => Promise<void>,
+      ) => {
+        await callback();
+      }) as unknown as typeof db.transaction);
+
     vi.mocked(db.matches.get).mockReset();
     vi.mocked(db.matches.put).mockReset();
     vi.mocked(db.matches.delete)
@@ -259,14 +271,6 @@ describe("Hydration Service", () => {
       equals: vi.fn().mockReturnValue({ delete: mockDelete }),
     } as unknown as ReturnType<typeof db.timeanchors.where>);
 
-    vi.mocked(db.transaction).mockImplementation((async (
-      _mode: string,
-      _tables: unknown,
-      callback: () => Promise<void>,
-    ) => {
-      await callback();
-    }) as unknown as typeof db.transaction);
-
     await discardUnfinishedMatch(matchId);
 
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
@@ -281,14 +285,6 @@ describe("Hydration Service", () => {
       homeScore: 10,
       guestScore: 8,
     } as never);
-
-    vi.mocked(db.transaction).mockImplementation((async (
-      _mode: string,
-      _tables: unknown,
-      callback: () => Promise<void>,
-    ) => {
-      await callback();
-    }) as unknown as typeof db.transaction);
 
     await discardUnfinishedMatch(matchId);
 
@@ -389,37 +385,6 @@ describe("Hydration Service", () => {
       userId: "existing-owner-id",
     } as never);
 
-    vi.mocked(db.transaction).mockImplementation((async (
-      _mode: string,
-      _tables: unknown,
-      callback: () => Promise<void>,
-    ) => {
-      vi.mocked(db.matchlineups.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          delete: vi.fn().mockResolvedValue(0),
-          toArray: vi.fn().mockResolvedValue([]),
-        }),
-      } as unknown as ReturnType<typeof db.matchlineups.where>);
-
-      vi.mocked(db.timeanchors.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          and: vi
-            .fn()
-            .mockReturnValue({ delete: vi.fn().mockResolvedValue(0) }),
-        }),
-      } as unknown as ReturnType<typeof db.timeanchors.where>);
-
-      vi.mocked(db.playerpresences.filter).mockImplementation((() => ({
-        primaryKeys: vi.fn().mockResolvedValue([]),
-      })) as unknown as typeof db.playerpresences.filter);
-
-      vi.mocked(db.gameevents.filter).mockImplementation((() => ({
-        primaryKeys: vi.fn().mockResolvedValue([]),
-      })) as unknown as typeof db.gameevents.filter);
-
-      await callback();
-    }) as unknown as typeof db.transaction);
-
     const result = await hydrateMatchData(matchId, teamId);
 
     expect(result).toEqual({ success: true, isOfflineFallback: false });
@@ -459,37 +424,6 @@ describe("Hydration Service", () => {
         ReturnType<typeof sportService.getSportConfigurations>
       >[0],
     ]);
-
-    vi.mocked(db.transaction).mockImplementation((async (
-      _mode: string,
-      _tables: unknown,
-      callback: () => Promise<void>,
-    ) => {
-      vi.mocked(db.matchlineups.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          delete: vi.fn().mockResolvedValue(0),
-          toArray: vi.fn().mockResolvedValue([]),
-        }),
-      } as unknown as ReturnType<typeof db.matchlineups.where>);
-
-      vi.mocked(db.timeanchors.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          and: vi
-            .fn()
-            .mockReturnValue({ delete: vi.fn().mockResolvedValue(0) }),
-        }),
-      } as unknown as ReturnType<typeof db.timeanchors.where>);
-
-      vi.mocked(db.playerpresences.filter).mockImplementation((() => ({
-        primaryKeys: vi.fn().mockResolvedValue([]),
-      })) as unknown as typeof db.playerpresences.filter);
-
-      vi.mocked(db.gameevents.filter).mockImplementation((() => ({
-        primaryKeys: vi.fn().mockResolvedValue([]),
-      })) as unknown as typeof db.gameevents.filter);
-
-      await callback();
-    }) as unknown as typeof db.transaction);
 
     const result = await hydrateMatchData(matchId, teamId);
 
@@ -694,20 +628,6 @@ describe("Hydration Service", () => {
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce([]);
 
-    vi.mocked(db.transaction).mockImplementation((async (
-      _mode: string,
-      _tables: unknown,
-      callback: () => Promise<void>,
-    ) => {
-      vi.mocked(db.matchlineups.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          toArray: vi.fn().mockResolvedValue([]),
-        }),
-      } as unknown as ReturnType<typeof db.matchlineups.where>);
-
-      await callback();
-    }) as unknown as typeof db.transaction);
-
     const result = await hydrateMatchData(matchId, teamId);
 
     expect(result).toEqual({ success: true, isOfflineFallback: false });
@@ -885,14 +805,6 @@ describe("Hydration Service", () => {
       }
     });
 
-    vi.mocked(db.transaction).mockImplementation((async (
-      _mode: string,
-      _tables: unknown,
-      callback: () => Promise<void>,
-    ) => {
-      await callback();
-    }) as unknown as typeof db.transaction);
-
     await expect(
       hydrateMatchData(
         matchId,
@@ -925,14 +837,6 @@ describe("Hydration Service", () => {
       }
     });
 
-    vi.mocked(db.transaction).mockImplementation((async (
-      _mode: string,
-      _tables: unknown,
-      callback: () => Promise<void>,
-    ) => {
-      await callback();
-    }) as unknown as typeof db.transaction);
-
     await expect(
       hydrateMatchData(
         matchId,
@@ -961,14 +865,6 @@ describe("Hydration Service", () => {
       userId: "user-A",
     } as never);
 
-    vi.mocked(db.transaction).mockImplementation((async (
-      _mode: string,
-      _tables: unknown,
-      callback: () => Promise<void>,
-    ) => {
-      await callback();
-    }) as unknown as typeof db.transaction);
-
     await expect(hydrateMatchData(matchId, teamId, "user-B")).rejects.toThrow(
       "Match draft belongs to another user.",
     );
@@ -990,37 +886,6 @@ describe("Hydration Service", () => {
       title: "Match 1",
       userId: "existing-owner-id",
     } as never);
-
-    vi.mocked(db.transaction).mockImplementation((async (
-      _mode: string,
-      _tables: unknown,
-      callback: () => Promise<void>,
-    ) => {
-      vi.mocked(db.matchlineups.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          delete: vi.fn().mockResolvedValue(0),
-          toArray: vi.fn().mockResolvedValue([]),
-        }),
-      } as unknown as ReturnType<typeof db.matchlineups.where>);
-
-      vi.mocked(db.timeanchors.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          and: vi
-            .fn()
-            .mockReturnValue({ delete: vi.fn().mockResolvedValue(0) }),
-        }),
-      } as unknown as ReturnType<typeof db.timeanchors.where>);
-
-      vi.mocked(db.playerpresences.filter).mockImplementation((() => ({
-        primaryKeys: vi.fn().mockResolvedValue([]),
-      })) as unknown as typeof db.playerpresences.filter);
-
-      vi.mocked(db.gameevents.filter).mockImplementation((() => ({
-        primaryKeys: vi.fn().mockResolvedValue([]),
-      })) as unknown as typeof db.gameevents.filter);
-
-      await callback();
-    }) as unknown as typeof db.transaction);
 
     const result = await hydrateMatchData(matchId, teamId, "   ");
 
