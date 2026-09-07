@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 import { TTAConsole } from "./features/matches/components/TTAConsole";
@@ -43,10 +43,11 @@ export const App: React.FC = () => {
   const currentUserId = user?.sub ?? user?.email;
   const currentUserIdRef = useRef(currentUserId);
 
-  // Synchronously sync ref if user changes during render without violating ESLint rules
-  if (currentUserIdRef.current !== currentUserId) {
-    currentUserIdRef.current = currentUserId;
-  }
+  useLayoutEffect(() => {
+    if (currentUserIdRef.current !== currentUserId) {
+      currentUserIdRef.current = currentUserId;
+    }
+  }, [currentUserId]);
 
   // Tab protection during active match session (even during inter-period breaks)
   useEffect(() => {
