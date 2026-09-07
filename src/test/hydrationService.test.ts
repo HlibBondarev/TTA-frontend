@@ -922,4 +922,34 @@ describe("Hydration Service", () => {
     expect(checkFreshnessMock).toHaveBeenCalledTimes(4);
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
+
+  it("rejects hydration when existing local match belongs to a different userId", async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      title: "Match 1",
+      userId: "user-A",
+    } as never);
+
+    vi.mocked(db.transaction).mockImplementation((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    await expect(hydrateMatchData(matchId, teamId, "user-B")).rejects.toThrow(
+      "Match draft belongs to another user.",
+    );
+
+    expect(db.matches.put).not.toHaveBeenCalled();
+  });
 });

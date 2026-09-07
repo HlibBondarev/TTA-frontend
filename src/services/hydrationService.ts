@@ -312,6 +312,13 @@ export const hydrateMatchData = async (
 
           if (match) {
             const existingMatch = await db.matches.get(matchId);
+            if (
+              userId &&
+              existingMatch?.userId &&
+              existingMatch.userId !== userId
+            ) {
+              throw new Error("Match draft belongs to another user.");
+            }
             const effectiveUserId = userId ?? existingMatch?.userId;
             const matchToStore = effectiveUserId
               ? { ...match, userId: effectiveUserId }
@@ -368,7 +375,8 @@ export const hydrateMatchData = async (
     if (
       errorMessage.includes("401") ||
       errorMessage.includes("403") ||
-      errorMessage.includes("Hydration Metadata Error:")
+      errorMessage.includes("Hydration Metadata Error:") ||
+      errorMessage.includes("Match draft belongs to another user.")
     ) {
       throw err;
     }
