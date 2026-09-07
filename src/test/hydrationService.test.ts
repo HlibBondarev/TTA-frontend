@@ -14,6 +14,7 @@ import { seedTestData } from "../db/seed";
 vi.mock("../api/client", () => ({
   apiClient: {
     get: vi.fn(),
+    delete: vi.fn(),
   },
 }));
 
@@ -30,6 +31,7 @@ vi.mock("../db/seed", () => ({
 vi.mock("../db/ttaDatabase", () => ({
   db: {
     transaction: vi.fn(),
+    syncQueue: { add: vi.fn() },
     matches: {
       put: vi.fn(),
       get: vi.fn(),
@@ -63,6 +65,7 @@ describe("Hydration Service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(apiClient.get).mockReset();
+    vi.mocked(apiClient.delete).mockReset();
     vi.mocked(sportService.getSportConfigurations).mockReset();
     vi.mocked(seedTestData).mockReset().mockResolvedValue(undefined);
 
@@ -77,6 +80,9 @@ describe("Hydration Service", () => {
         await callback();
       }) as unknown as typeof db.transaction);
 
+    vi.mocked(db.syncQueue.add)
+      .mockReset()
+      .mockResolvedValue("sync-1" as never);
     vi.mocked(db.matches.get).mockReset();
     vi.mocked(db.matches.put).mockReset();
     vi.mocked(db.matches.delete)
@@ -241,7 +247,7 @@ describe("Hydration Service", () => {
     });
   });
 
-  it("should purge all records associated with a match when discardUnfinishedMatch is called and match is unfinished", async () => {
+  it("should purge all records associated with a match when discardUnfinishedMatch is called without teamId", async () => {
     const mockDelete = vi.fn().mockResolvedValue(1);
 
     vi.mocked(db.matches.get).mockResolvedValueOnce({
@@ -273,8 +279,122 @@ describe("Hydration Service", () => {
 
     await discardUnfinishedMatch(matchId);
 
+    expect(apiClient.delete).not.toHaveBeenCalled();
+    expect(db.syncQueue.add).not.toHaveBeenCalled();
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
     expect(mockDelete).toHaveBeenCalledTimes(4);
+  });
+
+  it("should call apiClient.delete when discardUnfinishedMatch is called with teamId while online", async () => {
+    const mockDelete = vi.fn().mockResolvedValue(1);
+    vi.mocked(apiClient.delete).mockResolvedValueOnce(undefined as never);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        delete: mockDelete,
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({ delete: mockDelete }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      `/Matches/${matchId}/teams/${teamId}/catch`,
+    );
+    expect(db.syncQueue.add).not.toHaveBeenCalled();
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+  });
+
+  it("should enqueue item into db.syncQueue when discardUnfinishedMatch is called with teamId while offline", async () => {
+    const mockDelete = vi.fn().mockResolvedValue(1);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        delete: mockDelete,
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({ delete: mockDelete }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    const originalOnLine = navigator.onLine;
+    Object.defineProperty(navigator, "onLine", {
+      value: false,
+      configurable: true,
+    });
+
+    try {
+      await discardUnfinishedMatch(matchId, teamId);
+
+      expect(apiClient.delete).not.toHaveBeenCalled();
+      expect(db.syncQueue.add).toHaveBeenCalledWith({
+        actionType: "DELETE",
+        endpoint: `/Matches/${matchId}/teams/${teamId}/catch`,
+        payload: "{}",
+        createdAt: expect.any(String),
+      });
+      expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+    } finally {
+      Object.defineProperty(navigator, "onLine", {
+        value: originalOnLine,
+        configurable: true,
+      });
+    }
+  });
+
+  it("should enqueue item into db.syncQueue when discardUnfinishedMatch API call fails", async () => {
+    const mockDelete = vi.fn().mockResolvedValue(1);
+    vi.mocked(apiClient.delete).mockRejectedValueOnce(
+      new Error("Network Error"),
+    );
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        delete: mockDelete,
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({ delete: mockDelete }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      `/Matches/${matchId}/teams/${teamId}/catch`,
+    );
+    expect(db.syncQueue.add).toHaveBeenCalledWith({
+      actionType: "DELETE",
+      endpoint: `/Matches/${matchId}/teams/${teamId}/catch`,
+      payload: "{}",
+      createdAt: expect.any(String),
+    });
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 
   it("should NOT delete match or related records if match was completed before discard", async () => {
@@ -286,8 +406,10 @@ describe("Hydration Service", () => {
       guestScore: 8,
     } as never);
 
-    await discardUnfinishedMatch(matchId);
+    await discardUnfinishedMatch(matchId, teamId);
 
+    expect(apiClient.delete).not.toHaveBeenCalled();
+    expect(db.syncQueue.add).not.toHaveBeenCalled();
     expect(db.matches.delete).not.toHaveBeenCalled();
     expect(mockDelete).not.toHaveBeenCalled();
   });

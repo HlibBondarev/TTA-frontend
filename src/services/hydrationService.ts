@@ -216,12 +216,46 @@ export const getMatchRecoveryState = async (
 /**
  * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
  * Safety check: verifies the match is still unfinished (both scores null) before deleting,
- * and uses matchLineupId index to cascade deletion to playerpresences and gameevents.
+ * uncatches match on server if teamId is provided, and uses matchLineupId index to cascade
+ * deletion to playerpresences and gameevents.
  */
 export const discardUnfinishedMatch = async (
   matchId: string,
+  teamId?: string,
 ): Promise<void> => {
   if (!db?.matches) return;
+
+  const match = await db.matches.get(matchId);
+  if (!match || match.homeScore != null || match.guestScore != null) {
+    return;
+  }
+
+  if (teamId) {
+    const endpoint = `/Matches/${matchId}/teams/${teamId}/catch`;
+    let uncatchSuccess = false;
+
+    if (typeof navigator !== "undefined" && navigator.onLine) {
+      try {
+        await apiClient.delete(endpoint);
+        uncatchSuccess = true;
+      } catch (err) {
+        console.warn(
+          "Failed to uncatch match on server, queueing for sync:",
+          err,
+        );
+      }
+    }
+
+    if (!uncatchSuccess && db.syncQueue) {
+      await db.syncQueue.add({
+        actionType: "DELETE",
+        endpoint,
+        payload: "{}",
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
   await db.transaction(
     "rw",
     [
@@ -232,26 +266,23 @@ export const discardUnfinishedMatch = async (
       db.timeanchors,
     ],
     async () => {
-      const match = await db.matches.get(matchId);
-      if (match && match.homeScore == null && match.guestScore == null) {
-        const lineups = await db.matchlineups
-          .where("matchId")
-          .equals(matchId)
-          .toArray();
-        const lineupIds = lineups.map((l) => l.id);
+      const lineups = await db.matchlineups
+        .where("matchId")
+        .equals(matchId)
+        .toArray();
+      const lineupIds = lineups.map((l) => l.id);
 
-        if (lineupIds.length > 0) {
-          await db.playerpresences
-            .where("matchLineupId")
-            .anyOf(lineupIds)
-            .delete();
-          await db.gameevents.where("matchLineupId").anyOf(lineupIds).delete();
-        }
-
-        await db.matches.delete(matchId);
-        await db.matchlineups.where("matchId").equals(matchId).delete();
-        await db.timeanchors.where("matchId").equals(matchId).delete();
+      if (lineupIds.length > 0) {
+        await db.playerpresences
+          .where("matchLineupId")
+          .anyOf(lineupIds)
+          .delete();
+        await db.gameevents.where("matchLineupId").anyOf(lineupIds).delete();
       }
+
+      await db.matches.delete(matchId);
+      await db.matchlineups.where("matchId").equals(matchId).delete();
+      await db.timeanchors.where("matchId").equals(matchId).delete();
     },
   );
 };

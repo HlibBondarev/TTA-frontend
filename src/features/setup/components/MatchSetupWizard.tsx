@@ -52,102 +52,6 @@ function checkUserFreshness(
   }
 }
 
-async function persistOrRollbackTournament(
-  tournamentId: string,
-  tournamentData: {
-    id: string;
-    sportId: string;
-    configurationId: string;
-    cityId: string;
-    ownerId: string;
-    name: string;
-    startDate: string;
-    endDate: null;
-    createdAt: string;
-  },
-  verifyFreshness: () => void,
-): Promise<void> {
-  const existingTournament = await db.tournaments.get(tournamentId);
-  verifyFreshness();
-
-  await db.tournaments.put(
-    tournamentData as unknown as Parameters<typeof db.tournaments.put>[0],
-  );
-
-  try {
-    verifyFreshness();
-  } catch (err) {
-    if (existingTournament) {
-      await db.tournaments.put(existingTournament);
-    } else {
-      await db.tournaments.delete(tournamentId);
-    }
-    throw err;
-  }
-}
-
-async function ensureTournamentPersisted(
-  tournamentId: string,
-  sportId: string,
-  configurationId: string,
-  verifyFreshness: () => void,
-): Promise<void> {
-  if (!db.tournaments) return;
-
-  const quickTournamentPayload = {
-    id: tournamentId,
-    sportId,
-    configurationId,
-    cityId: "",
-    ownerId: "",
-    name: "Quick Tournament",
-    startDate: new Date().toISOString(),
-    endDate: null,
-    createdAt: new Date().toISOString(),
-  };
-
-  let tournament: {
-    id: string;
-    sportId: string;
-    configurationId: string;
-  } | null = null;
-
-  try {
-    tournament = await apiClient.get<{
-      id: string;
-      sportId: string;
-      configurationId: string;
-    }>(`/Tournaments/${tournamentId}`);
-  } catch (err) {
-    if (err instanceof StaleOperationError) throw err;
-  }
-
-  verifyFreshness();
-
-  if (tournament) {
-    await persistOrRollbackTournament(
-      tournamentId,
-      {
-        ...quickTournamentPayload,
-        ...tournament,
-      },
-      verifyFreshness,
-    );
-    return;
-  }
-
-  const existingTourn = await db.tournaments.get(tournamentId);
-  verifyFreshness();
-
-  if (!existingTourn) {
-    await persistOrRollbackTournament(
-      tournamentId,
-      quickTournamentPayload,
-      verifyFreshness,
-    );
-  }
-}
-
 async function verifyMatchOwnership(
   matchId: string,
   currentUserId: string | undefined,
@@ -478,16 +382,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       verifyFreshness();
 
       await persistMatchLocally(normalizedMatch, verifyFreshness);
-
-      if (normalizedMatch.tournamentId) {
-        await ensureTournamentPersisted(
-          normalizedMatch.tournamentId,
-          selectedSportId,
-          selectedConfigId,
-          verifyFreshness,
-        );
-        verifyFreshness();
-      }
 
       const loadedTeams = await loadMatchTeams(
         normalizedMatch.homeTeamId,
