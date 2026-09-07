@@ -279,6 +279,38 @@ const verifyAndStoreMatch = async (
   await db.matches.put(matchToStore);
 };
 
+interface HydrationPayloads {
+  lineups?: MatchLineupLookup[];
+  anchors?: TimeAnchor[];
+  presence?: PlayerPresence[];
+  events?: GameEvent[];
+  definitions?: EventDefinitionLookup[];
+}
+
+const persistHydrationPayloads = async (
+  matchId: string,
+  payloads: HydrationPayloads,
+): Promise<void> => {
+  const existingLineups = await db.matchlineups
+    .where("matchId")
+    .equals(matchId)
+    .toArray();
+
+  const matchLineupIds = new Set([
+    ...existingLineups.map((lineup) => lineup.id),
+    ...(payloads.lineups ?? []).map((lineup) => lineup.id),
+  ]);
+
+  await syncLineups(matchId, payloads.lineups);
+  await syncAnchors(matchId, payloads.anchors);
+  await syncPresence(matchLineupIds, payloads.presence);
+  await syncEvents(matchLineupIds, payloads.events);
+
+  if (payloads.definitions && payloads.definitions.length > 0) {
+    await db.eventdefinitions.bulkPut(payloads.definitions);
+  }
+};
+
 export const hydrateMatchData = async (
   matchId: string,
   teamId: string,
@@ -337,24 +369,13 @@ export const hydrateMatchData = async (
           if (tournament) await db.tournaments.put(tournament);
           if (sportConfig) await db.sportconfigurations.put(sportConfig);
 
-          const existingLineups = await db.matchlineups
-            .where("matchId")
-            .equals(matchId)
-            .toArray();
-
-          const matchLineupIds = new Set([
-            ...existingLineups.map((lineup) => lineup.id),
-            ...(lineups ?? []).map((lineup) => lineup.id),
-          ]);
-
-          await syncLineups(matchId, lineups);
-          await syncAnchors(matchId, anchors);
-          await syncPresence(matchLineupIds, presence);
-          await syncEvents(matchLineupIds, events);
-
-          if (definitions && definitions.length > 0) {
-            await db.eventdefinitions.bulkPut(definitions);
-          }
+          await persistHydrationPayloads(matchId, {
+            lineups,
+            anchors,
+            presence,
+            events,
+            definitions,
+          });
 
           checkFreshness?.();
         },
