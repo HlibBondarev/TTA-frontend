@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useDispatch } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 import { setCurrentView } from "../../../store/slices/navigationSlice";
@@ -10,6 +10,12 @@ import type { MatchLookup } from "../../../db/ttaDatabase";
 
 export interface MainDashboardProps {
   onResumeMatch?: (matchId: string, teamId: string) => Promise<void>;
+}
+
+interface ActiveOperation {
+  userId: string;
+  token: string;
+  type: "resume" | "discard";
 }
 
 export const MainDashboard: React.FC<MainDashboardProps> = ({
@@ -29,12 +35,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string }) | null
   >(null);
 
-  // Recovery operation busy state scoped to user ID, operation token, and operation type
-  const [activeOp, setActiveOp] = useState<{
-    userId: string;
-    token: string;
-    type: "resume" | "discard";
-  } | null>(null);
+  const [activeOp, setActiveOp] = useState<ActiveOperation | null>(null);
 
   const isCurrentOp = Boolean(
     activeOp && currentUserId && activeOp.userId === currentUserId,
@@ -43,7 +44,6 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   const isDiscarding = isCurrentOp && activeOp?.type === "discard";
   const isRecoveryBusy = isCurrentOp;
 
-  // Strict ownership check: activeUnfinishedMatch requires an explicit userId matching currentUserId
   const activeUnfinishedMatch =
     unfinishedMatch && currentUserId && unfinishedMatch.userId === currentUserId
       ? unfinishedMatch
@@ -63,17 +63,19 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
       }
     };
 
-    checkForInterruptedMatch();
+    void checkForInterruptedMatch();
     return () => {
       isMounted = false;
     };
   }, [currentUserId]);
 
-  const handleResume = async () => {
+  const generateToken = (): string =>
+    Math.random().toString(36).substring(2) + Date.now().toString(36);
+
+  const handleResume = useCallback(async () => {
     if (!activeUnfinishedMatch || isRecoveryBusy || !currentUserId) return;
     const initiatedUserId = currentUserId;
-    const token =
-      Math.random().toString(36).substring(2) + Date.now().toString(36);
+    const token = generateToken();
     setActiveOp({ userId: initiatedUserId, token, type: "resume" });
     try {
       if (onResumeMatch) {
@@ -89,14 +91,13 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         prev?.userId === initiatedUserId && prev?.token === token ? null : prev,
       );
     }
-  };
+  }, [activeUnfinishedMatch, isRecoveryBusy, currentUserId, onResumeMatch]);
 
-  const handleDiscard = async () => {
+  const handleDiscard = useCallback(async () => {
     if (!activeUnfinishedMatch || isRecoveryBusy || !currentUserId) return;
     const initiatedUserId = currentUserId;
     const matchIdToDiscard = activeUnfinishedMatch.id;
-    const token =
-      Math.random().toString(36).substring(2) + Date.now().toString(36);
+    const token = generateToken();
     setActiveOp({ userId: initiatedUserId, token, type: "discard" });
     try {
       await discardUnfinishedMatch(matchIdToDiscard);
@@ -112,11 +113,14 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         prev?.userId === initiatedUserId && prev?.token === token ? null : prev,
       );
     }
+  }, [activeUnfinishedMatch, isRecoveryBusy, currentUserId]);
+
+  const handleLogout = () => {
+    void logout({ logoutParams: { returnTo: window.location.origin } });
   };
 
   return (
     <div className="w-full max-w-sm mx-auto flex flex-col flex-1 p-4 bg-gray-950 text-gray-100 overflow-y-auto">
-      {/* Header with User Profile */}
       <header className="flex items-center justify-between pb-4 border-b border-gray-800 mb-6">
         <div className="flex flex-col min-w-0 pr-2">
           <span className="text-[10px] uppercase font-bold text-gray-500">
@@ -128,16 +132,13 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         </div>
         <button
           type="button"
-          onClick={() =>
-            void logout({ logoutParams: { returnTo: window.location.origin } })
-          }
+          onClick={handleLogout}
           className="text-xs bg-red-950/60 hover:bg-red-900 border border-red-800/80 text-red-200 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
         >
           Log Out
         </button>
       </header>
 
-      {/* Session Recovery Gate Prompt */}
       {activeUnfinishedMatch && (
         <section
           aria-label="Session Recovery Prompt"
@@ -183,9 +184,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         TTA Hub Navigation
       </h2>
 
-      {/* Navigation Pathways */}
       <div className="space-y-4 flex-1 flex flex-col justify-center">
-        {/* Pathway 1: Quick Start Match */}
         <button
           type="button"
           onClick={() => dispatch(setCurrentView("QUICK_START"))}
@@ -205,7 +204,6 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           </p>
         </button>
 
-        {/* Pathway 2: My Tracked Matches */}
         <button
           type="button"
           onClick={() => dispatch(setCurrentView("MY_MATCHES"))}
@@ -225,7 +223,6 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           </p>
         </button>
 
-        {/* Pathway 3: Tournament Management */}
         <button
           type="button"
           onClick={() => dispatch(setCurrentView("TOURNAMENT_STUB"))}

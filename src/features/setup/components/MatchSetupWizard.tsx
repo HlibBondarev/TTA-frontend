@@ -254,12 +254,9 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   const dispatch = useDispatch();
   const { user } = useAuth0();
   const currentUserId = user?.sub ?? user?.email;
-  const currentUserIdRef = useRef(currentUserId);
 
-  // Synchronously update ref during render phase when user identity changes without violating ESLint rules
-  if (currentUserIdRef.current !== currentUserId) {
-    currentUserIdRef.current = currentUserId;
-  }
+  const currentUserIdRef = useRef(currentUserId);
+  const prevUserIdRef = useRef(currentUserId);
 
   const [sports, setSports] = useState<SportLookup[]>([]);
   const [selectedSportId, setSelectedSportId] = useState<string | null>(null);
@@ -269,7 +266,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   >([]);
   const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null);
 
-  // Quick match draft context for team selection
   const [pendingMatchId, setPendingMatchId] = useState<string | null>(null);
   const [teams, setTeams] = useState<{
     home: TeamLookup;
@@ -285,17 +281,19 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
   const configRequestRef = useRef(0);
 
-  // Reset pending draft session during render phase if the authenticated user identity changes
-  const [prevUserId, setPrevUserId] = useState(currentUserId);
-  if (prevUserId !== currentUserId) {
-    setPrevUserId(currentUserId);
-    setPendingMatchId(null);
-    setTeams(null);
-    setSelectedTeamId(null);
-    setIsSubmitting(false);
-    setIsLoadingTeams(false);
-    setErrorMessage(null);
-  }
+  // Safe side-effect management via useEffect instead of render-phase assignments
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+    if (prevUserIdRef.current !== currentUserId) {
+      prevUserIdRef.current = currentUserId;
+      setPendingMatchId(null);
+      setTeams(null);
+      setSelectedTeamId(null);
+      setIsSubmitting(false);
+      setIsLoadingTeams(false);
+      setErrorMessage(null);
+    }
+  }, [currentUserId]);
 
   const loadConfigurations = useCallback(
     async (sportId: string, sportList: SportLookup[]) => {
@@ -309,7 +307,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
         setConfigurations(data);
 
-        // Persist retrieved configurations to IndexedDB immediately
         if (data.length > 0 && db.sportconfigurations) {
           await db.sportconfigurations.bulkPut(data);
         }
@@ -359,7 +356,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
         setSports(data);
 
-        // Persist sports to IndexedDB
         if (data.length > 0 && db.sports) {
           await db.sports.bulkPut(data);
         }
@@ -383,7 +379,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       }
     };
 
-    fetchSports();
+    void fetchSports();
 
     return () => {
       isMounted = false;
@@ -400,7 +396,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     await loadConfigurations(sportId, sports);
   };
 
-  // Step A: Create quick match (or reuse pendingMatchId) and load participating teams
   const handleInitMatch = async () => {
     if (!selectedSportId || !selectedConfigId || isSubmitting) return;
 
@@ -479,7 +474,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     }
   };
 
-  // Step B: Confirm team selection and proceed to console
   const handleConfirmQuickStart = async () => {
     if (
       !pendingMatchId ||
@@ -612,7 +606,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         </div>
       )}
 
-      {/* Step 1: Sport Discipline Selection */}
       <fieldset className="mb-4 min-w-0 border-0 p-0 m-0">
         <legend className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold p-0">
           1. Select Sport Discipline
@@ -640,7 +633,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         </div>
       </fieldset>
 
-      {/* Step 2: Sport Configuration Selection */}
       <fieldset className="mb-6 flex-1 min-w-0 border-0 p-0 m-0">
         <legend className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold p-0">
           2. Select Configuration Profile
@@ -648,7 +640,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         {renderConfigurationsContent()}
       </fieldset>
 
-      {/* Step 3: Team Selection (Revealed once match is initialized) */}
       {teams && (
         <fieldset className="mb-6 min-w-0 border-0 p-0 m-0">
           <legend className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold p-0">
@@ -689,7 +680,6 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         </fieldset>
       )}
 
-      {/* Action Button */}
       {!teams ? (
         <button
           type="button"
