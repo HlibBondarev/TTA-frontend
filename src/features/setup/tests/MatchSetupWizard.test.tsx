@@ -978,7 +978,7 @@ describe("MatchSetupWizard Component", () => {
     });
   });
 
-  it("should NOT delete existing match record if record existed before put and user identity changes while pending", async () => {
+  it("should restore existing match record if record existed before put and user identity changes while pending", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -990,10 +990,13 @@ describe("MatchSetupWizard Component", () => {
       .mockResolvedValueOnce(mockGuestTeam);
 
     // Simulate match already existing in IndexedDB before write
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    const existingMatchRecord = {
       id: "match-123",
       userId: "auth0|user-tester",
-    } as never);
+    };
+    vi.mocked(db.matches.get).mockResolvedValueOnce(
+      existingMatchRecord as never,
+    );
 
     let resolvePut: () => void;
     const putPromise = new Promise<void>((resolve) => {
@@ -1032,8 +1035,9 @@ describe("MatchSetupWizard Component", () => {
     // Assert wizard UI reset to initial step for new user
     expect(screen.queryByText("3. Select Team to Track")).toBeNull();
 
-    // Verify db.matches.delete was strictly NOT called because the record existed prior to write
+    // Verify db.matches.delete was NOT called and the original record was restored via db.matches.put
     expect(db.matches.delete).not.toHaveBeenCalled();
+    expect(db.matches.put).toHaveBeenLastCalledWith(existingMatchRecord);
   });
 
   it("should reset isSubmitting and isLoadingTeams flags when authenticated user identity changes while init is in progress", async () => {

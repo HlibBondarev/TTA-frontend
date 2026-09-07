@@ -57,7 +57,7 @@ async function ensureTournamentPersisted(
     verifyFreshness();
 
     if (tournament) {
-      const existedBefore = Boolean(await db.tournaments.get(tournamentId));
+      const existingTournament = await db.tournaments.get(tournamentId);
       verifyFreshness();
 
       await db.tournaments.put(
@@ -67,7 +67,9 @@ async function ensureTournamentPersisted(
       try {
         verifyFreshness();
       } catch (err) {
-        if (!existedBefore) {
+        if (existingTournament) {
+          await db.tournaments.put(existingTournament);
+        } else {
           await db.tournaments.delete(tournamentId);
         }
         throw err;
@@ -171,9 +173,7 @@ async function saveSelectedConfig(
   verifyFreshness();
   const selectedConfig = configurations.find((c) => c.id === selectedConfigId);
   if (selectedConfig && db.sportconfigurations) {
-    const existedBefore = Boolean(
-      await db.sportconfigurations.get(selectedConfigId),
-    );
+    const existingConfig = await db.sportconfigurations.get(selectedConfigId);
     verifyFreshness();
 
     await db.sportconfigurations.put(selectedConfig);
@@ -181,7 +181,9 @@ async function saveSelectedConfig(
     try {
       verifyFreshness();
     } catch (err) {
-      if (!existedBefore) {
+      if (existingConfig) {
+        await db.sportconfigurations.put(existingConfig);
+      } else {
         await db.sportconfigurations.delete(selectedConfigId);
       }
       throw err;
@@ -218,13 +220,15 @@ async function persistMatchLocally(
 ): Promise<void> {
   if (!db.matches) return;
   verifyFreshness();
-  const existedBefore = Boolean(await db.matches.get(normalizedMatch.id));
+  const existingMatch = await db.matches.get(normalizedMatch.id);
   verifyFreshness();
   await db.matches.put(normalizedMatch);
   try {
     verifyFreshness();
   } catch (err) {
-    if (!existedBefore) {
+    if (existingMatch) {
+      await db.matches.put(existingMatch);
+    } else {
       await db.matches.delete(normalizedMatch.id);
     }
     throw err;
