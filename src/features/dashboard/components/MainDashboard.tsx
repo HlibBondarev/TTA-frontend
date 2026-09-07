@@ -28,7 +28,20 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   const [unfinishedMatch, setUnfinishedMatch] = useState<
     (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string }) | null
   >(null);
-  const [isResuming, setIsResuming] = useState(false);
+
+  // Recovery operation busy state scoped to user ID, operation token, and operation type
+  const [activeOp, setActiveOp] = useState<{
+    userId: string;
+    token: string;
+    type: "resume" | "discard";
+  } | null>(null);
+
+  const isCurrentOp = Boolean(
+    activeOp && currentUserId && activeOp.userId === currentUserId,
+  );
+  const isResuming = isCurrentOp && activeOp?.type === "resume";
+  const isDiscarding = isCurrentOp && activeOp?.type === "discard";
+  const isRecoveryBusy = isCurrentOp;
 
   // Strict ownership check: activeUnfinishedMatch requires an explicit userId matching currentUserId
   const activeUnfinishedMatch =
@@ -57,9 +70,11 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   }, [currentUserId]);
 
   const handleResume = async () => {
-    if (!activeUnfinishedMatch || isResuming) return;
+    if (!activeUnfinishedMatch || isRecoveryBusy || !currentUserId) return;
     const initiatedUserId = currentUserId;
-    setIsResuming(true);
+    const token =
+      Math.random().toString(36).substring(2) + Date.now().toString(36);
+    setActiveOp({ userId: initiatedUserId, token, type: "resume" });
     try {
       if (onResumeMatch) {
         const teamToResume =
@@ -70,17 +85,19 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         await onResumeMatch(activeUnfinishedMatch.id, teamToResume);
       }
     } finally {
-      if (currentUserIdRef.current === initiatedUserId) {
-        setIsResuming(false);
-      }
+      setActiveOp((prev) =>
+        prev?.userId === initiatedUserId && prev?.token === token ? null : prev,
+      );
     }
   };
 
   const handleDiscard = async () => {
-    if (!activeUnfinishedMatch || isResuming) return;
+    if (!activeUnfinishedMatch || isRecoveryBusy || !currentUserId) return;
     const initiatedUserId = currentUserId;
     const matchIdToDiscard = activeUnfinishedMatch.id;
-    setIsResuming(true);
+    const token =
+      Math.random().toString(36).substring(2) + Date.now().toString(36);
+    setActiveOp({ userId: initiatedUserId, token, type: "discard" });
     try {
       await discardUnfinishedMatch(matchIdToDiscard);
       if (currentUserIdRef.current === initiatedUserId) {
@@ -91,9 +108,9 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     } catch (err) {
       console.error("Failed to discard unfinished match:", err);
     } finally {
-      if (currentUserIdRef.current === initiatedUserId) {
-        setIsResuming(false);
-      }
+      setActiveOp((prev) =>
+        prev?.userId === initiatedUserId && prev?.token === token ? null : prev,
+      );
     }
   };
 
@@ -144,7 +161,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           <div className="grid grid-cols-2 gap-2 pt-1">
             <button
               type="button"
-              disabled={isResuming}
+              disabled={isRecoveryBusy}
               onClick={() => void handleResume()}
               className="py-2.5 px-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-black uppercase text-[10px] rounded-xl transition-all tracking-wider text-center cursor-pointer"
             >
@@ -152,11 +169,11 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
             </button>
             <button
               type="button"
-              disabled={isResuming}
+              disabled={isRecoveryBusy}
               onClick={() => void handleDiscard()}
               className="py-2.5 px-3 bg-rose-950/80 hover:bg-rose-900 border border-rose-800/80 text-rose-200 disabled:opacity-50 font-bold uppercase text-[10px] rounded-xl transition-all text-center cursor-pointer"
             >
-              {isResuming ? "Discarding..." : "Discard Match"}
+              {isDiscarding ? "Discarding..." : "Discard Match"}
             </button>
           </div>
         </section>
