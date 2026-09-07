@@ -30,6 +30,13 @@ class StaleOperationError extends Error {
   }
 }
 
+class MatchOwnershipError extends Error {
+  constructor() {
+    super("Match session belongs to another user.");
+    this.name = "MatchOwnershipError";
+  }
+}
+
 function checkUserFreshness(
   initiatedUserId: string | undefined,
   currentUserIdRef: React.RefObject<string | undefined>,
@@ -225,7 +232,7 @@ async function resolveMatchSessionId(
   let matchId = pendingMatchId;
 
   if (matchId && !(await verifyMatchOwnership(matchId, initiatedUserId))) {
-    throw new Error("Match session belongs to another user.");
+    throw new MatchOwnershipError();
   }
 
   verifyFreshness();
@@ -479,10 +486,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     } catch (err) {
       if (err instanceof StaleOperationError) return;
 
-      if (
-        err instanceof Error &&
-        err.message === "Match session belongs to another user."
-      ) {
+      if (err instanceof MatchOwnershipError) {
         setPendingMatchId(null);
         setTeams(null);
         setSelectedTeamId(null);
