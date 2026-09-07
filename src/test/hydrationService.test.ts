@@ -867,7 +867,7 @@ describe("Hydration Service", () => {
     expect(unfinished).toBeNull();
   });
 
-  it("should perform rollback and purge match records if checkFreshness throws StaleUserError during transaction write", async () => {
+  it("should abort at the pre-write boundary and skip cleanup if checkFreshness throws StaleUserError before transaction persistence", async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
       .mockResolvedValueOnce([])
@@ -878,10 +878,9 @@ describe("Hydration Service", () => {
 
     vi.mocked(db.matches.get).mockResolvedValue(undefined as never);
 
-    let checkCount = 0;
     const checkFreshnessMock = vi.fn().mockImplementation(() => {
-      checkCount++;
-      if (checkCount === 3) {
+      // Trigger on transaction entry before db.matches.put occurs
+      if (vi.mocked(db.matches.put).mock.calls.length === 0) {
         throw new StaleUserError();
       }
     });
@@ -903,10 +902,10 @@ describe("Hydration Service", () => {
       ),
     ).rejects.toThrow(StaleUserError);
 
-    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+    expect(db.matches.put).not.toHaveBeenCalled();
   });
 
-  it("should automatically rollback IndexedDB writes if checkFreshness throws StaleUserError at the end of db.transaction", async () => {
+  it("should automatically rollback and perform cleanup if checkFreshness throws StaleUserError after persistence", async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
       .mockResolvedValueOnce([])
@@ -917,11 +916,9 @@ describe("Hydration Service", () => {
 
     vi.mocked(db.matches.get).mockResolvedValue(undefined as never);
 
-    let checkCount = 0;
     const checkFreshnessMock = vi.fn().mockImplementation(() => {
-      checkCount++;
-      // Throw StaleUserError on the 4th freshness check (executed inside transaction right before completion)
-      if (checkCount === 4) {
+      // Trigger after db.matches.put has occurred (end of transaction)
+      if (vi.mocked(db.matches.put).mock.calls.length > 0) {
         throw new StaleUserError(
           "User changed at the final moment of transaction",
         );
@@ -945,7 +942,7 @@ describe("Hydration Service", () => {
       ),
     ).rejects.toThrow(StaleUserError);
 
-    expect(checkFreshnessMock).toHaveBeenCalledTimes(4);
+    expect(db.matches.put).toHaveBeenCalled();
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 
