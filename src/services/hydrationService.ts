@@ -313,13 +313,15 @@ export const hydrateMatchData = async (
           if (match) {
             const existingMatch = await db.matches.get(matchId);
             if (
-              userId &&
+              userId?.trim() &&
               existingMatch?.userId &&
-              existingMatch.userId !== userId
+              existingMatch.userId !== userId.trim()
             ) {
               throw new Error("Match draft belongs to another user.");
             }
-            const effectiveUserId = userId ?? existingMatch?.userId;
+            const effectiveUserId = userId?.trim()
+              ? userId.trim()
+              : existingMatch?.userId;
             const matchToStore = effectiveUserId
               ? { ...match, userId: effectiveUserId }
               : match;
