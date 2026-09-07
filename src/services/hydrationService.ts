@@ -311,6 +311,55 @@ const persistHydrationPayloads = async (
   }
 };
 
+interface MatchHydrationContext {
+  matchId: string;
+  match?: MatchLookup;
+  tournament?: TournamentLookup | null;
+  sportConfig?: SportConfigurationLookup | null;
+  payloads: HydrationPayloads;
+  userId?: string;
+  checkFreshness?: () => void;
+}
+
+const executeMatchTransaction = async (
+  context: MatchHydrationContext,
+): Promise<void> => {
+  const {
+    matchId,
+    match,
+    tournament,
+    sportConfig,
+    payloads,
+    userId,
+    checkFreshness,
+  } = context;
+
+  await db.transaction(
+    "rw",
+    [
+      db.matches,
+      db.tournaments,
+      db.sportconfigurations,
+      db.matchlineups,
+      db.timeanchors,
+      db.playerpresences,
+      db.gameevents,
+      db.eventdefinitions,
+    ],
+    async () => {
+      checkFreshness?.();
+
+      await verifyAndStoreMatch(matchId, match, userId);
+      if (tournament) await db.tournaments.put(tournament);
+      if (sportConfig) await db.sportconfigurations.put(sportConfig);
+
+      await persistHydrationPayloads(matchId, payloads);
+
+      checkFreshness?.();
+    },
+  );
+};
+
 export const hydrateMatchData = async (
   matchId: string,
   teamId: string,
@@ -350,36 +399,15 @@ export const hydrateMatchData = async (
       : false;
 
     try {
-      await db.transaction(
-        "rw",
-        [
-          db.matches,
-          db.tournaments,
-          db.sportconfigurations,
-          db.matchlineups,
-          db.timeanchors,
-          db.playerpresences,
-          db.gameevents,
-          db.eventdefinitions,
-        ],
-        async () => {
-          checkFreshness?.();
-
-          await verifyAndStoreMatch(matchId, match, userId);
-          if (tournament) await db.tournaments.put(tournament);
-          if (sportConfig) await db.sportconfigurations.put(sportConfig);
-
-          await persistHydrationPayloads(matchId, {
-            lineups,
-            anchors,
-            presence,
-            events,
-            definitions,
-          });
-
-          checkFreshness?.();
-        },
-      );
+      await executeMatchTransaction({
+        matchId,
+        match,
+        tournament,
+        sportConfig,
+        payloads: { lineups, anchors, presence, events, definitions },
+        userId,
+        checkFreshness,
+      });
     } catch (txErr) {
       if (!existedBefore && db.matches) {
         try {
