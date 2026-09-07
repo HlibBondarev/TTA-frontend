@@ -18,6 +18,8 @@ interface ActiveOperation {
   type: "resume" | "discard";
 }
 
+const generateToken = (): string => crypto.randomUUID();
+
 export const MainDashboard: React.FC<MainDashboardProps> = ({
   onResumeMatch,
 }) => {
@@ -68,14 +70,6 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
       isMounted = false;
     };
   }, [currentUserId]);
-
-  const generateToken = (): string => {
-    const array = new Uint32Array(2);
-    crypto.getRandomValues(array);
-    return (
-      array[0].toString(36) + array[1].toString(36) + Date.now().toString(36)
-    );
-  };
 
   const handleResume = useCallback(async () => {
     if (!activeUnfinishedMatch || isRecoveryBusy || !currentUserId) return;
