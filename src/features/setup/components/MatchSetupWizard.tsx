@@ -1,4 +1,10 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useCallback,
+  useRef,
+} from "react";
 import { useDispatch } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 import { sportService } from "../../../services/sportService";
@@ -319,10 +325,11 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
   const configRequestRef = useRef(0);
 
-  // Synchronously sync ref if user changes during render matching App.tsx pattern
-  if (currentUserIdRef.current !== currentUserId) {
-    currentUserIdRef.current = currentUserId;
-  }
+  useLayoutEffect(() => {
+    if (currentUserIdRef.current !== currentUserId) {
+      currentUserIdRef.current = currentUserId;
+    }
+  }, [currentUserId]);
 
   useEffect(() => {
     if (prevUserIdRef.current !== currentUserId) {
