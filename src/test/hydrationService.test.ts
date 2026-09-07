@@ -75,6 +75,32 @@ describe("Hydration Service", () => {
     vi.mocked(db.tournaments.put).mockReset();
     vi.mocked(db.sportconfigurations.get).mockReset();
     vi.mocked(db.sportconfigurations.put).mockReset();
+
+    // Reset and configure default payload-chain mocks for persistHydrationPayloads
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        delete: vi.fn().mockResolvedValue(0),
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        and: vi.fn().mockReturnValue({
+          delete: vi.fn().mockResolvedValue(0),
+        }),
+        toArray: vi.fn().mockResolvedValue([]),
+        delete: vi.fn().mockResolvedValue(0),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.playerpresences.filter).mockReturnValue({
+      primaryKeys: vi.fn().mockResolvedValue([]),
+    } as unknown as ReturnType<typeof db.playerpresences.filter>);
+
+    vi.mocked(db.gameevents.filter).mockReturnValue({
+      primaryKeys: vi.fn().mockResolvedValue([]),
+    } as unknown as ReturnType<typeof db.gameevents.filter>);
   });
 
   it("should return null for checkUnfinishedMatch when IndexedDB matches table is empty", async () => {
