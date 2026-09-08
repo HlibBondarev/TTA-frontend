@@ -414,12 +414,13 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           await loadConfigurations(firstSportId, data);
         }
       } catch (err) {
-        if (!isMounted) return;
-        setErrorMessage(
-          err instanceof Error
-            ? err.message
-            : "Failed to load sports disciplines.",
-        );
+        if (isMounted) {
+          setErrorMessage(
+            err instanceof Error
+              ? err.message
+              : "Failed to load sports disciplines.",
+          );
+        }
       } finally {
         if (isMounted) {
           setIsLoadingSports(false);
@@ -548,6 +549,34 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     try {
       setIsSubmitting(true);
       setErrorMessage(null);
+
+      const catchEndpoint = `/Matches/${pendingMatchId}/teams/${selectedTeamId}/catch`;
+      let catchSuccess = false;
+
+      if (navigator.onLine) {
+        try {
+          await apiClient.post(catchEndpoint, {});
+          catchSuccess = true;
+        } catch (catchErr) {
+          if (catchErr instanceof StaleOperationError) throw catchErr;
+          console.warn(
+            "Catch match API call failed online, fallback to syncQueue:",
+            catchErr,
+          );
+        }
+      }
+
+      if (!catchSuccess && db.syncQueue) {
+        await db.syncQueue.put({
+          actionType: "POST",
+          endpoint: catchEndpoint,
+          payload: "{}",
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      verifyFreshness();
+
       await onQuickStart(
         pendingMatchId,
         selectedSportId,
