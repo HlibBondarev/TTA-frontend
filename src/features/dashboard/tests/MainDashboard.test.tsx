@@ -261,7 +261,7 @@ describe("MainDashboard Component", () => {
     });
   });
 
-  it("should invoke discardUnfinishedMatch and purge prompt when clicking Discard Match button", async () => {
+  it("should invoke discardUnfinishedMatch with matchId and teamId, then purge prompt when clicking Discard Match button", async () => {
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-unfinished-123",
       homeTeamId: "team-1",
@@ -291,7 +291,10 @@ describe("MainDashboard Component", () => {
     fireEvent.click(discardBtn);
 
     await waitFor(() => {
-      expect(discardUnfinishedMatch).toHaveBeenCalledWith("m-unfinished-123");
+      expect(discardUnfinishedMatch).toHaveBeenCalledWith(
+        "m-unfinished-123",
+        "team-1",
+      );
       expect(
         screen.queryByRole("region", { name: "Session Recovery Prompt" }),
       ).toBeNull();
