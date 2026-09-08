@@ -546,6 +546,8 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     );
     const activePlayersLimit = selectedConfig?.activePlayersLimit ?? 7;
 
+    let queuedItemId: number | undefined;
+
     try {
       setIsSubmitting(true);
       setErrorMessage(null);
@@ -567,12 +569,12 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       }
 
       if (!catchSuccess && db.syncQueue) {
-        await db.syncQueue.put({
+        queuedItemId = (await db.syncQueue.put({
           actionType: "POST",
           endpoint: catchEndpoint,
           payload: "{}",
           createdAt: new Date().toISOString(),
-        });
+        })) as unknown as number;
       }
 
       verifyFreshness();
@@ -586,7 +588,16 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       );
       verifyFreshness();
     } catch (err) {
-      if (err instanceof StaleOperationError) return;
+      if (err instanceof StaleOperationError) {
+        if (queuedItemId !== undefined && db.syncQueue) {
+          try {
+            await db.syncQueue.delete(queuedItemId);
+          } catch (deleteErr) {
+            console.error("Failed to delete stale sync queue item:", deleteErr);
+          }
+        }
+        return;
+      }
       setErrorMessage(
         err instanceof Error ? err.message : "Failed to complete match setup.",
       );

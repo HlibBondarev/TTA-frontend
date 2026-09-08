@@ -57,6 +57,7 @@ vi.mock("../../../db/ttaDatabase", () => ({
     },
     syncQueue: {
       put: vi.fn().mockResolvedValue(1),
+      delete: vi.fn().mockResolvedValue(undefined),
     },
   },
 }));
@@ -149,6 +150,9 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(db.syncQueue.put)
       .mockReset()
       .mockResolvedValue(1 as never);
+    vi.mocked(db.syncQueue.delete)
+      .mockReset()
+      .mockResolvedValue(undefined as never);
     mockUser = { email: "tester@tta.com", sub: "auth0|user-tester" };
     vi.stubGlobal("navigator", { onLine: true });
   });
@@ -162,6 +166,71 @@ describe("MatchSetupWizard Component", () => {
       store,
     };
   };
+
+  it("should delete queued CatchMatch item from syncQueue if user account changes during CatchMatch execution", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    const queuedItemId = 42;
+    let resolveSyncQueuePut: (id: number) => void;
+    const syncQueuePutPromise = new Promise<number>((resolve) => {
+      resolveSyncQueuePut = resolve;
+    });
+
+    vi.mocked(db.syncQueue.put).mockImplementationOnce(
+      () => syncQueuePutPromise as never,
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={handleQuickStart} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(db.syncQueue.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: "POST",
+          endpoint: "/Matches/match-123/teams/team-home/catch",
+          payload: "{}",
+        }),
+      );
+    });
+
+    mockUser = { email: "newuser@tta.com", sub: "auth0|user-new" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={handleQuickStart} />
+      </Provider>,
+    );
+
+    resolveSyncQueuePut!(queuedItemId);
+    await syncQueuePutPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await waitFor(() => {
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(queuedItemId);
+      expect(handleQuickStart).not.toHaveBeenCalled();
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+  });
 
   it("should fallback to syncQueue and log warning when online CatchMatch API call fails during confirmation", async () => {
     const consoleWarnSpy = vi
@@ -1583,6 +1652,8 @@ describe("MatchSetupWizard Component", () => {
   });
 
   it("should clear pending draft state when StaleOperationError is thrown after pendingMatchId was set", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -1605,7 +1676,7 @@ describe("MatchSetupWizard Component", () => {
       .mockResolvedValueOnce(mockGuestTeam);
 
     const { rerender, store } = renderWithRedux(
-      <MatchSetupWizard onQuickStart={vi.fn()} />,
+      <MatchSetupWizard onQuickStart={handleQuickStart} />,
     );
 
     const quickStartBtn = await screen.findByRole("button", {
@@ -1620,7 +1691,7 @@ describe("MatchSetupWizard Component", () => {
     mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
     rerender(
       <Provider store={store}>
-        <MatchSetupWizard onQuickStart={vi.fn()} />
+        <MatchSetupWizard onQuickStart={handleQuickStart} />
       </Provider>,
     );
 
