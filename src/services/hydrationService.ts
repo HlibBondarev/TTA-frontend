@@ -215,13 +215,23 @@ export const getMatchRecoveryState = async (
 
 /**
  * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
- * Issues UncatchMatch request to server when teamId is supplied (with syncQueue offline fallback).
+ * Issues UncatchMatch request to server when teamId is supplied (with syncQueue offline fallback)
+ * only if the match exists and is unfinished (both scores are null).
  */
 export const discardUnfinishedMatch = async (
   matchId: string,
   teamId?: string,
 ): Promise<void> => {
   if (!db?.matches) return;
+
+  const initialMatch = await db.matches.get(matchId);
+  if (
+    !initialMatch ||
+    initialMatch.homeScore != null ||
+    initialMatch.guestScore != null
+  ) {
+    return;
+  }
 
   if (teamId?.trim()) {
     const catchEndpoint = `/Matches/${matchId}/teams/${teamId.trim()}/catch`;

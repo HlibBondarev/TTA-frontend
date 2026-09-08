@@ -124,6 +124,20 @@ describe("Hydration Service", () => {
     } as unknown as ReturnType<typeof db.gameevents.filter>);
   });
 
+  it("should NOT issue UncatchMatch DELETE API call or enqueue in syncQueue when discardUnfinishedMatch is called for a completed match with non-null scores and teamId", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: 10,
+      guestScore: 8,
+    } as never);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(apiClient.delete).not.toHaveBeenCalled();
+    expect(db.syncQueue.put).not.toHaveBeenCalled();
+    expect(db.matches.delete).not.toHaveBeenCalled();
+  });
+
   it("should fallback to syncQueue and log warning when discardUnfinishedMatch API delete call fails online", async () => {
     const consoleWarnSpy = vi
       .spyOn(console, "warn")
@@ -131,7 +145,7 @@ describe("Hydration Service", () => {
     vi.mocked(apiClient.delete).mockRejectedValueOnce(
       new Error("Server error 500"),
     );
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
       homeScore: null,
       guestScore: null,
@@ -159,6 +173,11 @@ describe("Hydration Service", () => {
 
   it("should re-throw StaleUserError when discardUnfinishedMatch API delete throws StaleUserError online", async () => {
     vi.mocked(apiClient.delete).mockRejectedValueOnce(new StaleUserError());
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
 
     await expect(discardUnfinishedMatch(matchId, teamId)).rejects.toThrow(
       StaleUserError,
@@ -375,7 +394,7 @@ describe("Hydration Service", () => {
   it("should purge all records associated with a match when discardUnfinishedMatch is called and match is unfinished", async () => {
     const mockDelete = vi.fn().mockResolvedValue(1);
 
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
       homeScore: null,
       guestScore: null,
@@ -409,7 +428,7 @@ describe("Hydration Service", () => {
   });
 
   it("should NOT delete tournament record from IndexedDB when discardUnfinishedMatch is executed", async () => {
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
       tournamentId: "tourn-shared-999",
       homeScore: null,
@@ -424,7 +443,7 @@ describe("Hydration Service", () => {
 
   it("should issue UncatchMatch DELETE API call when discardUnfinishedMatch is called with teamId online", async () => {
     vi.mocked(apiClient.delete).mockResolvedValueOnce({});
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
       homeScore: null,
       guestScore: null,
@@ -440,7 +459,7 @@ describe("Hydration Service", () => {
 
   it("should enqueue DELETE command into db.syncQueue when offline during discardUnfinishedMatch", async () => {
     vi.stubGlobal("navigator", { onLine: false });
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
       homeScore: null,
       guestScore: null,
@@ -462,7 +481,7 @@ describe("Hydration Service", () => {
   it("should NOT delete match or related records if match was completed before discard", async () => {
     const mockDelete = vi.fn().mockResolvedValue(1);
 
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
       homeScore: 10,
       guestScore: 8,
