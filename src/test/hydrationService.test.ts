@@ -37,7 +37,7 @@ vi.mock("../db/ttaDatabase", () => ({
       delete: vi.fn(),
       toArray: vi.fn().mockResolvedValue([]),
     },
-    tournaments: { put: vi.fn(), get: vi.fn() },
+    tournaments: { put: vi.fn(), get: vi.fn(), delete: vi.fn() },
     sportconfigurations: { put: vi.fn(), get: vi.fn() },
     matchlineups: { where: vi.fn(), bulkPut: vi.fn() },
     timeanchors: { where: vi.fn(), bulkPut: vi.fn() },
@@ -89,6 +89,7 @@ describe("Hydration Service", () => {
     vi.mocked(db.matches.toArray).mockReset().mockResolvedValue([]);
     vi.mocked(db.tournaments.get).mockReset().mockResolvedValue(null);
     vi.mocked(db.tournaments.put).mockReset();
+    vi.mocked(db.tournaments.delete).mockReset();
     vi.mocked(db.sportconfigurations.get).mockReset();
     vi.mocked(db.sportconfigurations.put).mockReset();
     vi.mocked(db.syncQueue.put)
@@ -283,6 +284,20 @@ describe("Hydration Service", () => {
 
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
     expect(mockDelete).toHaveBeenCalledTimes(4);
+  });
+
+  it("should NOT delete tournament record from IndexedDB when discardUnfinishedMatch is executed", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "tourn-shared-999",
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+    expect(db.tournaments.delete).not.toHaveBeenCalled();
   });
 
   it("should issue UncatchMatch DELETE API call when discardUnfinishedMatch is called with teamId online", async () => {
