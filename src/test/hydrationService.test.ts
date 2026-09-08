@@ -124,6 +124,128 @@ describe("Hydration Service", () => {
     } as unknown as ReturnType<typeof db.gameevents.filter>);
   });
 
+  it("should fallback to syncQueue and log warning when discardUnfinishedMatch API delete call fails online", async () => {
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+    vi.mocked(apiClient.delete).mockRejectedValueOnce(
+      new Error("Server error 500"),
+    );
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      `/Matches/${matchId}/teams/${teamId}/catch`,
+    );
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      "Uncatch match API call failed online, fallback to syncQueue:",
+      expect.any(Error),
+    );
+    expect(db.syncQueue.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "DELETE",
+        endpoint: `/Matches/${matchId}/teams/${teamId}/catch`,
+        payload: "{}",
+      }),
+    );
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+    consoleWarnSpy.mockRestore();
+  });
+
+  it("should re-throw StaleUserError when discardUnfinishedMatch API delete throws StaleUserError online", async () => {
+    vi.mocked(apiClient.delete).mockRejectedValueOnce(new StaleUserError());
+
+    await expect(discardUnfinishedMatch(matchId, teamId)).rejects.toThrow(
+      StaleUserError,
+    );
+  });
+
+  it("should catch and log error in getMatchRecoveryState if database query fails", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.mocked(db.timeanchors.where).mockImplementationOnce(() => {
+      throw new Error("IndexedDB read error");
+    });
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+
+    expect(recoveryState).toEqual({
+      recoveredPeriod: 1,
+      activePlayersLimit: 7,
+    });
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Failed to calculate match recovery state:",
+      expect.any(Error),
+    );
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("should skip bulkPut in syncPresence and syncEvents when all items are in pending state", async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId })
+      .mockResolvedValueOnce([{ id: "l1", matchId }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "p1", matchLineupId: "l1" }])
+      .mockResolvedValueOnce([{ id: "e1", matchLineupId: "l1" }])
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(db.transaction).mockImplementation((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          delete: vi.fn().mockResolvedValue(1),
+          toArray: vi.fn().mockResolvedValue([{ id: "l1", matchId }]),
+        }),
+      } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+      vi.mocked(db.playerpresences.filter).mockImplementation((() => {
+        return {
+          primaryKeys: vi.fn().mockResolvedValue(["p1"]),
+        };
+      }) as unknown as typeof db.playerpresences.filter);
+
+      vi.mocked(db.gameevents.filter).mockImplementation((() => {
+        return {
+          primaryKeys: vi.fn().mockResolvedValue(["e1"]),
+        };
+      }) as unknown as typeof db.gameevents.filter);
+
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    const result = await hydrateMatchData(matchId, teamId);
+
+    expect(result).toEqual({ success: true, isOfflineFallback: false });
+    expect(db.playerpresences.bulkPut).not.toHaveBeenCalled();
+    expect(db.gameevents.bulkPut).not.toHaveBeenCalled();
+  });
+
+  it("should identify error objects with StaleUserError name or string match in shouldRethrowError", async () => {
+    const customStaleErr = new Error("Custom stale user error");
+    customStaleErr.name = "StaleUserError";
+    vi.mocked(apiClient.get).mockRejectedValueOnce(customStaleErr);
+
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      "Custom stale user error",
+    );
+
+    vi.mocked(apiClient.get).mockRejectedValueOnce(
+      "Match draft belongs to another user.",
+    );
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      "Match draft belongs to another user.",
+    );
+  });
+
   it("should return null for checkUnfinishedMatch when IndexedDB matches table is empty", async () => {
     vi.mocked(db.matches.toArray).mockResolvedValueOnce([]);
     const unfinished = await checkUnfinishedMatch("user-1");

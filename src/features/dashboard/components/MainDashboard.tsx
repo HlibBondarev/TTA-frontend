@@ -135,7 +135,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
             Logged in as
           </span>
           <span className="text-xs font-semibold text-emerald-400 truncate">
-            {user?.email ?? user?.name ?? "User"}
+            {user?.email || user?.name || "User"}
           </span>
         </div>
         <button
