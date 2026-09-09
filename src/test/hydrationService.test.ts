@@ -1218,7 +1218,7 @@ describe("Hydration Service", () => {
     expect(db.syncQueue.toArray).not.toHaveBeenCalled();
   });
 
-  it("should recover correct guest teamId from syncQueue when discarding match with default homeTeamId", async () => {
+  it("should recover correct guest teamId from syncQueue when discarding match without explicit team selection", async () => {
     vi.mocked(apiClient.delete).mockResolvedValueOnce({});
     vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
@@ -1237,11 +1237,30 @@ describe("Hydration Service", () => {
       } as never,
     ]);
 
-    await discardUnfinishedMatch(matchId, "team-home-111");
+    await discardUnfinishedMatch(matchId);
 
     expect(apiClient.delete).toHaveBeenCalledWith(
       `/Matches/${matchId}/teams/team-guest-999/catch`,
     );
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+  });
+
+  it("should preserve explicit team selection during discardUnfinishedMatch and skip syncQueue lookup", async () => {
+    vi.mocked(apiClient.delete).mockResolvedValueOnce({});
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+      homeTeamId: "team-home-111",
+      guestTeamId: "team-guest-999",
+    } as never);
+
+    await discardUnfinishedMatch(matchId, "team-home-111");
+
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      `/Matches/${matchId}/teams/team-home-111/catch`,
+    );
+    expect(db.syncQueue.toArray).not.toHaveBeenCalled();
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 });

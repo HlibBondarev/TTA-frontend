@@ -342,7 +342,10 @@ export const discardUnfinishedMatch = async (
 ): Promise<void> => {
   if (!db?.matches) return;
 
-  const initialMatch = await db.matches.get(matchId);
+  const initialMatch = (await db.matches.get(matchId)) as
+    | (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string })
+    | undefined;
+
   if (
     !initialMatch ||
     initialMatch.homeScore != null ||
@@ -351,13 +354,11 @@ export const discardUnfinishedMatch = async (
     return;
   }
 
-  let effectiveTeamId = teamId;
+  let effectiveTeamId =
+    teamId || initialMatch.trackedTeamId || initialMatch.selectedTeamId;
 
-  // If the provided teamId matches the homeTeamId but a syncQueue endpoint indicates the guest team was tracked, recover it
-  if (
-    db.syncQueue &&
-    (!effectiveTeamId || effectiveTeamId === initialMatch.homeTeamId)
-  ) {
+  // Fallback recovery: if no explicit team selection exists, check db.syncQueue
+  if (!effectiveTeamId && db.syncQueue) {
     try {
       const syncItems = await db.syncQueue.toArray();
       const matchPrefix = `/Matches/${matchId}/teams/`;
@@ -379,13 +380,9 @@ export const discardUnfinishedMatch = async (
     }
   }
 
-  // Fallback to guestTeamId if effectiveTeamId is still homeTeamId or empty, and guestTeamId exists
-  if (
-    (!effectiveTeamId || effectiveTeamId === initialMatch.homeTeamId) &&
-    initialMatch.guestTeamId
-  ) {
-    // Check if any local events/lineups belong to guestTeamId, otherwise use guestTeamId as a safer alternative if home failed
-    effectiveTeamId = initialMatch.guestTeamId;
+  // Final fallback sequence if teamId is still missing: homeTeamId first, then guestTeamId
+  if (!effectiveTeamId) {
+    effectiveTeamId = initialMatch.homeTeamId || initialMatch.guestTeamId;
   }
 
   if (effectiveTeamId?.trim()) {
