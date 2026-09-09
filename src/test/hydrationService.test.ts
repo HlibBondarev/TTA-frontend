@@ -143,7 +143,7 @@ describe("Hydration Service", () => {
     expect(db.matches.delete).not.toHaveBeenCalled();
   });
 
-  it("should purge pending POST and PUT syncQueue items for the discarded match but keep DELETE items", async () => {
+  it("should purge pending POST and PUT syncQueue items inside the deletion transaction for the discarded match but keep DELETE items", async () => {
     vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
       homeScore: null,
@@ -168,6 +168,11 @@ describe("Hydration Service", () => {
 
     await discardUnfinishedMatch(matchId, teamId);
 
+    expect(db.transaction).toHaveBeenCalledWith(
+      "rw",
+      expect.arrayContaining([db.syncQueue]),
+      expect.any(Function),
+    );
     expect(db.syncQueue.delete).toHaveBeenCalledWith(10);
     expect(db.syncQueue.delete).toHaveBeenCalledWith(11);
     expect(db.syncQueue.delete).not.toHaveBeenCalledWith(12);

@@ -243,64 +243,62 @@ const uncatchMatchOnServerOrQueue = async (
   }
 };
 
-const purgePendingMatchQueueItems = async (matchId: string): Promise<void> => {
-  if (!db.syncQueue) return;
-  const endpointPrefix = `/Matches/${matchId}`;
-  const itemsToPurge = await db.syncQueue
-    .filter(
-      (item) =>
-        item.endpoint.includes(endpointPrefix) &&
-        (item.actionType === "POST" || item.actionType === "PUT"),
-    )
-    .toArray();
-
-  for (const item of itemsToPurge) {
-    if (item.id !== undefined) {
-      await db.syncQueue.delete(item.id);
-    }
-  }
-};
-
 const deleteLocalMatchRecords = async (matchId: string): Promise<void> => {
-  await db.transaction(
-    "rw",
-    [
-      db.matches,
-      db.matchlineups,
-      db.playerpresences,
-      db.gameevents,
-      db.timeanchors,
-    ],
-    async () => {
-      const match = await db.matches.get(matchId);
-      if (match && match.homeScore == null && match.guestScore == null) {
-        const lineups = await db.matchlineups
-          .where("matchId")
-          .equals(matchId)
+  const tables = [
+    db.matches,
+    db.matchlineups,
+    db.playerpresences,
+    db.gameevents,
+    db.timeanchors,
+    db.syncQueue,
+  ].filter(Boolean);
+
+  await db.transaction("rw", tables, async () => {
+    const match = await db.matches.get(matchId);
+    if (match && match.homeScore == null && match.guestScore == null) {
+      if (db.syncQueue) {
+        const endpointPrefix = `/Matches/${matchId}`;
+        const itemsToPurge = await db.syncQueue
+          .filter(
+            (item) =>
+              item.endpoint.includes(endpointPrefix) &&
+              (item.actionType === "POST" || item.actionType === "PUT"),
+          )
           .toArray();
-        const lineupIds = lineups.map((l) => l.id);
 
-        if (lineupIds.length > 0) {
-          await db.playerpresences
-            .where("matchLineupId")
-            .anyOf(lineupIds)
-            .delete();
-          await db.gameevents.where("matchLineupId").anyOf(lineupIds).delete();
+        for (const item of itemsToPurge) {
+          if (item.id !== undefined) {
+            await db.syncQueue.delete(item.id);
+          }
         }
-
-        await db.matches.delete(matchId);
-        await db.matchlineups.where("matchId").equals(matchId).delete();
-        await db.timeanchors.where("matchId").equals(matchId).delete();
       }
-    },
-  );
+
+      const lineups = await db.matchlineups
+        .where("matchId")
+        .equals(matchId)
+        .toArray();
+      const lineupIds = lineups.map((l) => l.id);
+
+      if (lineupIds.length > 0) {
+        await db.playerpresences
+          .where("matchLineupId")
+          .anyOf(lineupIds)
+          .delete();
+        await db.gameevents.where("matchLineupId").anyOf(lineupIds).delete();
+      }
+
+      await db.matches.delete(matchId);
+      await db.matchlineups.where("matchId").equals(matchId).delete();
+      await db.timeanchors.where("matchId").equals(matchId).delete();
+    }
+  });
 };
 
 /**
  * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
  * Issues UncatchMatch request to server when teamId is supplied (with syncQueue offline fallback)
  * only if the match exists and is unfinished (both scores are null).
- * Also purges pending mutation items (POST/PUT) for this match from syncQueue.
+ * Also purges pending mutation items (POST/PUT) for this match from syncQueue within the same transaction.
  */
 export const discardUnfinishedMatch = async (
   matchId: string,
@@ -321,7 +319,6 @@ export const discardUnfinishedMatch = async (
     await uncatchMatchOnServerOrQueue(matchId, teamId);
   }
 
-  await purgePendingMatchQueueItems(matchId);
   await deleteLocalMatchRecords(matchId);
 };
 
