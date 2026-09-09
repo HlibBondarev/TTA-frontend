@@ -15,6 +15,11 @@ interface PresenceItemPayload {
   matchLineupId: string;
 }
 
+interface SyncCacheContext {
+  lineupTeamCache?: Map<string, string | null>;
+  matchRecordCache?: Map<string, Record<string, unknown> | null>;
+}
+
 const UNRECOVERABLE_STATUS_CODES = new Set([400, 403, 404, 409, 410]);
 
 const extractPresenceLineupIds = (
@@ -129,31 +134,45 @@ const parsePayload = (payloadStr: string): unknown => {
 
 const resolveEventTeamId = async (
   event: Record<string, unknown>,
+  lineupTeamCache?: Map<string, string | null>,
 ): Promise<string | null> => {
   if (
     typeof event?.matchLineupId === "string" &&
     db?.matchlineups &&
     db?.playerrosters
   ) {
-    const lineup = await db.matchlineups.get(event.matchLineupId);
+    const lineupId = event.matchLineupId;
+    if (lineupTeamCache?.has(lineupId)) {
+      return lineupTeamCache.get(lineupId) ?? null;
+    }
+
+    const lineup = await db.matchlineups.get(lineupId);
     if (lineup?.playerRosterId) {
       const roster = await db.playerrosters.get(lineup.playerRosterId);
       if (roster?.teamId) {
+        lineupTeamCache?.set(lineupId, roster.teamId);
         return roster.teamId;
       }
     }
+    lineupTeamCache?.set(lineupId, null);
   }
   return null;
 };
 
-const resolveBatchTeamId = async (payload: unknown): Promise<string | null> => {
+const resolveBatchTeamId = async (
+  payload: unknown,
+  lineupTeamCache?: Map<string, string | null>,
+): Promise<string | null> => {
   const eventsList = Array.isArray(payload) ? payload : [payload];
   if (eventsList.length === 0) return null;
 
   let commonTeamId: string | null = null;
   for (const item of eventsList) {
     if (typeof item === "object" && item !== null) {
-      const teamId = await resolveEventTeamId(item as Record<string, unknown>);
+      const teamId = await resolveEventTeamId(
+        item as Record<string, unknown>,
+        lineupTeamCache,
+      );
       if (!teamId) return null;
       if (commonTeamId === null) {
         commonTeamId = teamId;
@@ -175,6 +194,7 @@ const collectBatch = async (
   startIndex: number,
   currentItem: SyncQueueItem,
   currentPayload: unknown,
+  lineupTeamCache?: Map<string, string | null>,
 ): Promise<{ batchItems: SyncQueueItem[]; effectivePayload: unknown }> => {
   const batchable = isBatchableEndpoint(
     currentItem.actionType,
@@ -186,7 +206,7 @@ const collectBatch = async (
   }
 
   const currentTeamId = currentItem.endpoint.includes("/teams/")
-    ? await resolveBatchTeamId(currentPayload)
+    ? await resolveBatchTeamId(currentPayload, lineupTeamCache)
     : null;
 
   const aggregatedArray: unknown[] = Array.isArray(currentPayload)
@@ -207,7 +227,7 @@ const collectBatch = async (
     if (nextPayload === null) break;
 
     if (currentItem.endpoint.includes("/teams/")) {
-      const nextTeamId = await resolveBatchTeamId(nextPayload);
+      const nextTeamId = await resolveBatchTeamId(nextPayload, lineupTeamCache);
       if (currentTeamId !== nextTeamId) {
         break;
       }
@@ -232,6 +252,7 @@ const executeHttpRequest = async (
   endpoint: string,
   payload: unknown,
   batchItems: SyncQueueItem[],
+  cache?: SyncCacheContext,
 ): Promise<{ status?: number }> => {
   let targetEndpoint = endpoint;
 
@@ -239,7 +260,10 @@ const executeHttpRequest = async (
   if (targetEndpoint.includes("/teams/") && db) {
     try {
       // Strategy 1: Resolve teamId precisely from all events' matchLineupId and player rosters
-      const resolvedTeamId = await resolveBatchTeamId(payload);
+      const resolvedTeamId = await resolveBatchTeamId(
+        payload,
+        cache?.lineupTeamCache,
+      );
       if (resolvedTeamId) {
         targetEndpoint = targetEndpoint.replace(
           /\/teams\/[^/]+/,
@@ -253,8 +277,8 @@ const executeHttpRequest = async (
         if (matchIdMatch && matchIdMatch[1] && matchIdMatch[2]) {
           const matchId = matchIdMatch[1];
           const queuedTeamId = matchIdMatch[2];
-          const matchRecord = await db.matches.get(matchId);
-          const matchData = matchRecord as
+
+          let matchData:
             | (Record<string, unknown> & {
                 trackedTeamId?: string;
                 selectedTeamId?: string;
@@ -262,6 +286,15 @@ const executeHttpRequest = async (
                 guestTeamId?: string;
               })
             | undefined;
+
+          if (cache?.matchRecordCache?.has(matchId)) {
+            matchData = (cache.matchRecordCache.get(matchId) ??
+              undefined) as typeof matchData;
+          } else {
+            const matchRecord = await db.matches.get(matchId);
+            matchData = matchRecord as typeof matchData;
+            cache?.matchRecordCache?.set(matchId, matchData ?? null);
+          }
 
           const explicitTeamId =
             matchData?.trackedTeamId || matchData?.selectedTeamId;
@@ -400,6 +433,7 @@ const processSyncBatch = async (
   currentItem: SyncQueueItem,
   effectivePayload: unknown,
   batchItems: SyncQueueItem[],
+  cache?: SyncCacheContext,
 ): Promise<BatchResult> => {
   try {
     const response = await executeHttpRequest(
@@ -407,6 +441,7 @@ const processSyncBatch = async (
       currentItem.endpoint,
       effectivePayload,
       batchItems,
+      cache,
     );
 
     if (isSuccessStatus(response?.status)) {
@@ -458,6 +493,10 @@ export const processSyncQueue = async (): Promise<number> => {
   isSyncing = true;
   let processedCount = 0;
 
+  const lineupTeamCache = new Map<string, string | null>();
+  const matchRecordCache = new Map<string, Record<string, unknown> | null>();
+  const cache: SyncCacheContext = { lineupTeamCache, matchRecordCache };
+
   try {
     const pendingItems = (await db.syncQueue
       .orderBy("id")
@@ -482,12 +521,14 @@ export const processSyncQueue = async (): Promise<number> => {
         i,
         currentItem,
         currentPayload,
+        lineupTeamCache,
       );
 
       const { syncedCount, shouldContinue } = await processSyncBatch(
         currentItem,
         effectivePayload,
         batchItems,
+        cache,
       );
 
       processedCount += syncedCount;

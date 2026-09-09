@@ -916,4 +916,36 @@ describe("Sync Engine Service", () => {
       expect.any(Object),
     );
   });
+
+  it("caches matchlineup and match record lookups during a processSyncQueue run", async () => {
+    const matchGetSpy = vi.spyOn(db.matches, "get").mockResolvedValue({
+      id: "m-100",
+      trackedTeamId: "team-tracked",
+    } as never);
+
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m-100/teams/wrong-team/events",
+        payload: JSON.stringify([{ id: "e1" }]),
+      },
+      {
+        id: 2,
+        actionType: "POST",
+        endpoint: "/Matches/m-100/teams/wrong-team/events",
+        payload: JSON.stringify([{ id: "e2" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+    await processSyncQueue();
+
+    expect(matchGetSpy).toHaveBeenCalledTimes(1);
+  });
 });
