@@ -200,6 +200,9 @@ describe("MatchSetupWizard Component", () => {
     );
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
 
+    // Select team before confirmation
+    fireEvent.click(screen.getByText("Home Squad"));
+
     fireEvent.click(
       screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
     );
@@ -256,6 +259,9 @@ describe("MatchSetupWizard Component", () => {
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    // Select team before confirmation
+    fireEvent.click(screen.getByText("Home Squad"));
 
     fireEvent.click(
       screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
@@ -555,6 +561,9 @@ describe("MatchSetupWizard Component", () => {
     );
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
 
+    // Select team before confirmation
+    fireEvent.click(screen.getByText("Home Squad"));
+
     fireEvent.click(
       screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
     );
@@ -834,6 +843,9 @@ describe("MatchSetupWizard Component", () => {
       fireEvent.click(config2Btn);
     }
 
+    // Select team before confirmation
+    fireEvent.click(screen.getByText("Home Squad"));
+
     fireEvent.click(
       screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
     );
@@ -960,6 +972,11 @@ describe("MatchSetupWizard Component", () => {
     expect(await screen.findByText(/Periods: 2/i)).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
+
+    // Select team before confirmation
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    fireEvent.click(screen.getByText("Home Squad"));
+
     fireEvent.click(
       await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
     );
@@ -997,6 +1014,10 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
+
+    // Select team before confirmation
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    fireEvent.click(screen.getByText("Home Squad"));
 
     const confirmBtn = await screen.findByRole("button", {
       name: /Confirm & Start Tracking/i,
@@ -1054,6 +1075,11 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(screen.getByText(/Periods: 2/i));
 
     fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
+
+    // Select team before confirmation
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    fireEvent.click(screen.getByText("Home Squad"));
+
     fireEvent.click(
       await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
     );
@@ -1183,7 +1209,7 @@ describe("MatchSetupWizard Component", () => {
 
     expect(await screen.findByText("Water Polo")).toBeDefined();
 
-    const quickStartBtn = screen.getByRole("button", {
+    const quickStartBtn = await screen.findByRole("button", {
       name: /Quick Start Match/i,
     });
     fireEvent.click(quickStartBtn);
@@ -1708,6 +1734,54 @@ describe("MatchSetupWizard Component", () => {
 
     await waitFor(() => {
       expect(apiClient.post).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("should persist trackedTeamId into db.matches upon confirming team selection", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    // Click Quick Start to reach team selection step
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    // Select Guest team
+    fireEvent.click(screen.getByText("Opponent Squad"));
+
+    // Confirm tracking
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(db.matches.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "match-123",
+          trackedTeamId: "team-guest",
+        }),
+      );
+      expect(handleQuickStart).toHaveBeenCalledWith(
+        "match-123",
+        "sport-1",
+        "config-1",
+        5,
+        "team-guest",
+      );
     });
   });
 });

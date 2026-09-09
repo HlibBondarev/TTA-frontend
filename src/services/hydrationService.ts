@@ -161,14 +161,49 @@ const fetchTournamentMetadata = async (
  */
 export const checkUnfinishedMatch = async (
   userId?: string,
-): Promise<MatchLookup | null> => {
+): Promise<
+  (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string }) | null
+> => {
   if (!db?.matches || !userId) return null;
   const matches = await db.matches.toArray();
-  return (
-    matches.find(
-      (m) => m.homeScore == null && m.guestScore == null && m.userId === userId,
-    ) ?? null
+  const match = matches.find(
+    (m) => m.homeScore == null && m.guestScore == null && m.userId === userId,
   );
+  if (!match) return null;
+
+  const extendedMatch = match as MatchLookup & {
+    trackedTeamId?: string;
+    selectedTeamId?: string;
+  };
+  let trackedTeamId =
+    extendedMatch.trackedTeamId || extendedMatch.selectedTeamId;
+
+  // Fallback: extract correct teamId from db.syncQueue catch endpoint if missing in legacy records
+  if (!trackedTeamId && db.syncQueue) {
+    try {
+      const syncItems = await db.syncQueue.toArray();
+      const matchPrefix = `/Matches/${match.id}/teams/`;
+      const catchItem = syncItems.find(
+        (item) =>
+          item.endpoint?.startsWith(matchPrefix) &&
+          item.endpoint?.endsWith("/catch"),
+      );
+      if (catchItem) {
+        const parts = catchItem.endpoint.split("/");
+        const teamsIndex = parts.indexOf("teams");
+        if (teamsIndex !== -1 && parts[teamsIndex + 1]) {
+          trackedTeamId = parts[teamsIndex + 1];
+        }
+      }
+    } catch (err) {
+      console.error("Failed to recover trackedTeamId from syncQueue:", err);
+    }
+  }
+
+  return {
+    ...match,
+    trackedTeamId,
+  };
 };
 
 /**
@@ -316,8 +351,45 @@ export const discardUnfinishedMatch = async (
     return;
   }
 
-  if (teamId?.trim()) {
-    await uncatchMatchOnServerOrQueue(matchId, teamId);
+  let effectiveTeamId = teamId;
+
+  // If the provided teamId matches the homeTeamId but a syncQueue endpoint indicates the guest team was tracked, recover it
+  if (
+    db.syncQueue &&
+    (!effectiveTeamId || effectiveTeamId === initialMatch.homeTeamId)
+  ) {
+    try {
+      const syncItems = await db.syncQueue.toArray();
+      const matchPrefix = `/Matches/${matchId}/teams/`;
+      const matchItem = syncItems.find((item) =>
+        item.endpoint?.startsWith(matchPrefix),
+      );
+      if (matchItem) {
+        const parts = matchItem.endpoint.split("/");
+        const teamsIndex = parts.indexOf("teams");
+        if (teamsIndex !== -1 && parts[teamsIndex + 1]) {
+          effectiveTeamId = parts[teamsIndex + 1];
+        }
+      }
+    } catch (err) {
+      console.error(
+        "Failed to recover correct teamId from syncQueue during discard:",
+        err,
+      );
+    }
+  }
+
+  // Fallback to guestTeamId if effectiveTeamId is still homeTeamId or empty, and guestTeamId exists
+  if (
+    (!effectiveTeamId || effectiveTeamId === initialMatch.homeTeamId) &&
+    initialMatch.guestTeamId
+  ) {
+    // Check if any local events/lineups belong to guestTeamId, otherwise use guestTeamId as a safer alternative if home failed
+    effectiveTeamId = initialMatch.guestTeamId;
+  }
+
+  if (effectiveTeamId?.trim()) {
+    await uncatchMatchOnServerOrQueue(matchId, effectiveTeamId);
   }
 
   await deleteLocalMatchRecords(matchId);

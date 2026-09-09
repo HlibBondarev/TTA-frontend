@@ -538,7 +538,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       );
 
       setTeams(loadedTeams);
-      setSelectedTeamId((prev) => prev ?? loadedTeams.home.id);
+      setSelectedTeamId(null);
     } catch (err) {
       if (err instanceof StaleOperationError) {
         if (currentUserIdRef.current !== initiatedUserId) {
@@ -598,6 +598,21 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       queuedItemId = await executeCatchMatch(catchEndpoint);
 
       verifyFreshness();
+
+      // Persist selected tracked team ID to local IndexedDB match record so session recovery (Resume Match) uses the correct team
+      if (db.matches) {
+        const existingMatch = await db.matches.get(pendingMatchId);
+        verifyFreshness();
+        const matchToPut = existingMatch
+          ? { ...existingMatch, trackedTeamId: selectedTeamId }
+          : {
+              id: pendingMatchId,
+              userId: initiatedUserId,
+              trackedTeamId: selectedTeamId,
+            };
+        await db.matches.put(matchToPut as unknown as MatchLookup);
+        verifyFreshness();
+      }
 
       await onQuickStart(
         pendingMatchId,

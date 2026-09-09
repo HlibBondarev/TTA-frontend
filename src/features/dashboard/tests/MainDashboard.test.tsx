@@ -777,4 +777,42 @@ describe("MainDashboard Component", () => {
       screen.queryByRole("region", { name: "Session Recovery Prompt" }),
     ).toBeNull();
   });
+
+  it("should resolve guestTeamId fallback for teamToResume when tracked/selected and homeTeamId are missing", async () => {
+    const onResumeMatchMock = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-unfinished-guest",
+      homeTeamId: "",
+      guestTeamId: "team-guest-fallback",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+      userId: "auth0|user-coach",
+    } as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    const resumeBtn = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    fireEvent.click(resumeBtn);
+
+    await waitFor(() => {
+      expect(onResumeMatchMock).toHaveBeenCalledWith(
+        "m-unfinished-guest",
+        "team-guest-fallback",
+      );
+    });
+  });
 });

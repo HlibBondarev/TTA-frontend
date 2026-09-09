@@ -182,6 +182,65 @@ const executeHttpRequest = async (
   payload: unknown,
   batchItems: SyncQueueItem[],
 ): Promise<{ status?: number }> => {
+  let targetEndpoint = endpoint;
+
+  // Dynamically resolve and normalize the correct teamId in the endpoint URL
+  if (targetEndpoint.includes("/teams/") && db) {
+    try {
+      // Strategy 1: Resolve teamId precisely from the event's matchLineupId and player rosters
+      const eventsList = Array.isArray(payload) ? payload : [payload];
+      const firstEvent = eventsList[0] as { matchLineupId?: string };
+
+      if (firstEvent?.matchLineupId && db.matchlineups && db.playerrosters) {
+        const lineup = await db.matchlineups.get(firstEvent.matchLineupId);
+        if (lineup?.playerRosterId) {
+          const roster = await db.playerrosters.get(lineup.playerRosterId);
+          if (roster?.teamId) {
+            targetEndpoint = targetEndpoint.replace(
+              /\/teams\/[^/]+/,
+              `/teams/${roster.teamId}`,
+            );
+          }
+        }
+      }
+
+      // Strategy 2: Fallback to match record lookup if lineup resolution did not apply
+      if (targetEndpoint === endpoint && db.matches) {
+        const matchIdMatch = targetEndpoint.match(
+          /\/Matches\/([^/]+)\/teams\/([^/]+)/,
+        );
+        if (matchIdMatch && matchIdMatch[1]) {
+          const matchId = matchIdMatch[1];
+          const matchRecord = await db.matches.get(matchId);
+          const matchData = matchRecord as
+            | (Record<string, unknown> & {
+                trackedTeamId?: string;
+                selectedTeamId?: string;
+                guestTeamId?: string;
+              })
+            | undefined;
+
+          const correctTeamId =
+            matchData?.trackedTeamId ||
+            matchData?.selectedTeamId ||
+            matchData?.guestTeamId;
+
+          if (correctTeamId) {
+            targetEndpoint = targetEndpoint.replace(
+              /\/teams\/[^/]+/,
+              `/teams/${correctTeamId}`,
+            );
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(
+        "Failed to normalize teamId in sync endpoint, falling back to original:",
+        err,
+      );
+    }
+  }
+
   const batchIds = batchItems
     .map((item) => item.id)
     .filter((id): id is number => id !== undefined)
@@ -192,13 +251,13 @@ const executeHttpRequest = async (
     : undefined;
 
   if (actionType === "POST") {
-    return apiClient.post(endpoint, payload, config);
+    return apiClient.post(targetEndpoint, payload, config);
   }
   if (actionType === "PUT") {
-    return apiClient.put(endpoint, payload, config);
+    return apiClient.put(targetEndpoint, payload, config);
   }
   if (actionType === "DELETE") {
-    return apiClient.delete(endpoint, config);
+    return apiClient.delete(targetEndpoint, config);
   }
   throw new Error(`Unsupported sync actionType: ${actionType}`);
 };

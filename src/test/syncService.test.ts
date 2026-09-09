@@ -17,6 +17,9 @@ vi.mock("../db/ttaDatabase", () => ({
       const cb = args[args.length - 1] as () => Promise<unknown>;
       return cb() as unknown as ReturnType<typeof db.transaction>;
     }),
+    matches: {
+      get: vi.fn().mockResolvedValue(undefined),
+    },
     syncQueue: {
       orderBy: vi.fn(),
       delete: vi.fn(),
@@ -800,5 +803,31 @@ describe("Sync Engine Service", () => {
     const orderBySpy = vi.spyOn(db.syncQueue, "orderBy");
     window.dispatchEvent(new Event("online"));
     expect(orderBySpy).not.toHaveBeenCalled();
+  });
+
+  it("should normalize outdated teamId in sync endpoint using active match record", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "m-123",
+      trackedTeamId: "correct-team-456",
+    } as never);
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 1,
+          actionType: "POST",
+          endpoint: "/Matches/m-123/teams/wrong-default-team/events",
+          payload: JSON.stringify([{ id: "e-1" }]),
+        },
+      ]),
+    } as never);
+
+    await processSyncQueue();
+
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/m-123/teams/correct-team-456/events",
+      expect.any(Array),
+      expect.any(Object),
+    );
   });
 });

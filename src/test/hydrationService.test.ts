@@ -56,6 +56,7 @@ vi.mock("../db/ttaDatabase", () => ({
     eventdefinitions: { bulkPut: vi.fn() },
     syncQueue: {
       put: vi.fn().mockResolvedValue(1),
+      toArray: vi.fn().mockResolvedValue([]),
       filter: vi.fn().mockReturnValue({
         toArray: vi.fn().mockResolvedValue([]),
       }),
@@ -127,6 +128,14 @@ describe("Hydration Service", () => {
     vi.mocked(db.gameevents.filter).mockReturnValue({
       primaryKeys: vi.fn().mockResolvedValue([]),
     } as unknown as ReturnType<typeof db.gameevents.filter>);
+
+    vi.mocked(db.syncQueue.put)
+      .mockReset()
+      .mockResolvedValue(1 as never);
+    vi.mocked(db.syncQueue.toArray)
+      .mockReset()
+      .mockResolvedValue([] as never);
+    vi.mocked(db.syncQueue.delete).mockReset().mockResolvedValue(undefined);
   });
 
   it("should NOT issue UncatchMatch DELETE API call or enqueue in syncQueue when discardUnfinishedMatch is called for a completed match with non-null scores and teamId", async () => {
@@ -1151,5 +1160,88 @@ describe("Hydration Service", () => {
       title: "Match 1",
       userId: "existing-owner-id",
     });
+  });
+
+  it("should recover trackedTeamId from syncQueue catch endpoint if missing in match record", async () => {
+    const unfinishedMatch: MatchLookup = {
+      id: "m-active-legacy",
+      tournamentId: "t-1",
+      homeTeamId: "team-home",
+      guestTeamId: "team-guest",
+      scheduledAt: "2026-09-01T10:00:00Z",
+      matchNumber: "1",
+      venue: "Arena 1",
+      temperature: 22,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "2026-09-01T10:00:00Z",
+      userId: "user-1",
+    };
+
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([
+      unfinishedMatch as never,
+    ]);
+    vi.mocked(db.syncQueue.toArray).mockResolvedValueOnce([
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: `/Matches/m-active-legacy/teams/team-guest/catch`,
+        payload: "{}",
+      } as never,
+    ]);
+
+    const result = await checkUnfinishedMatch("user-1");
+    expect(result).toEqual({
+      ...unfinishedMatch,
+      trackedTeamId: "team-guest",
+    });
+  });
+
+  it("should prioritize explicit trackedTeamId or selectedTeamId over syncQueue fallback", async () => {
+    const unfinishedMatch = {
+      id: "m-active-explicit",
+      homeScore: null,
+      guestScore: null,
+      userId: "user-1",
+      trackedTeamId: "team-explicit",
+    };
+
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([
+      unfinishedMatch as never,
+    ]);
+
+    const result = await checkUnfinishedMatch("user-1");
+    expect(result).toEqual({
+      ...unfinishedMatch,
+      trackedTeamId: "team-explicit",
+    });
+    expect(db.syncQueue.toArray).not.toHaveBeenCalled();
+  });
+
+  it("should recover correct guest teamId from syncQueue when discarding match with default homeTeamId", async () => {
+    vi.mocked(apiClient.delete).mockResolvedValueOnce({});
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+      homeTeamId: "team-home-111",
+      guestTeamId: "team-guest-999",
+    } as never);
+
+    vi.mocked(db.syncQueue.toArray).mockResolvedValueOnce([
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: `/Matches/${matchId}/teams/team-guest-999/events`,
+        payload: "{}",
+      } as never,
+    ]);
+
+    await discardUnfinishedMatch(matchId, "team-home-111");
+
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      `/Matches/${matchId}/teams/team-guest-999/catch`,
+    );
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 });

@@ -161,6 +161,7 @@ export const App: React.FC = () => {
         }),
       );
 
+      // Fix: Pass the resolved teamId to ensure the correct team session is resumed
       dispatch(
         setActiveMatch({
           matchId,
