@@ -1140,4 +1140,56 @@ describe("Hydration Service", () => {
       userId: "existing-owner-id",
     });
   });
+
+  it("should purge pending POST and PUT syncQueue items inside the deletion transaction for the discarded match with exact matchId path boundary, but keep partial matches and DELETE items", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    const pendingQueueItems = [
+      { id: 10, endpoint: `/Matches/${matchId}/events`, actionType: "POST" },
+      { id: 11, endpoint: `/Matches/${matchId}/anchors`, actionType: "PUT" },
+      { id: 12, endpoint: `/Matches/${matchId}0/events`, actionType: "POST" },
+      {
+        id: 13,
+        endpoint: `/Matches/${matchId}/teams/${teamId}/catch`,
+        actionType: "DELETE",
+      },
+    ];
+
+    let capturedPredicate:
+      | ((item: (typeof pendingQueueItems)[0]) => boolean)
+      | undefined;
+
+    vi.mocked(db.syncQueue.filter).mockImplementation(((
+      predicate: (item: (typeof pendingQueueItems)[0]) => boolean,
+    ) => {
+      capturedPredicate = predicate;
+      const filtered = pendingQueueItems.filter(predicate);
+      return {
+        toArray: vi.fn().mockResolvedValue(filtered),
+      };
+    }) as unknown as typeof db.syncQueue.filter);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(db.transaction).toHaveBeenCalledWith(
+      "rw",
+      expect.arrayContaining([db.syncQueue]),
+      expect.any(Function),
+    );
+    expect(capturedPredicate).toBeDefined();
+    if (capturedPredicate) {
+      expect(capturedPredicate(pendingQueueItems[0])).toBe(true);
+      expect(capturedPredicate(pendingQueueItems[1])).toBe(true);
+      expect(capturedPredicate(pendingQueueItems[2])).toBe(false);
+      expect(capturedPredicate(pendingQueueItems[3])).toBe(false);
+    }
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(10);
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(11);
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(12);
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(13);
+  });
 });
