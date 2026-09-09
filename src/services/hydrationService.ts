@@ -213,71 +213,55 @@ export const getMatchRecoveryState = async (
   return { recoveredPeriod, activePlayersLimit };
 };
 
-/**
- * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
- * Issues UncatchMatch request to server when teamId is supplied (with syncQueue offline fallback)
- * only if the match exists and is unfinished (both scores are null).
- * Also purges pending mutation items (POST/PUT) for this match from syncQueue.
- */
-export const discardUnfinishedMatch = async (
+const uncatchMatchOnServerOrQueue = async (
   matchId: string,
-  teamId?: string,
+  teamId: string,
 ): Promise<void> => {
-  if (!db?.matches) return;
+  const catchEndpoint = `/Matches/${matchId}/teams/${teamId.trim()}/catch`;
+  let uncatchSuccess = false;
 
-  const initialMatch = await db.matches.get(matchId);
-  if (
-    !initialMatch ||
-    initialMatch.homeScore != null ||
-    initialMatch.guestScore != null
-  ) {
-    return;
-  }
-
-  if (teamId?.trim()) {
-    const catchEndpoint = `/Matches/${matchId}/teams/${teamId.trim()}/catch`;
-    let uncatchSuccess = false;
-
-    if (navigator.onLine) {
-      try {
-        await apiClient.delete(catchEndpoint);
-        uncatchSuccess = true;
-      } catch (err) {
-        if (err instanceof StaleUserError) throw err;
-        console.warn(
-          "Uncatch match API call failed online, fallback to syncQueue:",
-          err,
-        );
-      }
-    }
-
-    if (!uncatchSuccess && db.syncQueue) {
-      await db.syncQueue.put({
-        actionType: "DELETE",
-        endpoint: catchEndpoint,
-        payload: "{}",
-        createdAt: new Date().toISOString(),
-      });
+  if (navigator.onLine) {
+    try {
+      await apiClient.delete(catchEndpoint);
+      uncatchSuccess = true;
+    } catch (err) {
+      if (err instanceof StaleUserError) throw err;
+      console.warn(
+        "Uncatch match API call failed online, fallback to syncQueue:",
+        err,
+      );
     }
   }
 
-  if (db.syncQueue) {
-    const endpointPrefix = `/Matches/${matchId}`;
-    const itemsToPurge = await db.syncQueue
-      .filter(
-        (item) =>
-          item.endpoint.includes(endpointPrefix) &&
-          (item.actionType === "POST" || item.actionType === "PUT"),
-      )
-      .toArray();
+  if (!uncatchSuccess && db.syncQueue) {
+    await db.syncQueue.put({
+      actionType: "DELETE",
+      endpoint: catchEndpoint,
+      payload: "{}",
+      createdAt: new Date().toISOString(),
+    });
+  }
+};
 
-    for (const item of itemsToPurge) {
-      if (item.id !== undefined) {
-        await db.syncQueue.delete(item.id);
-      }
+const purgePendingMatchQueueItems = async (matchId: string): Promise<void> => {
+  if (!db.syncQueue) return;
+  const endpointPrefix = `/Matches/${matchId}`;
+  const itemsToPurge = await db.syncQueue
+    .filter(
+      (item) =>
+        item.endpoint.includes(endpointPrefix) &&
+        (item.actionType === "POST" || item.actionType === "PUT"),
+    )
+    .toArray();
+
+  for (const item of itemsToPurge) {
+    if (item.id !== undefined) {
+      await db.syncQueue.delete(item.id);
     }
   }
+};
 
+const deleteLocalMatchRecords = async (matchId: string): Promise<void> => {
   await db.transaction(
     "rw",
     [
@@ -310,6 +294,35 @@ export const discardUnfinishedMatch = async (
       }
     },
   );
+};
+
+/**
+ * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
+ * Issues UncatchMatch request to server when teamId is supplied (with syncQueue offline fallback)
+ * only if the match exists and is unfinished (both scores are null).
+ * Also purges pending mutation items (POST/PUT) for this match from syncQueue.
+ */
+export const discardUnfinishedMatch = async (
+  matchId: string,
+  teamId?: string,
+): Promise<void> => {
+  if (!db?.matches) return;
+
+  const initialMatch = await db.matches.get(matchId);
+  if (
+    !initialMatch ||
+    initialMatch.homeScore != null ||
+    initialMatch.guestScore != null
+  ) {
+    return;
+  }
+
+  if (teamId?.trim()) {
+    await uncatchMatchOnServerOrQueue(matchId, teamId);
+  }
+
+  await purgePendingMatchQueueItems(matchId);
+  await deleteLocalMatchRecords(matchId);
 };
 
 const verifyAndStoreMatch = async (

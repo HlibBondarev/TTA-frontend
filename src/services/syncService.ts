@@ -268,6 +268,70 @@ const finalizeBatchSync = async (
   return performFinalization();
 };
 
+const extractErrorStatus = (err: unknown): number | undefined => {
+  return (
+    (err as { status?: number; response?: { status?: number } })?.status ??
+    (err as { status?: number; response?: { status?: number } })?.response
+      ?.status
+  );
+};
+
+interface BatchResult {
+  syncedCount: number;
+  shouldContinue: boolean;
+}
+
+const processSyncBatch = async (
+  currentItem: SyncQueueItem,
+  effectivePayload: unknown,
+  batchItems: SyncQueueItem[],
+): Promise<BatchResult> => {
+  try {
+    const response = await executeHttpRequest(
+      currentItem.actionType,
+      currentItem.endpoint,
+      effectivePayload,
+      batchItems,
+    );
+
+    if (isSuccessStatus(response?.status)) {
+      const syncedCount = await finalizeBatchSync(
+        currentItem.endpoint,
+        effectivePayload,
+        batchItems,
+      );
+      return { syncedCount, shouldContinue: true };
+    }
+
+    if (isUnrecoverableStatus(response?.status)) {
+      console.warn(
+        `Unrecoverable sync error (${response?.status}) for endpoint ${currentItem.endpoint}. Purging batch from syncQueue.`,
+      );
+      await purgeBatchFromSyncQueue(batchItems);
+      return { syncedCount: 0, shouldContinue: true };
+    }
+
+    return { syncedCount: 0, shouldContinue: false };
+  } catch (err) {
+    const status = extractErrorStatus(err);
+
+    if (isUnrecoverableStatus(status)) {
+      console.warn(
+        `Unrecoverable sync error (${status}) for endpoint ${currentItem.endpoint}. Purging batch from syncQueue:`,
+        err,
+      );
+      await purgeBatchFromSyncQueue(batchItems);
+      return { syncedCount: 0, shouldContinue: true };
+    }
+
+    console.error(
+      `Sync batch execution failed for endpoint ${currentItem.endpoint}:`,
+      err,
+    );
+    return { syncedCount: 0, shouldContinue: false };
+  }
+};
+
 /**
  * Processes pending syncQueue items with batching for consecutive identical POST endpoints.
  */
@@ -305,53 +369,18 @@ export const processSyncQueue = async (): Promise<number> => {
         currentPayload,
       );
 
-      try {
-        const response = await executeHttpRequest(
-          currentItem.actionType,
-          currentItem.endpoint,
-          effectivePayload,
-          batchItems,
-        );
+      const { syncedCount, shouldContinue } = await processSyncBatch(
+        currentItem,
+        effectivePayload,
+        batchItems,
+      );
 
-        if (isSuccessStatus(response?.status)) {
-          const syncedCount = await finalizeBatchSync(
-            currentItem.endpoint,
-            effectivePayload,
-            batchItems,
-          );
-          processedCount += syncedCount;
-          i += batchItems.length;
-        } else if (isUnrecoverableStatus(response?.status)) {
-          console.warn(
-            `Unrecoverable sync error (${response?.status}) for endpoint ${currentItem.endpoint}. Purging batch from syncQueue.`,
-          );
-          await purgeBatchFromSyncQueue(batchItems);
-          i += batchItems.length;
-        } else {
-          break;
-        }
-      } catch (err) {
-        const status =
-          (err as { status?: number; response?: { status?: number } })
-            ?.status ??
-          (err as { status?: number; response?: { status?: number } })?.response
-            ?.status;
-
-        if (isUnrecoverableStatus(status)) {
-          console.warn(
-            `Unrecoverable sync error (${status}) for endpoint ${currentItem.endpoint}. Purging batch from syncQueue:`,
-            err,
-          );
-          await purgeBatchFromSyncQueue(batchItems);
-          i += batchItems.length;
-        } else {
-          console.error(
-            `Sync batch execution failed for endpoint ${currentItem.endpoint}:`,
-            err,
-          );
-          break;
-        }
+      processedCount += syncedCount;
+      if (!shouldContinue) {
+        break;
       }
+
+      i += batchItems.length;
     }
   } finally {
     isSyncing = false;
