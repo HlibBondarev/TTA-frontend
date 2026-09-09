@@ -143,7 +143,7 @@ describe("Hydration Service", () => {
     expect(db.matches.delete).not.toHaveBeenCalled();
   });
 
-  it("should purge pending POST and PUT syncQueue items inside the deletion transaction for the discarded match but keep DELETE items", async () => {
+  it("should purge pending POST and PUT syncQueue items inside the deletion transaction for the discarded match with exact matchId path boundary, but keep partial matches and DELETE items", async () => {
     vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
       homeScore: null,
@@ -153,18 +153,22 @@ describe("Hydration Service", () => {
     const pendingQueueItems = [
       { id: 10, endpoint: `/Matches/${matchId}/events`, actionType: "POST" },
       { id: 11, endpoint: `/Matches/${matchId}/anchors`, actionType: "PUT" },
+      { id: 12, endpoint: `/Matches/${matchId}0/events`, actionType: "POST" },
       {
-        id: 12,
+        id: 13,
         endpoint: `/Matches/${matchId}/teams/${teamId}/catch`,
         actionType: "DELETE",
       },
     ];
 
-    vi.mocked(db.syncQueue.filter).mockReturnValueOnce({
-      toArray: vi
-        .fn()
-        .mockResolvedValueOnce([pendingQueueItems[0], pendingQueueItems[1]]),
-    } as unknown as ReturnType<typeof db.syncQueue.filter>);
+    vi.mocked(db.syncQueue.filter).mockImplementation(((
+      predicate: (item: (typeof pendingQueueItems)[0]) => boolean,
+    ) => {
+      const filtered = pendingQueueItems.filter(predicate);
+      return {
+        toArray: vi.fn().mockResolvedValue(filtered),
+      };
+    }) as unknown as typeof db.syncQueue.filter);
 
     await discardUnfinishedMatch(matchId, teamId);
 
@@ -176,6 +180,7 @@ describe("Hydration Service", () => {
     expect(db.syncQueue.delete).toHaveBeenCalledWith(10);
     expect(db.syncQueue.delete).toHaveBeenCalledWith(11);
     expect(db.syncQueue.delete).not.toHaveBeenCalledWith(12);
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(13);
   });
 
   it("should fallback to syncQueue and log warning when discardUnfinishedMatch API delete call fails online", async () => {

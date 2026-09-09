@@ -261,7 +261,8 @@ const deleteLocalMatchRecords = async (matchId: string): Promise<void> => {
         const itemsToPurge = await db.syncQueue
           .filter(
             (item) =>
-              item.endpoint.includes(endpointPrefix) &&
+              (item.endpoint === endpointPrefix ||
+                item.endpoint.startsWith(`${endpointPrefix}/`)) &&
               (item.actionType === "POST" || item.actionType === "PUT"),
           )
           .toArray();
