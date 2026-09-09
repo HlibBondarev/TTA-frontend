@@ -611,7 +611,16 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
               trackedTeamId: selectedTeamId,
             };
         await db.matches.put(matchToPut as unknown as MatchLookup);
-        verifyFreshness();
+        try {
+          verifyFreshness();
+        } catch (err) {
+          if (existingMatch) {
+            await db.matches.put(existingMatch);
+          } else {
+            await db.matches.delete(pendingMatchId);
+          }
+          throw err;
+        }
       }
 
       await onQuickStart(
