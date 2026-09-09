@@ -20,6 +20,12 @@ vi.mock("../db/ttaDatabase", () => ({
     matches: {
       get: vi.fn().mockResolvedValue(undefined),
     },
+    matchlineups: {
+      get: vi.fn().mockResolvedValue(undefined),
+    },
+    playerrosters: {
+      get: vi.fn().mockResolvedValue(undefined),
+    },
     syncQueue: {
       orderBy: vi.fn(),
       delete: vi.fn(),
@@ -828,6 +834,58 @@ describe("Sync Engine Service", () => {
       "/Matches/m-123/teams/correct-team-456/events",
       expect.any(Array),
       expect.any(Object),
+    );
+  });
+
+  it("does not batch events belonging to different teams and sends separate requests to resolved endpoints", async () => {
+    vi.mocked(db.matchlineups.get).mockImplementation((async (id: string) => {
+      if (id === "lineup-home") return { playerRosterId: "roster-home" };
+      if (id === "lineup-guest") return { playerRosterId: "roster-guest" };
+      return undefined;
+    }) as never);
+
+    vi.mocked(db.playerrosters.get).mockImplementation((async (id: string) => {
+      if (id === "roster-home") return { teamId: "team-home" };
+      if (id === "roster-guest") return { teamId: "team-guest" };
+      return undefined;
+    }) as never);
+
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/teams/placeholder/events",
+        payload: JSON.stringify([{ id: "e1", matchLineupId: "lineup-home" }]),
+      },
+      {
+        id: 2,
+        actionType: "POST",
+        endpoint: "/Matches/m1/teams/placeholder/events",
+        payload: JSON.stringify([{ id: "e2", matchLineupId: "lineup-guest" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(2);
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      1,
+      "/Matches/m1/teams/team-home/events",
+      [{ id: "e1", matchLineupId: "lineup-home" }],
+      { headers: { "X-Idempotency-Key": "sync-batch-1" } },
+    );
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      2,
+      "/Matches/m1/teams/team-guest/events",
+      [{ id: "e2", matchLineupId: "lineup-guest" }],
+      { headers: { "X-Idempotency-Key": "sync-batch-2" } },
     );
   });
 });

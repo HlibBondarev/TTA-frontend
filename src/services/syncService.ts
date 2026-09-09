@@ -127,15 +127,55 @@ const parsePayload = (payloadStr: string): unknown => {
   }
 };
 
+const resolveEventTeamId = async (
+  event: Record<string, unknown>,
+): Promise<string | null> => {
+  if (
+    typeof event?.matchLineupId === "string" &&
+    db?.matchlineups &&
+    db?.playerrosters
+  ) {
+    const lineup = await db.matchlineups.get(event.matchLineupId);
+    if (lineup?.playerRosterId) {
+      const roster = await db.playerrosters.get(lineup.playerRosterId);
+      if (roster?.teamId) {
+        return roster.teamId;
+      }
+    }
+  }
+  return null;
+};
+
+const resolveBatchTeamId = async (payload: unknown): Promise<string | null> => {
+  const eventsList = Array.isArray(payload) ? payload : [payload];
+  if (eventsList.length === 0) return null;
+
+  let commonTeamId: string | null = null;
+  for (const item of eventsList) {
+    if (typeof item === "object" && item !== null) {
+      const teamId = await resolveEventTeamId(item as Record<string, unknown>);
+      if (!teamId) return null;
+      if (commonTeamId === null) {
+        commonTeamId = teamId;
+      } else if (commonTeamId !== teamId) {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+  return commonTeamId;
+};
+
 /**
- * Aggregates consecutive batchable POST queue items targeting the same endpoint.
+ * Aggregates consecutive batchable POST queue items targeting the same endpoint and resolving to the same team.
  */
-const collectBatch = (
+const collectBatch = async (
   pendingItems: SyncQueueItem[],
   startIndex: number,
   currentItem: SyncQueueItem,
   currentPayload: unknown,
-): { batchItems: SyncQueueItem[]; effectivePayload: unknown } => {
+): Promise<{ batchItems: SyncQueueItem[]; effectivePayload: unknown }> => {
   const batchable = isBatchableEndpoint(
     currentItem.actionType,
     currentItem.endpoint,
@@ -144,6 +184,10 @@ const collectBatch = (
   if (!batchable) {
     return { batchItems: [currentItem], effectivePayload: currentPayload };
   }
+
+  const currentTeamId = currentItem.endpoint.includes("/teams/")
+    ? await resolveBatchTeamId(currentPayload)
+    : null;
 
   const aggregatedArray: unknown[] = Array.isArray(currentPayload)
     ? [...currentPayload]
@@ -161,6 +205,13 @@ const collectBatch = (
 
     const nextPayload = parsePayload(nextItem.payload);
     if (nextPayload === null) break;
+
+    if (currentItem.endpoint.includes("/teams/")) {
+      const nextTeamId = await resolveBatchTeamId(nextPayload);
+      if (currentTeamId !== nextTeamId) {
+        break;
+      }
+    }
 
     if (Array.isArray(nextPayload)) {
       aggregatedArray.push(...nextPayload);
@@ -187,25 +238,15 @@ const executeHttpRequest = async (
   // Dynamically resolve and normalize the correct teamId in the endpoint URL
   if (targetEndpoint.includes("/teams/") && db) {
     try {
-      // Strategy 1: Resolve teamId precisely from the event's matchLineupId and player rosters
-      const eventsList = Array.isArray(payload) ? payload : [payload];
-      const firstEvent = eventsList[0] as { matchLineupId?: string };
-
-      if (firstEvent?.matchLineupId && db.matchlineups && db.playerrosters) {
-        const lineup = await db.matchlineups.get(firstEvent.matchLineupId);
-        if (lineup?.playerRosterId) {
-          const roster = await db.playerrosters.get(lineup.playerRosterId);
-          if (roster?.teamId) {
-            targetEndpoint = targetEndpoint.replace(
-              /\/teams\/[^/]+/,
-              `/teams/${roster.teamId}`,
-            );
-          }
-        }
-      }
-
-      // Strategy 2: Fallback to match record lookup if lineup resolution did not apply
-      if (targetEndpoint === endpoint && db.matches) {
+      // Strategy 1: Resolve teamId precisely from all events' matchLineupId and player rosters
+      const resolvedTeamId = await resolveBatchTeamId(payload);
+      if (resolvedTeamId) {
+        targetEndpoint = targetEndpoint.replace(
+          /\/teams\/[^/]+/,
+          `/teams/${resolvedTeamId}`,
+        );
+      } else if (db.matches) {
+        // Strategy 2: Fallback to match record lookup if lineup resolution did not apply
         const matchIdMatch = targetEndpoint.match(
           /\/Matches\/([^/]+)\/teams\/([^/]+)/,
         );
@@ -431,7 +472,7 @@ export const processSyncQueue = async (): Promise<number> => {
         break;
       }
 
-      const { batchItems, effectivePayload } = collectBatch(
+      const { batchItems, effectivePayload } = await collectBatch(
         pendingItems,
         i,
         currentItem,
