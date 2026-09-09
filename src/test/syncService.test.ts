@@ -184,8 +184,14 @@ describe("Sync Engine Service", () => {
       {
         id: 2,
         actionType: "POST",
+        endpoint: "/Matches/m1/teams/t1/events",
+        payload: JSON.stringify([{ id: "orphan-event-2" }]),
+      },
+      {
+        id: 3,
+        actionType: "POST",
         endpoint: "/Matches/m2/teams/t1/events",
-        payload: JSON.stringify([{ id: "valid-event-2" }]),
+        payload: JSON.stringify([{ id: "valid-event-3" }]),
       },
     ];
 
@@ -212,9 +218,22 @@ describe("Sync Engine Service", () => {
       [db.syncQueue],
       expect.any(Function),
     );
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      1,
+      "/Matches/m1/teams/t1/events",
+      [{ id: "orphan-event-1" }, { id: "orphan-event-2" }],
+      { headers: { "X-Idempotency-Key": "sync-batch-1-2" } },
+    );
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      2,
+      "/Matches/m2/teams/t1/events",
+      [{ id: "valid-event-3" }],
+      { headers: { "X-Idempotency-Key": "sync-batch-3" } },
+    );
     expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
     expect(db.syncQueue.delete).toHaveBeenCalledWith(2);
-    expect(apiClient.post).toHaveBeenCalledTimes(2);
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(3);
 
     consoleWarnSpy.mockRestore();
   });
@@ -230,8 +249,14 @@ describe("Sync Engine Service", () => {
       {
         id: 2,
         actionType: "POST",
-        endpoint: "/Matches/m2/anchors",
+        endpoint: "/Matches/m1/anchors",
         payload: JSON.stringify([{ id: "anchor-2" }]),
+      },
+      {
+        id: 3,
+        actionType: "POST",
+        endpoint: "/Matches/m2/anchors",
+        payload: JSON.stringify([{ id: "anchor-3" }]),
       },
     ];
 
@@ -250,9 +275,22 @@ describe("Sync Engine Service", () => {
     const processed = await processSyncQueue();
 
     expect(processed).toBe(1);
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      1,
+      "/Matches/m1/anchors",
+      [{ id: "anchor-1" }, { id: "anchor-2" }],
+      { headers: { "X-Idempotency-Key": "sync-batch-1-2" } },
+    );
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      2,
+      "/Matches/m2/anchors",
+      [{ id: "anchor-3" }],
+      { headers: { "X-Idempotency-Key": "sync-batch-3" } },
+    );
     expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
     expect(db.syncQueue.delete).toHaveBeenCalledWith(2);
-    expect(apiClient.post).toHaveBeenCalledTimes(2);
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(3);
 
     consoleWarnSpy.mockRestore();
   });
