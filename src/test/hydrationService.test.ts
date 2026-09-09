@@ -56,6 +56,10 @@ vi.mock("../db/ttaDatabase", () => ({
     eventdefinitions: { bulkPut: vi.fn() },
     syncQueue: {
       put: vi.fn().mockResolvedValue(1),
+      filter: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+      delete: vi.fn().mockResolvedValue(undefined),
     },
   },
 }));
@@ -95,6 +99,7 @@ describe("Hydration Service", () => {
     vi.mocked(db.syncQueue.put)
       .mockReset()
       .mockResolvedValue(1 as never);
+    vi.mocked(db.syncQueue.delete).mockReset().mockResolvedValue(undefined);
 
     vi.stubGlobal("navigator", { onLine: true });
 
@@ -136,6 +141,36 @@ describe("Hydration Service", () => {
     expect(apiClient.delete).not.toHaveBeenCalled();
     expect(db.syncQueue.put).not.toHaveBeenCalled();
     expect(db.matches.delete).not.toHaveBeenCalled();
+  });
+
+  it("should purge pending POST and PUT syncQueue items for the discarded match but keep DELETE items", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    const pendingQueueItems = [
+      { id: 10, endpoint: `/Matches/${matchId}/events`, actionType: "POST" },
+      { id: 11, endpoint: `/Matches/${matchId}/anchors`, actionType: "PUT" },
+      {
+        id: 12,
+        endpoint: `/Matches/${matchId}/teams/${teamId}/catch`,
+        actionType: "DELETE",
+      },
+    ];
+
+    vi.mocked(db.syncQueue.filter).mockReturnValueOnce({
+      toArray: vi
+        .fn()
+        .mockResolvedValueOnce([pendingQueueItems[0], pendingQueueItems[1]]),
+    } as unknown as ReturnType<typeof db.syncQueue.filter>);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(10);
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(11);
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(12);
   });
 
   it("should fallback to syncQueue and log warning when discardUnfinishedMatch API delete call fails online", async () => {

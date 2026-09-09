@@ -173,6 +173,114 @@ describe("Sync Engine Service", () => {
     expect(db.syncQueue.delete).toHaveBeenNthCalledWith(3, 3);
   });
 
+  it("purges batch items from syncQueue and continues processing subsequent items when response status is unrecoverable 4xx (400, 403, 404, 409, 410)", async () => {
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/teams/t1/events",
+        payload: JSON.stringify([{ id: "orphan-event-1" }]),
+      },
+      {
+        id: 2,
+        actionType: "POST",
+        endpoint: "/Matches/m2/teams/t1/events",
+        payload: JSON.stringify([{ id: "valid-event-2" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ status: 404 })
+      .mockResolvedValueOnce({ status: 201 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(1);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      "Unrecoverable sync error (404) for endpoint /Matches/m1/teams/t1/events. Purging batch from syncQueue.",
+    );
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(2);
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  it("purges batch items when apiClient throws an error object with an unrecoverable 4xx status code", async () => {
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/anchors",
+        payload: JSON.stringify([{ id: "anchor-1" }]),
+      },
+      {
+        id: 2,
+        actionType: "POST",
+        endpoint: "/Matches/m2/anchors",
+        payload: JSON.stringify([{ id: "anchor-2" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+
+    vi.mocked(apiClient.post)
+      .mockRejectedValueOnce({ status: 403 })
+      .mockResolvedValueOnce({ status: 200 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(1);
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(2);
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  it("halts queue execution and retains items in syncQueue when response status is 401 or 500", async () => {
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/anchors",
+        payload: JSON.stringify([{ id: "anchor-1", type: 0 }]),
+      },
+      {
+        id: 2,
+        actionType: "POST",
+        endpoint: "/Matches/m2/anchors",
+        payload: JSON.stringify([{ id: "anchor-2", type: 0 }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 401 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(0);
+    expect(db.syncQueue.delete).not.toHaveBeenCalled();
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+  });
+
   it("does not batch items when endpoints differ", async () => {
     const mockItems = [
       {
@@ -340,29 +448,7 @@ describe("Sync Engine Service", () => {
     expect(db.syncQueue.delete).toHaveBeenCalledTimes(2);
   });
 
-  it("retains items in syncQueue when response status is not in 2xx range", async () => {
-    const mockItems = [
-      {
-        id: 1,
-        actionType: "POST",
-        endpoint: "/Matches/m1/anchors",
-        payload: JSON.stringify([{ id: "anchor-1", type: 0 }]),
-      },
-    ];
-
-    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
-      toArray: vi.fn().mockResolvedValue(mockItems),
-    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
-
-    vi.mocked(apiClient.post).mockResolvedValue({ status: 400 });
-
-    const processed = await processSyncQueue();
-
-    expect(processed).toBe(0);
-    expect(db.syncQueue.delete).not.toHaveBeenCalled();
-  });
-
-  it("retains items in syncQueue and halts execution when batched HTTP request fails", async () => {
+  it("retains items in syncQueue and halts execution when batched HTTP request fails with 500 error", async () => {
     const mockItems = [
       {
         id: 1,

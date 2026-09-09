@@ -15,6 +15,8 @@ interface PresenceItemPayload {
   matchLineupId: string;
 }
 
+const UNRECOVERABLE_STATUS_CODES = new Set([400, 403, 404, 409, 410]);
+
 const extractPresenceLineupIds = (
   presencePayload: Record<string, unknown>,
 ): string[] => {
@@ -210,6 +212,28 @@ const isSuccessStatus = (status?: number): boolean => {
 };
 
 /**
+ * Checks if an HTTP response status code is an unrecoverable client error (400, 403, 404, 409, 410).
+ */
+const isUnrecoverableStatus = (status?: number): boolean => {
+  if (status === undefined) return false;
+  return UNRECOVERABLE_STATUS_CODES.has(status);
+};
+
+/**
+ * Deletes a batch of queue items from db.syncQueue without marking local entities as synced.
+ */
+const purgeBatchFromSyncQueue = async (
+  batchItems: SyncQueueItem[],
+): Promise<void> => {
+  if (!db?.syncQueue) return;
+  for (const item of batchItems) {
+    if (item.id !== undefined) {
+      await db.syncQueue.delete(item.id);
+    }
+  }
+};
+
+/**
  * Marks local entities as synced and deletes successfully processed queue items within an atomic Dexie transaction.
  */
 const finalizeBatchSync = async (
@@ -297,15 +321,36 @@ export const processSyncQueue = async (): Promise<number> => {
           );
           processedCount += syncedCount;
           i += batchItems.length;
+        } else if (isUnrecoverableStatus(response?.status)) {
+          console.warn(
+            `Unrecoverable sync error (${response?.status}) for endpoint ${currentItem.endpoint}. Purging batch from syncQueue.`,
+          );
+          await purgeBatchFromSyncQueue(batchItems);
+          i += batchItems.length;
         } else {
           break;
         }
       } catch (err) {
-        console.error(
-          `Sync batch execution failed for endpoint ${currentItem.endpoint}:`,
-          err,
-        );
-        break;
+        const status =
+          (err as { status?: number; response?: { status?: number } })
+            ?.status ??
+          (err as { status?: number; response?: { status?: number } })?.response
+            ?.status;
+
+        if (isUnrecoverableStatus(status)) {
+          console.warn(
+            `Unrecoverable sync error (${status}) for endpoint ${currentItem.endpoint}. Purging batch from syncQueue:`,
+            err,
+          );
+          await purgeBatchFromSyncQueue(batchItems);
+          i += batchItems.length;
+        } else {
+          console.error(
+            `Sync batch execution failed for endpoint ${currentItem.endpoint}:`,
+            err,
+          );
+          break;
+        }
       }
     }
   } finally {

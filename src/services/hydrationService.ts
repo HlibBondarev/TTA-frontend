@@ -217,6 +217,7 @@ export const getMatchRecoveryState = async (
  * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
  * Issues UncatchMatch request to server when teamId is supplied (with syncQueue offline fallback)
  * only if the match exists and is unfinished (both scores are null).
+ * Also purges pending mutation items (POST/PUT) for this match from syncQueue.
  */
 export const discardUnfinishedMatch = async (
   matchId: string,
@@ -257,6 +258,23 @@ export const discardUnfinishedMatch = async (
         payload: "{}",
         createdAt: new Date().toISOString(),
       });
+    }
+  }
+
+  if (db.syncQueue) {
+    const endpointPrefix = `/Matches/${matchId}`;
+    const itemsToPurge = await db.syncQueue
+      .filter(
+        (item) =>
+          item.endpoint.includes(endpointPrefix) &&
+          (item.actionType === "POST" || item.actionType === "PUT"),
+      )
+      .toArray();
+
+    for (const item of itemsToPurge) {
+      if (item.id !== undefined) {
+        await db.syncQueue.delete(item.id);
+      }
     }
   }
 
@@ -342,7 +360,7 @@ const persistHydrationPayloads = async (
   await syncLineups(matchId, payloads.lineups);
   await syncAnchors(matchId, payloads.anchors);
   await syncPresence(matchLineupIds, payloads.presence);
-  await syncEvents(matchLineupIds, payloads.events);
+  await syncEvents(matchId ? matchLineupIds : new Set(), payloads.events);
 
   if (payloads.definitions && payloads.definitions.length > 0) {
     await db.eventdefinitions.bulkPut(payloads.definitions);
