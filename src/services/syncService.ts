@@ -250,27 +250,32 @@ const executeHttpRequest = async (
         const matchIdMatch = targetEndpoint.match(
           /\/Matches\/([^/]+)\/teams\/([^/]+)/,
         );
-        if (matchIdMatch && matchIdMatch[1]) {
+        if (matchIdMatch && matchIdMatch[1] && matchIdMatch[2]) {
           const matchId = matchIdMatch[1];
+          const queuedTeamId = matchIdMatch[2];
           const matchRecord = await db.matches.get(matchId);
           const matchData = matchRecord as
             | (Record<string, unknown> & {
                 trackedTeamId?: string;
                 selectedTeamId?: string;
+                homeTeamId?: string;
                 guestTeamId?: string;
               })
             | undefined;
 
-          const correctTeamId =
-            matchData?.trackedTeamId ||
-            matchData?.selectedTeamId ||
-            matchData?.guestTeamId;
+          const explicitTeamId =
+            matchData?.trackedTeamId || matchData?.selectedTeamId;
 
-          if (correctTeamId) {
+          if (explicitTeamId) {
             targetEndpoint = targetEndpoint.replace(
               /\/teams\/[^/]+/,
-              `/teams/${correctTeamId}`,
+              `/teams/${explicitTeamId}`,
             );
+          } else if (
+            queuedTeamId === matchData?.homeTeamId ||
+            queuedTeamId === matchData?.guestTeamId
+          ) {
+            // Preserve queued team segment if it matches homeTeamId or guestTeamId
           }
         }
       }

@@ -888,4 +888,32 @@ describe("Sync Engine Service", () => {
       { headers: { "X-Idempotency-Key": "sync-batch-2" } },
     );
   });
+
+  it("should preserve queued homeTeamId endpoint when explicit trackedTeamId/selectedTeamId are absent and queued team matches homeTeamId", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "m-123",
+      homeTeamId: "team-home-111",
+      guestTeamId: "team-guest-222",
+    } as never);
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 1,
+          actionType: "DELETE",
+          endpoint: "/Matches/m-123/teams/team-home-111/catch",
+          payload: "{}",
+        },
+      ]),
+    } as never);
+
+    vi.mocked(apiClient.delete).mockResolvedValueOnce({ status: 200 });
+
+    await processSyncQueue();
+
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      "/Matches/m-123/teams/team-home-111/catch",
+      expect.any(Object),
+    );
+  });
 });
