@@ -15,12 +15,20 @@ interface PresenceItemPayload {
   matchLineupId: string;
 }
 
+interface MatchTeamData {
+  trackedTeamId?: string;
+  selectedTeamId?: string;
+  homeTeamId?: string;
+  guestTeamId?: string;
+}
+
 interface SyncCacheContext {
   lineupTeamCache?: Map<string, string | null>;
-  matchRecordCache?: Map<string, Record<string, unknown> | null>;
+  matchRecordCache?: Map<string, MatchTeamData | null>;
 }
 
 const UNRECOVERABLE_STATUS_CODES = new Set([400, 403, 404, 409, 410]);
+const MATCH_TEAM_ENDPOINT_REGEX = /\/Matches\/([^/]+)\/teams\/([^/]+)/;
 
 const extractPresenceLineupIds = (
   presencePayload: Record<string, unknown>,
@@ -186,6 +194,34 @@ const resolveBatchTeamId = async (
   return commonTeamId;
 };
 
+const isNextItemCompatible = async (
+  currentItem: SyncQueueItem,
+  currentTeamId: string | null,
+  nextItem: SyncQueueItem,
+  lineupTeamCache?: Map<string, string | null>,
+): Promise<{ compatible: boolean; payload: unknown }> => {
+  if (
+    nextItem.actionType !== currentItem.actionType ||
+    nextItem.endpoint !== currentItem.endpoint
+  ) {
+    return { compatible: false, payload: null };
+  }
+
+  const nextPayload = parsePayload(nextItem.payload);
+  if (nextPayload === null) {
+    return { compatible: false, payload: null };
+  }
+
+  if (currentItem.endpoint.includes("/teams/")) {
+    const nextTeamId = await resolveBatchTeamId(nextPayload, lineupTeamCache);
+    if (currentTeamId !== nextTeamId) {
+      return { compatible: false, payload: null };
+    }
+  }
+
+  return { compatible: true, payload: nextPayload };
+};
+
 /**
  * Aggregates consecutive batchable POST queue items targeting the same endpoint and resolving to the same team.
  */
@@ -196,12 +232,7 @@ const collectBatch = async (
   currentPayload: unknown,
   lineupTeamCache?: Map<string, string | null>,
 ): Promise<{ batchItems: SyncQueueItem[]; effectivePayload: unknown }> => {
-  const batchable = isBatchableEndpoint(
-    currentItem.actionType,
-    currentItem.endpoint,
-  );
-
-  if (!batchable) {
+  if (!isBatchableEndpoint(currentItem.actionType, currentItem.endpoint)) {
     return { batchItems: [currentItem], effectivePayload: currentPayload };
   }
 
@@ -216,32 +247,88 @@ const collectBatch = async (
 
   for (let j = startIndex + 1; j < pendingItems.length; j++) {
     const nextItem = pendingItems[j];
-    if (
-      nextItem.actionType !== currentItem.actionType ||
-      nextItem.endpoint !== currentItem.endpoint
-    ) {
-      break;
-    }
+    const { compatible, payload } = await isNextItemCompatible(
+      currentItem,
+      currentTeamId,
+      nextItem,
+      lineupTeamCache,
+    );
 
-    const nextPayload = parsePayload(nextItem.payload);
-    if (nextPayload === null) break;
+    if (!compatible) break;
 
-    if (currentItem.endpoint.includes("/teams/")) {
-      const nextTeamId = await resolveBatchTeamId(nextPayload, lineupTeamCache);
-      if (currentTeamId !== nextTeamId) {
-        break;
-      }
-    }
-
-    if (Array.isArray(nextPayload)) {
-      aggregatedArray.push(...nextPayload);
+    if (Array.isArray(payload)) {
+      aggregatedArray.push(...payload);
     } else {
-      aggregatedArray.push(nextPayload);
+      aggregatedArray.push(payload);
     }
     batchItems.push(nextItem);
   }
 
   return { batchItems, effectivePayload: aggregatedArray };
+};
+
+const getCachedMatchRecord = async (
+  matchId: string,
+  cache?: SyncCacheContext,
+): Promise<MatchTeamData | undefined> => {
+  if (cache?.matchRecordCache?.has(matchId)) {
+    return cache.matchRecordCache.get(matchId) ?? undefined;
+  }
+  if (!db?.matches) return undefined;
+  const matchRecord = await db.matches.get(matchId);
+  const matchData = matchRecord as MatchTeamData | undefined;
+  cache?.matchRecordCache?.set(matchId, matchData ?? null);
+  return matchData;
+};
+
+const resolveFallbackTeamEndpoint = async (
+  targetEndpoint: string,
+  cache?: SyncCacheContext,
+): Promise<string> => {
+  const matchIdMatch = MATCH_TEAM_ENDPOINT_REGEX.exec(targetEndpoint);
+  if (!matchIdMatch?.[1] || !matchIdMatch[2]) {
+    return targetEndpoint;
+  }
+
+  const matchId = matchIdMatch[1];
+  const matchData = await getCachedMatchRecord(matchId, cache);
+
+  const explicitTeamId = matchData?.trackedTeamId ?? matchData?.selectedTeamId;
+  if (explicitTeamId) {
+    return targetEndpoint.replace(/\/teams\/[^/]+/, `/teams/${explicitTeamId}`);
+  }
+
+  return targetEndpoint;
+};
+
+const normalizeTeamEndpoint = async (
+  endpoint: string,
+  payload: unknown,
+  cache?: SyncCacheContext,
+): Promise<string> => {
+  if (!endpoint.includes("/teams/") || !db) {
+    return endpoint;
+  }
+
+  try {
+    // Strategy 1: Resolve teamId precisely from all events' matchLineupId and player rosters
+    const resolvedTeamId = await resolveBatchTeamId(
+      payload,
+      cache?.lineupTeamCache,
+    );
+    if (resolvedTeamId) {
+      return endpoint.replace(/\/teams\/[^/]+/, `/teams/${resolvedTeamId}`);
+    }
+
+    // Strategy 2: Fallback to match record lookup if lineup resolution did not apply
+    return await resolveFallbackTeamEndpoint(endpoint, cache);
+  } catch (err) {
+    console.warn(
+      "Failed to normalize teamId in sync endpoint, falling back to original:",
+      err,
+    );
+    return endpoint;
+  }
 };
 
 /**
@@ -254,71 +341,7 @@ const executeHttpRequest = async (
   batchItems: SyncQueueItem[],
   cache?: SyncCacheContext,
 ): Promise<{ status?: number }> => {
-  let targetEndpoint = endpoint;
-
-  // Dynamically resolve and normalize the correct teamId in the endpoint URL
-  if (targetEndpoint.includes("/teams/") && db) {
-    try {
-      // Strategy 1: Resolve teamId precisely from all events' matchLineupId and player rosters
-      const resolvedTeamId = await resolveBatchTeamId(
-        payload,
-        cache?.lineupTeamCache,
-      );
-      if (resolvedTeamId) {
-        targetEndpoint = targetEndpoint.replace(
-          /\/teams\/[^/]+/,
-          `/teams/${resolvedTeamId}`,
-        );
-      } else if (db.matches) {
-        // Strategy 2: Fallback to match record lookup if lineup resolution did not apply
-        const matchIdMatch = targetEndpoint.match(
-          /\/Matches\/([^/]+)\/teams\/([^/]+)/,
-        );
-        if (matchIdMatch && matchIdMatch[1] && matchIdMatch[2]) {
-          const matchId = matchIdMatch[1];
-          const queuedTeamId = matchIdMatch[2];
-
-          let matchData:
-            | (Record<string, unknown> & {
-                trackedTeamId?: string;
-                selectedTeamId?: string;
-                homeTeamId?: string;
-                guestTeamId?: string;
-              })
-            | undefined;
-
-          if (cache?.matchRecordCache?.has(matchId)) {
-            matchData = (cache.matchRecordCache.get(matchId) ??
-              undefined) as typeof matchData;
-          } else {
-            const matchRecord = await db.matches.get(matchId);
-            matchData = matchRecord as typeof matchData;
-            cache?.matchRecordCache?.set(matchId, matchData ?? null);
-          }
-
-          const explicitTeamId =
-            matchData?.trackedTeamId || matchData?.selectedTeamId;
-
-          if (explicitTeamId) {
-            targetEndpoint = targetEndpoint.replace(
-              /\/teams\/[^/]+/,
-              `/teams/${explicitTeamId}`,
-            );
-          } else if (
-            queuedTeamId === matchData?.homeTeamId ||
-            queuedTeamId === matchData?.guestTeamId
-          ) {
-            // Preserve queued team segment if it matches homeTeamId or guestTeamId
-          }
-        }
-      }
-    } catch (err) {
-      console.warn(
-        "Failed to normalize teamId in sync endpoint, falling back to original:",
-        err,
-      );
-    }
-  }
+  const targetEndpoint = await normalizeTeamEndpoint(endpoint, payload, cache);
 
   const batchIds = batchItems
     .map((item) => item.id)
@@ -494,7 +517,7 @@ export const processSyncQueue = async (): Promise<number> => {
   let processedCount = 0;
 
   const lineupTeamCache = new Map<string, string | null>();
-  const matchRecordCache = new Map<string, Record<string, unknown> | null>();
+  const matchRecordCache = new Map<string, MatchTeamData | null>();
   const cache: SyncCacheContext = { lineupTeamCache, matchRecordCache };
 
   try {

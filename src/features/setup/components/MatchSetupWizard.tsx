@@ -279,6 +279,35 @@ async function persistMatchLocally(
   }
 }
 
+async function persistTrackedTeamLocally(
+  pendingMatchId: string,
+  selectedTeamId: string,
+  initiatedUserId: string | undefined,
+  verifyFreshness: () => void,
+): Promise<void> {
+  if (!db.matches) return;
+  const existingMatch = await db.matches.get(pendingMatchId);
+  verifyFreshness();
+  const matchToPut = existingMatch
+    ? { ...existingMatch, trackedTeamId: selectedTeamId }
+    : {
+        id: pendingMatchId,
+        userId: initiatedUserId,
+        trackedTeamId: selectedTeamId,
+      };
+  await db.matches.put(matchToPut as unknown as MatchLookup);
+  try {
+    verifyFreshness();
+  } catch (err) {
+    if (existingMatch) {
+      await db.matches.put(existingMatch);
+    } else {
+      await db.matches.delete(pendingMatchId);
+    }
+    throw err;
+  }
+}
+
 async function loadMatchTeams(
   homeTeamId: string,
   guestTeamId: string,
@@ -599,29 +628,12 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
       verifyFreshness();
 
-      // Persist selected tracked team ID to local IndexedDB match record so session recovery (Resume Match) uses the correct team
-      if (db.matches) {
-        const existingMatch = await db.matches.get(pendingMatchId);
-        verifyFreshness();
-        const matchToPut = existingMatch
-          ? { ...existingMatch, trackedTeamId: selectedTeamId }
-          : {
-              id: pendingMatchId,
-              userId: initiatedUserId,
-              trackedTeamId: selectedTeamId,
-            };
-        await db.matches.put(matchToPut as unknown as MatchLookup);
-        try {
-          verifyFreshness();
-        } catch (err) {
-          if (existingMatch) {
-            await db.matches.put(existingMatch);
-          } else {
-            await db.matches.delete(pendingMatchId);
-          }
-          throw err;
-        }
-      }
+      await persistTrackedTeamLocally(
+        pendingMatchId,
+        selectedTeamId,
+        initiatedUserId,
+        verifyFreshness,
+      );
 
       await onQuickStart(
         pendingMatchId,
