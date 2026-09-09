@@ -292,6 +292,47 @@ async function loadMatchTeams(
   return { home, guest };
 }
 
+async function executeCatchMatch(
+  catchEndpoint: string,
+): Promise<number | undefined> {
+  let catchSuccess = false;
+
+  if (navigator.onLine) {
+    try {
+      await apiClient.post(catchEndpoint, {});
+      catchSuccess = true;
+    } catch (catchErr) {
+      if (catchErr instanceof StaleOperationError) throw catchErr;
+      console.warn(
+        "Catch match API call failed online, fallback to syncQueue:",
+        catchErr,
+      );
+    }
+  }
+
+  if (!catchSuccess && db.syncQueue) {
+    return (await db.syncQueue.put({
+      actionType: "POST",
+      endpoint: catchEndpoint,
+      payload: "{}",
+      createdAt: new Date().toISOString(),
+    })) as unknown as number;
+  }
+
+  return undefined;
+}
+
+async function purgeStaleSyncItem(
+  queuedItemId: number | undefined,
+): Promise<void> {
+  if (queuedItemId === undefined || !db.syncQueue) return;
+  try {
+    await db.syncQueue.delete(queuedItemId);
+  } catch (deleteErr) {
+    console.error("Failed to delete stale sync queue item:", deleteErr);
+  }
+}
+
 export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   onQuickStart,
 }) => {
@@ -414,12 +455,13 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           await loadConfigurations(firstSportId, data);
         }
       } catch (err) {
-        if (!isMounted) return;
-        setErrorMessage(
-          err instanceof Error
-            ? err.message
-            : "Failed to load sports disciplines.",
-        );
+        if (isMounted) {
+          setErrorMessage(
+            err instanceof Error
+              ? err.message
+              : "Failed to load sports disciplines.",
+          );
+        }
       } finally {
         if (isMounted) {
           setIsLoadingSports(false);
@@ -533,8 +575,9 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       !selectedConfigId ||
       !selectedTeamId ||
       isSubmitting
-    )
+    ) {
       return;
+    }
 
     const initiatedUserId = currentUserId;
     const verifyFreshness = () =>
@@ -545,9 +588,17 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     );
     const activePlayersLimit = selectedConfig?.activePlayersLimit ?? 7;
 
+    let queuedItemId: number | undefined;
+
     try {
       setIsSubmitting(true);
       setErrorMessage(null);
+
+      const catchEndpoint = `/Matches/${pendingMatchId}/teams/${selectedTeamId}/catch`;
+      queuedItemId = await executeCatchMatch(catchEndpoint);
+
+      verifyFreshness();
+
       await onQuickStart(
         pendingMatchId,
         selectedSportId,
@@ -557,7 +608,10 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       );
       verifyFreshness();
     } catch (err) {
-      if (err instanceof StaleOperationError) return;
+      if (err instanceof StaleOperationError) {
+        await purgeStaleSyncItem(queuedItemId);
+        return;
+      }
       setErrorMessage(
         err instanceof Error ? err.message : "Failed to complete match setup.",
       );

@@ -483,6 +483,17 @@ describe("App Bootstrapping Component", () => {
       await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
     );
 
+    await waitFor(() => {
+      expect(hydrateMatchData).toHaveBeenCalledWith(
+        "new-match-id-123",
+        "team-home-1",
+        "auth0|tester-123",
+        expect.any(Function),
+      );
+    });
+
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
     // Simulate user identity change while hydration is pending
     mockIsAuthenticated = true;
     mockUser = { email: "otheruser@tta.com", sub: "auth0|other-user" };
@@ -491,8 +502,6 @@ describe("App Bootstrapping Component", () => {
         <App />
       </Provider>,
     );
-
-    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     // Resolve hydration promise after user change
     resolveHydrate!({ success: true, isOfflineFallback: false });

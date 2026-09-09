@@ -215,13 +215,51 @@ export const getMatchRecoveryState = async (
 
 /**
  * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
- * Safety check: verifies the match is still unfinished (both scores null) before deleting,
- * and uses matchLineupId index to cascade deletion to playerpresences and gameevents.
+ * Issues UncatchMatch request to server when teamId is supplied (with syncQueue offline fallback)
+ * only if the match exists and is unfinished (both scores are null).
  */
 export const discardUnfinishedMatch = async (
   matchId: string,
+  teamId?: string,
 ): Promise<void> => {
   if (!db?.matches) return;
+
+  const initialMatch = await db.matches.get(matchId);
+  if (
+    !initialMatch ||
+    initialMatch.homeScore != null ||
+    initialMatch.guestScore != null
+  ) {
+    return;
+  }
+
+  if (teamId?.trim()) {
+    const catchEndpoint = `/Matches/${matchId}/teams/${teamId.trim()}/catch`;
+    let uncatchSuccess = false;
+
+    if (navigator.onLine) {
+      try {
+        await apiClient.delete(catchEndpoint);
+        uncatchSuccess = true;
+      } catch (err) {
+        if (err instanceof StaleUserError) throw err;
+        console.warn(
+          "Uncatch match API call failed online, fallback to syncQueue:",
+          err,
+        );
+      }
+    }
+
+    if (!uncatchSuccess && db.syncQueue) {
+      await db.syncQueue.put({
+        actionType: "DELETE",
+        endpoint: catchEndpoint,
+        payload: "{}",
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
   await db.transaction(
     "rw",
     [

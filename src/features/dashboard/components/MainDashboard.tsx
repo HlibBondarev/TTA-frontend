@@ -100,10 +100,15 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     if (!activeUnfinishedMatch || isRecoveryBusy || !currentUserId) return;
     const initiatedUserId = currentUserId;
     const matchIdToDiscard = activeUnfinishedMatch.id;
+    const teamToDiscard =
+      activeUnfinishedMatch.trackedTeamId ||
+      activeUnfinishedMatch.selectedTeamId ||
+      activeUnfinishedMatch.homeTeamId ||
+      "";
     const token = generateToken();
     setActiveOp({ userId: initiatedUserId, token, type: "discard" });
     try {
-      await discardUnfinishedMatch(matchIdToDiscard);
+      await discardUnfinishedMatch(matchIdToDiscard, teamToDiscard);
       if (currentUserIdRef.current === initiatedUserId) {
         setUnfinishedMatch((prev) =>
           prev?.id === matchIdToDiscard ? null : prev,
@@ -130,7 +135,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
             Logged in as
           </span>
           <span className="text-xs font-semibold text-emerald-400 truncate">
-            {user?.email ?? user?.name ?? "User"}
+            {user?.email || user?.name || "User"}
           </span>
         </div>
         <button

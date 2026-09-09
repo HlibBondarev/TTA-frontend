@@ -14,6 +14,7 @@ import { seedTestData } from "../db/seed";
 vi.mock("../api/client", () => ({
   apiClient: {
     get: vi.fn(),
+    delete: vi.fn(),
   },
 }));
 
@@ -36,7 +37,7 @@ vi.mock("../db/ttaDatabase", () => ({
       delete: vi.fn(),
       toArray: vi.fn().mockResolvedValue([]),
     },
-    tournaments: { put: vi.fn(), get: vi.fn() },
+    tournaments: { put: vi.fn(), get: vi.fn(), delete: vi.fn() },
     sportconfigurations: { put: vi.fn(), get: vi.fn() },
     matchlineups: { where: vi.fn(), bulkPut: vi.fn() },
     timeanchors: { where: vi.fn(), bulkPut: vi.fn() },
@@ -53,6 +54,9 @@ vi.mock("../db/ttaDatabase", () => ({
       bulkDelete: vi.fn(),
     },
     eventdefinitions: { bulkPut: vi.fn() },
+    syncQueue: {
+      put: vi.fn().mockResolvedValue(1),
+    },
   },
 }));
 
@@ -63,10 +67,10 @@ describe("Hydration Service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(apiClient.get).mockReset();
+    vi.mocked(apiClient.delete).mockReset();
     vi.mocked(sportService.getSportConfigurations).mockReset();
     vi.mocked(seedTestData).mockReset().mockResolvedValue(undefined);
 
-    // Reset db.transaction and set default pass-through execution
     vi.mocked(db.transaction)
       .mockReset()
       .mockImplementation((async (
@@ -85,10 +89,15 @@ describe("Hydration Service", () => {
     vi.mocked(db.matches.toArray).mockReset().mockResolvedValue([]);
     vi.mocked(db.tournaments.get).mockReset().mockResolvedValue(null);
     vi.mocked(db.tournaments.put).mockReset();
+    vi.mocked(db.tournaments.delete).mockReset();
     vi.mocked(db.sportconfigurations.get).mockReset();
     vi.mocked(db.sportconfigurations.put).mockReset();
+    vi.mocked(db.syncQueue.put)
+      .mockReset()
+      .mockResolvedValue(1 as never);
 
-    // Reset and configure default payload-chain mocks for persistHydrationPayloads
+    vi.stubGlobal("navigator", { onLine: true });
+
     vi.mocked(db.matchlineups.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
         delete: vi.fn().mockResolvedValue(0),
@@ -113,6 +122,147 @@ describe("Hydration Service", () => {
     vi.mocked(db.gameevents.filter).mockReturnValue({
       primaryKeys: vi.fn().mockResolvedValue([]),
     } as unknown as ReturnType<typeof db.gameevents.filter>);
+  });
+
+  it("should NOT issue UncatchMatch DELETE API call or enqueue in syncQueue when discardUnfinishedMatch is called for a completed match with non-null scores and teamId", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: 10,
+      guestScore: 8,
+    } as never);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(apiClient.delete).not.toHaveBeenCalled();
+    expect(db.syncQueue.put).not.toHaveBeenCalled();
+    expect(db.matches.delete).not.toHaveBeenCalled();
+  });
+
+  it("should fallback to syncQueue and log warning when discardUnfinishedMatch API delete call fails online", async () => {
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+    vi.mocked(apiClient.delete).mockRejectedValueOnce(
+      new Error("Server error 500"),
+    );
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      `/Matches/${matchId}/teams/${teamId}/catch`,
+    );
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      "Uncatch match API call failed online, fallback to syncQueue:",
+      expect.any(Error),
+    );
+    expect(db.syncQueue.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "DELETE",
+        endpoint: `/Matches/${matchId}/teams/${teamId}/catch`,
+        payload: "{}",
+      }),
+    );
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+    consoleWarnSpy.mockRestore();
+  });
+
+  it("should re-throw StaleUserError when discardUnfinishedMatch API delete throws StaleUserError online", async () => {
+    vi.mocked(apiClient.delete).mockRejectedValueOnce(new StaleUserError());
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    await expect(discardUnfinishedMatch(matchId, teamId)).rejects.toThrow(
+      StaleUserError,
+    );
+  });
+
+  it("should catch and log error in getMatchRecoveryState if database query fails", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.mocked(db.timeanchors.where).mockImplementationOnce(() => {
+      throw new Error("IndexedDB read error");
+    });
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+
+    expect(recoveryState).toEqual({
+      recoveredPeriod: 1,
+      activePlayersLimit: 7,
+    });
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Failed to calculate match recovery state:",
+      expect.any(Error),
+    );
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("should skip bulkPut in syncPresence and syncEvents when all items are in pending state", async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId })
+      .mockResolvedValueOnce([{ id: "l1", matchId }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "p1", matchLineupId: "l1" }])
+      .mockResolvedValueOnce([{ id: "e1", matchLineupId: "l1" }])
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(db.transaction).mockImplementation((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          delete: vi.fn().mockResolvedValue(1),
+          toArray: vi.fn().mockResolvedValue([{ id: "l1", matchId }]),
+        }),
+      } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+      vi.mocked(db.playerpresences.filter).mockImplementation((() => {
+        return {
+          primaryKeys: vi.fn().mockResolvedValue(["p1"]),
+        };
+      }) as unknown as typeof db.playerpresences.filter);
+
+      vi.mocked(db.gameevents.filter).mockImplementation((() => {
+        return {
+          primaryKeys: vi.fn().mockResolvedValue(["e1"]),
+        };
+      }) as unknown as typeof db.gameevents.filter);
+
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    const result = await hydrateMatchData(matchId, teamId);
+
+    expect(result).toEqual({ success: true, isOfflineFallback: false });
+    expect(db.playerpresences.bulkPut).not.toHaveBeenCalled();
+    expect(db.gameevents.bulkPut).not.toHaveBeenCalled();
+  });
+
+  it("should identify error objects with StaleUserError name or string match in shouldRethrowError", async () => {
+    const customStaleErr = new Error("Custom stale user error");
+    customStaleErr.name = "StaleUserError";
+    vi.mocked(apiClient.get).mockRejectedValueOnce(customStaleErr);
+
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      "Custom stale user error",
+    );
+
+    vi.mocked(apiClient.get).mockRejectedValueOnce(
+      "Match draft belongs to another user.",
+    );
+    await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
+      "Match draft belongs to another user.",
+    );
   });
 
   it("should return null for checkUnfinishedMatch when IndexedDB matches table is empty", async () => {
@@ -244,7 +394,7 @@ describe("Hydration Service", () => {
   it("should purge all records associated with a match when discardUnfinishedMatch is called and match is unfinished", async () => {
     const mockDelete = vi.fn().mockResolvedValue(1);
 
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
       homeScore: null,
       guestScore: null,
@@ -277,10 +427,61 @@ describe("Hydration Service", () => {
     expect(mockDelete).toHaveBeenCalledTimes(4);
   });
 
+  it("should NOT delete tournament record from IndexedDB when discardUnfinishedMatch is executed", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      tournamentId: "tourn-shared-999",
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+    expect(db.tournaments.delete).not.toHaveBeenCalled();
+  });
+
+  it("should issue UncatchMatch DELETE API call when discardUnfinishedMatch is called with teamId online", async () => {
+    vi.mocked(apiClient.delete).mockResolvedValueOnce({});
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      `/Matches/${matchId}/teams/${teamId}/catch`,
+    );
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+  });
+
+  it("should enqueue DELETE command into db.syncQueue when offline during discardUnfinishedMatch", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(apiClient.delete).not.toHaveBeenCalled();
+    expect(db.syncQueue.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "DELETE",
+        endpoint: `/Matches/${matchId}/teams/${teamId}/catch`,
+        payload: "{}",
+      }),
+    );
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+  });
+
   it("should NOT delete match or related records if match was completed before discard", async () => {
     const mockDelete = vi.fn().mockResolvedValue(1);
 
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
       homeScore: 10,
       guestScore: 8,
@@ -799,7 +1000,6 @@ describe("Hydration Service", () => {
     vi.mocked(db.matches.get).mockResolvedValue(undefined as never);
 
     const checkFreshnessMock = vi.fn().mockImplementation(() => {
-      // Trigger on transaction entry before db.matches.put occurs
       if (vi.mocked(db.matches.put).mock.calls.length === 0) {
         throw new StaleUserError();
       }
@@ -829,7 +1029,6 @@ describe("Hydration Service", () => {
     vi.mocked(db.matches.get).mockResolvedValue(undefined as never);
 
     const checkFreshnessMock = vi.fn().mockImplementation(() => {
-      // Trigger after db.matches.put has occurred (end of transaction)
       if (vi.mocked(db.matches.put).mock.calls.length > 0) {
         throw new StaleUserError(
           "User changed at the final moment of transaction",

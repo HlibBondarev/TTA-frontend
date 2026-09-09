@@ -55,6 +55,10 @@ vi.mock("../../../db/ttaDatabase", () => ({
       put: vi.fn(),
       delete: vi.fn(),
     },
+    syncQueue: {
+      put: vi.fn().mockResolvedValue(1),
+      delete: vi.fn().mockResolvedValue(undefined),
+    },
   },
 }));
 
@@ -143,7 +147,14 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(db.tournaments.get).mockReset().mockResolvedValue(null);
     vi.mocked(db.tournaments.put).mockReset();
     vi.mocked(db.tournaments.delete).mockReset();
+    vi.mocked(db.syncQueue.put)
+      .mockReset()
+      .mockResolvedValue(1 as never);
+    vi.mocked(db.syncQueue.delete)
+      .mockReset()
+      .mockResolvedValue(undefined as never);
     mockUser = { email: "tester@tta.com", sub: "auth0|user-tester" };
+    vi.stubGlobal("navigator", { onLine: true });
   });
 
   const renderWithRedux = (
@@ -155,6 +166,264 @@ describe("MatchSetupWizard Component", () => {
       store,
     };
   };
+
+  it("should delete queued CatchMatch item from syncQueue if user account changes during CatchMatch execution", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    const queuedItemId = 42;
+    let resolveSyncQueuePut: (id: number) => void;
+    const syncQueuePutPromise = new Promise<number>((resolve) => {
+      resolveSyncQueuePut = resolve;
+    });
+
+    vi.mocked(db.syncQueue.put).mockImplementationOnce(
+      () => syncQueuePutPromise as never,
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={handleQuickStart} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(db.syncQueue.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: "POST",
+          endpoint: "/Matches/match-123/teams/team-home/catch",
+          payload: "{}",
+        }),
+      );
+    });
+
+    mockUser = { email: "newuser@tta.com", sub: "auth0|user-new" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={handleQuickStart} />
+      </Provider>,
+    );
+
+    resolveSyncQueuePut!(queuedItemId);
+    await syncQueuePutPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await waitFor(() => {
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(queuedItemId);
+      expect(handleQuickStart).not.toHaveBeenCalled();
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+  });
+
+  it("should fallback to syncQueue and log warning when online CatchMatch API call fails during confirmation", async () => {
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockRejectedValueOnce(new Error("Catch endpoint 500 error"));
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        "Catch match API call failed online, fallback to syncQueue:",
+        expect.any(Error),
+      );
+      expect(db.syncQueue.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: "POST",
+          endpoint: "/Matches/match-123/teams/team-home/catch",
+          payload: "{}",
+        }),
+      );
+      expect(handleQuickStart).toHaveBeenCalledWith(
+        "match-123",
+        "sport-1",
+        "config-1",
+        5,
+        "team-home",
+      );
+    });
+    consoleWarnSpy.mockRestore();
+  });
+
+  it("should restore existing configuration if user identity changes while saveSelectedConfig is pending", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    const existingConfig = {
+      id: "config-1",
+      sportId: "sport-1",
+      periodsCount: 4,
+    };
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce(
+      existingConfig as never,
+    );
+
+    let resolveConfigPut: () => void;
+    const configPutPromise = new Promise<void>((resolve) => {
+      resolveConfigPut = resolve;
+    });
+
+    vi.mocked(db.sportconfigurations.put).mockImplementationOnce(
+      () => configPutPromise as never,
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    await waitFor(() => {
+      expect(db.sportconfigurations.put).toHaveBeenCalledWith(mockConfigs[0]);
+    });
+
+    mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={vi.fn()} />
+      </Provider>,
+    );
+
+    resolveConfigPut!();
+    await configPutPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(db.sportconfigurations.put).toHaveBeenLastCalledWith(existingConfig);
+    expect(db.sportconfigurations.delete).not.toHaveBeenCalled();
+  });
+
+  it("should restore existing tournament record if user identity changes while ensureTournamentPersisted is pending", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({
+        id: "match-123",
+        tournamentId: "tourn-existing-123",
+        homeTeamId: "team-home",
+        guestTeamId: "team-guest",
+      })
+      .mockResolvedValueOnce({
+        id: "tourn-existing-123",
+        sportId: "sport-1",
+        configurationId: "config-1",
+      });
+
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    const existingTournRecord = {
+      id: "tourn-existing-123",
+      name: "Old Tournament Name",
+    };
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce(
+      existingTournRecord as never,
+    );
+
+    let resolveTournPut: () => void;
+    const tournPutPromise = new Promise<void>((resolve) => {
+      resolveTournPut = resolve;
+    });
+
+    vi.mocked(db.tournaments.put).mockImplementationOnce(
+      () => tournPutPromise as never,
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    await waitFor(() => {
+      expect(db.tournaments.put).toHaveBeenCalled();
+    });
+
+    mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={vi.fn()} />
+      </Provider>,
+    );
+
+    resolveTournPut!();
+    await tournPutPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await waitFor(() => {
+      expect(db.tournaments.put).toHaveBeenLastCalledWith(existingTournRecord);
+      expect(db.tournaments.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  it("should set fallback error messages when init or quickStart throws non-Error values", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockRejectedValueOnce("Non error string failure");
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    expect(
+      await screen.findByText("Failed to initialize quick match session."),
+    ).toBeDefined();
+  });
 
   it("should navigate back to Hub when clicking Back to Menu button", async () => {
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
@@ -214,14 +483,16 @@ describe("MatchSetupWizard Component", () => {
     });
   });
 
-  it("should render wizard steps, load teams on Quick Start, allow team selection and trigger onQuickStart", async () => {
+  it("should render wizard steps, load teams on Quick Start, allow team selection and trigger onQuickStart with CatchMatch", async () => {
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
 
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
     );
-    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
       .mockResolvedValueOnce(mockHomeTeam)
@@ -249,12 +520,59 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(confirmBtn);
 
     await waitFor(() => {
+      expect(apiClient.post).toHaveBeenLastCalledWith(
+        "/Matches/match-123/teams/team-guest/catch",
+        {},
+      );
       expect(handleQuickStart).toHaveBeenCalledWith(
         "match-123",
         "sport-1",
         "config-1",
         5,
         "team-guest",
+      );
+    });
+  });
+
+  it("should enqueue CatchMatch request into db.syncQueue when offline during confirmation", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(db.syncQueue.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: "POST",
+          endpoint: "/Matches/match-123/teams/team-home/catch",
+          payload: "{}",
+        }),
+      );
+      expect(handleQuickStart).toHaveBeenCalledWith(
+        "match-123",
+        "sport-1",
+        "config-1",
+        5,
+        "team-home",
       );
     });
   });
@@ -494,7 +812,9 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       multipleConfigs,
     );
-    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
       .mockResolvedValueOnce(mockHomeTeam)
@@ -627,7 +947,9 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       multipleConfigs,
     );
-    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
       .mockResolvedValueOnce(mockHomeTeam)
@@ -662,7 +984,9 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
     );
-    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
       .mockResolvedValueOnce(mockHomeTeam)
@@ -714,7 +1038,9 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       multipleConfigs,
     );
-    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
       .mockResolvedValueOnce(mockHomeTeam)
@@ -865,7 +1191,6 @@ describe("MatchSetupWizard Component", () => {
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
     expect(apiClient.post).toHaveBeenCalledTimes(1);
 
-    // Change authenticated user identity while wizard remains mounted
     mockUser = { email: "newuser@tta.com", sub: "auth0|user-new" };
     rerender(
       <Provider store={store}>
@@ -873,12 +1198,10 @@ describe("MatchSetupWizard Component", () => {
       </Provider>,
     );
 
-    // Pending draft state should be reset
     await waitFor(() => {
       expect(screen.queryByText("3. Select Team to Track")).toBeNull();
     });
 
-    // Clicking Quick Start again should trigger a new quick match creation for the new user
     const quickStartBtn2 = screen.getByRole("button", {
       name: /Quick Start Match/i,
     });
@@ -913,13 +1236,11 @@ describe("MatchSetupWizard Component", () => {
 
     expect(await screen.findByText("Transient fetch error")).toBeDefined();
 
-    // Simulate local db.matches returning an existing match owned by another user for this matchId
     vi.mocked(db.matches.get).mockResolvedValueOnce({
       id: "match-123",
       userId: "auth0|other-user",
     } as never);
 
-    // Simulate retrying handleInitMatch with pendingMatchId still in state
     fireEvent.click(quickStartBtn);
 
     expect(
@@ -960,7 +1281,6 @@ describe("MatchSetupWizard Component", () => {
       expect(db.matches.put).toHaveBeenCalled();
     });
 
-    // Change authenticated user identity while db.matches.put is pending
     mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
     rerender(
       <Provider store={store}>
@@ -968,10 +1288,8 @@ describe("MatchSetupWizard Component", () => {
       </Provider>,
     );
 
-    // Resolve the pending db.matches.put write operation
     resolvePut!();
 
-    // Verify post-write rollback triggered db.matches.delete to clean up the stale match record
     await waitFor(() => {
       expect(db.matches.delete).toHaveBeenCalledWith("match-123");
       expect(screen.queryByText("3. Select Team to Track")).toBeNull();
@@ -989,7 +1307,6 @@ describe("MatchSetupWizard Component", () => {
       .mockResolvedValueOnce(mockHomeTeam)
       .mockResolvedValueOnce(mockGuestTeam);
 
-    // Simulate match already existing in IndexedDB before write
     const existingMatchRecord = {
       id: "match-123",
       userId: "auth0|user-tester",
@@ -1018,7 +1335,6 @@ describe("MatchSetupWizard Component", () => {
       expect(db.matches.put).toHaveBeenCalled();
     });
 
-    // Change authenticated user identity while db.matches.put is pending
     mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
     rerender(
       <Provider store={store}>
@@ -1026,16 +1342,12 @@ describe("MatchSetupWizard Component", () => {
       </Provider>,
     );
 
-    // Resolve the pending db.matches.put write operation and await its microtask continuation
     resolvePut!();
     await putPromise;
-    // Allow post-write verifyFreshness & try/catch error handler in persistMatchLocally to execute
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Assert wizard UI reset to initial step for new user
     expect(screen.queryByText("3. Select Team to Track")).toBeNull();
 
-    // Verify db.matches.delete was NOT called and the original record was restored via db.matches.put
     expect(db.matches.delete).not.toHaveBeenCalled();
     expect(db.matches.put).toHaveBeenLastCalledWith(existingMatchRecord);
   });
@@ -1062,12 +1374,10 @@ describe("MatchSetupWizard Component", () => {
     });
     fireEvent.click(quickStartBtn);
 
-    // Verify button shows loading text during POST
     expect(
       screen.getByRole("button", { name: /Initializing Match\.\.\./i }),
     ).toBeDefined();
 
-    // Change authenticated user identity while POST is pending
     mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
     rerender(
       <Provider store={store}>
@@ -1075,7 +1385,6 @@ describe("MatchSetupWizard Component", () => {
       </Provider>,
     );
 
-    // Button should immediately revert to normal state and be enabled for the new account
     await waitFor(() => {
       const activeBtn = screen.getByRole("button", {
         name: /Quick Start Match/i,
@@ -1108,12 +1417,10 @@ describe("MatchSetupWizard Component", () => {
     });
     fireEvent.click(quickStartBtn);
 
-    // Wait until apiClient.post has been invoked and is in-flight
     await waitFor(() => {
       expect(apiClient.post).toHaveBeenCalledTimes(1);
     });
 
-    // Change user while POST is pending
     mockUser = { email: "newuser@tta.com", sub: "auth0|user-new" };
     rerender(
       <Provider store={store}>
@@ -1121,10 +1428,8 @@ describe("MatchSetupWizard Component", () => {
       </Provider>,
     );
 
-    // Resolve POST request after user change
     resolvePost!({ id: "match-deferred-123" });
 
-    // Assert post-invalidation outcomes
     await waitFor(() => {
       expect(screen.queryByText("3. Select Team to Track")).toBeNull();
     });
@@ -1138,7 +1443,6 @@ describe("MatchSetupWizard Component", () => {
       mockConfigs,
     );
 
-    // Reject POST request directly to prevent proceeding to GET details fetch
     vi.mocked(apiClient.post).mockRejectedValueOnce(
       new Error("User 1 error message"),
     );
@@ -1152,27 +1456,22 @@ describe("MatchSetupWizard Component", () => {
     });
     fireEvent.click(quickStartBtn);
 
-    // Assert initial error message from User 1 is displayed
     expect(await screen.findByText("User 1 error message")).toBeDefined();
 
-    // Prepare fresh resolution mocks for User 2 reconnect flow
     vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-user2" });
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
       .mockResolvedValueOnce(mockHomeTeam)
       .mockResolvedValueOnce(mockGuestTeam);
 
-    // Change authenticated user identity while wizard remains mounted
     mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
 
-    // Rerender component with updated mockUser context
     rerender(
       <Provider store={store}>
         <MatchSetupWizard onQuickStart={vi.fn()} />
       </Provider>,
     );
 
-    // Verify error banner is completely cleared for the new user
     await waitFor(() => {
       expect(screen.queryByText("User 1 error message")).toBeNull();
       expect(screen.queryByRole("alert")).toBeNull();
@@ -1203,12 +1502,10 @@ describe("MatchSetupWizard Component", () => {
     });
     fireEvent.click(quickStartBtn);
 
-    // Wait until saveSelectedConfig has initiated db.sportconfigurations.put and is pending
     await waitFor(() => {
       expect(db.sportconfigurations.put).toHaveBeenCalledWith(mockConfigs[0]);
     });
 
-    // Change authenticated user identity while saveSelectedConfig is pending
     mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
     rerender(
       <Provider store={store}>
@@ -1216,12 +1513,10 @@ describe("MatchSetupWizard Component", () => {
       </Provider>,
     );
 
-    // Resolve pending config put
     resolveConfigPut!();
     await configPutPromise;
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Verify stale config was purged and subsequent IndexedDB match writes were aborted
     expect(db.sportconfigurations.delete).toHaveBeenCalledWith("config-1");
     expect(db.matches.put).not.toHaveBeenCalled();
     expect(screen.queryByText("3. Select Team to Track")).toBeNull();
@@ -1276,7 +1571,6 @@ describe("MatchSetupWizard Component", () => {
       );
     });
 
-    // Change authenticated user identity while db.tournaments.put is pending
     mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
     rerender(
       <Provider store={store}>
@@ -1284,12 +1578,10 @@ describe("MatchSetupWizard Component", () => {
       </Provider>,
     );
 
-    // Resolve the pending db.tournaments.put write operation
     resolveTournPut!();
     await tournPutPromise;
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Verify post-write rollback triggered db.tournaments.delete to clean up the stale fetched tournament
     await waitFor(() => {
       expect(db.tournaments.delete).toHaveBeenCalledWith("tourn-fetched-456");
       expect(screen.queryByText("3. Select Team to Track")).toBeNull();
@@ -1342,7 +1634,6 @@ describe("MatchSetupWizard Component", () => {
       );
     });
 
-    // Change authenticated user identity while fallback db.tournaments.put is pending
     mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
     rerender(
       <Provider store={store}>
@@ -1350,12 +1641,10 @@ describe("MatchSetupWizard Component", () => {
       </Provider>,
     );
 
-    // Resolve the pending fallback db.tournaments.put write operation
     resolveFallbackPut!();
     await fallbackPutPromise;
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Verify post-write rollback triggered db.tournaments.delete to clean up the stale fallback tournament
     await waitFor(() => {
       expect(db.tournaments.delete).toHaveBeenCalledWith("tourn-fallback-789");
       expect(screen.queryByText("3. Select Team to Track")).toBeNull();
@@ -1363,6 +1652,8 @@ describe("MatchSetupWizard Component", () => {
   });
 
   it("should clear pending draft state when StaleOperationError is thrown after pendingMatchId was set", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
@@ -1385,7 +1676,7 @@ describe("MatchSetupWizard Component", () => {
       .mockResolvedValueOnce(mockGuestTeam);
 
     const { rerender, store } = renderWithRedux(
-      <MatchSetupWizard onQuickStart={vi.fn()} />,
+      <MatchSetupWizard onQuickStart={handleQuickStart} />,
     );
 
     const quickStartBtn = await screen.findByRole("button", {
@@ -1400,7 +1691,7 @@ describe("MatchSetupWizard Component", () => {
     mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
     rerender(
       <Provider store={store}>
-        <MatchSetupWizard onQuickStart={vi.fn()} />
+        <MatchSetupWizard onQuickStart={handleQuickStart} />
       </Provider>,
     );
 
