@@ -173,7 +173,7 @@ describe("Sync Engine Service", () => {
     expect(db.syncQueue.delete).toHaveBeenNthCalledWith(3, 3);
   });
 
-  it("purges batch items from syncQueue and continues processing subsequent items when response status is unrecoverable 4xx (400, 403, 404, 409, 410)", async () => {
+  it("purges batch items from syncQueue in a Dexie transaction and continues processing subsequent items when response status is unrecoverable 4xx (400, 403, 404, 409, 410)", async () => {
     const mockItems = [
       {
         id: 1,
@@ -206,6 +206,11 @@ describe("Sync Engine Service", () => {
     expect(processed).toBe(1);
     expect(consoleWarnSpy).toHaveBeenCalledWith(
       "Unrecoverable sync error (404) for endpoint /Matches/m1/teams/t1/events. Purging batch from syncQueue.",
+    );
+    expect(db.transaction).toHaveBeenCalledWith(
+      "rw",
+      [db.syncQueue],
+      expect.any(Function),
     );
     expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
     expect(db.syncQueue.delete).toHaveBeenCalledWith(2);

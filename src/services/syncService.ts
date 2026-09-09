@@ -220,16 +220,26 @@ const isUnrecoverableStatus = (status?: number): boolean => {
 };
 
 /**
- * Deletes a batch of queue items from db.syncQueue without marking local entities as synced.
+ * Deletes a batch of queue items from db.syncQueue without marking local entities as synced,
+ * executed within a single Dexie transaction for atomicity.
  */
 const purgeBatchFromSyncQueue = async (
   batchItems: SyncQueueItem[],
 ): Promise<void> => {
   if (!db?.syncQueue) return;
-  for (const item of batchItems) {
-    if (item.id !== undefined) {
-      await db.syncQueue.delete(item.id);
+
+  const performPurge = async (): Promise<void> => {
+    for (const item of batchItems) {
+      if (item.id !== undefined && db.syncQueue) {
+        await db.syncQueue.delete(item.id);
+      }
     }
+  };
+
+  if (typeof db.transaction === "function") {
+    await db.transaction("rw", [db.syncQueue], performPurge);
+  } else {
+    await performPurge();
   }
 };
 
