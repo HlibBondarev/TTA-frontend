@@ -1369,4 +1369,45 @@ describe("Hydration Service", () => {
       activePlayersLimit: 7,
     });
   });
+
+  it("should ignore DELETE items and select team from POST catch item when recovering trackedTeamId from syncQueue", async () => {
+    const unfinishedMatch: MatchLookup = {
+      id: "m-active-legacy",
+      tournamentId: "t-1",
+      homeTeamId: "team-home",
+      guestTeamId: "team-guest",
+      scheduledAt: "2026-09-01T10:00:00Z",
+      matchNumber: "1",
+      venue: "Arena 1",
+      temperature: 22,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "2026-09-01T10:00:00Z",
+      userId: "user-1",
+    };
+
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([
+      unfinishedMatch as never,
+    ]);
+    vi.mocked(db.syncQueue.toArray).mockResolvedValueOnce([
+      {
+        id: 1,
+        actionType: "DELETE",
+        endpoint: `/Matches/m-active-legacy/teams/team-home/catch`,
+        payload: "{}",
+      } as never,
+      {
+        id: 2,
+        actionType: "POST",
+        endpoint: `/Matches/m-active-legacy/teams/team-guest/catch`,
+        payload: "{}",
+      } as never,
+    ]);
+
+    const result = await checkUnfinishedMatch("user-1");
+    expect(result).toEqual({
+      ...unfinishedMatch,
+      trackedTeamId: "team-guest",
+    });
+  });
 });

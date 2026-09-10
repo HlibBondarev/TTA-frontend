@@ -185,6 +185,7 @@ export const checkUnfinishedMatch = async (
       const matchPrefix = `/Matches/${match.id}/teams/`;
       const catchItem = syncItems.find(
         (item) =>
+          item.actionType === "POST" &&
           item.endpoint?.startsWith(matchPrefix) &&
           item.endpoint?.endsWith("/catch"),
       );
@@ -364,6 +365,7 @@ export const discardUnfinishedMatch = async (
       const matchPrefix = `/Matches/${matchId}/teams/`;
       const matchItem = syncItems.find(
         (item) =>
+          item.actionType === "POST" &&
           item.endpoint?.startsWith(matchPrefix) &&
           item.endpoint?.endsWith("/catch"),
       );
