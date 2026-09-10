@@ -355,15 +355,17 @@ export const discardUnfinishedMatch = async (
   }
 
   let effectiveTeamId =
-    teamId || initialMatch.trackedTeamId || initialMatch.selectedTeamId;
+    teamId?.trim() || initialMatch.trackedTeamId || initialMatch.selectedTeamId;
 
   // Fallback recovery: if no explicit team selection exists, check db.syncQueue
   if (!effectiveTeamId && db.syncQueue) {
     try {
       const syncItems = await db.syncQueue.toArray();
       const matchPrefix = `/Matches/${matchId}/teams/`;
-      const matchItem = syncItems.find((item) =>
-        item.endpoint?.startsWith(matchPrefix),
+      const matchItem = syncItems.find(
+        (item) =>
+          item.endpoint?.startsWith(matchPrefix) &&
+          item.endpoint?.endsWith("/catch"),
       );
       if (matchItem) {
         const parts = matchItem.endpoint.split("/");
@@ -396,9 +398,12 @@ const verifyAndStoreMatch = async (
   matchId: string,
   match: MatchLookup | undefined,
   userId?: string,
+  teamId?: string,
 ): Promise<void> => {
   if (!match || !db.matches) return;
-  const existingMatch = await db.matches.get(matchId);
+  const existingMatch = (await db.matches.get(matchId)) as
+    | (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string })
+    | undefined;
   if (
     userId?.trim() &&
     existingMatch?.userId &&
@@ -409,9 +414,20 @@ const verifyAndStoreMatch = async (
   const effectiveUserId = userId?.trim()
     ? userId.trim()
     : existingMatch?.userId;
-  const matchToStore = effectiveUserId
-    ? { ...match, userId: effectiveUserId }
-    : match;
+
+  // Preserve tracked team ID from incoming teamId argument or existing local record
+  const effectiveTrackedTeamId =
+    teamId?.trim() ||
+    existingMatch?.trackedTeamId ||
+    existingMatch?.selectedTeamId;
+
+  const matchToStore = {
+    ...match,
+    ...(effectiveUserId ? { userId: effectiveUserId } : {}),
+    ...(effectiveTrackedTeamId
+      ? { trackedTeamId: effectiveTrackedTeamId }
+      : {}),
+  };
   await db.matches.put(matchToStore);
 };
 
@@ -449,6 +465,7 @@ const persistHydrationPayloads = async (
 
 interface MatchHydrationContext {
   matchId: string;
+  teamId?: string;
   match?: MatchLookup;
   tournament?: TournamentLookup | null;
   sportConfig?: SportConfigurationLookup | null;
@@ -462,6 +479,7 @@ const executeMatchTransaction = async (
 ): Promise<void> => {
   const {
     matchId,
+    teamId,
     match,
     tournament,
     sportConfig,
@@ -485,7 +503,7 @@ const executeMatchTransaction = async (
     async () => {
       checkFreshness?.();
 
-      await verifyAndStoreMatch(matchId, match, userId);
+      await verifyAndStoreMatch(matchId, match, userId, teamId);
       if (tournament) await db.tournaments.put(tournament);
       if (sportConfig) await db.sportconfigurations.put(sportConfig);
 
@@ -523,6 +541,7 @@ const getTournamentAndConfig = async (match?: MatchLookup) => {
 
 const persistMatchWithRollback = async (
   matchId: string,
+  teamId: string,
   match: MatchLookup | undefined,
   tournament: TournamentLookup | null | undefined,
   sportConfig: SportConfigurationLookup | null | undefined,
@@ -532,6 +551,7 @@ const persistMatchWithRollback = async (
 ) => {
   await executeMatchTransaction({
     matchId,
+    teamId,
     match,
     tournament,
     sportConfig,
@@ -568,6 +588,7 @@ export const hydrateMatchData = async (
 
     await persistMatchWithRollback(
       matchId,
+      teamId,
       match,
       tournament,
       sportConfig,

@@ -104,8 +104,6 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     const teamToDiscard =
       activeUnfinishedMatch.trackedTeamId ||
       activeUnfinishedMatch.selectedTeamId ||
-      activeUnfinishedMatch.homeTeamId ||
-      activeUnfinishedMatch.guestTeamId ||
       "";
     const token = generateToken();
     setActiveOp({ userId: initiatedUserId, token, type: "discard" });

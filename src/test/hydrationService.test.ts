@@ -559,7 +559,7 @@ describe("Hydration Service", () => {
     expect(mockDelete).not.toHaveBeenCalled();
   });
 
-  it("successfully fetches server data with team-specific lineup endpoint and writes to IndexedDB with userId", async () => {
+  it("successfully fetches server data with team-specific lineup endpoint and writes to IndexedDB with userId and trackedTeamId", async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
       .mockResolvedValueOnce([{ id: "l1", matchId }])
@@ -631,13 +631,14 @@ describe("Hydration Service", () => {
       id: matchId,
       title: "Match 1",
       userId: "user-authenticated",
+      trackedTeamId: teamId,
     });
     expect(db.matchlineups.bulkPut).toHaveBeenCalledWith([
       { id: "l1", matchId },
     ]);
   });
 
-  it("preserves existing local userId when userId parameter is omitted during hydration", async () => {
+  it("preserves existing local userId and trackedTeamId when userId parameter is omitted during hydration", async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
       .mockResolvedValueOnce([])
@@ -659,6 +660,7 @@ describe("Hydration Service", () => {
       id: matchId,
       title: "Match 1",
       userId: "existing-owner-id",
+      trackedTeamId: teamId,
     });
   });
 
@@ -1137,7 +1139,7 @@ describe("Hydration Service", () => {
     expect(db.matches.put).not.toHaveBeenCalled();
   });
 
-  it("preserves existing local userId when userId parameter is empty string during hydration", async () => {
+  it("preserves existing local userId and trackedTeamId when userId parameter is empty string during hydration", async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ id: matchId, title: "Match 1" })
       .mockResolvedValueOnce([])
@@ -1159,6 +1161,7 @@ describe("Hydration Service", () => {
       id: matchId,
       title: "Match 1",
       userId: "existing-owner-id",
+      trackedTeamId: teamId,
     });
   });
 
@@ -1232,7 +1235,7 @@ describe("Hydration Service", () => {
       {
         id: 1,
         actionType: "POST",
-        endpoint: `/Matches/${matchId}/teams/team-guest-999/events`,
+        endpoint: `/Matches/${matchId}/teams/team-guest-999/catch`,
         payload: "{}",
       } as never,
     ]);
@@ -1262,5 +1265,28 @@ describe("Hydration Service", () => {
     );
     expect(db.syncQueue.toArray).not.toHaveBeenCalled();
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+  });
+
+  it("should preserve trackedTeamId in IndexedDB during match hydration", async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({
+        id: matchId,
+        homeTeamId: "team-home-1",
+        guestTeamId: "team-guest-2",
+      })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await hydrateMatchData(matchId, "team-guest-2", "user-1");
+
+    expect(db.matches.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: matchId,
+        trackedTeamId: "team-guest-2",
+      }),
+    );
   });
 });
