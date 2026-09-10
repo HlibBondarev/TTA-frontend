@@ -52,6 +52,23 @@ function checkUserFreshness(
   }
 }
 
+function getHttpStatus(err: unknown): number | undefined {
+  if (typeof err === "object" && err !== null) {
+    const obj = err as Record<string, unknown>;
+    if (typeof obj.status === "number") {
+      return obj.status;
+    }
+    if (
+      typeof obj.response === "object" &&
+      obj.response !== null &&
+      typeof (obj.response as Record<string, unknown>).status === "number"
+    ) {
+      return (obj.response as Record<string, unknown>).status as number;
+    }
+  }
+  return undefined;
+}
+
 async function persistOrRollbackTournament(
   tournamentId: string,
   tournamentData: {
@@ -411,8 +428,20 @@ async function compensateCatchMatch(
         await apiClient.delete(catchEndpoint);
         return true;
       } catch (err) {
+        if (err instanceof StaleOperationError) throw err;
+        const status = getHttpStatus(err);
+        if (status === 404 || status === 410) {
+          return true;
+        }
+        if (typeof status === "number") {
+          console.warn(
+            `Compensating online uncatch failed with terminal HTTP ${status}:`,
+            err,
+          );
+          return false;
+        }
         console.warn(
-          "Compensating online uncatch failed, falling back to syncQueue:",
+          "Compensating online uncatch failed due to network error, falling back to syncQueue:",
           err,
         );
       }
@@ -426,7 +455,7 @@ async function compensateCatchMatch(
       });
       return true;
     }
-    throw new Error("Failed to queue compensating uncatch item.");
+    return false;
   }
 
   return true;

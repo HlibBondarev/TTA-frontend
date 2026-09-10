@@ -306,6 +306,118 @@ describe("MatchSetupWizard Component", () => {
     });
   });
 
+  it("should not enqueue DELETE in syncQueue and not rollback local match when online uncatch fails with HTTP 403", async () => {
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+    const handleQuickStart = vi
+      .fn()
+      .mockRejectedValue(new Error("QuickStart handler error"));
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
+    vi.mocked(apiClient.delete).mockRejectedValueOnce({ status: 403 });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    const existingMatchRecord = {
+      id: "match-123",
+      homeTeamId: "team-home",
+      guestTeamId: "team-guest",
+      trackedTeamId: "team-home",
+    };
+    vi.mocked(db.matches.get).mockResolvedValue(existingMatchRecord as never);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/Matches/match-123/teams/team-home/catch",
+        {},
+      );
+      expect(apiClient.delete).toHaveBeenCalledWith(
+        "/Matches/match-123/teams/team-home/catch",
+      );
+      expect(db.syncQueue.put).not.toHaveBeenCalledWith(
+        expect.objectContaining({ actionType: "DELETE" }),
+      );
+      expect(db.matches.put).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          id: "match-123",
+          trackedTeamId: "team-home",
+        }),
+      );
+      expect(screen.getByRole("alert")).toBeDefined();
+    });
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  it("should treat HTTP 404 during uncatch as successful compensation and rollback local match", async () => {
+    const handleQuickStart = vi
+      .fn()
+      .mockRejectedValue(new Error("QuickStart handler error"));
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
+    vi.mocked(apiClient.delete).mockRejectedValueOnce({ status: 404 });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    const existingMatchRecord = {
+      id: "match-123",
+      homeTeamId: "team-home",
+      guestTeamId: "team-guest",
+    };
+    vi.mocked(db.matches.get).mockResolvedValue(existingMatchRecord as never);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(apiClient.delete).toHaveBeenCalledWith(
+        "/Matches/match-123/teams/team-home/catch",
+      );
+      expect(db.matches.put).toHaveBeenLastCalledWith(existingMatchRecord);
+      expect(screen.getByRole("alert")).toBeDefined();
+    });
+  });
+
   it("should fallback to syncQueue and log warning when online CatchMatch API call fails during confirmation", async () => {
     const consoleWarnSpy = vi
       .spyOn(console, "warn")
