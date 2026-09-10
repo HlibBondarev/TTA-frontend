@@ -314,9 +314,15 @@ const resolveFallbackTeamEndpoint = async (
 const normalizeTeamEndpoint = async (
   endpoint: string,
   payload: unknown,
+  actionType?: string,
   cache?: SyncCacheContext,
 ): Promise<string> => {
   if (!endpoint.includes("/teams/") || !db) {
+    return endpoint;
+  }
+
+  // Preserve team encoded in queued DELETE /catch endpoints without applying match-record fallback
+  if (actionType === "DELETE" && endpoint.endsWith("/catch")) {
     return endpoint;
   }
 
@@ -351,7 +357,12 @@ const executeHttpRequest = async (
   batchItems: SyncQueueItem[],
   cache?: SyncCacheContext,
 ): Promise<{ status?: number }> => {
-  const targetEndpoint = await normalizeTeamEndpoint(endpoint, payload, cache);
+  const targetEndpoint = await normalizeTeamEndpoint(
+    endpoint,
+    payload,
+    actionType,
+    cache,
+  );
 
   const batchIds = batchItems
     .map((item) => item.id)

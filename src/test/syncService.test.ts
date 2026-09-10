@@ -1153,4 +1153,31 @@ describe("Sync Engine Service", () => {
     consoleWarnSpy.mockRestore();
     consoleErrorSpy.mockRestore();
   });
+
+  it("preserves exact teamId in DELETE /catch endpoint and skips trackedTeamId fallback", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "m-123",
+      trackedTeamId: "different-tracked-team-789",
+    } as never);
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 1,
+          actionType: "DELETE",
+          endpoint: "/Matches/m-123/teams/original-caught-team-456/catch",
+          payload: "{}",
+        },
+      ]),
+    } as never);
+
+    vi.mocked(apiClient.delete).mockResolvedValueOnce({ status: 200 });
+
+    await processSyncQueue();
+
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      "/Matches/m-123/teams/original-caught-team-456/catch",
+      expect.any(Object),
+    );
+  });
 });
