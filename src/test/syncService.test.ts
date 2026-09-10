@@ -1115,4 +1115,42 @@ describe("Sync Engine Service", () => {
 
     consoleWarnSpy.mockRestore();
   });
+
+  it("halts queue execution and logs error when purgeBatchFromSyncQueue rejects during unrecoverable error handling", async () => {
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/teams/t1/events",
+        payload: JSON.stringify([{ id: "orphan-1" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ status: 404 });
+    vi.mocked(db.transaction).mockImplementationOnce(() => {
+      throw new Error("Dexie purge write failure");
+    });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(0);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Failed to purge unrecoverable batch for endpoint /Matches/m1/teams/t1/events:",
+      expect.any(Error),
+    );
+
+    consoleWarnSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
 });

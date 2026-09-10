@@ -490,7 +490,15 @@ const processSyncBatch = async (
       console.warn(
         `Unrecoverable sync error (${response?.status}) for endpoint ${currentItem.endpoint}. Purging batch from syncQueue.`,
       );
-      await purgeBatchFromSyncQueue(batchItems);
+      try {
+        await purgeBatchFromSyncQueue(batchItems);
+      } catch (purgeErr) {
+        console.error(
+          `Failed to purge unrecoverable batch for endpoint ${currentItem.endpoint}:`,
+          purgeErr,
+        );
+        return { syncedCount: 0, shouldContinue: false };
+      }
       return { syncedCount: 0, shouldContinue: true };
     }
 
@@ -503,7 +511,15 @@ const processSyncBatch = async (
         `Unrecoverable sync error (${status}) for endpoint ${currentItem.endpoint}. Purging batch from syncQueue:`,
         err,
       );
-      await purgeBatchFromSyncQueue(batchItems);
+      try {
+        await purgeBatchFromSyncQueue(batchItems);
+      } catch (purgeErr) {
+        console.error(
+          `Failed to purge unrecoverable batch for endpoint ${currentItem.endpoint}:`,
+          purgeErr,
+        );
+        return { syncedCount: 0, shouldContinue: false };
+      }
       return { syncedCount: 0, shouldContinue: true };
     }
 
