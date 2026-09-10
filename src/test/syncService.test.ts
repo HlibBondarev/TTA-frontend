@@ -918,6 +918,13 @@ describe("Sync Engine Service", () => {
   });
 
   it("caches matchlineup and match record lookups during a processSyncQueue run", async () => {
+    vi.mocked(db.matchlineups.get).mockResolvedValue({
+      playerRosterId: "roster-1",
+    } as never);
+    vi.mocked(db.playerrosters.get).mockResolvedValue({
+      teamId: "team-tracked",
+    } as never);
+
     const matchGetSpy = vi.spyOn(db.matches, "get").mockResolvedValue({
       id: "m-100",
       trackedTeamId: "team-tracked",
@@ -928,13 +935,25 @@ describe("Sync Engine Service", () => {
         id: 1,
         actionType: "POST",
         endpoint: "/Matches/m-100/teams/wrong-team/events",
-        payload: JSON.stringify([{ id: "e1" }]),
+        payload: JSON.stringify([{ id: "e1", matchLineupId: "lineup-1" }]),
       },
       {
         id: 2,
         actionType: "POST",
         endpoint: "/Matches/m-100/teams/wrong-team/events",
-        payload: JSON.stringify([{ id: "e2" }]),
+        payload: JSON.stringify([{ id: "e2", matchLineupId: "lineup-1" }]),
+      },
+      {
+        id: 3,
+        actionType: "PUT",
+        endpoint: "/Matches/m-100/teams/wrong-team/anchors",
+        payload: JSON.stringify([{ id: "a1" }]),
+      },
+      {
+        id: 4,
+        actionType: "DELETE",
+        endpoint: "/Matches/m-100/teams/wrong-team/catch",
+        payload: "{}",
       },
     ];
 
@@ -943,9 +962,14 @@ describe("Sync Engine Service", () => {
     } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
 
     vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+    vi.mocked(apiClient.put).mockResolvedValue({ status: 200 });
+    vi.mocked(apiClient.delete).mockResolvedValue({ status: 200 });
 
     await processSyncQueue();
 
+    expect(db.matchlineups.get).toHaveBeenCalledTimes(1);
+    expect(db.matchlineups.get).toHaveBeenCalledWith("lineup-1");
     expect(matchGetSpy).toHaveBeenCalledTimes(1);
+    expect(matchGetSpy).toHaveBeenCalledWith("m-100");
   });
 });
