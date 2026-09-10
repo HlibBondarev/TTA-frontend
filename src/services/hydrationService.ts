@@ -539,28 +539,6 @@ const getTournamentAndConfig = async (match?: MatchLookup) => {
   return { tournament: metadata.tournament, sportConfig: metadata.sportConfig };
 };
 
-const persistMatchWithRollback = async (
-  matchId: string,
-  teamId: string,
-  match: MatchLookup | undefined,
-  tournament: TournamentLookup | null | undefined,
-  sportConfig: SportConfigurationLookup | null | undefined,
-  payloads: HydrationPayloads,
-  userId?: string,
-  checkFreshness?: () => void,
-) => {
-  await executeMatchTransaction({
-    matchId,
-    teamId,
-    match,
-    tournament,
-    sportConfig,
-    payloads,
-    userId,
-    checkFreshness,
-  });
-};
-
 export const hydrateMatchData = async (
   matchId: string,
   teamId: string,
@@ -586,16 +564,16 @@ export const hydrateMatchData = async (
     const { tournament, sportConfig } = await getTournamentAndConfig(match);
     checkFreshness?.();
 
-    await persistMatchWithRollback(
+    await executeMatchTransaction({
       matchId,
       teamId,
       match,
       tournament,
       sportConfig,
-      { lineups, anchors, presence, events, definitions },
+      payloads: { lineups, anchors, presence, events, definitions },
       userId,
       checkFreshness,
-    );
+    });
 
     return { success: true, isOfflineFallback: false };
   } catch (err) {
