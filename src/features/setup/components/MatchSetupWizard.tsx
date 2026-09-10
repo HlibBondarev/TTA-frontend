@@ -421,6 +421,65 @@ async function compensateCatchMatch(
   return true;
 }
 
+async function compensateAndRollbackIfNeeded(
+  catchEndpoint: string,
+  catchResult: CatchResult | undefined,
+  localPersistResult:
+    | { existingMatch?: MatchLookup; didPersist: boolean }
+    | undefined,
+  pendingMatchId: string,
+): Promise<void> {
+  if (!catchResult) return;
+
+  let compensationSucceeded: boolean;
+  try {
+    compensationSucceeded = await compensateCatchMatch(
+      catchEndpoint,
+      catchResult,
+    );
+  } catch (compensationErr) {
+    compensationSucceeded = false;
+    const logMsg =
+      catchResult.queuedItemId !== undefined
+        ? "Failed to delete stale sync queue item:"
+        : "Failed to compensate catch match operation:";
+    console.error(logMsg, compensationErr);
+  }
+
+  if (compensationSucceeded && localPersistResult?.didPersist) {
+    await rollbackTrackedTeamLocally(
+      pendingMatchId,
+      localPersistResult.existingMatch,
+    );
+  }
+}
+
+async function handleConfirmQuickStartError(
+  err: unknown,
+  catchEndpoint: string,
+  catchResult: CatchResult | undefined,
+  localPersistResult:
+    | { existingMatch?: MatchLookup; didPersist: boolean }
+    | undefined,
+  pendingMatchId: string,
+  setErrorMessage: (msg: string | null) => void,
+): Promise<void> {
+  await compensateAndRollbackIfNeeded(
+    catchEndpoint,
+    catchResult,
+    localPersistResult,
+    pendingMatchId,
+  );
+
+  if (err instanceof StaleOperationError) {
+    return;
+  }
+
+  setErrorMessage(
+    err instanceof Error ? err.message : "Failed to complete match setup.",
+  );
+}
+
 export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   onQuickStart,
 }) => {
@@ -705,35 +764,13 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       );
       verifyFreshness();
     } catch (err) {
-      let compensationSucceeded = true;
-      if (catchResult) {
-        try {
-          compensationSucceeded = await compensateCatchMatch(
-            catchEndpoint,
-            catchResult,
-          );
-        } catch (compensationErr) {
-          compensationSucceeded = false;
-          const logMsg =
-            catchResult.queuedItemId !== undefined
-              ? "Failed to delete stale sync queue item:"
-              : "Failed to compensate catch match operation:";
-          console.error(logMsg, compensationErr);
-        }
-      }
-
-      if (compensationSucceeded && localPersistResult?.didPersist) {
-        await rollbackTrackedTeamLocally(
-          pendingMatchId,
-          localPersistResult.existingMatch,
-        );
-      }
-
-      if (err instanceof StaleOperationError) {
-        return;
-      }
-      setErrorMessage(
-        err instanceof Error ? err.message : "Failed to complete match setup.",
+      await handleConfirmQuickStartError(
+        err,
+        catchEndpoint,
+        catchResult,
+        localPersistResult,
+        pendingMatchId,
+        setErrorMessage,
       );
     } finally {
       if (currentUserIdRef.current === initiatedUserId) {
