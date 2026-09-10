@@ -284,8 +284,8 @@ async function persistTrackedTeamLocally(
   selectedTeamId: string,
   initiatedUserId: string | undefined,
   verifyFreshness: () => void,
-): Promise<void> {
-  if (!db.matches) return;
+): Promise<{ existingMatch?: MatchLookup; didPersist: boolean }> {
+  if (!db.matches) return { didPersist: false };
   const existingMatch = await db.matches.get(pendingMatchId);
   verifyFreshness();
   const matchToPut = existingMatch
@@ -306,6 +306,23 @@ async function persistTrackedTeamLocally(
     }
     throw err;
   }
+  return { existingMatch, didPersist: true };
+}
+
+async function rollbackTrackedTeamLocally(
+  pendingMatchId: string,
+  existingMatch?: MatchLookup,
+): Promise<void> {
+  if (!db.matches) return;
+  try {
+    if (existingMatch) {
+      await db.matches.put(existingMatch);
+    } else {
+      await db.matches.delete(pendingMatchId);
+    }
+  } catch (rollbackErr) {
+    console.error("Failed to rollback local match record:", rollbackErr);
+  }
 }
 
 async function loadMatchTeams(
@@ -321,9 +338,12 @@ async function loadMatchTeams(
   return { home, guest };
 }
 
-async function executeCatchMatch(
-  catchEndpoint: string,
-): Promise<number | undefined> {
+interface CatchResult {
+  wasOnline: boolean;
+  queuedItemId?: number;
+}
+
+async function executeCatchMatch(catchEndpoint: string): Promise<CatchResult> {
   let catchSuccess = false;
 
   if (navigator.onLine) {
@@ -339,16 +359,21 @@ async function executeCatchMatch(
     }
   }
 
-  if (!catchSuccess && db.syncQueue) {
-    return (await db.syncQueue.put({
+  if (catchSuccess) {
+    return { wasOnline: true };
+  }
+
+  if (db.syncQueue) {
+    const queuedItemId = (await db.syncQueue.put({
       actionType: "POST",
       endpoint: catchEndpoint,
       payload: "{}",
       createdAt: new Date().toISOString(),
     })) as unknown as number;
+    return { wasOnline: false, queuedItemId };
   }
 
-  return undefined;
+  throw new Error("Failed to queue catch match operation while offline.");
 }
 
 async function purgeStaleSyncItem(
@@ -359,6 +384,44 @@ async function purgeStaleSyncItem(
     await db.syncQueue.delete(queuedItemId);
   } catch (deleteErr) {
     console.error("Failed to delete stale sync queue item:", deleteErr);
+  }
+}
+
+async function compensateCatchMatch(
+  catchEndpoint: string,
+  catchResult?: CatchResult,
+): Promise<void> {
+  if (!catchResult) return;
+
+  if (catchResult.queuedItemId !== undefined) {
+    await purgeStaleSyncItem(catchResult.queuedItemId);
+    return;
+  }
+
+  if (catchResult.wasOnline) {
+    if (navigator.onLine) {
+      try {
+        await apiClient.delete(catchEndpoint);
+        return;
+      } catch (err) {
+        console.warn(
+          "Compensating online uncatch failed, falling back to syncQueue:",
+          err,
+        );
+      }
+    }
+    if (db.syncQueue) {
+      try {
+        await db.syncQueue.put({
+          actionType: "DELETE",
+          endpoint: catchEndpoint,
+          payload: "{}",
+          createdAt: new Date().toISOString(),
+        });
+      } catch (queueErr) {
+        console.error("Failed to queue compensating uncatch item:", queueErr);
+      }
+    }
   }
 }
 
@@ -617,23 +680,25 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     );
     const activePlayersLimit = selectedConfig?.activePlayersLimit ?? 7;
 
-    let queuedItemId: number | undefined;
+    const catchEndpoint = `/Matches/${pendingMatchId}/teams/${selectedTeamId}/catch`;
+    let catchResult: CatchResult | undefined;
+    let localPersistResult:
+      | { existingMatch?: MatchLookup; didPersist: boolean }
+      | undefined;
 
     try {
       setIsSubmitting(true);
       setErrorMessage(null);
 
-      const catchEndpoint = `/Matches/${pendingMatchId}/teams/${selectedTeamId}/catch`;
-      queuedItemId = await executeCatchMatch(catchEndpoint);
-
-      verifyFreshness();
-
-      await persistTrackedTeamLocally(
+      localPersistResult = await persistTrackedTeamLocally(
         pendingMatchId,
         selectedTeamId,
         initiatedUserId,
         verifyFreshness,
       );
+
+      catchResult = await executeCatchMatch(catchEndpoint);
+      verifyFreshness();
 
       await onQuickStart(
         pendingMatchId,
@@ -644,8 +709,17 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       );
       verifyFreshness();
     } catch (err) {
+      if (catchResult) {
+        await compensateCatchMatch(catchEndpoint, catchResult);
+      }
+      if (localPersistResult?.didPersist) {
+        await rollbackTrackedTeamLocally(
+          pendingMatchId,
+          localPersistResult.existingMatch,
+        );
+      }
+
       if (err instanceof StaleOperationError) {
-        await purgeStaleSyncItem(queuedItemId);
         return;
       }
       setErrorMessage(

@@ -37,6 +37,7 @@ vi.mock("../../../api/client", () => ({
   apiClient: {
     get: vi.fn(),
     post: vi.fn(),
+    delete: vi.fn(),
   },
 }));
 
@@ -136,6 +137,7 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(teamService.getTeamById).mockReset();
     vi.mocked(apiClient.get).mockReset();
     vi.mocked(apiClient.post).mockReset();
+    vi.mocked(apiClient.delete).mockReset();
     vi.mocked(db.sports.bulkPut).mockReset();
     vi.mocked(db.sportconfigurations.bulkPut).mockReset();
     vi.mocked(db.sportconfigurations.put).mockReset();
@@ -200,7 +202,6 @@ describe("MatchSetupWizard Component", () => {
     );
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
 
-    // Select team before confirmation
     fireEvent.click(screen.getByText("Home Squad"));
 
     fireEvent.click(
@@ -235,6 +236,57 @@ describe("MatchSetupWizard Component", () => {
     });
   });
 
+  it("should issue compensating online uncatch and rollback local match when catch succeeds online but onQuickStart fails", async () => {
+    const handleQuickStart = vi
+      .fn()
+      .mockRejectedValue(new Error("QuickStart handler error"));
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
+    vi.mocked(apiClient.delete).mockResolvedValueOnce({});
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    const existingMatchRecord = {
+      id: "match-123",
+      homeTeamId: "team-home",
+      guestTeamId: "team-guest",
+    };
+    vi.mocked(db.matches.get).mockResolvedValue(existingMatchRecord as never);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/Matches/match-123/teams/team-home/catch",
+        {},
+      );
+      expect(apiClient.delete).toHaveBeenCalledWith(
+        "/Matches/match-123/teams/team-home/catch",
+      );
+      expect(db.matches.put).toHaveBeenLastCalledWith(existingMatchRecord);
+      expect(screen.getByRole("alert")).toBeDefined();
+    });
+  });
+
   it("should fallback to syncQueue and log warning when online CatchMatch API call fails during confirmation", async () => {
     const consoleWarnSpy = vi
       .spyOn(console, "warn")
@@ -260,7 +312,6 @@ describe("MatchSetupWizard Component", () => {
     );
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
 
-    // Select team before confirmation
     fireEvent.click(screen.getByText("Home Squad"));
 
     fireEvent.click(
@@ -561,7 +612,6 @@ describe("MatchSetupWizard Component", () => {
     );
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
 
-    // Select team before confirmation
     fireEvent.click(screen.getByText("Home Squad"));
 
     fireEvent.click(
@@ -843,7 +893,6 @@ describe("MatchSetupWizard Component", () => {
       fireEvent.click(config2Btn);
     }
 
-    // Select team before confirmation
     fireEvent.click(screen.getByText("Home Squad"));
 
     fireEvent.click(
@@ -973,7 +1022,6 @@ describe("MatchSetupWizard Component", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
 
-    // Select team before confirmation
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -1015,7 +1063,6 @@ describe("MatchSetupWizard Component", () => {
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
 
-    // Select team before confirmation
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -1076,7 +1123,6 @@ describe("MatchSetupWizard Component", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
 
-    // Select team before confirmation
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -1754,16 +1800,13 @@ describe("MatchSetupWizard Component", () => {
 
     renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
-    // Click Quick Start to reach team selection step
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
 
-    // Select Guest team
     fireEvent.click(screen.getByText("Opponent Squad"));
 
-    // Confirm tracking
     fireEvent.click(
       screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
     );
