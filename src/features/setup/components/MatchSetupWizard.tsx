@@ -286,16 +286,27 @@ async function persistTrackedTeamLocally(
   verifyFreshness: () => void,
 ): Promise<{ existingMatch?: MatchLookup; didPersist: boolean }> {
   if (!db.matches) return { didPersist: false };
-  const existingMatch = await db.matches.get(pendingMatchId);
+  let existingMatch = await db.matches.get(pendingMatchId);
   verifyFreshness();
-  const matchToPut = existingMatch
-    ? { ...existingMatch, trackedTeamId: selectedTeamId }
-    : {
-        id: pendingMatchId,
-        userId: initiatedUserId,
-        trackedTeamId: selectedTeamId,
-      };
-  await db.matches.put(matchToPut as unknown as MatchLookup);
+
+  if (!existingMatch) {
+    try {
+      existingMatch = await fetchAndNormalizeMatch(
+        pendingMatchId,
+        initiatedUserId,
+      );
+      verifyFreshness();
+    } catch {
+      throw new Error("Match session not found in local database.");
+    }
+  }
+
+  const matchToPut: MatchLookup = {
+    ...existingMatch,
+    trackedTeamId: selectedTeamId,
+  };
+
+  await db.matches.put(matchToPut);
   try {
     verifyFreshness();
   } catch (err) {

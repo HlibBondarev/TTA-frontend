@@ -130,7 +130,10 @@ describe("MatchSetupWizard Component", () => {
     createdAt: "2026-01-01T00:00:00.000Z",
   };
 
+  let localMatchStore: Record<string, MatchLookup> = {};
+
   beforeEach(() => {
+    localMatchStore = {};
     vi.clearAllMocks();
     vi.mocked(sportService.getSports).mockReset();
     vi.mocked(sportService.getSportConfigurations).mockReset();
@@ -143,9 +146,25 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(db.sportconfigurations.put).mockReset();
     vi.mocked(db.sportconfigurations.get).mockReset().mockResolvedValue(null);
     vi.mocked(db.sportconfigurations.delete).mockReset();
-    vi.mocked(db.matches.put).mockReset();
-    vi.mocked(db.matches.get).mockReset();
-    vi.mocked(db.matches.delete).mockReset();
+    vi.mocked(db.matches.put)
+      .mockReset()
+      .mockImplementation((match) => {
+        if (match && typeof match === "object" && "id" in match) {
+          localMatchStore[(match as MatchLookup).id] = match as MatchLookup;
+        }
+        return Promise.resolve((match as MatchLookup)?.id ?? "") as never;
+      });
+    vi.mocked(db.matches.get)
+      .mockReset()
+      .mockImplementation((id: unknown) => {
+        return Promise.resolve(localMatchStore[id as string] ?? null) as never;
+      });
+    vi.mocked(db.matches.delete)
+      .mockReset()
+      .mockImplementation((id: unknown) => {
+        delete localMatchStore[id as string];
+        return Promise.resolve() as never;
+      });
     vi.mocked(db.tournaments.get).mockReset().mockResolvedValue(null);
     vi.mocked(db.tournaments.put).mockReset();
     vi.mocked(db.tournaments.delete).mockReset();
