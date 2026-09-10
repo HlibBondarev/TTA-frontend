@@ -1895,4 +1895,126 @@ describe("MatchSetupWizard Component", () => {
       expect(handleQuickStart).not.toHaveBeenCalled();
     });
   });
+
+  it("should enqueue compensating DELETE item into syncQueue if catch succeeds online but onQuickStart fails after network drops offline", async () => {
+    const handleQuickStart = vi.fn().mockImplementation(async () => {
+      // Simulate network drop after online catch succeeded, right before onQuickStart fails
+      vi.stubGlobal("navigator", { onLine: false });
+      throw new Error("Post-catch error");
+    });
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(db.syncQueue.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: "DELETE",
+          endpoint: "/Matches/match-123/teams/team-home/catch",
+          payload: "{}",
+        }),
+      );
+      expect(screen.getByRole("alert")).toBeDefined();
+    });
+  });
+
+  it("should ignore changing sport discipline when a match draft is already active", async () => {
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    expect(await screen.findByText("Water Polo")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
+
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    const basketballBtn = screen.getByText("Basketball").closest("button");
+    expect(basketballBtn).toBeDisabled();
+
+    if (basketballBtn) {
+      fireEvent.click(basketballBtn);
+    }
+
+    // Verify sport configuration was NOT reloaded for sport-2
+    expect(sportService.getSportConfigurations).toHaveBeenCalledTimes(1);
+  });
+
+  it("should log error when deleting stale syncQueue item fails during rollback", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.stubGlobal("navigator", { onLine: false });
+
+    const handleQuickStart = vi
+      .fn()
+      .mockRejectedValue(new Error("QuickStart failure"));
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    vi.mocked(db.syncQueue.put).mockResolvedValueOnce(99 as never);
+    vi.mocked(db.syncQueue.delete).mockRejectedValueOnce(
+      new Error("IndexedDB purge error"),
+    );
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "Failed to delete stale sync queue item:",
+        expect.any(Error),
+      );
+    });
+
+    consoleErrorSpy.mockRestore();
+  });
 });

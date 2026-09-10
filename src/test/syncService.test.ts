@@ -63,6 +63,9 @@ describe("Sync Engine Service", () => {
       configurable: true,
       value: true,
     });
+    vi.mocked(db.matches.get).mockResolvedValue(undefined);
+    vi.mocked(db.matchlineups.get).mockResolvedValue(undefined);
+    vi.mocked(db.playerrosters.get).mockResolvedValue(undefined);
   });
 
   it("processes multi-item queue in FIFO order (POST, PUT, DELETE) and deletes synced items", async () => {
@@ -971,5 +974,145 @@ describe("Sync Engine Service", () => {
     expect(db.matchlineups.get).toHaveBeenCalledWith("lineup-1");
     expect(matchGetSpy).toHaveBeenCalledTimes(1);
     expect(matchGetSpy).toHaveBeenCalledWith("m-100");
+
+    matchGetSpy.mockRestore();
+  });
+
+  it("halts queue processing and logs error when syncQueue item contains invalid JSON payload", async () => {
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/anchors",
+        payload: "INVALID_JSON_PAYLOAD",
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(0);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Invalid JSON payload in syncQueue item 1",
+    );
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(db.syncQueue.delete).not.toHaveBeenCalled();
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("handles presence payload containing playerLineupIds array in markEntitiesSynced", async () => {
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/presence/bulk",
+        payload: JSON.stringify({
+          periodNumber: 1,
+          playerLineupIds: ["lineup-p1", "lineup-p2"],
+        }),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+    type PresenceFilterFn = (p: {
+      matchLineupId: string;
+      timeIn: number | null;
+      timeOut: number | null;
+    }) => boolean;
+
+    let filterPredicate: PresenceFilterFn | undefined;
+    const mockModify = vi.fn();
+    const mockFilter = vi.fn().mockImplementation((fn: PresenceFilterFn) => {
+      filterPredicate = fn;
+      return { modify: mockModify };
+    });
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({ filter: mockFilter }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(1);
+    expect(filterPredicate).toBeDefined();
+    if (filterPredicate) {
+      expect(
+        filterPredicate({
+          matchLineupId: "lineup-p1",
+          timeIn: 10,
+          timeOut: 20,
+        }),
+      ).toBe(true);
+      expect(
+        filterPredicate({
+          matchLineupId: "other-lineup",
+          timeIn: 10,
+          timeOut: 20,
+        }),
+      ).toBe(false);
+    }
+  });
+
+  it("returns 0 immediately and skips sync processing when navigator is offline", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(0);
+    expect(db.syncQueue.orderBy).not.toHaveBeenCalled();
+  });
+
+  it("falls back to original endpoint and logs warning when normalizeTeamEndpoint encounters database error", async () => {
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+
+    vi.mocked(db.matches.get).mockResolvedValue(undefined);
+    vi.mocked(db.matchlineups.get).mockRejectedValue(
+      new Error("IndexedDB read failure"),
+    );
+
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/teams/fallback-team/events",
+        payload: JSON.stringify([{ id: "e1", matchLineupId: "lineup-err" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(1);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      "Failed to normalize teamId in sync endpoint, falling back to original:",
+      expect.any(Error),
+    );
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/m1/teams/fallback-team/events",
+      expect.any(Array),
+      expect.any(Object),
+    );
+
+    consoleWarnSpy.mockRestore();
   });
 });

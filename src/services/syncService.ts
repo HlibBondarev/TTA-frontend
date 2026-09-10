@@ -213,7 +213,12 @@ const isNextItemCompatible = async (
   }
 
   if (currentItem.endpoint.includes("/teams/")) {
-    const nextTeamId = await resolveBatchTeamId(nextPayload, lineupTeamCache);
+    let nextTeamId: string | null = null;
+    try {
+      nextTeamId = await resolveBatchTeamId(nextPayload, lineupTeamCache);
+    } catch {
+      // nextTeamId remains null
+    }
     if (currentTeamId !== nextTeamId) {
       return { compatible: false, payload: null };
     }
@@ -236,9 +241,14 @@ const collectBatch = async (
     return { batchItems: [currentItem], effectivePayload: currentPayload };
   }
 
-  const currentTeamId = currentItem.endpoint.includes("/teams/")
-    ? await resolveBatchTeamId(currentPayload, lineupTeamCache)
-    : null;
+  let currentTeamId: string | null = null;
+  if (currentItem.endpoint.includes("/teams/")) {
+    try {
+      currentTeamId = await resolveBatchTeamId(currentPayload, lineupTeamCache);
+    } catch {
+      // currentTeamId remains null
+    }
+  }
 
   const aggregatedArray: unknown[] = Array.isArray(currentPayload)
     ? [...currentPayload]

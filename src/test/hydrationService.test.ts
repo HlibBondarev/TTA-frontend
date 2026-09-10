@@ -1289,4 +1289,84 @@ describe("Hydration Service", () => {
       }),
     );
   });
+
+  it("should catch and log error when db.syncQueue.toArray fails during checkUnfinishedMatch team recovery", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    const unfinishedLegacyMatch = {
+      id: "m-legacy-1",
+      homeScore: null,
+      guestScore: null,
+      userId: "user-1",
+    };
+
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([
+      unfinishedLegacyMatch as never,
+    ]);
+    vi.mocked(db.syncQueue.toArray).mockRejectedValueOnce(
+      new Error("syncQueue read error"),
+    );
+
+    const result = await checkUnfinishedMatch("user-1");
+
+    expect(result).toEqual({
+      ...unfinishedLegacyMatch,
+      trackedTeamId: undefined,
+    });
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Failed to recover trackedTeamId from syncQueue:",
+      expect.any(Error),
+    );
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("should fallback to homeTeamId when discarding unfinished match without explicit team selection or syncQueue catch item", async () => {
+    vi.mocked(apiClient.delete).mockResolvedValueOnce({});
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+      homeTeamId: "team-home-default",
+      guestTeamId: "team-guest-default",
+    } as never);
+
+    vi.mocked(db.syncQueue.toArray).mockResolvedValueOnce([]);
+
+    await discardUnfinishedMatch(matchId);
+
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      `/Matches/${matchId}/teams/team-home-default/catch`,
+    );
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+  });
+
+  it("should fallback to default activePlayersLimit 7 when tournament sportconfiguration lacks activePlayersLimit", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      configurationId: "cfg-no-limit",
+    } as never);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-no-limit",
+    } as never);
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+
+    expect(recoveryState).toEqual({
+      recoveredPeriod: 1,
+      activePlayersLimit: 7,
+    });
+  });
 });
