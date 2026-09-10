@@ -1970,7 +1970,7 @@ describe("MatchSetupWizard Component", () => {
     expect(sportService.getSportConfigurations).toHaveBeenCalledTimes(1);
   });
 
-  it("should log error when deleting stale syncQueue item fails during rollback", async () => {
+  it("should log error when deleting stale syncQueue item fails during rollback and preserve trackedTeamId in local match", async () => {
     const consoleErrorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
@@ -2013,6 +2013,13 @@ describe("MatchSetupWizard Component", () => {
         "Failed to delete stale sync queue item:",
         expect.any(Error),
       );
+      expect(db.matches.put).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          id: "match-123",
+          trackedTeamId: "team-home",
+        }),
+      );
+      expect(db.matches.delete).not.toHaveBeenCalled();
     });
 
     consoleErrorSpy.mockRestore();

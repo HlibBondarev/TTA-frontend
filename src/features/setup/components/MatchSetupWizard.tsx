@@ -380,29 +380,25 @@ async function purgeStaleSyncItem(
   queuedItemId: number | undefined,
 ): Promise<void> {
   if (queuedItemId === undefined || !db.syncQueue) return;
-  try {
-    await db.syncQueue.delete(queuedItemId);
-  } catch (deleteErr) {
-    console.error("Failed to delete stale sync queue item:", deleteErr);
-  }
+  await db.syncQueue.delete(queuedItemId);
 }
 
 async function compensateCatchMatch(
   catchEndpoint: string,
   catchResult?: CatchResult,
-): Promise<void> {
-  if (!catchResult) return;
+): Promise<boolean> {
+  if (!catchResult) return true;
 
   if (catchResult.queuedItemId !== undefined) {
     await purgeStaleSyncItem(catchResult.queuedItemId);
-    return;
+    return true;
   }
 
   if (catchResult.wasOnline) {
     if (navigator.onLine) {
       try {
         await apiClient.delete(catchEndpoint);
-        return;
+        return true;
       } catch (err) {
         console.warn(
           "Compensating online uncatch failed, falling back to syncQueue:",
@@ -411,18 +407,18 @@ async function compensateCatchMatch(
       }
     }
     if (db.syncQueue) {
-      try {
-        await db.syncQueue.put({
-          actionType: "DELETE",
-          endpoint: catchEndpoint,
-          payload: "{}",
-          createdAt: new Date().toISOString(),
-        });
-      } catch (queueErr) {
-        console.error("Failed to queue compensating uncatch item:", queueErr);
-      }
+      await db.syncQueue.put({
+        actionType: "DELETE",
+        endpoint: catchEndpoint,
+        payload: "{}",
+        createdAt: new Date().toISOString(),
+      });
+      return true;
     }
+    throw new Error("Failed to queue compensating uncatch item.");
   }
+
+  return true;
 }
 
 export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
@@ -709,10 +705,24 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       );
       verifyFreshness();
     } catch (err) {
+      let compensationSucceeded = true;
       if (catchResult) {
-        await compensateCatchMatch(catchEndpoint, catchResult);
+        try {
+          compensationSucceeded = await compensateCatchMatch(
+            catchEndpoint,
+            catchResult,
+          );
+        } catch (compensationErr) {
+          compensationSucceeded = false;
+          const logMsg =
+            catchResult.queuedItemId !== undefined
+              ? "Failed to delete stale sync queue item:"
+              : "Failed to compensate catch match operation:";
+          console.error(logMsg, compensationErr);
+        }
       }
-      if (localPersistResult?.didPersist) {
+
+      if (compensationSucceeded && localPersistResult?.didPersist) {
         await rollbackTrackedTeamLocally(
           pendingMatchId,
           localPersistResult.existingMatch,
