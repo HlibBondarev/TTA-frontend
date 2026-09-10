@@ -469,7 +469,15 @@ async function compensateAndRollbackIfNeeded(
     | undefined,
   pendingMatchId: string,
 ): Promise<void> {
-  if (!catchResult) return;
+  if (!catchResult) {
+    if (localPersistResult?.didPersist) {
+      await rollbackTrackedTeamLocally(
+        pendingMatchId,
+        localPersistResult.existingMatch,
+      );
+    }
+    return;
+  }
 
   let compensationSucceeded: boolean;
   try {

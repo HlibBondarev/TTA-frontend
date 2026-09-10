@@ -2155,4 +2155,48 @@ describe("MatchSetupWizard Component", () => {
 
     consoleErrorSpy.mockRestore();
   });
+
+  it("should rollback local trackedTeamId if executeCatchMatch throws before returning catchResult", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    const existingMatchRecord = {
+      id: "match-123",
+      homeTeamId: "team-home",
+      guestTeamId: "team-guest",
+    };
+    vi.mocked(db.matches.get).mockResolvedValue(existingMatchRecord as never);
+
+    // Simulate failure when adding item to syncQueue
+    vi.mocked(db.syncQueue.put).mockRejectedValueOnce(
+      new Error("syncQueue storage full"),
+    );
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(db.matches.put).toHaveBeenLastCalledWith(existingMatchRecord);
+      expect(screen.getByRole("alert")).toBeDefined();
+    });
+  });
 });
