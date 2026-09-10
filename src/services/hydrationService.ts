@@ -249,37 +249,18 @@ export const getMatchRecoveryState = async (
   return { recoveredPeriod, activePlayersLimit };
 };
 
-const uncatchMatchOnServerOrQueue = async (
+/**
+ * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
+ * Issues UncatchMatch request to server when teamId is supplied (with syncQueue offline fallback)
+ * only if the match exists and is unfinished (both scores are null).
+ * Staging of Uncatch DELETE occurs within the local transaction, dispatched post-commit.
+ */
+export const discardUnfinishedMatch = async (
   matchId: string,
-  teamId: string,
+  teamId?: string,
 ): Promise<void> => {
-  const catchEndpoint = `/Matches/${matchId}/teams/${teamId.trim()}/catch`;
-  let uncatchSuccess = false;
+  if (!db?.matches) return;
 
-  if (navigator.onLine) {
-    try {
-      await apiClient.delete(catchEndpoint);
-      uncatchSuccess = true;
-    } catch (err) {
-      if (err instanceof StaleUserError) throw err;
-      console.warn(
-        "Uncatch match API call failed online, fallback to syncQueue:",
-        err,
-      );
-    }
-  }
-
-  if (!uncatchSuccess && db.syncQueue) {
-    await db.syncQueue.put({
-      actionType: "DELETE",
-      endpoint: catchEndpoint,
-      payload: "{}",
-      createdAt: new Date().toISOString(),
-    });
-  }
-};
-
-const deleteLocalMatchRecords = async (matchId: string): Promise<void> => {
   const tables = [
     db.matches,
     db.matchlineups,
@@ -289,111 +270,113 @@ const deleteLocalMatchRecords = async (matchId: string): Promise<void> => {
     db.syncQueue,
   ].filter(Boolean);
 
-  await db.transaction("rw", tables, async () => {
-    const match = await db.matches.get(matchId);
-    if (match && match.homeScore == null && match.guestScore == null) {
-      if (db.syncQueue) {
-        const endpointPrefix = `/Matches/${matchId}`;
-        const itemsToPurge = await db.syncQueue
-          .filter(
-            (item) =>
-              (item.endpoint === endpointPrefix ||
-                item.endpoint.startsWith(`${endpointPrefix}/`)) &&
-              (item.actionType === "POST" || item.actionType === "PUT"),
-          )
-          .toArray();
+  let stagedCatchEndpoint: string | null = null;
+  let stagedSyncQueueId: number | undefined = undefined;
 
-        for (const item of itemsToPurge) {
-          if (item.id !== undefined) {
-            await db.syncQueue.delete(item.id);
+  await db.transaction("rw", tables, async () => {
+    const match = (await db.matches.get(matchId)) as
+      | (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string })
+      | undefined;
+
+    if (!match || match.homeScore != null || match.guestScore != null) {
+      return;
+    }
+
+    let effectiveTeamId =
+      teamId?.trim() || match.trackedTeamId || match.selectedTeamId;
+
+    // Fallback recovery: if no explicit team selection exists, check db.syncQueue
+    if (!effectiveTeamId && db.syncQueue) {
+      try {
+        const syncItems = await db.syncQueue.toArray();
+        const matchPrefix = `/Matches/${matchId}/teams/`;
+        const matchItem = syncItems.find(
+          (item) =>
+            item.actionType === "POST" &&
+            item.endpoint?.startsWith(matchPrefix) &&
+            item.endpoint?.endsWith("/catch"),
+        );
+        if (matchItem) {
+          const parts = matchItem.endpoint.split("/");
+          const teamsIndex = parts.indexOf("teams");
+          if (teamsIndex !== -1 && parts[teamsIndex + 1]) {
+            effectiveTeamId = parts[teamsIndex + 1];
           }
         }
+      } catch (err) {
+        console.error(
+          "Failed to recover correct teamId from syncQueue during discard:",
+          err,
+        );
       }
-
-      const lineups = await db.matchlineups
-        .where("matchId")
-        .equals(matchId)
-        .toArray();
-      const lineupIds = lineups.map((l) => l.id);
-
-      if (lineupIds.length > 0) {
-        await db.playerpresences
-          .where("matchLineupId")
-          .anyOf(lineupIds)
-          .delete();
-        await db.gameevents.where("matchLineupId").anyOf(lineupIds).delete();
-      }
-
-      await db.matches.delete(matchId);
-      await db.matchlineups.where("matchId").equals(matchId).delete();
-      await db.timeanchors.where("matchId").equals(matchId).delete();
     }
-  });
-};
 
-/**
- * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
- * Issues UncatchMatch request to server when teamId is supplied (with syncQueue offline fallback)
- * only if the match exists and is unfinished (both scores are null).
- * Also purges pending mutation items (POST/PUT) for this match from syncQueue within the same transaction.
- */
-export const discardUnfinishedMatch = async (
-  matchId: string,
-  teamId?: string,
-): Promise<void> => {
-  if (!db?.matches) return;
+    // Final fallback sequence if teamId is still missing: homeTeamId first, then guestTeamId
+    if (!effectiveTeamId) {
+      effectiveTeamId = match.homeTeamId || match.guestTeamId;
+    }
 
-  const initialMatch = (await db.matches.get(matchId)) as
-    | (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string })
-    | undefined;
+    // Purge pending mutation items (POST/PUT) for this match from syncQueue
+    if (db.syncQueue) {
+      const endpointPrefix = `/Matches/${matchId}`;
+      const itemsToPurge = await db.syncQueue
+        .filter(
+          (item) =>
+            (item.endpoint === endpointPrefix ||
+              item.endpoint.startsWith(`${endpointPrefix}/`)) &&
+            (item.actionType === "POST" || item.actionType === "PUT"),
+        )
+        .toArray();
 
-  if (
-    !initialMatch ||
-    initialMatch.homeScore != null ||
-    initialMatch.guestScore != null
-  ) {
-    return;
-  }
-
-  let effectiveTeamId =
-    teamId?.trim() || initialMatch.trackedTeamId || initialMatch.selectedTeamId;
-
-  // Fallback recovery: if no explicit team selection exists, check db.syncQueue
-  if (!effectiveTeamId && db.syncQueue) {
-    try {
-      const syncItems = await db.syncQueue.toArray();
-      const matchPrefix = `/Matches/${matchId}/teams/`;
-      const matchItem = syncItems.find(
-        (item) =>
-          item.actionType === "POST" &&
-          item.endpoint?.startsWith(matchPrefix) &&
-          item.endpoint?.endsWith("/catch"),
-      );
-      if (matchItem) {
-        const parts = matchItem.endpoint.split("/");
-        const teamsIndex = parts.indexOf("teams");
-        if (teamsIndex !== -1 && parts[teamsIndex + 1]) {
-          effectiveTeamId = parts[teamsIndex + 1];
+      for (const item of itemsToPurge) {
+        if (item.id !== undefined) {
+          await db.syncQueue.delete(item.id);
         }
       }
+    }
+
+    // Stage uncatch DELETE in syncQueue outbox if teamId is available
+    if (effectiveTeamId?.trim() && db.syncQueue) {
+      stagedCatchEndpoint = `/Matches/${matchId}/teams/${effectiveTeamId.trim()}/catch`;
+      stagedSyncQueueId = await db.syncQueue.put({
+        actionType: "DELETE",
+        endpoint: stagedCatchEndpoint,
+        payload: "{}",
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    const lineups = await db.matchlineups
+      .where("matchId")
+      .equals(matchId)
+      .toArray();
+    const lineupIds = lineups.map((l) => l.id);
+
+    if (lineupIds.length > 0) {
+      await db.playerpresences.where("matchLineupId").anyOf(lineupIds).delete();
+      await db.gameevents.where("matchLineupId").anyOf(lineupIds).delete();
+    }
+
+    await db.matches.delete(matchId);
+    await db.matchlineups.where("matchId").equals(matchId).delete();
+    await db.timeanchors.where("matchId").equals(matchId).delete();
+  });
+
+  // Post-commit dispatch: attempt online API call if online, and clean up staged outbox item on success
+  if (stagedCatchEndpoint && navigator.onLine) {
+    try {
+      await apiClient.delete(stagedCatchEndpoint);
+      if (stagedSyncQueueId !== undefined && db.syncQueue) {
+        await db.syncQueue.delete(stagedSyncQueueId);
+      }
     } catch (err) {
-      console.error(
-        "Failed to recover correct teamId from syncQueue during discard:",
+      if (err instanceof StaleUserError) throw err;
+      console.warn(
+        "Uncatch match API call failed online, fallback to syncQueue:",
         err,
       );
     }
   }
-
-  // Final fallback sequence if teamId is still missing: homeTeamId first, then guestTeamId
-  if (!effectiveTeamId) {
-    effectiveTeamId = initialMatch.homeTeamId || initialMatch.guestTeamId;
-  }
-
-  if (effectiveTeamId?.trim()) {
-    await uncatchMatchOnServerOrQueue(matchId, effectiveTeamId);
-  }
-
-  await deleteLocalMatchRecords(matchId);
 };
 
 const verifyAndStoreMatch = async (

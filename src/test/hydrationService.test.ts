@@ -1410,4 +1410,36 @@ describe("Hydration Service", () => {
       trackedTeamId: "team-guest",
     });
   });
+
+  it("should not dispatch API delete or leave DELETE item queued when transaction rolls back during discard", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    vi.mocked(db.transaction).mockImplementationOnce((async () => {
+      throw new Error("Dexie write transaction failure");
+    }) as unknown as typeof db.transaction);
+
+    await expect(discardUnfinishedMatch(matchId, teamId)).rejects.toThrow(
+      "Dexie write transaction failure",
+    );
+
+    expect(apiClient.delete).not.toHaveBeenCalled();
+  });
+
+  it("should not stage or send uncatch DELETE if match is completed at transaction check time", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: 3,
+      guestScore: 2,
+    } as never);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(db.syncQueue.put).not.toHaveBeenCalled();
+    expect(apiClient.delete).not.toHaveBeenCalled();
+    expect(db.matches.delete).not.toHaveBeenCalled();
+  });
 });
