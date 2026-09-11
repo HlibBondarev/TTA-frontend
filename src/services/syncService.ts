@@ -27,8 +27,6 @@ interface SyncCacheContext {
   matchRecordCache?: Map<string, MatchTeamData | null>;
 }
 
-type EventTeamResult = string;
-
 const UNRECOVERABLE_STATUS_CODES = new Set([400, 403, 404, 409, 410]);
 const MATCH_TEAM_ENDPOINT_REGEX = /\/Matches\/([^/]+)\/teams\/([^/]+)/;
 
@@ -192,7 +190,7 @@ const parsePayload = (payloadStr: string): unknown => {
 const resolveEventTeamId = async (
   event: Record<string, unknown>,
   lineupTeamCache?: Map<string, string | null>,
-): Promise<EventTeamResult> => {
+): Promise<string> => {
   if (
     typeof event?.matchLineupId === "string" &&
     db?.matchlineups &&
@@ -226,7 +224,7 @@ const resolveEventTeamId = async (
 const resolveBatchTeamId = async (
   payload: unknown,
   lineupTeamCache?: Map<string, string | null>,
-): Promise<EventTeamResult> => {
+): Promise<string> => {
   const eventsList = Array.isArray(payload) ? payload : [payload];
   if (eventsList.length === 0) return "NO_LINEUP";
 
@@ -262,7 +260,7 @@ const resolveBatchTeamId = async (
 
 const isNextItemCompatible = async (
   currentItem: SyncQueueItem,
-  currentTeamResult: EventTeamResult,
+  currentTeamResult: string,
   nextItem: SyncQueueItem,
   lineupTeamCache?: Map<string, string | null>,
 ): Promise<{ compatible: boolean; payload: unknown }> => {
@@ -279,7 +277,7 @@ const isNextItemCompatible = async (
   }
 
   if (currentItem.endpoint.includes("/teams/")) {
-    let nextTeamResult: EventTeamResult;
+    let nextTeamResult: string;
     try {
       nextTeamResult = await resolveBatchTeamId(nextPayload, lineupTeamCache);
     } catch {
@@ -302,7 +300,7 @@ const getInitialTeamResult = async (
   endpoint: string,
   payload: unknown,
   cache?: Map<string, string | null>,
-): Promise<EventTeamResult> => {
+): Promise<string> => {
   if (!endpoint.includes("/teams/")) return "NO_LINEUP";
   try {
     return await resolveBatchTeamId(payload, cache);
@@ -578,6 +576,36 @@ const handleUnrecoverableError = async (
   }
 };
 
+/**
+ * Helper to process response status and handle success vs unrecoverable error branches.
+ */
+const evaluateResponseStatus = async (
+  status: number | undefined,
+  currentItem: SyncQueueItem,
+  effectivePayload: unknown,
+  batchItems: SyncQueueItem[],
+): Promise<BatchResult | null> => {
+  if (isSuccessStatus(status)) {
+    const syncedCount = await finalizeBatchSync(
+      currentItem.endpoint,
+      effectivePayload,
+      batchItems,
+    );
+    return { syncedCount, shouldContinue: true };
+  }
+
+  if (isUnrecoverableStatus(status)) {
+    return handleUnrecoverableError(
+      batchItems,
+      currentItem.endpoint,
+      effectivePayload,
+      status,
+    );
+  }
+
+  return null;
+};
+
 const processSyncBatch = async (
   currentItem: SyncQueueItem,
   effectivePayload: unknown,
@@ -593,22 +621,15 @@ const processSyncBatch = async (
       cache,
     );
 
-    if (isSuccessStatus(response?.status)) {
-      const syncedCount = await finalizeBatchSync(
-        currentItem.endpoint,
-        effectivePayload,
-        batchItems,
-      );
-      return { syncedCount, shouldContinue: true };
-    }
+    const evaluatedResult = await evaluateResponseStatus(
+      response?.status,
+      currentItem,
+      effectivePayload,
+      batchItems,
+    );
 
-    if (isUnrecoverableStatus(response?.status)) {
-      return handleUnrecoverableError(
-        batchItems,
-        currentItem.endpoint,
-        effectivePayload,
-        response?.status,
-      );
+    if (evaluatedResult) {
+      return evaluatedResult;
     }
 
     return { syncedCount: 0, shouldContinue: false };
