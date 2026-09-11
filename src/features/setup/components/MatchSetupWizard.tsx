@@ -301,14 +301,21 @@ async function persistTrackedTeamLocally(
   selectedTeamId: string,
   initiatedUserId: string | undefined,
   verifyFreshness: () => void,
-): Promise<{ existingMatch?: MatchLookup; didPersist: boolean }> {
-  if (!db.matches) return { didPersist: false };
-  let existingMatch = await db.matches.get(pendingMatchId);
+): Promise<{
+  existingMatch?: MatchLookup;
+  didPersist: boolean;
+  existedLocally: boolean;
+}> {
+  if (!db.matches) return { didPersist: false, existedLocally: false };
+  const initialLocalMatch = await db.matches.get(pendingMatchId);
   verifyFreshness();
 
-  if (!existingMatch) {
+  const existedLocally = !!initialLocalMatch;
+  let matchToNormalize = initialLocalMatch;
+
+  if (!matchToNormalize) {
     try {
-      existingMatch = await fetchAndNormalizeMatch(
+      matchToNormalize = await fetchAndNormalizeMatch(
         pendingMatchId,
         initiatedUserId,
       );
@@ -324,7 +331,7 @@ async function persistTrackedTeamLocally(
   }
 
   const matchToPut: MatchLookup = {
-    ...existingMatch,
+    ...matchToNormalize,
     trackedTeamId: selectedTeamId,
   };
 
@@ -332,23 +339,28 @@ async function persistTrackedTeamLocally(
   try {
     verifyFreshness();
   } catch (err) {
-    if (existingMatch) {
-      await db.matches.put(existingMatch);
+    if (existedLocally && initialLocalMatch) {
+      await db.matches.put(initialLocalMatch);
     } else {
       await db.matches.delete(pendingMatchId);
     }
     throw err;
   }
-  return { existingMatch, didPersist: true };
+  return {
+    existingMatch: initialLocalMatch,
+    didPersist: true,
+    existedLocally,
+  };
 }
 
 async function rollbackTrackedTeamLocally(
   pendingMatchId: string,
   existingMatch?: MatchLookup,
+  existedLocally = false,
 ): Promise<void> {
   if (!db.matches) return;
   try {
-    if (existingMatch) {
+    if (existedLocally && existingMatch) {
       await db.matches.put(existingMatch);
     } else {
       await db.matches.delete(pendingMatchId);
@@ -470,7 +482,11 @@ async function compensateAndRollbackIfNeeded(
   catchEndpoint: string,
   catchResult: CatchResult | undefined,
   localPersistResult:
-    | { existingMatch?: MatchLookup; didPersist: boolean }
+    | {
+        existingMatch?: MatchLookup;
+        didPersist: boolean;
+        existedLocally: boolean;
+      }
     | undefined,
   pendingMatchId: string,
 ): Promise<void> {
@@ -479,6 +495,7 @@ async function compensateAndRollbackIfNeeded(
       await rollbackTrackedTeamLocally(
         pendingMatchId,
         localPersistResult.existingMatch,
+        localPersistResult.existedLocally,
       );
     }
     return;
@@ -503,6 +520,7 @@ async function compensateAndRollbackIfNeeded(
     await rollbackTrackedTeamLocally(
       pendingMatchId,
       localPersistResult.existingMatch,
+      localPersistResult.existedLocally,
     );
   }
 }
@@ -512,7 +530,11 @@ async function handleConfirmQuickStartError(
   catchEndpoint: string,
   catchResult: CatchResult | undefined,
   localPersistResult:
-    | { existingMatch?: MatchLookup; didPersist: boolean }
+    | {
+        existingMatch?: MatchLookup;
+        didPersist: boolean;
+        existedLocally: boolean;
+      }
     | undefined,
   pendingMatchId: string,
   setErrorMessage: (msg: string | null) => void,
@@ -791,7 +813,11 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     const catchEndpoint = `/Matches/${pendingMatchId}/teams/${selectedTeamId}/catch`;
     let catchResult: CatchResult | undefined;
     let localPersistResult:
-      | { existingMatch?: MatchLookup; didPersist: boolean }
+      | {
+          existingMatch?: MatchLookup;
+          didPersist: boolean;
+          existedLocally: boolean;
+        }
       | undefined;
 
     try {

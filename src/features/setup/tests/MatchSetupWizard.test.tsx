@@ -2199,4 +2199,43 @@ describe("MatchSetupWizard Component", () => {
       expect(screen.getByRole("alert")).toBeDefined();
     });
   });
+
+  it("should delete newly created local match record on rollback when match did not exist locally prior to confirm step", async () => {
+    const handleQuickStart = vi
+      .fn()
+      .mockRejectedValue(new Error("QuickStart failure"));
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
+    vi.mocked(apiClient.get).mockResolvedValue(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    // Simulate match not existing locally when persistTrackedTeamLocally runs
+    vi.mocked(db.matches.get).mockResolvedValueOnce(null as never);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(db.matches.delete).toHaveBeenCalledWith("match-123");
+      expect(screen.getByRole("alert")).toBeDefined();
+    });
+  });
 });
