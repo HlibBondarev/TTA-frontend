@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { processSyncQueue } from "../services/syncService";
 import { db } from "../db/ttaDatabase";
 import { apiClient } from "../api/client";
@@ -66,6 +66,10 @@ describe("Sync Engine Service", () => {
     vi.mocked(db.matches.get).mockResolvedValue(undefined);
     vi.mocked(db.matchlineups.get).mockResolvedValue(undefined);
     vi.mocked(db.playerrosters.get).mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("processes multi-item queue in FIFO order (POST, PUT, DELETE) and deletes synced items", async () => {
