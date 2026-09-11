@@ -331,7 +331,7 @@ describe("MatchSetupWizard Component", () => {
       id: "match-123",
       homeTeamId: "team-home",
       guestTeamId: "team-guest",
-      trackedTeamId: "team-home",
+      trackedTeamId: "team-guest",
     };
     vi.mocked(db.matches.get).mockResolvedValue(existingMatchRecord as never);
 
@@ -365,6 +365,7 @@ describe("MatchSetupWizard Component", () => {
           trackedTeamId: "team-home",
         }),
       );
+      expect(db.matches.put).toHaveBeenCalledTimes(2);
       expect(screen.getByRole("alert")).toBeDefined();
     });
 
