@@ -122,8 +122,8 @@ export const App: React.FC = () => {
         );
         return;
       }
-      console.error("Hydration failed (non-critical):", error);
-      return;
+      console.error("Hydration failed:", error);
+      throw error;
     }
 
     if (currentUserIdRef.current !== initiatedUserId) {

@@ -365,6 +365,8 @@ describe("App Bootstrapping Component", () => {
       expect(hydrateMatchData).toHaveBeenCalled();
       expect(store.getState().match.activeMatchId).toBeNull();
       expect(store.getState().match.activeTeamId).toBeNull();
+      expect(screen.getByRole("alert")).toBeDefined();
+      expect(screen.getByText("401 Unauthorized")).toBeDefined();
     });
   });
 
