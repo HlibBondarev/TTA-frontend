@@ -1524,4 +1524,38 @@ describe("Hydration Service", () => {
       "synced-e2",
     ]);
   });
+
+  it("should purge staged syncQueue item and not leave in queue when discardUnfinishedMatch API delete fails online with unrecoverable status (e.g., 404)", async () => {
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+    const err404 = new Error("Not Found") as Error & { status?: number };
+    err404.status = 404;
+
+    vi.mocked(apiClient.delete).mockRejectedValueOnce(err404);
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      `/Matches/${matchId}/teams/${teamId}/catch`,
+    );
+    expect(db.syncQueue.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "DELETE",
+        endpoint: `/Matches/${matchId}/teams/${teamId}/catch`,
+      }),
+    );
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("failed online with unrecoverable status (404)"),
+      err404,
+    );
+    consoleWarnSpy.mockRestore();
+  });
 });

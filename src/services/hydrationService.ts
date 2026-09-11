@@ -25,6 +25,16 @@ type TrackedMatch = MatchLookup & {
   selectedTeamId?: string;
 };
 
+const UNRECOVERABLE_STATUS_CODES = new Set([400, 403, 404, 409, 410]);
+
+const extractErrorStatus = (err: unknown): number | undefined => {
+  return (
+    (err as { status?: number; response?: { status?: number } })?.status ??
+    (err as { status?: number; response?: { status?: number } })?.response
+      ?.status
+  );
+};
+
 const syncLineups = async (matchId: string, lineups?: MatchLineupLookup[]) => {
   if (!lineups) return;
   await db.matchlineups.where("matchId").equals(matchId).delete();
@@ -341,6 +351,19 @@ const dispatchUncatchPostCommit = async (
     }
   } catch (err) {
     if (err instanceof StaleUserError) throw err;
+
+    const status = extractErrorStatus(err);
+    if (status !== undefined && UNRECOVERABLE_STATUS_CODES.has(status)) {
+      console.warn(
+        `Uncatch match API call failed online with unrecoverable status (${status}). Purging staged syncQueue item:`,
+        err,
+      );
+      if (stagedSyncQueueId !== undefined && db.syncQueue) {
+        await db.syncQueue.delete(stagedSyncQueueId);
+      }
+      return;
+    }
+
     console.warn(
       "Uncatch match API call failed online, fallback to syncQueue:",
       err,
