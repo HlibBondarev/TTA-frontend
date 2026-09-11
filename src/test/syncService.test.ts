@@ -813,10 +813,12 @@ describe("Sync Engine Service", () => {
   });
 
   it("should normalize outdated teamId in sync endpoint using active match record", async () => {
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: "m-123",
       trackedTeamId: "correct-team-456",
     } as never);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
 
     vi.mocked(db.syncQueue.orderBy).mockReturnValue({
       toArray: vi.fn().mockResolvedValue([
@@ -833,8 +835,8 @@ describe("Sync Engine Service", () => {
 
     expect(apiClient.post).toHaveBeenCalledWith(
       "/Matches/m-123/teams/correct-team-456/events",
-      expect.any(Array),
-      expect.any(Object),
+      [{ id: "e-1" }],
+      { headers: { "X-Idempotency-Key": "sync-batch-1" } },
     );
   });
 
