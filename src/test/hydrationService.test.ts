@@ -1418,13 +1418,30 @@ describe("Hydration Service", () => {
       guestScore: null,
     } as never);
 
+    let queueState: unknown[] = [];
+
+    vi.mocked(db.syncQueue.put).mockImplementation(((item: unknown) => {
+      queueState.push(item);
+      return Promise.resolve(1);
+    }) as unknown as typeof db.syncQueue.put);
+
+    vi.mocked(db.syncQueue.toArray).mockImplementation((() => {
+      return Promise.resolve(queueState);
+    }) as unknown as typeof db.syncQueue.toArray);
+
     vi.mocked(db.transaction).mockImplementationOnce((async (
       _mode: string,
       _tables: unknown,
       callback: () => Promise<void>,
     ) => {
-      await callback();
-      throw new Error("Dexie write transaction failure");
+      const snapshot = [...queueState];
+      try {
+        await callback();
+        throw new Error("Dexie write transaction failure");
+      } catch (err) {
+        queueState = snapshot;
+        throw err;
+      }
     }) as unknown as typeof db.transaction);
 
     await expect(discardUnfinishedMatch(matchId, teamId)).rejects.toThrow(
