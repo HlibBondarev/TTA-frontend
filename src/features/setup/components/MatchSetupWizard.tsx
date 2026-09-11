@@ -29,6 +29,12 @@ interface MatchSetupWizardProps {
   ) => Promise<void>;
 }
 
+interface LocalPersistResult {
+  existingMatch?: MatchLookup;
+  didPersist: boolean;
+  existedLocally: boolean;
+}
+
 class StaleOperationError extends Error {
   constructor() {
     super("Operation cancelled due to user account change.");
@@ -301,11 +307,7 @@ async function persistTrackedTeamLocally(
   selectedTeamId: string,
   initiatedUserId: string | undefined,
   verifyFreshness: () => void,
-): Promise<{
-  existingMatch?: MatchLookup;
-  didPersist: boolean;
-  existedLocally: boolean;
-}> {
+): Promise<LocalPersistResult> {
   if (!db.matches) return { didPersist: false, existedLocally: false };
   const initialLocalMatch = await db.matches.get(pendingMatchId);
   verifyFreshness();
@@ -503,13 +505,7 @@ async function compensateCatchMatch(
 async function compensateAndRollbackIfNeeded(
   catchEndpoint: string,
   catchResult: CatchResult | undefined,
-  localPersistResult:
-    | {
-        existingMatch?: MatchLookup;
-        didPersist: boolean;
-        existedLocally: boolean;
-      }
-    | undefined,
+  localPersistResult: LocalPersistResult | undefined,
   pendingMatchId: string,
 ): Promise<void> {
   if (!catchResult) {
@@ -551,13 +547,7 @@ async function handleConfirmQuickStartError(
   err: unknown,
   catchEndpoint: string,
   catchResult: CatchResult | undefined,
-  localPersistResult:
-    | {
-        existingMatch?: MatchLookup;
-        didPersist: boolean;
-        existedLocally: boolean;
-      }
-    | undefined,
+  localPersistResult: LocalPersistResult | undefined,
   pendingMatchId: string,
   setErrorMessage: (msg: string | null) => void,
 ): Promise<void> {
@@ -837,13 +827,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
     const catchEndpoint = `/Matches/${pendingMatchId}/teams/${selectedTeamId}/catch`;
     let catchResult: CatchResult | undefined;
-    let localPersistResult:
-      | {
-          existingMatch?: MatchLookup;
-          didPersist: boolean;
-          existedLocally: boolean;
-        }
-      | undefined;
+    let localPersistResult: LocalPersistResult | undefined;
 
     try {
       setIsSubmitting(true);
