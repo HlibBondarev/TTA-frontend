@@ -47,10 +47,14 @@ const extractPresenceLineupIds = (
   ].filter(Boolean) as string[];
 };
 
-const extractEventIds = (endpoint: string, payload: unknown): string[] => {
+const extractEntityIds = (
+  segment: "events" | "anchors",
+  endpoint: string,
+  payload: unknown,
+): string[] => {
   const ids = new Set<string>();
-  const eventsList = Array.isArray(payload) ? payload : [payload];
-  for (const item of eventsList) {
+  const items = Array.isArray(payload) ? payload : [payload];
+  for (const item of items) {
     if (
       typeof item === "object" &&
       item !== null &&
@@ -61,7 +65,7 @@ const extractEventIds = (endpoint: string, payload: unknown): string[] => {
     }
   }
 
-  const match = /\/events\/([^/]+)/.exec(endpoint);
+  const match = new RegExp(`/${segment}/([^/]+)`).exec(endpoint);
   if (match?.[1] && match[1] !== "batch" && !match[1].startsWith("?")) {
     ids.add(match[1]);
   }
@@ -69,27 +73,11 @@ const extractEventIds = (endpoint: string, payload: unknown): string[] => {
   return Array.from(ids);
 };
 
-const extractAnchorIds = (endpoint: string, payload: unknown): string[] => {
-  const ids = new Set<string>();
-  const anchorsList = Array.isArray(payload) ? payload : [payload];
-  for (const item of anchorsList) {
-    if (
-      typeof item === "object" &&
-      item !== null &&
-      "id" in item &&
-      typeof (item as { id?: string }).id === "string"
-    ) {
-      ids.add((item as { id: string }).id);
-    }
-  }
+const extractEventIds = (endpoint: string, payload: unknown): string[] =>
+  extractEntityIds("events", endpoint, payload);
 
-  const match = /\/anchors\/([^/]+)/.exec(endpoint);
-  if (match?.[1] && match[1] !== "batch" && !match[1].startsWith("?")) {
-    ids.add(match[1]);
-  }
-
-  return Array.from(ids);
-};
+const extractAnchorIds = (endpoint: string, payload: unknown): string[] =>
+  extractEntityIds("anchors", endpoint, payload);
 
 const syncPresences = async (
   payload: unknown,

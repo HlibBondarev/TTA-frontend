@@ -1279,4 +1279,43 @@ describe("Sync Engine Service", () => {
       { headers: { "X-Idempotency-Key": "sync-batch-3-4" } },
     );
   });
+
+  it("correctly extracts entity IDs using shared extractEntityIds logic for events and anchors", async () => {
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/anchors/batch",
+        payload: JSON.stringify([{ id: "anchor-batch-item" }]),
+      },
+      {
+        id: 2,
+        actionType: "DELETE",
+        endpoint: "/Matches/m1/events/e-path-id",
+        payload: "{}",
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+    vi.mocked(apiClient.delete).mockResolvedValue({ status: 200 });
+
+    const mockModify = vi.fn();
+    const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      anyOf: mockAnyOf,
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+    vi.mocked(db.gameevents.where).mockReturnValue({
+      anyOf: mockAnyOf,
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(2);
+    expect(mockAnyOf).toHaveBeenCalledWith(["anchor-batch-item"]);
+    expect(mockAnyOf).toHaveBeenCalledWith(["e-path-id"]);
+  });
 });
