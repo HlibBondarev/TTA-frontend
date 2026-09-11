@@ -299,19 +299,17 @@ const resolveEffectiveTeamId = async (
 const purgePendingMatchMutations = async (matchId: string): Promise<void> => {
   if (!db.syncQueue) return;
   const endpointPrefix = `/Matches/${matchId}`;
-  const itemsToPurge = await db.syncQueue
+  const idsToPurge = (await db.syncQueue
     .filter(
       (item) =>
         (item.endpoint === endpointPrefix ||
           item.endpoint.startsWith(`${endpointPrefix}/`)) &&
         (item.actionType === "POST" || item.actionType === "PUT"),
     )
-    .toArray();
+    .primaryKeys()) as number[];
 
-  for (const item of itemsToPurge) {
-    if (item.id !== undefined) {
-      await db.syncQueue.delete(item.id);
-    }
+  if (idsToPurge.length > 0) {
+    await db.syncQueue.bulkDelete(idsToPurge);
   }
 };
 

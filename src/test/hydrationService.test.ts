@@ -59,8 +59,10 @@ vi.mock("../db/ttaDatabase", () => ({
       toArray: vi.fn().mockResolvedValue([]),
       filter: vi.fn().mockReturnValue({
         toArray: vi.fn().mockResolvedValue([]),
+        primaryKeys: vi.fn().mockResolvedValue([]),
       }),
       delete: vi.fn().mockResolvedValue(undefined),
+      bulkDelete: vi.fn().mockResolvedValue(undefined),
     },
   },
 }));
@@ -101,6 +103,7 @@ describe("Hydration Service", () => {
       .mockReset()
       .mockResolvedValue(1 as never);
     vi.mocked(db.syncQueue.delete).mockReset().mockResolvedValue(undefined);
+    vi.mocked(db.syncQueue.bulkDelete).mockReset().mockResolvedValue(undefined);
 
     vi.stubGlobal("navigator", { onLine: true });
 
@@ -136,6 +139,7 @@ describe("Hydration Service", () => {
       .mockReset()
       .mockResolvedValue([] as never);
     vi.mocked(db.syncQueue.delete).mockReset().mockResolvedValue(undefined);
+    vi.mocked(db.syncQueue.bulkDelete).mockReset().mockResolvedValue(undefined);
   });
 
   it("should NOT issue UncatchMatch DELETE API call or enqueue in syncQueue when discardUnfinishedMatch is called for a completed match with non-null scores and teamId", async () => {
@@ -180,6 +184,7 @@ describe("Hydration Service", () => {
       capturedPredicate = predicate;
       const filtered = pendingQueueItems.filter(predicate);
       return {
+        primaryKeys: vi.fn().mockResolvedValue(filtered.map((item) => item.id)),
         toArray: vi.fn().mockResolvedValue(filtered),
       };
     }) as unknown as typeof db.syncQueue.filter);
@@ -198,10 +203,7 @@ describe("Hydration Service", () => {
       expect(capturedPredicate(pendingQueueItems[2])).toBe(false);
       expect(capturedPredicate(pendingQueueItems[3])).toBe(false);
     }
-    expect(db.syncQueue.delete).toHaveBeenCalledWith(10);
-    expect(db.syncQueue.delete).toHaveBeenCalledWith(11);
-    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(12);
-    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(13);
+    expect(db.syncQueue.bulkDelete).toHaveBeenCalledWith([10, 11]);
   });
 
   it("should fallback to syncQueue and log warning when discardUnfinishedMatch API delete call fails online", async () => {
