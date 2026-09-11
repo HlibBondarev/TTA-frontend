@@ -1448,4 +1448,54 @@ describe("Hydration Service", () => {
     expect(apiClient.delete).not.toHaveBeenCalled();
     expect(db.matches.delete).not.toHaveBeenCalled();
   });
+
+  it("purges local entities with terminal isSynced = -1 status alongside isSynced = 1 during hydration", async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId })
+      .mockResolvedValueOnce([{ id: "l1", matchId }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const mockDbEvents = [
+      { id: "terminal-e1", matchLineupId: "l1", isSynced: -1 },
+      { id: "synced-e2", matchLineupId: "l1", isSynced: 1 },
+      { id: "pending-e3", matchLineupId: "l1", isSynced: 0 },
+    ];
+
+    vi.mocked(db.transaction).mockImplementation((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          delete: vi.fn().mockResolvedValue(1),
+          toArray: vi.fn().mockResolvedValue([{ id: "l1", matchId }]),
+        }),
+      } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+      vi.mocked(db.gameevents.filter).mockImplementation(((
+        predicate: (e: (typeof mockDbEvents)[0]) => boolean,
+      ) => {
+        const filtered = mockDbEvents.filter(predicate);
+        return {
+          primaryKeys: vi
+            .fn()
+            .mockResolvedValue(filtered.map((item) => item.id)),
+        };
+      }) as unknown as typeof db.gameevents.filter);
+
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    const result = await hydrateMatchData(matchId, teamId);
+
+    expect(result).toEqual({ success: true, isOfflineFallback: false });
+    expect(db.gameevents.bulkDelete).toHaveBeenCalledWith([
+      "terminal-e1",
+      "synced-e2",
+    ]);
+  });
 });

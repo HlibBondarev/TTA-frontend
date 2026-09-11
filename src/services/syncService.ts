@@ -47,6 +47,50 @@ const extractPresenceLineupIds = (
   ].filter(Boolean) as string[];
 };
 
+const extractEventIds = (endpoint: string, payload: unknown): string[] => {
+  const ids = new Set<string>();
+  const eventsList = Array.isArray(payload) ? payload : [payload];
+  for (const item of eventsList) {
+    if (
+      typeof item === "object" &&
+      item !== null &&
+      "id" in item &&
+      typeof (item as { id?: string }).id === "string"
+    ) {
+      ids.add((item as { id: string }).id);
+    }
+  }
+
+  const match = /\/events\/([^/]+)/.exec(endpoint);
+  if (match?.[1] && match[1] !== "batch" && !match[1].startsWith("?")) {
+    ids.add(match[1]);
+  }
+
+  return Array.from(ids);
+};
+
+const extractAnchorIds = (endpoint: string, payload: unknown): string[] => {
+  const ids = new Set<string>();
+  const anchorsList = Array.isArray(payload) ? payload : [payload];
+  for (const item of anchorsList) {
+    if (
+      typeof item === "object" &&
+      item !== null &&
+      "id" in item &&
+      typeof (item as { id?: string }).id === "string"
+    ) {
+      ids.add((item as { id: string }).id);
+    }
+  }
+
+  const match = /\/anchors\/([^/]+)/.exec(endpoint);
+  if (match?.[1] && match[1] !== "batch" && !match[1].startsWith("?")) {
+    ids.add(match[1]);
+  }
+
+  return Array.from(ids);
+};
+
 const syncPresences = async (
   payload: unknown,
   targetStatus: number = 1,
@@ -76,15 +120,13 @@ const syncPresences = async (
 };
 
 const syncEvents = async (
+  endpoint: string,
   payload: unknown,
   targetStatus: number = 1,
 ): Promise<void> => {
   if (!db?.gameevents) return;
 
-  const eventsList = Array.isArray(payload) ? payload : [payload];
-  const eventIds = eventsList
-    .map((item) => (item as { id?: string })?.id)
-    .filter((id): id is string => Boolean(id));
+  const eventIds = extractEventIds(endpoint, payload);
 
   if (eventIds.length > 0) {
     await db.gameevents
@@ -95,15 +137,13 @@ const syncEvents = async (
 };
 
 const syncAnchors = async (
+  endpoint: string,
   payload: unknown,
   targetStatus: number = 1,
 ): Promise<void> => {
   if (!db?.timeanchors) return;
 
-  const anchorsList = Array.isArray(payload) ? payload : [payload];
-  const anchorIds = anchorsList
-    .map((item) => (item as { id?: string })?.id)
-    .filter((id): id is string => Boolean(id));
+  const anchorIds = extractAnchorIds(endpoint, payload);
 
   if (anchorIds.length > 0) {
     await db.timeanchors
@@ -114,7 +154,7 @@ const syncAnchors = async (
 };
 
 /**
- * Updates local IndexedDB entities (playerpresences, gameevents, timeanchors) to targetStatus (default 1) upon sync finalization or purge.
+ * Updates local IndexedDB entities (playerpresences, gameevents, timeanchors) to targetStatus (default 1, or -1 for terminal failure) upon sync finalization or purge.
  */
 export const markEntitiesSynced = async (
   endpoint: string,
@@ -126,9 +166,9 @@ export const markEntitiesSynced = async (
   if (endpoint.includes("/presence") || endpoint.includes("/substitutions")) {
     await syncPresences(payload, targetStatus);
   } else if (endpoint.includes("/events")) {
-    await syncEvents(payload, targetStatus);
+    await syncEvents(endpoint, payload, targetStatus);
   } else if (endpoint.includes("/anchors")) {
-    await syncAnchors(payload, targetStatus);
+    await syncAnchors(endpoint, payload, targetStatus);
   }
 };
 

@@ -1185,4 +1185,34 @@ describe("Sync Engine Service", () => {
       expect.any(Object),
     );
   });
+
+  it("extracts entity ID from single-entity endpoint path when payload does not contain id", async () => {
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "DELETE",
+        endpoint: "/Matches/m1/events/e-999",
+        payload: "{}",
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.delete).mockResolvedValue({ status: 200 });
+
+    const mockModify = vi.fn();
+    const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
+    vi.mocked(db.gameevents.where).mockReturnValue({
+      anyOf: mockAnyOf,
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(1);
+    expect(db.gameevents.where).toHaveBeenCalledWith("id");
+    expect(mockAnyOf).toHaveBeenCalledWith(["e-999"]);
+    expect(mockModify).toHaveBeenCalledWith({ isSynced: 1 });
+  });
 });

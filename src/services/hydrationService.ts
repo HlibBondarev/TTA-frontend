@@ -33,7 +33,7 @@ const syncAnchors = async (matchId: string, anchors?: TimeAnchor[]) => {
   await db.timeanchors
     .where("matchId")
     .equals(matchId)
-    .and((a) => a.isSynced === 1)
+    .and((a) => a.isSynced === 1 || a.isSynced === -1)
     .delete();
   if (anchors.length > 0) {
     const syncedAnchors = anchors.map((a) => ({ ...a, isSynced: 1 }));
@@ -48,7 +48,11 @@ const syncPresence = async (
   if (!presence) return;
 
   const syncedKeys = await db.playerpresences
-    .filter((p) => matchLineupIds.has(p.matchLineupId) && p.isSynced === 1)
+    .filter(
+      (p) =>
+        matchLineupIds.has(p.matchLineupId) &&
+        (p.isSynced === 1 || p.isSynced === -1),
+    )
     .primaryKeys();
 
   if (syncedKeys.length > 0) {
@@ -77,7 +81,11 @@ const syncEvents = async (
   if (!events) return;
 
   const syncedKeys = await db.gameevents
-    .filter((e) => matchLineupIds.has(e.matchLineupId) && e.isSynced === 1)
+    .filter(
+      (e) =>
+        matchLineupIds.has(e.matchLineupId) &&
+        (e.isSynced === 1 || e.isSynced === -1),
+    )
     .primaryKeys();
 
   if (syncedKeys.length > 0) {
