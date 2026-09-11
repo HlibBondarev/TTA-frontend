@@ -428,6 +428,54 @@ async function purgeStaleSyncItem(
   await db.syncQueue.delete(queuedItemId);
 }
 
+async function tryOnlineUncatch(
+  catchEndpoint: string,
+): Promise<boolean | "FALLBACK"> {
+  if (!navigator.onLine) return "FALLBACK";
+
+  try {
+    await apiClient.delete(catchEndpoint);
+    return true;
+  } catch (err) {
+    if (err instanceof StaleOperationError) throw err;
+    const status = getHttpStatus(err);
+    if (status === 404 || status === 410) {
+      return true;
+    }
+    if (typeof status === "number") {
+      console.warn(
+        `Compensating online uncatch failed with terminal HTTP ${status}:`,
+        err,
+      );
+      return false;
+    }
+    console.warn(
+      "Compensating online uncatch failed due to network error, falling back to syncQueue:",
+      err,
+    );
+    return "FALLBACK";
+  }
+}
+
+async function compensateOnlineCatch(catchEndpoint: string): Promise<boolean> {
+  const result = await tryOnlineUncatch(catchEndpoint);
+  if (typeof result === "boolean") {
+    return result;
+  }
+
+  if (db.syncQueue) {
+    await db.syncQueue.put({
+      actionType: "DELETE",
+      endpoint: catchEndpoint,
+      payload: "{}",
+      createdAt: new Date().toISOString(),
+    });
+    return true;
+  }
+
+  return false;
+}
+
 async function compensateCatchMatch(
   catchEndpoint: string,
   catchResult?: CatchResult,
@@ -440,39 +488,7 @@ async function compensateCatchMatch(
   }
 
   if (catchResult.wasOnline) {
-    if (navigator.onLine) {
-      try {
-        await apiClient.delete(catchEndpoint);
-        return true;
-      } catch (err) {
-        if (err instanceof StaleOperationError) throw err;
-        const status = getHttpStatus(err);
-        if (status === 404 || status === 410) {
-          return true;
-        }
-        if (typeof status === "number") {
-          console.warn(
-            `Compensating online uncatch failed with terminal HTTP ${status}:`,
-            err,
-          );
-          return false;
-        }
-        console.warn(
-          "Compensating online uncatch failed due to network error, falling back to syncQueue:",
-          err,
-        );
-      }
-    }
-    if (db.syncQueue) {
-      await db.syncQueue.put({
-        actionType: "DELETE",
-        endpoint: catchEndpoint,
-        payload: "{}",
-        createdAt: new Date().toISOString(),
-      });
-      return true;
-    }
-    return false;
+    return compensateOnlineCatch(catchEndpoint);
   }
 
   return true;
