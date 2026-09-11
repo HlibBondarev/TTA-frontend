@@ -397,6 +397,12 @@ async function executeCatchMatch(catchEndpoint: string): Promise<CatchResult> {
       catchSuccess = true;
     } catch (catchErr) {
       if (catchErr instanceof StaleOperationError) throw catchErr;
+      const status = getHttpStatus(catchErr);
+      if (typeof status === "number") {
+        throw new Error(`Failed to catch match team (HTTP ${status}).`, {
+          cause: catchErr,
+        });
+      }
       console.warn(
         "Catch match API call failed online, fallback to syncQueue:",
         catchErr,

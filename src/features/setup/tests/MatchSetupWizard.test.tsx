@@ -2238,4 +2238,49 @@ describe("MatchSetupWizard Component", () => {
       expect(screen.getByRole("alert")).toBeDefined();
     });
   });
+
+  it("should throw error and rollback local match when online CatchMatch fails with an HTTP status code", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockRejectedValueOnce({ status: 409 });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    const existingMatchRecord = {
+      id: "match-123",
+      homeTeamId: "team-home",
+      guestTeamId: "team-guest",
+    };
+    vi.mocked(db.matches.get).mockResolvedValue(existingMatchRecord as never);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(db.syncQueue.put).not.toHaveBeenCalled();
+      expect(db.matches.put).toHaveBeenLastCalledWith(existingMatchRecord);
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Failed to catch match team (HTTP 409).",
+      );
+      expect(handleQuickStart).not.toHaveBeenCalled();
+    });
+  });
 });
