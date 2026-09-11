@@ -903,20 +903,21 @@ describe("Sync Engine Service", () => {
       toArray: vi.fn().mockResolvedValue([
         {
           id: 1,
-          actionType: "DELETE",
-          endpoint: "/Matches/m-123/teams/team-home-111/catch",
-          payload: "{}",
+          actionType: "POST",
+          endpoint: "/Matches/m-123/teams/team-home-111/events",
+          payload: JSON.stringify([{ id: "e-1" }]),
         },
       ]),
     } as never);
 
-    vi.mocked(apiClient.delete).mockResolvedValueOnce({ status: 200 });
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ status: 201 });
 
     await processSyncQueue();
 
-    expect(apiClient.delete).toHaveBeenCalledWith(
-      "/Matches/m-123/teams/team-home-111/catch",
-      expect.any(Object),
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/m-123/teams/team-home-111/events",
+      [{ id: "e-1" }],
+      { headers: { "X-Idempotency-Key": "sync-batch-1" } },
     );
   });
 
