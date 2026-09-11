@@ -1418,7 +1418,12 @@ describe("Hydration Service", () => {
       guestScore: null,
     } as never);
 
-    vi.mocked(db.transaction).mockImplementationOnce((async () => {
+    vi.mocked(db.transaction).mockImplementationOnce((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      await callback();
       throw new Error("Dexie write transaction failure");
     }) as unknown as typeof db.transaction);
 
@@ -1427,6 +1432,7 @@ describe("Hydration Service", () => {
     );
 
     expect(apiClient.delete).not.toHaveBeenCalled();
+    expect(await db.syncQueue.toArray()).toEqual([]);
   });
 
   it("should not stage or send uncatch DELETE if match is completed at transaction check time", async () => {
