@@ -1245,6 +1245,13 @@ describe("Hydration Service", () => {
     expect(apiClient.delete).toHaveBeenCalledWith(
       `/Matches/${matchId}/teams/team-guest-999/catch`,
     );
+    expect(db.syncQueue.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "DELETE",
+        endpoint: `/Matches/${matchId}/teams/team-guest-999/catch`,
+      }),
+    );
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 
