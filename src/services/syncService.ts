@@ -209,6 +209,16 @@ const resolveEventTeamId = async (
   return "NO_LINEUP";
 };
 
+const resolveSingleEventTeamId = async (
+  item: unknown,
+  lineupTeamCache?: Map<string, string | null>,
+): Promise<string> => {
+  if (typeof item !== "object" || item === null) {
+    return "UNRESOLVED";
+  }
+  return resolveEventTeamId(item as Record<string, unknown>, lineupTeamCache);
+};
+
 const resolveBatchTeamId = async (
   payload: unknown,
   lineupTeamCache?: Map<string, string | null>,
@@ -219,31 +229,18 @@ const resolveBatchTeamId = async (
   let commonTeamId: string | null = null;
 
   for (const item of eventsList) {
-    if (typeof item === "object" && item !== null) {
-      const result = await resolveEventTeamId(
-        item as Record<string, unknown>,
-        lineupTeamCache,
-      );
-      if (result === "UNRESOLVED") {
-        return "UNRESOLVED";
-      }
-      if (result !== "NO_LINEUP") {
-        if (commonTeamId === null) {
-          commonTeamId = result;
-        } else if (commonTeamId !== result) {
-          return "UNRESOLVED";
-        }
-      }
-    } else {
+    const result = await resolveSingleEventTeamId(item, lineupTeamCache);
+    if (result === "UNRESOLVED") return "UNRESOLVED";
+    if (result === "NO_LINEUP") continue;
+
+    if (commonTeamId === null) {
+      commonTeamId = result;
+    } else if (commonTeamId !== result) {
       return "UNRESOLVED";
     }
   }
 
-  if (commonTeamId !== null) {
-    return commonTeamId;
-  }
-
-  return "NO_LINEUP";
+  return commonTeamId ?? "NO_LINEUP";
 };
 
 const isNextItemCompatible = async (
