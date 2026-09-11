@@ -313,8 +313,13 @@ async function persistTrackedTeamLocally(
         initiatedUserId,
       );
       verifyFreshness();
-    } catch {
-      throw new Error("Match session not found in local database.");
+    } catch (err) {
+      if (err instanceof StaleOperationError) {
+        throw err;
+      }
+      throw new Error("Match session not found in local database.", {
+        cause: err,
+      });
     }
   }
 
