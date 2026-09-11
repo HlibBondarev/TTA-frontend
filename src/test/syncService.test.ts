@@ -1318,4 +1318,144 @@ describe("Sync Engine Service", () => {
     expect(mockAnyOf).toHaveBeenCalledWith(["anchor-batch-item"]);
     expect(mockAnyOf).toHaveBeenCalledWith(["e-path-id"]);
   });
+
+  it("uses selectedTeamId as fallback when trackedTeamId is missing on match record", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "m-fallback-1",
+      selectedTeamId: "team-selected-777",
+    } as never);
+
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m-fallback-1/teams/placeholder-team/anchors",
+        payload: JSON.stringify([{ id: "a1" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as never);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(1);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/m-fallback-1/teams/team-selected-777/anchors",
+      [{ id: "a1" }],
+      expect.any(Object),
+    );
+  });
+
+  it("caches null match records in matchRecordCache and avoids repeated DB lookups for non-existent matches during fallback resolution", async () => {
+    const matchGetSpy = vi
+      .spyOn(db.matches, "get")
+      .mockResolvedValue(undefined);
+
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m-missing/teams/original-team/anchors",
+        payload: JSON.stringify([{ id: "a1" }]),
+      },
+      {
+        id: 2,
+        actionType: "POST",
+        endpoint: "/Matches/m-missing/teams/original-team/anchors",
+        payload: JSON.stringify([{ id: "a2" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as never);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(2);
+    expect(matchGetSpy).toHaveBeenCalledTimes(1);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/m-missing/teams/original-team/anchors",
+      [{ id: "a1" }, { id: "a2" }],
+      expect.any(Object),
+    );
+
+    matchGetSpy.mockRestore();
+  });
+
+  it("caches unresolvable lineup lookups in lineupTeamCache and avoids re-querying IndexedDB for the same lineup", async () => {
+    const lineupGetSpy = vi
+      .spyOn(db.matchlineups, "get")
+      .mockResolvedValue(undefined);
+
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/teams/placeholder/events",
+        payload: JSON.stringify([
+          { id: "e1", matchLineupId: "missing-lineup" },
+        ]),
+      },
+      {
+        id: 2,
+        actionType: "POST",
+        endpoint: "/Matches/m1/teams/placeholder/events",
+        payload: JSON.stringify([
+          { id: "e2", matchLineupId: "missing-lineup" },
+        ]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as never);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+    await processSyncQueue();
+
+    expect(lineupGetSpy).toHaveBeenCalledTimes(1);
+    expect(lineupGetSpy).toHaveBeenCalledWith("missing-lineup");
+
+    lineupGetSpy.mockRestore();
+  });
+
+  it("preserves original endpoint unchanged when match record exists but contains neither trackedTeamId nor selectedTeamId", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "m-no-teams",
+      homeTeamId: "home-1",
+      guestTeamId: "guest-2",
+    } as never);
+
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m-no-teams/teams/original-team/anchors",
+        payload: JSON.stringify([{ id: "a1" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as never);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(1);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/m-no-teams/teams/original-team/anchors",
+      [{ id: "a1" }],
+      expect.any(Object),
+    );
+  });
 });
