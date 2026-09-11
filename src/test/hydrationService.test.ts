@@ -1558,4 +1558,22 @@ describe("Hydration Service", () => {
     );
     consoleWarnSpy.mockRestore();
   });
+
+  it("should abort dispatching online uncatch and return early when checkFreshness throws StaleUserError post-transaction in discardUnfinishedMatch", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    const checkFreshnessMock = vi.fn().mockImplementation(() => {
+      throw new StaleUserError();
+    });
+
+    await discardUnfinishedMatch(matchId, teamId, checkFreshnessMock);
+
+    expect(checkFreshnessMock).toHaveBeenCalledTimes(1);
+    expect(apiClient.delete).not.toHaveBeenCalled();
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+  });
 });

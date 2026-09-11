@@ -380,7 +380,8 @@ const dispatchUncatchPostCommit = async (
 export const discardUnfinishedMatch = async (
   matchId: string,
   teamId?: string,
-): Promise<void> => {
+  checkFreshness?: () => void,
+) => {
   if (!db?.matches) return;
 
   const tables = [
@@ -420,6 +421,17 @@ export const discardUnfinishedMatch = async (
   });
 
   if (stagedCatchEndpoint && navigator.onLine) {
+    try {
+      checkFreshness?.();
+    } catch (err) {
+      if (
+        err instanceof StaleUserError ||
+        (err instanceof Error && err.name === "StaleUserError")
+      ) {
+        return;
+      }
+      throw err;
+    }
     await dispatchUncatchPostCommit(stagedCatchEndpoint, stagedSyncQueueId);
   }
 };
