@@ -568,7 +568,10 @@ async function handleConfirmQuickStartError(
     pendingMatchId,
   );
 
-  if (err instanceof StaleOperationError) {
+  if (
+    err instanceof StaleOperationError ||
+    (err instanceof Error && err.name === "StaleUserError")
+  ) {
     return;
   }
 

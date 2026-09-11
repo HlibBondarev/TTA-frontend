@@ -120,9 +120,9 @@ export const App: React.FC = () => {
         console.warn(
           "Account changed during Quick Start hydration. Aborting session activation.",
         );
-        return;
+      } else {
+        console.error("Hydration failed:", error);
       }
-      console.error("Hydration failed:", error);
       throw error;
     }
 
