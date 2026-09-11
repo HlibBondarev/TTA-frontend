@@ -925,64 +925,6 @@ describe("Sync Engine Service", () => {
     );
   });
 
-  it("caches matchlineup and match record lookups during a processSyncQueue run", async () => {
-    vi.mocked(db.matchlineups.get).mockResolvedValue({
-      playerRosterId: "roster-1",
-    } as never);
-    vi.mocked(db.playerrosters.get).mockResolvedValue({
-      teamId: "team-tracked",
-    } as never);
-
-    const matchGetSpy = vi.spyOn(db.matches, "get").mockResolvedValue({
-      id: "m-100",
-      trackedTeamId: "team-tracked",
-    } as never);
-
-    const mockItems = [
-      {
-        id: 1,
-        actionType: "POST",
-        endpoint: "/Matches/m-100/teams/wrong-team/events",
-        payload: JSON.stringify([{ id: "e1", matchLineupId: "lineup-1" }]),
-      },
-      {
-        id: 2,
-        actionType: "POST",
-        endpoint: "/Matches/m-100/teams/wrong-team/events",
-        payload: JSON.stringify([{ id: "e2", matchLineupId: "lineup-1" }]),
-      },
-      {
-        id: 3,
-        actionType: "PUT",
-        endpoint: "/Matches/m-100/teams/wrong-team/anchors",
-        payload: JSON.stringify([{ id: "a1" }]),
-      },
-      {
-        id: 4,
-        actionType: "DELETE",
-        endpoint: "/Matches/m-100/teams/wrong-team/catch",
-        payload: "{}",
-      },
-    ];
-
-    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
-      toArray: vi.fn().mockResolvedValue(mockItems),
-    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
-
-    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
-    vi.mocked(apiClient.put).mockResolvedValue({ status: 200 });
-    vi.mocked(apiClient.delete).mockResolvedValue({ status: 200 });
-
-    await processSyncQueue();
-
-    expect(db.matchlineups.get).toHaveBeenCalledTimes(1);
-    expect(db.matchlineups.get).toHaveBeenCalledWith("lineup-1");
-    expect(matchGetSpy).toHaveBeenCalledTimes(1);
-    expect(matchGetSpy).toHaveBeenCalledWith("m-100");
-
-    matchGetSpy.mockRestore();
-  });
-
   it("halts queue processing and logs error when syncQueue item contains invalid JSON payload", async () => {
     const mockItems = [
       {
@@ -1350,6 +1292,72 @@ describe("Sync Engine Service", () => {
     );
   });
 
+  it("caches matchlineup and match record lookups during a processSyncQueue run", async () => {
+    vi.mocked(db.matchlineups.get).mockResolvedValue({
+      playerRosterId: "roster-1",
+    } as never);
+    vi.mocked(db.playerrosters.get).mockResolvedValue({
+      teamId: "team-tracked",
+    } as never);
+
+    const matchGetSpy = vi.spyOn(db.matches, "get").mockResolvedValue({
+      id: "m-100",
+      trackedTeamId: "team-tracked",
+    } as never);
+
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m-100/teams/wrong-team/events",
+        payload: JSON.stringify([{ id: "e1", matchLineupId: "lineup-1" }]),
+      },
+      {
+        id: 2,
+        actionType: "POST",
+        endpoint: "/Matches/m-100/teams/wrong-team/events",
+        payload: JSON.stringify([{ id: "e2", matchLineupId: "lineup-1" }]),
+      },
+      {
+        id: 3,
+        actionType: "PUT",
+        endpoint: "/Matches/m-100/teams/wrong-team/anchors",
+        payload: JSON.stringify([{ id: "a1" }]),
+      },
+      {
+        id: 4,
+        actionType: "DELETE",
+        endpoint: "/Matches/m-100/teams/wrong-team/catch",
+        payload: "{}",
+      },
+      {
+        id: 5,
+        actionType: "POST",
+        endpoint: "/Matches/m-100/teams/wrong-team/anchors",
+        payload: JSON.stringify([{ id: "a2" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as never);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+    vi.mocked(apiClient.put).mockResolvedValue({ status: 200 });
+    vi.mocked(apiClient.delete).mockResolvedValue({ status: 200 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(5);
+    expect(db.matchlineups.get).toHaveBeenCalledTimes(1);
+    expect(db.matchlineups.get).toHaveBeenCalledWith("lineup-1");
+    // Verify that despite two separate fallback requests (id: 3 and id: 5), DB is queried only once thanks to matchRecordCache
+    expect(matchGetSpy).toHaveBeenCalledTimes(1);
+    expect(matchGetSpy).toHaveBeenCalledWith("m-100");
+
+    matchGetSpy.mockRestore();
+  });
+
   it("caches null match records in matchRecordCache and avoids repeated DB lookups for non-existent matches during fallback resolution", async () => {
     const matchGetSpy = vi
       .spyOn(db.matches, "get")
@@ -1364,7 +1372,7 @@ describe("Sync Engine Service", () => {
       },
       {
         id: 2,
-        actionType: "POST",
+        actionType: "PUT",
         endpoint: "/Matches/m-missing/teams/original-team/anchors",
         payload: JSON.stringify([{ id: "a2" }]),
       },
@@ -1375,14 +1383,21 @@ describe("Sync Engine Service", () => {
     } as never);
 
     vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+    vi.mocked(apiClient.put).mockResolvedValue({ status: 200 });
 
     const processed = await processSyncQueue();
 
     expect(processed).toBe(2);
+    // Two separate requests (POST and PUT) - DB is queried only once for the first request, and the null result is cached
     expect(matchGetSpy).toHaveBeenCalledTimes(1);
     expect(apiClient.post).toHaveBeenCalledWith(
       "/Matches/m-missing/teams/original-team/anchors",
-      [{ id: "a1" }, { id: "a2" }],
+      [{ id: "a1" }],
+      expect.any(Object),
+    );
+    expect(apiClient.put).toHaveBeenCalledWith(
+      "/Matches/m-missing/teams/original-team/anchors",
+      [{ id: "a2" }],
       expect.any(Object),
     );
 
@@ -1405,7 +1420,7 @@ describe("Sync Engine Service", () => {
       },
       {
         id: 2,
-        actionType: "POST",
+        actionType: "PUT",
         endpoint: "/Matches/m1/teams/placeholder/events",
         payload: JSON.stringify([
           { id: "e2", matchLineupId: "missing-lineup" },
@@ -1418,6 +1433,7 @@ describe("Sync Engine Service", () => {
     } as never);
 
     vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+    vi.mocked(apiClient.put).mockResolvedValue({ status: 200 });
 
     await processSyncQueue();
 
