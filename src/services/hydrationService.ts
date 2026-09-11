@@ -20,6 +20,11 @@ export class StaleUserError extends Error {
   }
 }
 
+type TrackedMatch = MatchLookup & {
+  trackedTeamId?: string;
+  selectedTeamId?: string;
+};
+
 const syncLineups = async (matchId: string, lineups?: MatchLineupLookup[]) => {
   if (!lineups) return;
   await db.matchlineups.where("matchId").equals(matchId).delete();
@@ -169,9 +174,7 @@ const fetchTournamentMetadata = async (
  */
 export const checkUnfinishedMatch = async (
   userId?: string,
-): Promise<
-  (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string }) | null
-> => {
+): Promise<TrackedMatch | null> => {
   if (!db?.matches || !userId) return null;
   const matches = await db.matches.toArray();
   const match = matches.find(
@@ -179,10 +182,7 @@ export const checkUnfinishedMatch = async (
   );
   if (!match) return null;
 
-  const extendedMatch = match as MatchLookup & {
-    trackedTeamId?: string;
-    selectedTeamId?: string;
-  };
+  const extendedMatch = match as TrackedMatch;
   let trackedTeamId =
     extendedMatch.trackedTeamId || extendedMatch.selectedTeamId;
 
@@ -258,7 +258,7 @@ export const getMatchRecoveryState = async (
 };
 
 const resolveEffectiveTeamId = async (
-  match: MatchLookup & { trackedTeamId?: string; selectedTeamId?: string },
+  match: TrackedMatch,
   explicitTeamId?: string,
 ): Promise<string | undefined> => {
   let effectiveTeamId =
@@ -373,9 +373,7 @@ export const discardUnfinishedMatch = async (
   let stagedSyncQueueId: number | undefined = undefined;
 
   await db.transaction("rw", tables, async () => {
-    const match = (await db.matches.get(matchId)) as
-      | (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string })
-      | undefined;
+    const match = (await db.matches.get(matchId)) as TrackedMatch | undefined;
 
     if (!match || match.homeScore != null || match.guestScore != null) {
       return;
@@ -411,7 +409,7 @@ const verifyAndStoreMatch = async (
 ): Promise<void> => {
   if (!match || !db.matches) return;
   const existingMatch = (await db.matches.get(matchId)) as
-    | (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string })
+    | TrackedMatch
     | undefined;
   if (
     userId?.trim() &&
@@ -465,7 +463,7 @@ const persistHydrationPayloads = async (
   await syncLineups(matchId, payloads.lineups);
   await syncAnchors(matchId, payloads.anchors);
   await syncPresence(matchLineupIds, payloads.presence);
-  await syncEvents(matchId ? matchLineupIds : new Set(), payloads.events);
+  await syncEvents(matchLineupIds, payloads.events);
 
   if (payloads.definitions && payloads.definitions.length > 0) {
     await db.eventdefinitions.bulkPut(payloads.definitions);
