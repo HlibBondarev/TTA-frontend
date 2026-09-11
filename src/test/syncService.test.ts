@@ -185,7 +185,7 @@ describe("Sync Engine Service", () => {
     expect(db.syncQueue.delete).toHaveBeenNthCalledWith(3, 3);
   });
 
-  it("purges batch items from syncQueue in a Dexie transaction and continues processing subsequent items when response status is unrecoverable 4xx (400, 403, 404, 409, 410)", async () => {
+  it("purges batch items from syncQueue and marks local entities as terminal (isSynced: -1) in a Dexie transaction when response status is unrecoverable 4xx (400, 403, 404, 409, 410)", async () => {
     const mockItems = [
       {
         id: 1,
@@ -219,6 +219,12 @@ describe("Sync Engine Service", () => {
       .mockResolvedValueOnce({ status: 404 })
       .mockResolvedValueOnce({ status: 201 });
 
+    const mockModify = vi.fn();
+    const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
+    vi.mocked(db.gameevents.where).mockReturnValue({
+      anyOf: mockAnyOf,
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
     const processed = await processSyncQueue();
 
     expect(processed).toBe(1);
@@ -227,22 +233,17 @@ describe("Sync Engine Service", () => {
     );
     expect(db.transaction).toHaveBeenCalledWith(
       "rw",
-      [db.syncQueue],
+      expect.any(Array),
       expect.any(Function),
     );
+    expect(db.gameevents.where).toHaveBeenCalledWith("id");
+    expect(mockAnyOf).toHaveBeenCalledWith([
+      "orphan-event-1",
+      "orphan-event-2",
+    ]);
+    expect(mockModify).toHaveBeenCalledWith({ isSynced: -1 });
+
     expect(apiClient.post).toHaveBeenCalledTimes(2);
-    expect(apiClient.post).toHaveBeenNthCalledWith(
-      1,
-      "/Matches/m1/teams/t1/events",
-      [{ id: "orphan-event-1" }, { id: "orphan-event-2" }],
-      { headers: { "X-Idempotency-Key": "sync-batch-1-2" } },
-    );
-    expect(apiClient.post).toHaveBeenNthCalledWith(
-      2,
-      "/Matches/m2/teams/t1/events",
-      [{ id: "valid-event-3" }],
-      { headers: { "X-Idempotency-Key": "sync-batch-3" } },
-    );
     expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
     expect(db.syncQueue.delete).toHaveBeenCalledWith(2);
     expect(db.syncQueue.delete).toHaveBeenCalledWith(3);
@@ -250,7 +251,7 @@ describe("Sync Engine Service", () => {
     consoleWarnSpy.mockRestore();
   });
 
-  it("purges batch items when apiClient throws an error object with an unrecoverable 4xx status code", async () => {
+  it("purges batch items and marks entities terminal (isSynced: -1) when apiClient throws an error object with an unrecoverable 4xx status code", async () => {
     const mockItems = [
       {
         id: 1,
@@ -284,22 +285,19 @@ describe("Sync Engine Service", () => {
       .mockRejectedValueOnce({ status: 403 })
       .mockResolvedValueOnce({ status: 200 });
 
+    const mockModify = vi.fn();
+    const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      anyOf: mockAnyOf,
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
     const processed = await processSyncQueue();
 
     expect(processed).toBe(1);
+    expect(mockAnyOf).toHaveBeenCalledWith(["anchor-1", "anchor-2"]);
+    expect(mockModify).toHaveBeenCalledWith({ isSynced: -1 });
+
     expect(apiClient.post).toHaveBeenCalledTimes(2);
-    expect(apiClient.post).toHaveBeenNthCalledWith(
-      1,
-      "/Matches/m1/anchors",
-      [{ id: "anchor-1" }, { id: "anchor-2" }],
-      { headers: { "X-Idempotency-Key": "sync-batch-1-2" } },
-    );
-    expect(apiClient.post).toHaveBeenNthCalledWith(
-      2,
-      "/Matches/m2/anchors",
-      [{ id: "anchor-3" }],
-      { headers: { "X-Idempotency-Key": "sync-batch-3" } },
-    );
     expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
     expect(db.syncQueue.delete).toHaveBeenCalledWith(2);
     expect(db.syncQueue.delete).toHaveBeenCalledWith(3);

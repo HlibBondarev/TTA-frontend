@@ -47,7 +47,10 @@ const extractPresenceLineupIds = (
   ].filter(Boolean) as string[];
 };
 
-const syncPresences = async (payload: unknown): Promise<void> => {
+const syncPresences = async (
+  payload: unknown,
+  targetStatus: number = 1,
+): Promise<void> => {
   const presencePayload = payload as Record<string, unknown>;
   if (
     typeof presencePayload.periodNumber !== "number" ||
@@ -69,10 +72,13 @@ const syncPresences = async (payload: unknown): Promise<void> => {
         p.timeIn !== null &&
         p.timeOut !== null,
     )
-    .modify({ isSynced: 1 });
+    .modify({ isSynced: targetStatus });
 };
 
-const syncEvents = async (payload: unknown): Promise<void> => {
+const syncEvents = async (
+  payload: unknown,
+  targetStatus: number = 1,
+): Promise<void> => {
   if (!db?.gameevents) return;
 
   const eventsList = Array.isArray(payload) ? payload : [payload];
@@ -81,11 +87,17 @@ const syncEvents = async (payload: unknown): Promise<void> => {
     .filter((id): id is string => Boolean(id));
 
   if (eventIds.length > 0) {
-    await db.gameevents.where("id").anyOf(eventIds).modify({ isSynced: 1 });
+    await db.gameevents
+      .where("id")
+      .anyOf(eventIds)
+      .modify({ isSynced: targetStatus });
   }
 };
 
-const syncAnchors = async (payload: unknown): Promise<void> => {
+const syncAnchors = async (
+  payload: unknown,
+  targetStatus: number = 1,
+): Promise<void> => {
   if (!db?.timeanchors) return;
 
   const anchorsList = Array.isArray(payload) ? payload : [payload];
@@ -94,25 +106,29 @@ const syncAnchors = async (payload: unknown): Promise<void> => {
     .filter((id): id is string => Boolean(id));
 
   if (anchorIds.length > 0) {
-    await db.timeanchors.where("id").anyOf(anchorIds).modify({ isSynced: 1 });
+    await db.timeanchors
+      .where("id")
+      .anyOf(anchorIds)
+      .modify({ isSynced: targetStatus });
   }
 };
 
 /**
- * Updates local IndexedDB entities (playerpresences, gameevents, timeanchors) to isSynced = 1 upon successful server sync.
+ * Updates local IndexedDB entities (playerpresences, gameevents, timeanchors) to targetStatus (default 1) upon sync finalization or purge.
  */
 export const markEntitiesSynced = async (
   endpoint: string,
   payload: unknown,
+  targetStatus: number = 1,
 ): Promise<void> => {
   if (!endpoint || !payload) return;
 
   if (endpoint.includes("/presence") || endpoint.includes("/substitutions")) {
-    await syncPresences(payload);
+    await syncPresences(payload, targetStatus);
   } else if (endpoint.includes("/events")) {
-    await syncEvents(payload);
+    await syncEvents(payload, targetStatus);
   } else if (endpoint.includes("/anchors")) {
-    await syncAnchors(payload);
+    await syncAnchors(payload, targetStatus);
   }
 };
 
@@ -402,15 +418,28 @@ const isUnrecoverableStatus = (status?: number): boolean => {
 };
 
 /**
- * Deletes a batch of queue items from db.syncQueue without marking local entities as synced,
+ * Reconciles local entities (marking them as isSynced = -1) and deletes a batch of queue items from db.syncQueue
  * executed within a single Dexie transaction for atomicity.
  */
 const purgeBatchFromSyncQueue = async (
   batchItems: SyncQueueItem[],
+  endpoint?: string,
+  payload?: unknown,
 ): Promise<void> => {
-  if (!db?.syncQueue) return;
+  if (!db) return;
 
   const performPurge = async (): Promise<void> => {
+    if (endpoint && payload) {
+      await markEntitiesSynced(endpoint, payload, -1);
+    } else {
+      for (const item of batchItems) {
+        const itemPayload = parsePayload(item.payload);
+        if (item.endpoint && itemPayload) {
+          await markEntitiesSynced(item.endpoint, itemPayload, -1);
+        }
+      }
+    }
+
     for (const item of batchItems) {
       if (item.id !== undefined && db.syncQueue) {
         await db.syncQueue.delete(item.id);
@@ -419,7 +448,13 @@ const purgeBatchFromSyncQueue = async (
   };
 
   if (typeof db.transaction === "function") {
-    await db.transaction("rw", [db.syncQueue], performPurge);
+    const tables = [
+      db.playerpresences,
+      db.gameevents,
+      db.timeanchors,
+      db.syncQueue,
+    ].filter(Boolean);
+    await db.transaction("rw", tables, performPurge);
   } else {
     await performPurge();
   }
@@ -436,7 +471,7 @@ const finalizeBatchSync = async (
   if (!db) return 0;
 
   const performFinalization = async (): Promise<number> => {
-    await markEntitiesSynced(endpoint, payload);
+    await markEntitiesSynced(endpoint, payload, 1);
     let count = 0;
     for (const item of batchItems) {
       if (item.id !== undefined && db.syncQueue) {
@@ -502,7 +537,11 @@ const processSyncBatch = async (
         `Unrecoverable sync error (${response?.status}) for endpoint ${currentItem.endpoint}. Purging batch from syncQueue.`,
       );
       try {
-        await purgeBatchFromSyncQueue(batchItems);
+        await purgeBatchFromSyncQueue(
+          batchItems,
+          currentItem.endpoint,
+          effectivePayload,
+        );
       } catch (purgeErr) {
         console.error(
           `Failed to purge unrecoverable batch for endpoint ${currentItem.endpoint}:`,
@@ -523,7 +562,11 @@ const processSyncBatch = async (
         err,
       );
       try {
-        await purgeBatchFromSyncQueue(batchItems);
+        await purgeBatchFromSyncQueue(
+          batchItems,
+          currentItem.endpoint,
+          effectivePayload,
+        );
       } catch (purgeErr) {
         console.error(
           `Failed to purge unrecoverable batch for endpoint ${currentItem.endpoint}:`,
