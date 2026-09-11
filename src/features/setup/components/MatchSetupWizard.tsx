@@ -399,7 +399,7 @@ async function executeCatchMatch(catchEndpoint: string): Promise<CatchResult> {
       if (catchErr instanceof StaleOperationError) throw catchErr;
       const status = getHttpStatus(catchErr);
       if (typeof status === "number") {
-        throw new Error(`Failed to catch match team (HTTP ${status}).`, {
+        throw new TypeError(`Failed to catch match team (HTTP ${status}).`, {
           cause: catchErr,
         });
       }
