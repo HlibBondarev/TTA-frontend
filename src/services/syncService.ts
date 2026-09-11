@@ -27,7 +27,7 @@ interface SyncCacheContext {
   matchRecordCache?: Map<string, MatchTeamData | null>;
 }
 
-type EventTeamResult = string | "NO_LINEUP" | "UNRESOLVED";
+type EventTeamResult = string;
 
 const UNRECOVERABLE_STATUS_CODES = new Set([400, 403, 404, 409, 410]);
 const MATCH_TEAM_ENDPOINT_REGEX = /\/Matches\/([^/]+)\/teams\/([^/]+)/;
@@ -156,7 +156,7 @@ const syncAnchors = async (
 };
 
 /**
- * Updates local IndexedDB entities (playerpresences, gameevents, timeanchors) to targetStatus (default 1, or -1 for terminal failure) upon sync finalization or purge.
+ * Updates local IndexedDB entities (playerpresences, gameevents, timeanchors) to targetStatus upon sync finalization or purge.
  */
 export const markEntitiesSynced = async (
   endpoint: string,
@@ -174,22 +174,13 @@ export const markEntitiesSynced = async (
   }
 };
 
-/**
- * Backward-compatible alias for presences sync marker.
- */
 export const markPresencesSynced = markEntitiesSynced;
 
-/**
- * Determines whether an HTTP operation endpoint supports array payload batching.
- */
 const isBatchableEndpoint = (actionType: string, endpoint: string): boolean => {
   if (actionType !== "POST") return false;
   return endpoint.endsWith("/events") || endpoint.endsWith("/anchors");
 };
 
-/**
- * Safely parses a JSON payload string, returning null on error.
- */
 const parsePayload = (payloadStr: string): unknown => {
   try {
     return JSON.parse(payloadStr);
@@ -307,6 +298,19 @@ const isNextItemCompatible = async (
   return { compatible: true, payload: nextPayload };
 };
 
+const getInitialTeamResult = async (
+  endpoint: string,
+  payload: unknown,
+  cache?: Map<string, string | null>,
+): Promise<EventTeamResult> => {
+  if (!endpoint.includes("/teams/")) return "NO_LINEUP";
+  try {
+    return await resolveBatchTeamId(payload, cache);
+  } catch {
+    return "UNRESOLVED";
+  }
+};
+
 /**
  * Aggregates consecutive batchable POST queue items targeting the same endpoint and resolving to the same team.
  */
@@ -321,17 +325,11 @@ const collectBatch = async (
     return { batchItems: [currentItem], effectivePayload: currentPayload };
   }
 
-  let currentTeamResult: EventTeamResult = "NO_LINEUP";
-  if (currentItem.endpoint.includes("/teams/")) {
-    try {
-      currentTeamResult = await resolveBatchTeamId(
-        currentPayload,
-        lineupTeamCache,
-      );
-    } catch {
-      currentTeamResult = "UNRESOLVED";
-    }
-  }
+  const currentTeamResult = await getInitialTeamResult(
+    currentItem.endpoint,
+    currentPayload,
+    lineupTeamCache,
+  );
 
   const aggregatedArray: unknown[] = Array.isArray(currentPayload)
     ? [...currentPayload]
@@ -404,13 +402,11 @@ const normalizeTeamEndpoint = async (
     return endpoint;
   }
 
-  // Preserve team encoded in queued DELETE /catch endpoints without applying match-record fallback
   if (actionType === "DELETE" && endpoint.endsWith("/catch")) {
     return endpoint;
   }
 
   try {
-    // Strategy 1: Resolve teamId precisely from all events' matchLineupId and player rosters
     const resolvedTeamResult = await resolveBatchTeamId(
       payload,
       cache?.lineupTeamCache,
@@ -422,7 +418,6 @@ const normalizeTeamEndpoint = async (
       return endpoint.replace(/\/teams\/[^/]+/, `/teams/${resolvedTeamResult}`);
     }
 
-    // Strategy 2: Fallback to match record lookup if lineup resolution did not apply
     return await resolveFallbackTeamEndpoint(endpoint, cache);
   } catch (err) {
     console.warn(
@@ -433,9 +428,6 @@ const normalizeTeamEndpoint = async (
   }
 };
 
-/**
- * Executes the appropriate HTTP method for a sync queue batch/item with an X-Idempotency-Key header.
- */
 const executeHttpRequest = async (
   actionType: string,
   endpoint: string,
@@ -471,26 +463,16 @@ const executeHttpRequest = async (
   throw new Error(`Unsupported sync actionType: ${actionType}`);
 };
 
-/**
- * Validates whether an HTTP response status represents a successful execution (2xx range or unwrapped response).
- */
 const isSuccessStatus = (status?: number): boolean => {
   if (status === undefined) return true;
   return status >= 200 && status < 300;
 };
 
-/**
- * Checks if an HTTP response status code is an unrecoverable client error (400, 403, 404, 409, 410).
- */
 const isUnrecoverableStatus = (status?: number): boolean => {
   if (status === undefined) return false;
   return UNRECOVERABLE_STATUS_CODES.has(status);
 };
 
-/**
- * Reconciles local entities (marking them as isSynced = -1) and deletes a batch of queue items from db.syncQueue
- * executed within a single Dexie transaction for atomicity.
- */
 const purgeBatchFromSyncQueue = async (
   batchItems: SyncQueueItem[],
   endpoint?: string,
@@ -530,9 +512,6 @@ const purgeBatchFromSyncQueue = async (
   }
 };
 
-/**
- * Marks local entities as synced and deletes successfully processed queue items within an atomic Dexie transaction.
- */
 const finalizeBatchSync = async (
   endpoint: string,
   payload: unknown,
@@ -578,6 +557,27 @@ interface BatchResult {
   shouldContinue: boolean;
 }
 
+const handleUnrecoverableError = async (
+  batchItems: SyncQueueItem[],
+  endpoint: string,
+  payload: unknown,
+  status?: number,
+): Promise<BatchResult> => {
+  console.warn(
+    `Unrecoverable sync error (${status ?? "unknown"}) for endpoint ${endpoint}. Purging batch from syncQueue.`,
+  );
+  try {
+    await purgeBatchFromSyncQueue(batchItems, endpoint, payload);
+    return { syncedCount: 0, shouldContinue: true };
+  } catch (purgeErr) {
+    console.error(
+      `Failed to purge unrecoverable batch for endpoint ${endpoint}:`,
+      purgeErr,
+    );
+    return { syncedCount: 0, shouldContinue: false };
+  }
+};
+
 const processSyncBatch = async (
   currentItem: SyncQueueItem,
   effectivePayload: unknown,
@@ -603,23 +603,12 @@ const processSyncBatch = async (
     }
 
     if (isUnrecoverableStatus(response?.status)) {
-      console.warn(
-        `Unrecoverable sync error (${response?.status}) for endpoint ${currentItem.endpoint}. Purging batch from syncQueue.`,
+      return handleUnrecoverableError(
+        batchItems,
+        currentItem.endpoint,
+        effectivePayload,
+        response?.status,
       );
-      try {
-        await purgeBatchFromSyncQueue(
-          batchItems,
-          currentItem.endpoint,
-          effectivePayload,
-        );
-      } catch (purgeErr) {
-        console.error(
-          `Failed to purge unrecoverable batch for endpoint ${currentItem.endpoint}:`,
-          purgeErr,
-        );
-        return { syncedCount: 0, shouldContinue: false };
-      }
-      return { syncedCount: 0, shouldContinue: true };
     }
 
     return { syncedCount: 0, shouldContinue: false };
@@ -627,24 +616,12 @@ const processSyncBatch = async (
     const status = extractErrorStatus(err);
 
     if (isUnrecoverableStatus(status)) {
-      console.warn(
-        `Unrecoverable sync error (${status}) for endpoint ${currentItem.endpoint}. Purging batch from syncQueue:`,
-        err,
+      return handleUnrecoverableError(
+        batchItems,
+        currentItem.endpoint,
+        effectivePayload,
+        status,
       );
-      try {
-        await purgeBatchFromSyncQueue(
-          batchItems,
-          currentItem.endpoint,
-          effectivePayload,
-        );
-      } catch (purgeErr) {
-        console.error(
-          `Failed to purge unrecoverable batch for endpoint ${currentItem.endpoint}:`,
-          purgeErr,
-        );
-        return { syncedCount: 0, shouldContinue: false };
-      }
-      return { syncedCount: 0, shouldContinue: true };
     }
 
     console.error(
