@@ -27,6 +27,8 @@ interface SyncCacheContext {
   matchRecordCache?: Map<string, MatchTeamData | null>;
 }
 
+type EventTeamResult = string | "NO_LINEUP" | "UNRESOLVED";
+
 const UNRECOVERABLE_STATUS_CODES = new Set([400, 403, 404, 409, 410]);
 const MATCH_TEAM_ENDPOINT_REGEX = /\/Matches\/([^/]+)\/teams\/([^/]+)/;
 
@@ -199,7 +201,7 @@ const parsePayload = (payloadStr: string): unknown => {
 const resolveEventTeamId = async (
   event: Record<string, unknown>,
   lineupTeamCache?: Map<string, string | null>,
-): Promise<string | null> => {
+): Promise<EventTeamResult> => {
   if (
     typeof event?.matchLineupId === "string" &&
     db?.matchlineups &&
@@ -207,7 +209,8 @@ const resolveEventTeamId = async (
   ) {
     const lineupId = event.matchLineupId;
     if (lineupTeamCache?.has(lineupId)) {
-      return lineupTeamCache.get(lineupId) ?? null;
+      const cached = lineupTeamCache.get(lineupId);
+      return cached ?? "UNRESOLVED";
     }
 
     const lineup = await db.matchlineups.get(lineupId);
@@ -219,40 +222,56 @@ const resolveEventTeamId = async (
       }
     }
     lineupTeamCache?.set(lineupId, null);
+    return "UNRESOLVED";
   }
-  return null;
+
+  if ("matchLineupId" in event && event.matchLineupId !== undefined) {
+    return "UNRESOLVED";
+  }
+
+  return "NO_LINEUP";
 };
 
 const resolveBatchTeamId = async (
   payload: unknown,
   lineupTeamCache?: Map<string, string | null>,
-): Promise<string | null> => {
+): Promise<EventTeamResult> => {
   const eventsList = Array.isArray(payload) ? payload : [payload];
-  if (eventsList.length === 0) return null;
+  if (eventsList.length === 0) return "NO_LINEUP";
 
   let commonTeamId: string | null = null;
+
   for (const item of eventsList) {
     if (typeof item === "object" && item !== null) {
-      const teamId = await resolveEventTeamId(
+      const result = await resolveEventTeamId(
         item as Record<string, unknown>,
         lineupTeamCache,
       );
-      if (!teamId) return null;
-      if (commonTeamId === null) {
-        commonTeamId = teamId;
-      } else if (commonTeamId !== teamId) {
-        return null;
+      if (result === "UNRESOLVED") {
+        return "UNRESOLVED";
+      }
+      if (result !== "NO_LINEUP") {
+        if (commonTeamId === null) {
+          commonTeamId = result;
+        } else if (commonTeamId !== result) {
+          return "UNRESOLVED";
+        }
       }
     } else {
-      return null;
+      return "UNRESOLVED";
     }
   }
-  return commonTeamId;
+
+  if (commonTeamId !== null) {
+    return commonTeamId;
+  }
+
+  return "NO_LINEUP";
 };
 
 const isNextItemCompatible = async (
   currentItem: SyncQueueItem,
-  currentTeamId: string | null,
+  currentTeamResult: EventTeamResult,
   nextItem: SyncQueueItem,
   lineupTeamCache?: Map<string, string | null>,
 ): Promise<{ compatible: boolean; payload: unknown }> => {
@@ -269,13 +288,18 @@ const isNextItemCompatible = async (
   }
 
   if (currentItem.endpoint.includes("/teams/")) {
-    let nextTeamId: string | null = null;
+    let nextTeamResult: EventTeamResult;
     try {
-      nextTeamId = await resolveBatchTeamId(nextPayload, lineupTeamCache);
+      nextTeamResult = await resolveBatchTeamId(nextPayload, lineupTeamCache);
     } catch {
-      // nextTeamId remains null
+      nextTeamResult = "UNRESOLVED";
     }
-    if (currentTeamId !== nextTeamId) {
+
+    if (
+      currentTeamResult === "UNRESOLVED" ||
+      nextTeamResult === "UNRESOLVED" ||
+      currentTeamResult !== nextTeamResult
+    ) {
       return { compatible: false, payload: null };
     }
   }
@@ -297,12 +321,15 @@ const collectBatch = async (
     return { batchItems: [currentItem], effectivePayload: currentPayload };
   }
 
-  let currentTeamId: string | null = null;
+  let currentTeamResult: EventTeamResult = "NO_LINEUP";
   if (currentItem.endpoint.includes("/teams/")) {
     try {
-      currentTeamId = await resolveBatchTeamId(currentPayload, lineupTeamCache);
+      currentTeamResult = await resolveBatchTeamId(
+        currentPayload,
+        lineupTeamCache,
+      );
     } catch {
-      // currentTeamId remains null
+      currentTeamResult = "UNRESOLVED";
     }
   }
 
@@ -315,7 +342,7 @@ const collectBatch = async (
     const nextItem = pendingItems[j];
     const { compatible, payload } = await isNextItemCompatible(
       currentItem,
-      currentTeamId,
+      currentTeamResult,
       nextItem,
       lineupTeamCache,
     );
@@ -384,12 +411,15 @@ const normalizeTeamEndpoint = async (
 
   try {
     // Strategy 1: Resolve teamId precisely from all events' matchLineupId and player rosters
-    const resolvedTeamId = await resolveBatchTeamId(
+    const resolvedTeamResult = await resolveBatchTeamId(
       payload,
       cache?.lineupTeamCache,
     );
-    if (resolvedTeamId) {
-      return endpoint.replace(/\/teams\/[^/]+/, `/teams/${resolvedTeamId}`);
+    if (
+      resolvedTeamResult !== "NO_LINEUP" &&
+      resolvedTeamResult !== "UNRESOLVED"
+    ) {
+      return endpoint.replace(/\/teams\/[^/]+/, `/teams/${resolvedTeamResult}`);
     }
 
     // Strategy 2: Fallback to match record lookup if lineup resolution did not apply

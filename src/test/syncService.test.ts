@@ -59,13 +59,13 @@ vi.mock("../db/ttaDatabase", () => ({
 describe("Sync Engine Service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(db.matches.get).mockReset().mockResolvedValue(undefined);
+    vi.mocked(db.matchlineups.get).mockReset().mockResolvedValue(undefined);
+    vi.mocked(db.playerrosters.get).mockReset().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "onLine", {
       configurable: true,
       value: true,
     });
-    vi.mocked(db.matches.get).mockResolvedValue(undefined);
-    vi.mocked(db.matchlineups.get).mockResolvedValue(undefined);
-    vi.mocked(db.playerrosters.get).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -1160,7 +1160,7 @@ describe("Sync Engine Service", () => {
   });
 
   it("preserves exact teamId in DELETE /catch endpoint and skips trackedTeamId fallback", async () => {
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: "m-123",
       trackedTeamId: "different-tracked-team-789",
     } as never);
@@ -1214,5 +1214,69 @@ describe("Sync Engine Service", () => {
     expect(db.gameevents.where).toHaveBeenCalledWith("id");
     expect(mockAnyOf).toHaveBeenCalledWith(["e-999"]);
     expect(mockModify).toHaveBeenCalledWith({ isSynced: 1 });
+  });
+
+  it("does not batch team-scoped events with unresolvable matchLineupId values together, but allows batching for events with no matchLineupId", async () => {
+    vi.mocked(db.matchlineups.get).mockResolvedValue(undefined);
+
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/teams/placeholder/events",
+        payload: JSON.stringify([
+          { id: "e1", matchLineupId: "unresolvable-lineup-1" },
+        ]),
+      },
+      {
+        id: 2,
+        actionType: "POST",
+        endpoint: "/Matches/m1/teams/placeholder/events",
+        payload: JSON.stringify([
+          { id: "e2", matchLineupId: "unresolvable-lineup-2" },
+        ]),
+      },
+      {
+        id: 3,
+        actionType: "POST",
+        endpoint: "/Matches/m1/anchors",
+        payload: JSON.stringify([{ id: "a1" }]),
+      },
+      {
+        id: 4,
+        actionType: "POST",
+        endpoint: "/Matches/m1/anchors",
+        payload: JSON.stringify([{ id: "a2" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(4);
+    expect(apiClient.post).toHaveBeenCalledTimes(3);
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      1,
+      "/Matches/m1/teams/placeholder/events",
+      [{ id: "e1", matchLineupId: "unresolvable-lineup-1" }],
+      { headers: { "X-Idempotency-Key": "sync-batch-1" } },
+    );
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      2,
+      "/Matches/m1/teams/placeholder/events",
+      [{ id: "e2", matchLineupId: "unresolvable-lineup-2" }],
+      { headers: { "X-Idempotency-Key": "sync-batch-2" } },
+    );
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      3,
+      "/Matches/m1/anchors",
+      [{ id: "a1" }, { id: "a2" }],
+      { headers: { "X-Idempotency-Key": "sync-batch-3-4" } },
+    );
   });
 });
