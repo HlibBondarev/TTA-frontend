@@ -49,6 +49,13 @@ class MatchOwnershipError extends Error {
   }
 }
 
+class MatchCatchError extends Error {
+  constructor(status: number, cause?: unknown) {
+    super(`Failed to catch match team (HTTP ${status}).`, { cause });
+    this.name = "MatchCatchError";
+  }
+}
+
 function checkUserFreshness(
   initiatedUserId: string | undefined,
   currentUserIdRef: React.RefObject<string | undefined>,
@@ -401,9 +408,7 @@ async function executeCatchMatch(catchEndpoint: string): Promise<CatchResult> {
       if (catchErr instanceof StaleOperationError) throw catchErr;
       const status = getHttpStatus(catchErr);
       if (typeof status === "number") {
-        throw new Error(`Failed to catch match team (HTTP ${status}).`, {
-          cause: catchErr,
-        });
+        throw new MatchCatchError(status, catchErr);
       }
       console.warn(
         "Catch match API call failed online, fallback to syncQueue:",
