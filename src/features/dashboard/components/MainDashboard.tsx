@@ -1,4 +1,10 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useRef,
+  useCallback,
+} from "react";
 import { useDispatch } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 import { setCurrentView } from "../../../store/slices/navigationSlice";
@@ -34,7 +40,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   const currentUserId = user?.sub ?? user?.email;
   const currentUserIdRef = useRef(currentUserId);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     currentUserIdRef.current = currentUserId;
   }, [currentUserId]);
 
