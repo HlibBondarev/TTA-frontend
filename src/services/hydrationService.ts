@@ -293,10 +293,6 @@ const resolveEffectiveTeamId = async (
     }
   }
 
-  if (!effectiveTeamId) {
-    effectiveTeamId = match.homeTeamId || match.guestTeamId;
-  }
-
   return effectiveTeamId;
 };
 
@@ -375,6 +371,7 @@ export const discardUnfinishedMatch = async (
   matchId: string,
   teamId?: string,
   checkFreshness?: () => void,
+  userId?: string,
 ) => {
   if (!db?.matches) return;
 
@@ -391,9 +388,15 @@ export const discardUnfinishedMatch = async (
   let stagedSyncQueueId: number | undefined = undefined;
 
   await db.transaction("rw", tables, async () => {
+    checkFreshness?.();
+
     const match = (await db.matches.get(matchId)) as TrackedMatch | undefined;
 
     if (!match || match.homeScore != null || match.guestScore != null) {
+      return;
+    }
+
+    if (userId?.trim() && match.userId && match.userId !== userId.trim()) {
       return;
     }
 

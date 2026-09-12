@@ -1348,7 +1348,7 @@ describe("Hydration Service", () => {
     consoleErrorSpy.mockRestore();
   });
 
-  it("should fallback to homeTeamId when discarding unfinished match without explicit team selection or syncQueue catch item", async () => {
+  it("should NOT issue uncatch DELETE API call when discarding unfinished match without explicit team selection or syncQueue catch item", async () => {
     vi.mocked(apiClient.delete).mockResolvedValueOnce({});
     vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
@@ -1362,9 +1362,7 @@ describe("Hydration Service", () => {
 
     await discardUnfinishedMatch(matchId);
 
-    expect(apiClient.delete).toHaveBeenCalledWith(
-      `/Matches/${matchId}/teams/team-home-default/catch`,
-    );
+    expect(apiClient.delete).not.toHaveBeenCalled();
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 
@@ -1582,13 +1580,16 @@ describe("Hydration Service", () => {
       guestScore: null,
     } as never);
 
-    const checkFreshnessMock = vi.fn().mockImplementation(() => {
-      throw new StaleUserError();
-    });
+    const checkFreshnessMock = vi
+      .fn()
+      .mockImplementationOnce(() => {})
+      .mockImplementationOnce(() => {
+        throw new StaleUserError();
+      });
 
     await discardUnfinishedMatch(matchId, teamId, checkFreshnessMock);
 
-    expect(checkFreshnessMock).toHaveBeenCalledTimes(1);
+    expect(checkFreshnessMock).toHaveBeenCalledTimes(2);
     expect(apiClient.delete).not.toHaveBeenCalled();
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
