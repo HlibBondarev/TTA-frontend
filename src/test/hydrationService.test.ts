@@ -1233,14 +1233,29 @@ describe("Hydration Service", () => {
       guestTeamId: "team-guest-999",
     } as never);
 
-    vi.mocked(db.syncQueue.toArray).mockResolvedValueOnce([
+    const pendingQueueItems = [
       {
         id: 1,
         actionType: "POST",
         endpoint: `/Matches/${matchId}/teams/team-guest-999/catch`,
         payload: "{}",
-      } as never,
-    ]);
+      },
+    ];
+
+    vi.mocked(db.syncQueue.toArray).mockResolvedValueOnce(
+      pendingQueueItems as never,
+    );
+    vi.mocked(db.syncQueue.filter).mockImplementation(((
+      predicate: (item: (typeof pendingQueueItems)[0]) => boolean,
+    ) => {
+      const filtered = pendingQueueItems.filter(predicate);
+      return {
+        primaryKeys: vi.fn().mockResolvedValue(filtered.map((item) => item.id)),
+        toArray: vi.fn().mockResolvedValue(filtered),
+      };
+    }) as unknown as typeof db.syncQueue.filter);
+
+    vi.mocked(db.syncQueue.put).mockResolvedValueOnce(2 as never);
 
     await discardUnfinishedMatch(matchId);
 
@@ -1253,7 +1268,8 @@ describe("Hydration Service", () => {
         endpoint: `/Matches/${matchId}/teams/team-guest-999/catch`,
       }),
     );
-    expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
+    expect(db.syncQueue.bulkDelete).toHaveBeenCalledWith([1]);
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(2);
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 
