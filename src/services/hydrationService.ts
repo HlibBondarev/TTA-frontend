@@ -402,6 +402,9 @@ export const discardUnfinishedMatch = async (
 
     const effectiveTeamId = await resolveEffectiveTeamId(match, teamId);
 
+    // Re-verify session freshness post async team resolution before mutating DB records
+    checkFreshness?.();
+
     await purgePendingMatchMutations(matchId);
 
     if (effectiveTeamId?.trim() && db.syncQueue) {

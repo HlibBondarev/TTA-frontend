@@ -126,6 +126,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         matchIdToDiscard,
         teamToDiscard,
         checkFreshness,
+        initiatedUserId,
       );
       if (currentUserIdRef.current === initiatedUserId) {
         setUnfinishedMatch((prev) =>

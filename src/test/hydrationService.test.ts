@@ -1580,17 +1580,65 @@ describe("Hydration Service", () => {
       guestScore: null,
     } as never);
 
-    const checkFreshnessMock = vi
-      .fn()
-      .mockImplementationOnce(() => {})
-      .mockImplementationOnce(() => {
+    let freshnessCallCount = 0;
+    const checkFreshnessMock = vi.fn().mockImplementation(() => {
+      freshnessCallCount++;
+      if (freshnessCallCount === 3) {
         throw new StaleUserError();
-      });
+      }
+    });
 
     await discardUnfinishedMatch(matchId, teamId, checkFreshnessMock);
 
-    expect(checkFreshnessMock).toHaveBeenCalledTimes(2);
+    expect(checkFreshnessMock).toHaveBeenCalledTimes(3);
     expect(apiClient.delete).not.toHaveBeenCalled();
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+  });
+
+  it("should NOT delete match or stage uncatch if userId argument does not match match.userId", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+      userId: "owner-user-1",
+    } as never);
+
+    await discardUnfinishedMatch(
+      matchId,
+      teamId,
+      undefined,
+      "different-user-2",
+    );
+
+    expect(db.matches.delete).not.toHaveBeenCalled();
+    expect(db.syncQueue.put).not.toHaveBeenCalled();
+    expect(apiClient.delete).not.toHaveBeenCalled();
+  });
+
+  it("should abort transaction and skip mutations if checkFreshness throws StaleUserError after team resolution but before record mutations", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+      userId: "user-1",
+    } as never);
+
+    let freshnessCallCount = 0;
+    const checkFreshnessMock = vi.fn().mockImplementation(() => {
+      freshnessCallCount++;
+      if (freshnessCallCount === 2) {
+        throw new StaleUserError(
+          "User account changed during resolveEffectiveTeamId",
+        );
+      }
+    });
+
+    await expect(
+      discardUnfinishedMatch(matchId, teamId, checkFreshnessMock, "user-1"),
+    ).rejects.toThrow(StaleUserError);
+
+    expect(db.syncQueue.put).not.toHaveBeenCalled();
+    expect(db.matches.delete).not.toHaveBeenCalled();
+    expect(apiClient.delete).not.toHaveBeenCalled();
   });
 });

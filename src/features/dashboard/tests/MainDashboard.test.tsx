@@ -231,6 +231,7 @@ describe("MainDashboard Component", () => {
         "m-stale-discard",
         "",
         expect.any(Function),
+        "auth0|user-coach",
       );
     });
 
@@ -687,6 +688,7 @@ describe("MainDashboard Component", () => {
         "m-unfinished-123",
         "team-2",
         expect.any(Function),
+        "auth0|user-coach",
       );
       expect(
         screen.queryByRole("region", { name: "Session Recovery Prompt" }),
