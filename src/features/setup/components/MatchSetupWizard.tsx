@@ -408,12 +408,19 @@ async function executeCatchMatch(catchEndpoint: string): Promise<CatchResult> {
       if (catchErr instanceof StaleOperationError) throw catchErr;
       const status = getHttpStatus(catchErr);
       if (typeof status === "number") {
-        throw new MatchCatchError(status, catchErr);
+        if (status < 500 || status >= 600) {
+          throw new MatchCatchError(status, catchErr);
+        }
+        console.warn(
+          `Catch match API call failed with retryable HTTP ${status}, fallback to syncQueue:`,
+          catchErr,
+        );
+      } else {
+        console.warn(
+          "Catch match API call failed online, fallback to syncQueue:",
+          catchErr,
+        );
       }
-      console.warn(
-        "Catch match API call failed online, fallback to syncQueue:",
-        catchErr,
-      );
     }
   }
 
