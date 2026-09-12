@@ -2284,4 +2284,63 @@ describe("MatchSetupWizard Component", () => {
       expect(handleQuickStart).not.toHaveBeenCalled();
     });
   });
+
+  it("should enqueue compensating DELETE item into syncQueue when online uncatch fails with HTTP 500 server error", async () => {
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+    const handleQuickStart = vi
+      .fn()
+      .mockRejectedValue(new Error("QuickStart handler error"));
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
+    vi.mocked(apiClient.delete).mockRejectedValueOnce({ status: 500 });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    const existingMatchRecord = {
+      id: "match-123",
+      homeTeamId: "team-home",
+      guestTeamId: "team-guest",
+    };
+    vi.mocked(db.matches.get).mockResolvedValue(existingMatchRecord as never);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(apiClient.delete).toHaveBeenCalledWith(
+        "/Matches/match-123/teams/team-home/catch",
+      );
+      expect(db.syncQueue.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: "DELETE",
+          endpoint: "/Matches/match-123/teams/team-home/catch",
+          payload: "{}",
+        }),
+      );
+      expect(db.matches.put).toHaveBeenLastCalledWith(existingMatchRecord);
+      expect(screen.getByRole("alert")).toBeDefined();
+    });
+
+    consoleWarnSpy.mockRestore();
+  });
 });

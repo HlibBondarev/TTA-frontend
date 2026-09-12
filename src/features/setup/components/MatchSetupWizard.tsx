@@ -456,6 +456,9 @@ async function tryOnlineUncatch(
       return true;
     }
     if (typeof status === "number") {
+      if (status >= 500 && status < 600) {
+        return "FALLBACK";
+      }
       console.warn(
         `Compensating online uncatch failed with terminal HTTP ${status}:`,
         err,
