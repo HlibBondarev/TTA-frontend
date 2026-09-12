@@ -397,34 +397,42 @@ interface CatchResult {
   queuedItemId?: number;
 }
 
-async function executeCatchMatch(catchEndpoint: string): Promise<CatchResult> {
-  let catchSuccess = false;
-
-  if (navigator.onLine) {
-    try {
-      await apiClient.post(catchEndpoint, {});
-      catchSuccess = true;
-    } catch (catchErr) {
-      if (catchErr instanceof StaleOperationError) throw catchErr;
-      const status = getHttpStatus(catchErr);
-      if (typeof status === "number") {
-        if (status < 500 || status >= 600) {
-          throw new MatchCatchError(status, catchErr);
-        }
-        console.warn(
-          `Catch match API call failed with retryable HTTP ${status}, fallback to syncQueue:`,
-          catchErr,
-        );
-      } else {
-        console.warn(
-          "Catch match API call failed online, fallback to syncQueue:",
-          catchErr,
-        );
-      }
+function handleOnlineCatchError(catchErr: unknown): void {
+  if (catchErr instanceof StaleOperationError) throw catchErr;
+  const status = getHttpStatus(catchErr);
+  if (typeof status === "number") {
+    if (status < 500 || status >= 600) {
+      throw new MatchCatchError(status, catchErr);
     }
+    console.warn(
+      `Catch match API call failed with retryable HTTP ${status}, fallback to syncQueue:`,
+      catchErr,
+    );
+  } else {
+    console.warn(
+      "Catch match API call failed online, fallback to syncQueue:",
+      catchErr,
+    );
   }
+}
 
-  if (catchSuccess) {
+async function tryOnlineCatch(
+  catchEndpoint: string,
+): Promise<CatchResult["wasOnline"]> {
+  if (!navigator.onLine) return false;
+
+  try {
+    await apiClient.post(catchEndpoint, {});
+    return true;
+  } catch (catchErr) {
+    handleOnlineCatchError(catchErr);
+    return false;
+  }
+}
+
+async function executeCatchMatch(catchEndpoint: string): Promise<CatchResult> {
+  const wasOnline = await tryOnlineCatch(catchEndpoint);
+  if (wasOnline) {
     return { wasOnline: true };
   }
 
@@ -440,7 +448,6 @@ async function executeCatchMatch(catchEndpoint: string): Promise<CatchResult> {
 
   throw new Error("Failed to queue catch match operation while offline.");
 }
-
 async function purgeStaleSyncItem(
   queuedItemId: number | undefined,
 ): Promise<void> {
