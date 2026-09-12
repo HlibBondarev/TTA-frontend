@@ -23,10 +23,15 @@ vi.mock("@auth0/auth0-react", () => ({
   }),
 }));
 
-vi.mock("../../../services/hydrationService", () => ({
-  checkUnfinishedMatch: vi.fn().mockResolvedValue(null),
-  discardUnfinishedMatch: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("../../../services/hydrationService", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../../services/hydrationService")>();
+  return {
+    ...actual,
+    checkUnfinishedMatch: vi.fn().mockResolvedValue(null),
+    discardUnfinishedMatch: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 const createTestStore = () => {
   return configureStore({
@@ -460,6 +465,7 @@ describe("MainDashboard Component", () => {
       expect(discardUnfinishedMatch).toHaveBeenCalledWith(
         "m-unfinished-123",
         "team-2",
+        expect.any(Function),
       );
       expect(
         screen.queryByRole("region", { name: "Session Recovery Prompt" }),

@@ -5,6 +5,7 @@ import { setCurrentView } from "../../../store/slices/navigationSlice";
 import {
   checkUnfinishedMatch,
   discardUnfinishedMatch,
+  StaleUserError,
 } from "../../../services/hydrationService";
 import type { MatchLookup } from "../../../db/ttaDatabase";
 
@@ -108,13 +109,28 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     const token = generateToken();
     setActiveOp({ userId: initiatedUserId, token, type: "discard" });
     try {
-      await discardUnfinishedMatch(matchIdToDiscard, teamToDiscard);
+      const checkFreshness = () => {
+        if (currentUserIdRef.current !== initiatedUserId) {
+          throw new StaleUserError();
+        }
+      };
+      await discardUnfinishedMatch(
+        matchIdToDiscard,
+        teamToDiscard,
+        checkFreshness,
+      );
       if (currentUserIdRef.current === initiatedUserId) {
         setUnfinishedMatch((prev) =>
           prev?.id === matchIdToDiscard ? null : prev,
         );
       }
     } catch (err) {
+      if (
+        err instanceof StaleUserError ||
+        (err instanceof Error && err.name === "StaleUserError")
+      ) {
+        return;
+      }
       console.error("Failed to discard unfinished match:", err);
     } finally {
       setActiveOp((prev) =>
