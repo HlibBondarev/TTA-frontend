@@ -1022,7 +1022,7 @@ describe("Sync Engine Service", () => {
     expect(db.syncQueue.orderBy).not.toHaveBeenCalled();
   });
 
-  it("falls back to original endpoint and logs warning when normalizeTeamEndpoint encounters database error", async () => {
+  it("returns UNRESOLVED, logs warning, and halts queue processing when normalizeTeamEndpoint encounters database error", async () => {
     const consoleWarnSpy = vi
       .spyOn(console, "warn")
       .mockImplementation(() => {});
@@ -1049,16 +1049,12 @@ describe("Sync Engine Service", () => {
 
     const processed = await processSyncQueue();
 
-    expect(processed).toBe(1);
+    expect(processed).toBe(0);
     expect(consoleWarnSpy).toHaveBeenCalledWith(
-      "Failed to normalize teamId in sync endpoint, falling back to original:",
+      "Failed to normalize teamId in sync endpoint, falling back to UNRESOLVED status:",
       expect.any(Error),
     );
-    expect(apiClient.post).toHaveBeenCalledWith(
-      "/Matches/m1/teams/fallback-team/events",
-      expect.any(Array),
-      expect.any(Object),
-    );
+    expect(apiClient.post).not.toHaveBeenCalled();
 
     consoleWarnSpy.mockRestore();
   });

@@ -407,10 +407,10 @@ const normalizeTeamEndpoint = async (
     return endpoint.replace(/\/teams\/[^/]+/, `/teams/${resolvedTeamResult}`);
   } catch (err) {
     console.warn(
-      "Failed to normalize teamId in sync endpoint, falling back to original:",
+      "Failed to normalize teamId in sync endpoint, falling back to UNRESOLVED status:",
       err,
     );
-    return endpoint;
+    return "UNRESOLVED";
   }
 };
 
