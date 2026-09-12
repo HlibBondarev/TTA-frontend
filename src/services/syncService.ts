@@ -397,14 +397,14 @@ const normalizeTeamEndpoint = async (
       payload,
       cache?.lineupTeamCache,
     );
-    if (
-      resolvedTeamResult !== "NO_LINEUP" &&
-      resolvedTeamResult !== "UNRESOLVED"
-    ) {
-      return endpoint.replace(/\/teams\/[^/]+/, `/teams/${resolvedTeamResult}`);
+    if (resolvedTeamResult === "UNRESOLVED") {
+      return "UNRESOLVED";
+    }
+    if (resolvedTeamResult === "NO_LINEUP") {
+      return await resolveFallbackTeamEndpoint(endpoint, cache);
     }
 
-    return await resolveFallbackTeamEndpoint(endpoint, cache);
+    return endpoint.replace(/\/teams\/[^/]+/, `/teams/${resolvedTeamResult}`);
   } catch (err) {
     console.warn(
       "Failed to normalize teamId in sync endpoint, falling back to original:",
@@ -416,18 +416,10 @@ const normalizeTeamEndpoint = async (
 
 const executeHttpRequest = async (
   actionType: string,
-  endpoint: string,
+  targetEndpoint: string,
   payload: unknown,
   batchItems: SyncQueueItem[],
-  cache?: SyncCacheContext,
 ): Promise<{ status?: number }> => {
-  const targetEndpoint = await normalizeTeamEndpoint(
-    endpoint,
-    payload,
-    actionType,
-    cache,
-  );
-
   const batchIds = batchItems
     .map((item) => item.id)
     .filter((id): id is number => id !== undefined)
@@ -593,12 +585,22 @@ const processSyncBatch = async (
   cache?: SyncCacheContext,
 ): Promise<BatchResult> => {
   try {
-    const response = await executeHttpRequest(
-      currentItem.actionType,
+    const targetEndpoint = await normalizeTeamEndpoint(
       currentItem.endpoint,
       effectivePayload,
-      batchItems,
+      currentItem.actionType,
       cache,
+    );
+
+    if (targetEndpoint === "UNRESOLVED") {
+      return { syncedCount: 0, shouldContinue: false };
+    }
+
+    const response = await executeHttpRequest(
+      currentItem.actionType,
+      targetEndpoint,
+      effectivePayload,
+      batchItems,
     );
 
     const evaluatedResult = await evaluateResponseStatus(

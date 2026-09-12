@@ -1158,7 +1158,7 @@ describe("Sync Engine Service", () => {
     expect(mockModify).toHaveBeenCalledWith({ isSynced: 1 });
   });
 
-  it("does not batch team-scoped events with unresolvable matchLineupId values together, but allows batching for events with no matchLineupId", async () => {
+  it("stops processing and leaves queue item unchanged when team-scoped event has unresolvable matchLineupId", async () => {
     vi.mocked(db.matchlineups.get).mockResolvedValue(undefined);
 
     const mockItems = [
@@ -1173,22 +1173,8 @@ describe("Sync Engine Service", () => {
       {
         id: 2,
         actionType: "POST",
-        endpoint: "/Matches/m1/teams/placeholder/events",
-        payload: JSON.stringify([
-          { id: "e2", matchLineupId: "unresolvable-lineup-2" },
-        ]),
-      },
-      {
-        id: 3,
-        actionType: "POST",
         endpoint: "/Matches/m1/anchors",
         payload: JSON.stringify([{ id: "a1" }]),
-      },
-      {
-        id: 4,
-        actionType: "POST",
-        endpoint: "/Matches/m1/anchors",
-        payload: JSON.stringify([{ id: "a2" }]),
       },
     ];
 
@@ -1196,30 +1182,11 @@ describe("Sync Engine Service", () => {
       toArray: vi.fn().mockResolvedValue(mockItems),
     } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
 
-    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
-
     const processed = await processSyncQueue();
 
-    expect(processed).toBe(4);
-    expect(apiClient.post).toHaveBeenCalledTimes(3);
-    expect(apiClient.post).toHaveBeenNthCalledWith(
-      1,
-      "/Matches/m1/teams/placeholder/events",
-      [{ id: "e1", matchLineupId: "unresolvable-lineup-1" }],
-      { headers: { "X-Idempotency-Key": "sync-batch-1" } },
-    );
-    expect(apiClient.post).toHaveBeenNthCalledWith(
-      2,
-      "/Matches/m1/teams/placeholder/events",
-      [{ id: "e2", matchLineupId: "unresolvable-lineup-2" }],
-      { headers: { "X-Idempotency-Key": "sync-batch-2" } },
-    );
-    expect(apiClient.post).toHaveBeenNthCalledWith(
-      3,
-      "/Matches/m1/anchors",
-      [{ id: "a1" }, { id: "a2" }],
-      { headers: { "X-Idempotency-Key": "sync-batch-3-4" } },
-    );
+    expect(processed).toBe(0);
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(db.syncQueue.delete).not.toHaveBeenCalled();
   });
 
   it("correctly extracts entity IDs using shared extractEntityIds logic for events and anchors", async () => {
