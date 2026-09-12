@@ -144,8 +144,14 @@ describe("MainDashboard Component", () => {
       </Provider>,
     );
 
+    expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-coach");
+
     unmount();
     resolveMatch({ id: "m-unmounted", userId: "auth0|user-coach" } as never);
+
+    expect(
+      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeNull();
   });
 
   it("should handle error when discardUnfinishedMatch rejects in handleDiscard", async () => {
