@@ -1,5 +1,9 @@
 import { apiClient } from "../api/client";
 import { db } from "../db/ttaDatabase";
+import {
+  UNRECOVERABLE_STATUS_CODES,
+  extractErrorStatus,
+} from "../utils/syncErrorUtils";
 
 let isSyncing = false;
 
@@ -27,7 +31,6 @@ interface SyncCacheContext {
   matchRecordCache?: Map<string, MatchTeamData | null>;
 }
 
-const UNRECOVERABLE_STATUS_CODES = new Set([400, 403, 404, 409, 410]);
 const MATCH_TEAM_ENDPOINT_REGEX = /\/Matches\/([^/]+)\/teams\/([^/]+)/;
 
 const extractPresenceLineupIds = (
@@ -525,14 +528,6 @@ const finalizeBatchSync = async (
   }
 
   return performFinalization();
-};
-
-const extractErrorStatus = (err: unknown): number | undefined => {
-  return (
-    (err as { status?: number; response?: { status?: number } })?.status ??
-    (err as { status?: number; response?: { status?: number } })?.response
-      ?.status
-  );
 };
 
 interface BatchResult {

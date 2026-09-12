@@ -11,6 +11,10 @@ import type {
   TournamentLookup,
   SportConfigurationLookup,
 } from "../db/ttaDatabase";
+import {
+  UNRECOVERABLE_STATUS_CODES,
+  extractErrorStatus,
+} from "../utils/syncErrorUtils";
 import { seedTestData } from "../db/seed";
 
 export class StaleUserError extends Error {
@@ -23,16 +27,6 @@ export class StaleUserError extends Error {
 type TrackedMatch = MatchLookup & {
   trackedTeamId?: string;
   selectedTeamId?: string;
-};
-
-const UNRECOVERABLE_STATUS_CODES = new Set([400, 403, 404, 409, 410]);
-
-const extractErrorStatus = (err: unknown): number | undefined => {
-  return (
-    (err as { status?: number; response?: { status?: number } })?.status ??
-    (err as { status?: number; response?: { status?: number } })?.response
-      ?.status
-  );
 };
 
 const syncLineups = async (matchId: string, lineups?: MatchLineupLookup[]) => {
