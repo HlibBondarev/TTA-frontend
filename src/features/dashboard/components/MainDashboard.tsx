@@ -91,6 +91,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           "";
         await onResumeMatch(activeUnfinishedMatch.id, teamToResume);
       }
+    } catch (err) {
+      console.error("Failed to resume unfinished match:", err);
     } finally {
       setActiveOp((prev) =>
         prev?.userId === initiatedUserId && prev?.token === token ? null : prev,
