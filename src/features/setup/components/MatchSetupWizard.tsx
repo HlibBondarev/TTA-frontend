@@ -399,11 +399,15 @@ interface CatchResult {
   queuedItemId?: number;
 }
 
+function isTransientStatus(status: number): boolean {
+  return (status >= 500 && status < 600) || status === 408 || status === 429;
+}
+
 function handleOnlineCatchError(catchErr: unknown): void {
   if (catchErr instanceof StaleOperationError) throw catchErr;
   const status = getHttpStatus(catchErr);
   if (typeof status === "number") {
-    if (status < 500 || status >= 600) {
+    if (!isTransientStatus(status)) {
       throw new MatchCatchError(status, catchErr);
     }
     console.warn(
@@ -472,7 +476,7 @@ async function tryOnlineUncatch(
       return true;
     }
     if (typeof status === "number") {
-      if (status >= 500 && status < 600) {
+      if (isTransientStatus(status)) {
         return "FALLBACK";
       }
       console.warn(
