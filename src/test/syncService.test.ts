@@ -1022,7 +1022,7 @@ describe("Sync Engine Service", () => {
     expect(db.syncQueue.orderBy).not.toHaveBeenCalled();
   });
 
-  it("returns UNRESOLVED, logs warning, and halts queue processing when normalizeTeamEndpoint encounters database error", async () => {
+  it("falls back to original endpoint, logs warning, and processes queue when normalizeTeamEndpoint encounters database error", async () => {
     const consoleWarnSpy = vi
       .spyOn(console, "warn")
       .mockImplementation(() => {});
@@ -1049,12 +1049,16 @@ describe("Sync Engine Service", () => {
 
     const processed = await processSyncQueue();
 
-    expect(processed).toBe(0);
+    expect(processed).toBe(1);
     expect(consoleWarnSpy).toHaveBeenCalledWith(
-      "Failed to normalize teamId in sync endpoint, falling back to UNRESOLVED status:",
+      "Failed to normalize teamId in sync endpoint, falling back to match trackedTeamId or original endpoint:",
       expect.any(Error),
     );
-    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/m1/teams/fallback-team/events",
+      [{ id: "e1", matchLineupId: "lineup-err" }],
+      expect.any(Object),
+    );
 
     consoleWarnSpy.mockRestore();
   });
@@ -1154,7 +1158,7 @@ describe("Sync Engine Service", () => {
     expect(mockModify).toHaveBeenCalledWith({ isSynced: 1 });
   });
 
-  it("stops processing and leaves queue item unchanged when team-scoped event has unresolvable matchLineupId", async () => {
+  it("falls back to original endpoint and continues queue processing when team-scoped event has unresolvable matchLineupId", async () => {
     vi.mocked(db.matchlineups.get).mockResolvedValue(undefined);
 
     const mockItems = [
@@ -1178,11 +1182,14 @@ describe("Sync Engine Service", () => {
       toArray: vi.fn().mockResolvedValue(mockItems),
     } as unknown as ReturnType<typeof db.syncQueue.orderBy>);
 
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
     const processed = await processSyncQueue();
 
-    expect(processed).toBe(0);
-    expect(apiClient.post).not.toHaveBeenCalled();
-    expect(db.syncQueue.delete).not.toHaveBeenCalled();
+    expect(processed).toBe(2);
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(2);
   });
 
   it("correctly extracts entity IDs using shared extractEntityIds logic for events and anchors", async () => {

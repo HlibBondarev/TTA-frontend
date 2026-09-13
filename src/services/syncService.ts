@@ -397,20 +397,20 @@ const normalizeTeamEndpoint = async (
       payload,
       cache?.lineupTeamCache,
     );
-    if (resolvedTeamResult === "UNRESOLVED") {
-      return "UNRESOLVED";
-    }
-    if (resolvedTeamResult === "NO_LINEUP") {
+    if (
+      resolvedTeamResult === "UNRESOLVED" ||
+      resolvedTeamResult === "NO_LINEUP"
+    ) {
       return await resolveFallbackTeamEndpoint(endpoint, cache);
     }
 
     return endpoint.replace(/\/teams\/[^/]+/, `/teams/${resolvedTeamResult}`);
   } catch (err) {
     console.warn(
-      "Failed to normalize teamId in sync endpoint, falling back to UNRESOLVED status:",
+      "Failed to normalize teamId in sync endpoint, falling back to match trackedTeamId or original endpoint:",
       err,
     );
-    return "UNRESOLVED";
+    return await resolveFallbackTeamEndpoint(endpoint, cache);
   }
 };
 
