@@ -306,7 +306,7 @@ describe("MatchSetupWizard Component", () => {
     });
   });
 
-  it("should not enqueue DELETE in syncQueue and not rollback local match when online uncatch fails with HTTP 403", async () => {
+  it("should rollback local match and not enqueue DELETE in syncQueue when online uncatch fails with HTTP 403", async () => {
     const consoleWarnSpy = vi
       .spyOn(console, "warn")
       .mockImplementation(() => {});
@@ -359,13 +359,7 @@ describe("MatchSetupWizard Component", () => {
       expect(db.syncQueue.put).not.toHaveBeenCalledWith(
         expect.objectContaining({ actionType: "DELETE" }),
       );
-      expect(db.matches.put).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          id: "match-123",
-          trackedTeamId: "team-home",
-        }),
-      );
-      expect(db.matches.put).toHaveBeenCalledTimes(2);
+      expect(db.matches.put).toHaveBeenLastCalledWith(existingMatchRecord);
       expect(screen.getByRole("alert")).toBeDefined();
     });
 
@@ -2102,7 +2096,7 @@ describe("MatchSetupWizard Component", () => {
     expect(sportService.getSportConfigurations).toHaveBeenCalledTimes(1);
   });
 
-  it("should log error when deleting stale syncQueue item fails during rollback and preserve trackedTeamId in local match", async () => {
+  it("should rollback local match and log error when deleting stale syncQueue item fails", async () => {
     const consoleErrorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
@@ -2121,6 +2115,13 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(teamService.getTeamById)
       .mockResolvedValueOnce(mockHomeTeam)
       .mockResolvedValueOnce(mockGuestTeam);
+
+    const existingMatchRecord = {
+      id: "match-123",
+      homeTeamId: "team-home",
+      guestTeamId: "team-guest",
+    };
+    vi.mocked(db.matches.get).mockResolvedValue(existingMatchRecord as never);
 
     vi.mocked(db.syncQueue.put).mockResolvedValueOnce(99 as never);
     vi.mocked(db.syncQueue.delete).mockRejectedValueOnce(
@@ -2145,13 +2146,7 @@ describe("MatchSetupWizard Component", () => {
         "Failed to delete stale sync queue item:",
         expect.any(Error),
       );
-      expect(db.matches.put).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          id: "match-123",
-          trackedTeamId: "team-home",
-        }),
-      );
-      expect(db.matches.delete).not.toHaveBeenCalled();
+      expect(db.matches.put).toHaveBeenLastCalledWith(existingMatchRecord);
     });
 
     consoleErrorSpy.mockRestore();

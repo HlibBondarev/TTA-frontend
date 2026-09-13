@@ -530,38 +530,26 @@ async function compensateAndRollbackIfNeeded(
   localPersistResult: LocalPersistResult | undefined,
   pendingMatchId: string,
 ): Promise<void> {
-  if (!catchResult) {
-    if (localPersistResult?.didPersist) {
-      await rollbackTrackedTeamLocally(
-        pendingMatchId,
-        localPersistResult.existingMatch,
-        localPersistResult.existedLocally,
-      );
-    }
-    return;
-  }
-
-  let compensationSucceeded: boolean;
-  try {
-    compensationSucceeded = await compensateCatchMatch(
-      catchEndpoint,
-      catchResult,
-    );
-  } catch (compensationErr) {
-    compensationSucceeded = false;
-    const logMsg =
-      catchResult.queuedItemId !== undefined
-        ? "Failed to delete stale sync queue item:"
-        : "Failed to compensate catch match operation:";
-    console.error(logMsg, compensationErr);
-  }
-
-  if (compensationSucceeded && localPersistResult?.didPersist) {
+  // 1. Always perform local IndexedDB rollback first to guarantee local state consistency
+  if (localPersistResult?.didPersist) {
     await rollbackTrackedTeamLocally(
       pendingMatchId,
       localPersistResult.existingMatch,
       localPersistResult.existedLocally,
     );
+  }
+
+  // 2. Perform remote catch compensation or purge staged syncQueue catch item
+  if (catchResult) {
+    try {
+      await compensateCatchMatch(catchEndpoint, catchResult);
+    } catch (compensationErr) {
+      const logMsg =
+        catchResult.queuedItemId !== undefined
+          ? "Failed to delete stale sync queue item:"
+          : "Failed to compensate catch match operation:";
+      console.error(logMsg, compensationErr);
+    }
   }
 }
 
