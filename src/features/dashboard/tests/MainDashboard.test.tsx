@@ -391,7 +391,8 @@ describe("MainDashboard Component", () => {
     });
   });
 
-  it("should fallback teamToResume to empty string when all team IDs are empty", async () => {
+  it("should log an error and not invoke onResumeMatch when all team IDs are empty", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const onResumeMatchMock = vi.fn().mockResolvedValue(undefined);
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-empty-teams",
@@ -415,8 +416,13 @@ describe("MainDashboard Component", () => {
     fireEvent.click(resumeBtn);
 
     await waitFor(() => {
-      expect(onResumeMatchMock).toHaveBeenCalledWith("m-empty-teams", "");
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Failed to resume unfinished match:",
+        expect.any(Error),
+      );
+      expect(onResumeMatchMock).not.toHaveBeenCalled();
     });
+    consoleSpy.mockRestore();
   });
 
   it("should fallback to timestamp token generator when crypto.randomUUID is unavailable", async () => {

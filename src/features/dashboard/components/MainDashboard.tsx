@@ -84,17 +84,27 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
 
   const handleResume = useCallback(async () => {
     if (!activeUnfinishedMatch || isRecoveryBusy || !currentUserId) return;
+    const teamToResume = (
+      activeUnfinishedMatch.trackedTeamId ||
+      activeUnfinishedMatch.selectedTeamId ||
+      activeUnfinishedMatch.homeTeamId ||
+      activeUnfinishedMatch.guestTeamId ||
+      ""
+    ).trim();
+
+    if (!teamToResume) {
+      console.error(
+        "Failed to resume unfinished match:",
+        new Error("Missing team identity for interrupted match."),
+      );
+      return;
+    }
+
     const initiatedUserId = currentUserId;
     const token = generateToken();
     setActiveOp({ userId: initiatedUserId, token, type: "resume" });
     try {
       if (onResumeMatch) {
-        const teamToResume =
-          activeUnfinishedMatch.trackedTeamId ||
-          activeUnfinishedMatch.selectedTeamId ||
-          activeUnfinishedMatch.homeTeamId ||
-          activeUnfinishedMatch.guestTeamId ||
-          "";
         await onResumeMatch(activeUnfinishedMatch.id, teamToResume);
       }
     } catch (err) {
