@@ -366,16 +366,18 @@ async function rollbackTrackedTeamLocally(
   pendingMatchId: string,
   existingMatch?: MatchLookup,
   existedLocally = false,
-): Promise<void> {
-  if (!db.matches) return;
+): Promise<boolean> {
+  if (!db.matches) return false;
   try {
     if (existedLocally && existingMatch) {
       await db.matches.put(existingMatch);
     } else {
       await db.matches.delete(pendingMatchId);
     }
+    return true;
   } catch (rollbackErr) {
     console.error("Failed to rollback local match record:", rollbackErr);
+    return false;
   }
 }
 
@@ -530,17 +532,20 @@ async function compensateAndRollbackIfNeeded(
   localPersistResult: LocalPersistResult | undefined,
   pendingMatchId: string,
 ): Promise<void> {
+  let localRollbackSucceeded = true;
+
   // 1. Always perform local IndexedDB rollback first to guarantee local state consistency
   if (localPersistResult?.didPersist) {
-    await rollbackTrackedTeamLocally(
+    localRollbackSucceeded = await rollbackTrackedTeamLocally(
       pendingMatchId,
       localPersistResult.existingMatch,
       localPersistResult.existedLocally,
     );
   }
 
-  // 2. Perform remote catch compensation or purge staged syncQueue catch item
-  if (catchResult) {
+  // 2. Perform remote catch compensation ONLY IF local rollback succeeded (or wasn't needed)
+  // If local storage rollback fails, skip remote compensation to prevent leaving local DB inconsistent with remote server
+  if (catchResult && localRollbackSucceeded) {
     try {
       await compensateCatchMatch(catchEndpoint, catchResult);
     } catch (compensationErr) {

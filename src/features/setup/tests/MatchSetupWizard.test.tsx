@@ -2338,4 +2338,65 @@ describe("MatchSetupWizard Component", () => {
 
     consoleWarnSpy.mockRestore();
   });
+
+  it("should skip remote compensation when local match rollback fails to prevent state inconsistency", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const handleQuickStart = vi
+      .fn()
+      .mockRejectedValue(new Error("QuickStart failure"));
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
+    vi.mocked(apiClient.delete).mockResolvedValueOnce({});
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    const existingMatchRecord = {
+      id: "match-123",
+      homeTeamId: "team-home",
+      guestTeamId: "team-guest",
+    };
+    vi.mocked(db.matches.get).mockResolvedValue(existingMatchRecord as never);
+
+    // Call 1: handleInitMatch (persistMatchLocally)
+    // Call 2: handleConfirmQuickStart (persistTrackedTeamLocally)
+    // Call 3: compensateAndRollbackIfNeeded (rollbackTrackedTeamLocally - throws error)
+    vi.mocked(db.matches.put)
+      .mockResolvedValueOnce(undefined as never)
+      .mockResolvedValueOnce(undefined as never)
+      .mockRejectedValueOnce(new Error("IndexedDB rollback write failure"));
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "Failed to rollback local match record:",
+        expect.any(Error),
+      );
+      expect(apiClient.delete).not.toHaveBeenCalled();
+      expect(screen.getByRole("alert")).toBeDefined();
+    });
+
+    consoleErrorSpy.mockRestore();
+  });
 });
