@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { MainDashboard } from "../components/MainDashboard";
@@ -147,7 +153,9 @@ describe("MainDashboard Component", () => {
     expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-coach");
 
     unmount();
-    resolveMatch({ id: "m-unmounted", userId: "auth0|user-coach" } as never);
+    await act(async () => {
+      resolveMatch({ id: "m-unmounted", userId: "auth0|user-coach" } as never);
+    });
 
     expect(
       screen.queryByRole("region", { name: "Session Recovery Prompt" }),
