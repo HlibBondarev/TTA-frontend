@@ -99,11 +99,6 @@ describe("Hydration Service", () => {
     vi.mocked(db.tournaments.delete).mockReset();
     vi.mocked(db.sportconfigurations.get).mockReset();
     vi.mocked(db.sportconfigurations.put).mockReset();
-    vi.mocked(db.syncQueue.put)
-      .mockReset()
-      .mockResolvedValue(1 as never);
-    vi.mocked(db.syncQueue.delete).mockReset().mockResolvedValue(undefined);
-    vi.mocked(db.syncQueue.bulkDelete).mockReset().mockResolvedValue(undefined);
 
     vi.stubGlobal("navigator", { onLine: true });
 
@@ -138,6 +133,12 @@ describe("Hydration Service", () => {
     vi.mocked(db.syncQueue.toArray)
       .mockReset()
       .mockResolvedValue([] as never);
+    vi.mocked(db.syncQueue.filter)
+      .mockReset()
+      .mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+        primaryKeys: vi.fn().mockResolvedValue([]),
+      } as never);
     vi.mocked(db.syncQueue.delete).mockReset().mockResolvedValue(undefined);
     vi.mocked(db.syncQueue.bulkDelete).mockReset().mockResolvedValue(undefined);
   });
