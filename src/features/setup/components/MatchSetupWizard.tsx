@@ -29,6 +29,12 @@ interface MatchSetupWizardProps {
   ) => Promise<void>;
 }
 
+interface LocalPersistResult {
+  existingMatch?: MatchLookup;
+  didPersist: boolean;
+  existedLocally: boolean;
+}
+
 class StaleOperationError extends Error {
   constructor() {
     super("Operation cancelled due to user account change.");
@@ -43,6 +49,13 @@ class MatchOwnershipError extends Error {
   }
 }
 
+class MatchCatchError extends Error {
+  constructor(status: number, cause?: unknown) {
+    super(`Failed to catch match team (HTTP ${status}).`, { cause });
+    this.name = "MatchCatchError";
+  }
+}
+
 function checkUserFreshness(
   initiatedUserId: string | undefined,
   currentUserIdRef: React.RefObject<string | undefined>,
@@ -50,6 +63,23 @@ function checkUserFreshness(
   if (currentUserIdRef.current !== initiatedUserId) {
     throw new StaleOperationError();
   }
+}
+
+function getHttpStatus(err: unknown): number | undefined {
+  if (typeof err === "object" && err !== null) {
+    const obj = err as Record<string, unknown>;
+    if (typeof obj.status === "number") {
+      return obj.status;
+    }
+    if (
+      typeof obj.response === "object" &&
+      obj.response !== null &&
+      typeof (obj.response as Record<string, unknown>).status === "number"
+    ) {
+      return (obj.response as Record<string, unknown>).status as number;
+    }
+  }
+  return undefined;
 }
 
 async function persistOrRollbackTournament(
@@ -279,6 +309,76 @@ async function persistMatchLocally(
   }
 }
 
+async function persistTrackedTeamLocally(
+  pendingMatchId: string,
+  selectedTeamId: string,
+  initiatedUserId: string | undefined,
+  verifyFreshness: () => void,
+): Promise<LocalPersistResult> {
+  if (!db.matches) return { didPersist: false, existedLocally: false };
+  const initialLocalMatch = await db.matches.get(pendingMatchId);
+  verifyFreshness();
+
+  const existedLocally = !!initialLocalMatch;
+  let matchToNormalize = initialLocalMatch;
+
+  if (!matchToNormalize) {
+    try {
+      matchToNormalize = await fetchAndNormalizeMatch(
+        pendingMatchId,
+        initiatedUserId,
+      );
+      verifyFreshness();
+    } catch (err) {
+      if (err instanceof StaleOperationError) {
+        throw err;
+      }
+      throw new Error("Match session not found in local database.", {
+        cause: err,
+      });
+    }
+  }
+
+  const matchToPut: MatchLookup = {
+    ...matchToNormalize,
+    trackedTeamId: selectedTeamId,
+  };
+
+  await db.matches.put(matchToPut);
+  try {
+    verifyFreshness();
+  } catch (err) {
+    if (existedLocally && initialLocalMatch) {
+      await db.matches.put(initialLocalMatch);
+    } else {
+      await db.matches.delete(pendingMatchId);
+    }
+    throw err;
+  }
+  return {
+    existingMatch: initialLocalMatch,
+    didPersist: true,
+    existedLocally,
+  };
+}
+
+async function rollbackTrackedTeamLocally(
+  pendingMatchId: string,
+  existingMatch?: MatchLookup,
+  existedLocally = false,
+): Promise<void> {
+  if (!db.matches) return;
+  try {
+    if (existedLocally && existingMatch) {
+      await db.matches.put(existingMatch);
+    } else {
+      await db.matches.delete(pendingMatchId);
+    }
+  } catch (rollbackErr) {
+    console.error("Failed to rollback local match record:", rollbackErr);
+  }
+}
+
 async function loadMatchTeams(
   homeTeamId: string,
   guestTeamId: string,
@@ -292,45 +392,204 @@ async function loadMatchTeams(
   return { home, guest };
 }
 
-async function executeCatchMatch(
-  catchEndpoint: string,
-): Promise<number | undefined> {
-  let catchSuccess = false;
+interface CatchResult {
+  wasOnline: boolean;
+  queuedItemId?: number;
+}
 
-  if (navigator.onLine) {
-    try {
-      await apiClient.post(catchEndpoint, {});
-      catchSuccess = true;
-    } catch (catchErr) {
-      if (catchErr instanceof StaleOperationError) throw catchErr;
-      console.warn(
-        "Catch match API call failed online, fallback to syncQueue:",
-        catchErr,
-      );
+function handleOnlineCatchError(catchErr: unknown): void {
+  if (catchErr instanceof StaleOperationError) throw catchErr;
+  const status = getHttpStatus(catchErr);
+  if (typeof status === "number") {
+    if (status < 500 || status >= 600) {
+      throw new MatchCatchError(status, catchErr);
     }
+    console.warn(
+      `Catch match API call failed with retryable HTTP ${status}, fallback to syncQueue:`,
+      catchErr,
+    );
+  } else {
+    console.warn(
+      "Catch match API call failed online, fallback to syncQueue:",
+      catchErr,
+    );
+  }
+}
+
+async function tryOnlineCatch(
+  catchEndpoint: string,
+): Promise<CatchResult["wasOnline"]> {
+  if (!navigator.onLine) return false;
+
+  try {
+    await apiClient.post(catchEndpoint, {});
+    return true;
+  } catch (catchErr) {
+    handleOnlineCatchError(catchErr);
+    return false;
+  }
+}
+
+async function executeCatchMatch(catchEndpoint: string): Promise<CatchResult> {
+  const wasOnline = await tryOnlineCatch(catchEndpoint);
+  if (wasOnline) {
+    return { wasOnline: true };
   }
 
-  if (!catchSuccess && db.syncQueue) {
-    return (await db.syncQueue.put({
+  if (db.syncQueue) {
+    const queuedItemId = (await db.syncQueue.put({
       actionType: "POST",
       endpoint: catchEndpoint,
       payload: "{}",
       createdAt: new Date().toISOString(),
     })) as unknown as number;
+    return { wasOnline: false, queuedItemId };
   }
 
-  return undefined;
+  throw new Error("Failed to queue catch match operation while offline.");
 }
-
 async function purgeStaleSyncItem(
   queuedItemId: number | undefined,
 ): Promise<void> {
   if (queuedItemId === undefined || !db.syncQueue) return;
+  await db.syncQueue.delete(queuedItemId);
+}
+
+async function tryOnlineUncatch(
+  catchEndpoint: string,
+): Promise<boolean | "FALLBACK"> {
+  if (!navigator.onLine) return "FALLBACK";
+
   try {
-    await db.syncQueue.delete(queuedItemId);
-  } catch (deleteErr) {
-    console.error("Failed to delete stale sync queue item:", deleteErr);
+    await apiClient.delete(catchEndpoint);
+    return true;
+  } catch (err) {
+    if (err instanceof StaleOperationError) throw err;
+    const status = getHttpStatus(err);
+    if (status === 404 || status === 410) {
+      return true;
+    }
+    if (typeof status === "number") {
+      if (status >= 500 && status < 600) {
+        return "FALLBACK";
+      }
+      console.warn(
+        `Compensating online uncatch failed with terminal HTTP ${status}:`,
+        err,
+      );
+      return false;
+    }
+    console.warn(
+      "Compensating online uncatch failed due to network error, falling back to syncQueue:",
+      err,
+    );
+    return "FALLBACK";
   }
+}
+
+async function compensateOnlineCatch(catchEndpoint: string): Promise<boolean> {
+  const result = await tryOnlineUncatch(catchEndpoint);
+  if (typeof result === "boolean") {
+    return result;
+  }
+
+  if (db.syncQueue) {
+    await db.syncQueue.put({
+      actionType: "DELETE",
+      endpoint: catchEndpoint,
+      payload: "{}",
+      createdAt: new Date().toISOString(),
+    });
+    return true;
+  }
+
+  return false;
+}
+
+async function compensateCatchMatch(
+  catchEndpoint: string,
+  catchResult?: CatchResult,
+): Promise<boolean> {
+  if (!catchResult) return true;
+
+  if (catchResult.queuedItemId !== undefined) {
+    await purgeStaleSyncItem(catchResult.queuedItemId);
+    return true;
+  }
+
+  if (catchResult.wasOnline) {
+    return compensateOnlineCatch(catchEndpoint);
+  }
+
+  return true;
+}
+
+async function compensateAndRollbackIfNeeded(
+  catchEndpoint: string,
+  catchResult: CatchResult | undefined,
+  localPersistResult: LocalPersistResult | undefined,
+  pendingMatchId: string,
+): Promise<void> {
+  if (!catchResult) {
+    if (localPersistResult?.didPersist) {
+      await rollbackTrackedTeamLocally(
+        pendingMatchId,
+        localPersistResult.existingMatch,
+        localPersistResult.existedLocally,
+      );
+    }
+    return;
+  }
+
+  let compensationSucceeded: boolean;
+  try {
+    compensationSucceeded = await compensateCatchMatch(
+      catchEndpoint,
+      catchResult,
+    );
+  } catch (compensationErr) {
+    compensationSucceeded = false;
+    const logMsg =
+      catchResult.queuedItemId !== undefined
+        ? "Failed to delete stale sync queue item:"
+        : "Failed to compensate catch match operation:";
+    console.error(logMsg, compensationErr);
+  }
+
+  if (compensationSucceeded && localPersistResult?.didPersist) {
+    await rollbackTrackedTeamLocally(
+      pendingMatchId,
+      localPersistResult.existingMatch,
+      localPersistResult.existedLocally,
+    );
+  }
+}
+
+async function handleConfirmQuickStartError(
+  err: unknown,
+  catchEndpoint: string,
+  catchResult: CatchResult | undefined,
+  localPersistResult: LocalPersistResult | undefined,
+  pendingMatchId: string,
+  setErrorMessage: (msg: string | null) => void,
+): Promise<void> {
+  await compensateAndRollbackIfNeeded(
+    catchEndpoint,
+    catchResult,
+    localPersistResult,
+    pendingMatchId,
+  );
+
+  if (
+    err instanceof StaleOperationError ||
+    (err instanceof Error && err.name === "StaleUserError")
+  ) {
+    return;
+  }
+
+  setErrorMessage(
+    err instanceof Error ? err.message : "Failed to complete match setup.",
+  );
 }
 
 export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
@@ -538,7 +797,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       );
 
       setTeams(loadedTeams);
-      setSelectedTeamId((prev) => prev ?? loadedTeams.home.id);
+      setSelectedTeamId(null);
     } catch (err) {
       if (err instanceof StaleOperationError) {
         if (currentUserIdRef.current !== initiatedUserId) {
@@ -588,15 +847,22 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     );
     const activePlayersLimit = selectedConfig?.activePlayersLimit ?? 7;
 
-    let queuedItemId: number | undefined;
+    const catchEndpoint = `/Matches/${pendingMatchId}/teams/${selectedTeamId}/catch`;
+    let catchResult: CatchResult | undefined;
+    let localPersistResult: LocalPersistResult | undefined;
 
     try {
       setIsSubmitting(true);
       setErrorMessage(null);
 
-      const catchEndpoint = `/Matches/${pendingMatchId}/teams/${selectedTeamId}/catch`;
-      queuedItemId = await executeCatchMatch(catchEndpoint);
+      localPersistResult = await persistTrackedTeamLocally(
+        pendingMatchId,
+        selectedTeamId,
+        initiatedUserId,
+        verifyFreshness,
+      );
 
+      catchResult = await executeCatchMatch(catchEndpoint);
       verifyFreshness();
 
       await onQuickStart(
@@ -608,12 +874,13 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       );
       verifyFreshness();
     } catch (err) {
-      if (err instanceof StaleOperationError) {
-        await purgeStaleSyncItem(queuedItemId);
-        return;
-      }
-      setErrorMessage(
-        err instanceof Error ? err.message : "Failed to complete match setup.",
+      await handleConfirmQuickStartError(
+        err,
+        catchEndpoint,
+        catchResult,
+        localPersistResult,
+        pendingMatchId,
+        setErrorMessage,
       );
     } finally {
       if (currentUserIdRef.current === initiatedUserId) {

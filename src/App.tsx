@@ -120,17 +120,17 @@ export const App: React.FC = () => {
         console.warn(
           "Account changed during Quick Start hydration. Aborting session activation.",
         );
-        return;
+      } else {
+        console.error("Hydration failed:", error);
       }
-      console.error("Hydration failed (non-critical):", error);
-      return;
+      throw error;
     }
 
     if (currentUserIdRef.current !== initiatedUserId) {
       console.warn(
         "Account changed during Quick Start hydration. Aborting session activation.",
       );
-      return;
+      throw new StaleUserError();
     }
 
     dispatch(
@@ -161,6 +161,7 @@ export const App: React.FC = () => {
         }),
       );
 
+      // Fix: Pass the resolved teamId to ensure the correct team session is resumed
       dispatch(
         setActiveMatch({
           matchId,

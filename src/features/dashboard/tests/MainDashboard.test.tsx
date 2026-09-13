@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { MainDashboard } from "../components/MainDashboard";
@@ -9,6 +15,7 @@ import navigationReducer, {
 import {
   checkUnfinishedMatch,
   discardUnfinishedMatch,
+  StaleUserError,
 } from "../../../services/hydrationService";
 
 const mockLogout = vi.fn();
@@ -23,10 +30,14 @@ vi.mock("@auth0/auth0-react", () => ({
   }),
 }));
 
-vi.mock("../../../services/hydrationService", () => ({
-  checkUnfinishedMatch: vi.fn().mockResolvedValue(null),
-  discardUnfinishedMatch: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("../../../services/hydrationService", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    checkUnfinishedMatch: vi.fn().mockResolvedValue(null),
+    discardUnfinishedMatch: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 const createTestStore = () => {
   return configureStore({
@@ -79,6 +90,30 @@ describe("MainDashboard Component", () => {
     expect(screen.getByText("User")).toBeDefined();
   });
 
+  it("should use user.email as currentUserId when user.sub is missing", async () => {
+    mockUser = { email: "no-sub@tta.com", sub: undefined as never };
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-email-user",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      userId: "no-sub@tta.com",
+    } as never);
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("no-sub@tta.com");
+    });
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+  });
+
   it("should handle error when checkUnfinishedMatch rejects", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(checkUnfinishedMatch).mockRejectedValueOnce(
@@ -101,12 +136,39 @@ describe("MainDashboard Component", () => {
     consoleSpy.mockRestore();
   });
 
+  it("should not update state if component unmounts while checkUnfinishedMatch is pending", async () => {
+    let resolveMatch: (val: never) => void = () => {};
+    const pendingPromise = new Promise<never>((resolve) => {
+      resolveMatch = resolve;
+    });
+    vi.mocked(checkUnfinishedMatch).mockReturnValueOnce(pendingPromise);
+
+    const store = createTestStore();
+    const { unmount } = render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-coach");
+
+    unmount();
+    await act(async () => {
+      resolveMatch({ id: "m-unmounted", userId: "auth0|user-coach" } as never);
+    });
+
+    expect(
+      screen.queryByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeNull();
+  });
+
   it("should handle error when discardUnfinishedMatch rejects in handleDiscard", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-unfinished-123",
       homeTeamId: "team-1",
       guestTeamId: "team-2",
+      trackedTeamId: "team-2",
       tournamentId: "",
       scheduledAt: "",
       matchNumber: null,
@@ -140,6 +202,152 @@ describe("MainDashboard Component", () => {
         "Failed to discard unfinished match:",
         expect.any(Error),
       );
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it("should execute checkFreshness callback during discardUnfinishedMatch and handle StaleUserError silently", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-stale-discard",
+      homeTeamId: "t1",
+      guestTeamId: "t2",
+      userId: "auth0|user-coach",
+    } as never);
+
+    vi.mocked(discardUnfinishedMatch).mockImplementationOnce(
+      async (_id, _team, checkFreshness) => {
+        checkFreshness?.();
+        throw new StaleUserError("User changed during discard");
+      },
+    );
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    const discardBtn = await screen.findByRole("button", {
+      name: /Discard Match/i,
+    });
+    fireEvent.click(discardBtn);
+
+    await waitFor(() => {
+      expect(discardUnfinishedMatch).toHaveBeenCalledWith(
+        "m-stale-discard",
+        "",
+        expect.any(Function),
+        "auth0|user-coach",
+      );
+    });
+
+    expect(consoleSpy).not.toHaveBeenCalledWith(
+      "Failed to discard unfinished match:",
+      expect.any(Error),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it("should throw StaleUserError from checkFreshness callback when active account changes mid-discard", async () => {
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-fresh-check",
+      homeTeamId: "t1",
+      guestTeamId: "t2",
+      userId: "auth0|user-coach",
+    } as never);
+
+    let capturedFreshnessCheck: (() => void) | undefined;
+    vi.mocked(discardUnfinishedMatch).mockImplementationOnce(
+      async (_id, _team, checkFreshness) => {
+        capturedFreshnessCheck = checkFreshness;
+      },
+    );
+
+    const store = createTestStore();
+    const { rerender } = render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    const discardBtn = await screen.findByRole("button", {
+      name: /Discard Match/i,
+    });
+    fireEvent.click(discardBtn);
+
+    await waitFor(() => {
+      expect(capturedFreshnessCheck).toBeDefined();
+    });
+
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    expect(() => capturedFreshnessCheck?.()).toThrow(StaleUserError);
+  });
+
+  it("should complete handleResume gracefully when onResumeMatch prop is not provided", async () => {
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-no-prop-resume",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      userId: "auth0|user-coach",
+    } as never);
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    const resumeBtn = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    fireEvent.click(resumeBtn);
+
+    await waitFor(() => {
+      expect(resumeBtn).not.toBeDisabled();
+    });
+  });
+
+  it("should reset activeOp in finally block even if onResumeMatch rejects with error", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onResumeMatchMock = vi
+      .fn()
+      .mockRejectedValue(new Error("Resume failed"));
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-err-resume",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      userId: "auth0|user-coach",
+    } as never);
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    const resumeBtn = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    fireEvent.click(resumeBtn);
+
+    await waitFor(() => {
+      expect(onResumeMatchMock).toHaveBeenCalled();
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Resume Match/i }),
+      ).not.toBeDisabled();
     });
     consoleSpy.mockRestore();
   });
@@ -180,6 +388,34 @@ describe("MainDashboard Component", () => {
         "m-unfinished-selected",
         "team-selected-99",
       );
+    });
+  });
+
+  it("should fallback teamToResume to empty string when all team IDs are empty", async () => {
+    const onResumeMatchMock = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-empty-teams",
+      homeTeamId: "",
+      guestTeamId: "",
+      trackedTeamId: "",
+      selectedTeamId: "",
+      userId: "auth0|user-coach",
+    } as never);
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    const resumeBtn = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    fireEvent.click(resumeBtn);
+
+    await waitFor(() => {
+      expect(onResumeMatchMock).toHaveBeenCalledWith("m-empty-teams", "");
     });
   });
 
@@ -425,11 +661,12 @@ describe("MainDashboard Component", () => {
     });
   });
 
-  it("should invoke discardUnfinishedMatch with matchId and teamId, then purge prompt when clicking Discard Match button", async () => {
+  it("should invoke discardUnfinishedMatch with matchId and trackedTeamId, then purge prompt when clicking Discard Match button", async () => {
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-unfinished-123",
       homeTeamId: "team-1",
       guestTeamId: "team-2",
+      trackedTeamId: "team-2",
       tournamentId: "",
       scheduledAt: "",
       matchNumber: null,
@@ -457,7 +694,9 @@ describe("MainDashboard Component", () => {
     await waitFor(() => {
       expect(discardUnfinishedMatch).toHaveBeenCalledWith(
         "m-unfinished-123",
-        "team-1",
+        "team-2",
+        expect.any(Function),
+        "auth0|user-coach",
       );
       expect(
         screen.queryByRole("region", { name: "Session Recovery Prompt" }),
@@ -776,5 +1015,43 @@ describe("MainDashboard Component", () => {
     expect(
       screen.queryByRole("region", { name: "Session Recovery Prompt" }),
     ).toBeNull();
+  });
+
+  it("should resolve guestTeamId fallback for teamToResume when tracked/selected and homeTeamId are missing", async () => {
+    const onResumeMatchMock = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-unfinished-guest",
+      homeTeamId: "",
+      guestTeamId: "team-guest-fallback",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+      userId: "auth0|user-coach",
+    } as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    const resumeBtn = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    fireEvent.click(resumeBtn);
+
+    await waitFor(() => {
+      expect(onResumeMatchMock).toHaveBeenCalledWith(
+        "m-unfinished-guest",
+        "team-guest-fallback",
+      );
+    });
   });
 });

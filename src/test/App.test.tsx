@@ -270,6 +270,9 @@ describe("App Bootstrapping Component", () => {
 
     expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
 
+    // Select team before confirming quick start
+    fireEvent.click(screen.getByText("Home Squad"));
+
     fireEvent.click(
       screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
     );
@@ -350,6 +353,10 @@ describe("App Bootstrapping Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
+
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    fireEvent.click(screen.getByText("Home Squad"));
+
     fireEvent.click(
       await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
     );
@@ -358,6 +365,8 @@ describe("App Bootstrapping Component", () => {
       expect(hydrateMatchData).toHaveBeenCalled();
       expect(store.getState().match.activeMatchId).toBeNull();
       expect(store.getState().match.activeTeamId).toBeNull();
+      expect(screen.getByRole("alert")).toBeDefined();
+      expect(screen.getByText("401 Unauthorized")).toBeDefined();
     });
   });
 
@@ -389,6 +398,10 @@ describe("App Bootstrapping Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
+
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    fireEvent.click(screen.getByText("Home Squad"));
+
     fireEvent.click(
       await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
     );
@@ -479,6 +492,10 @@ describe("App Bootstrapping Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
+
+    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    fireEvent.click(screen.getByText("Home Squad"));
+
     fireEvent.click(
       await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
     );
