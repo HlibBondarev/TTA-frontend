@@ -418,6 +418,7 @@ export const discardUnfinishedMatch = async (
     }
 
     await deleteLocalMatchEntities(matchId);
+    checkFreshness?.();
   });
 
   if (stagedCatchEndpoint && navigator.onLine) {

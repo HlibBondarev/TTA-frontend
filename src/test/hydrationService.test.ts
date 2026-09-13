@@ -1583,14 +1583,14 @@ describe("Hydration Service", () => {
     let freshnessCallCount = 0;
     const checkFreshnessMock = vi.fn().mockImplementation(() => {
       freshnessCallCount++;
-      if (freshnessCallCount === 3) {
+      if (freshnessCallCount === 4) {
         throw new StaleUserError();
       }
     });
 
     await discardUnfinishedMatch(matchId, teamId, checkFreshnessMock);
 
-    expect(checkFreshnessMock).toHaveBeenCalledTimes(3);
+    expect(checkFreshnessMock).toHaveBeenCalledTimes(4);
     expect(apiClient.delete).not.toHaveBeenCalled();
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
@@ -1639,6 +1639,32 @@ describe("Hydration Service", () => {
 
     expect(db.syncQueue.put).not.toHaveBeenCalled();
     expect(db.matches.delete).not.toHaveBeenCalled();
+    expect(apiClient.delete).not.toHaveBeenCalled();
+  });
+
+  it("should abort transaction and rollback if checkFreshness throws StaleUserError immediately after deleteLocalMatchEntities", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+      userId: "user-1",
+    } as never);
+
+    let freshnessCallCount = 0;
+    const checkFreshnessMock = vi.fn().mockImplementation(() => {
+      freshnessCallCount++;
+      if (freshnessCallCount === 3) {
+        throw new StaleUserError(
+          "User account changed right after deleting local match entities",
+        );
+      }
+    });
+
+    await expect(
+      discardUnfinishedMatch(matchId, teamId, checkFreshnessMock, "user-1"),
+    ).rejects.toThrow(StaleUserError);
+
+    expect(checkFreshnessMock).toHaveBeenCalledTimes(3);
     expect(apiClient.delete).not.toHaveBeenCalled();
   });
 });
