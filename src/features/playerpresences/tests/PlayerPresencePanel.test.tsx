@@ -33,6 +33,12 @@ const renderWithRedux = (
   store,
 });
 
+const createTestStore = (preloadedState?: Record<string, unknown>) =>
+  configureStore({
+    reducer: rootReducer,
+    preloadedState: preloadedState as unknown as RootState,
+  });
+
 describe("PlayerPresencePanel Component", () => {
   const mockExecuteSubstitution = vi.fn().mockResolvedValue("new-id");
   const mockStageStartingLineup = vi.fn();
@@ -302,5 +308,52 @@ describe("PlayerPresencePanel Component", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Failed to fetch fresh roster data.",
     );
+  });
+
+  it("should clear error message when period becomes active (isPeriodActive changes to true)", async () => {
+    mockStageStartingLineup.mockImplementationOnce(() => {
+      throw new Error("Cannot exceed the limit of 7 active players.");
+    });
+
+    const store = createTestStore({
+      match: { isPeriodActive: false, isPeriodEnded: false },
+    });
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <PlayerPresencePanel
+          matchId="test-match"
+          selectedPlayerId={null}
+          setSelectedPlayerId={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    // Trigger an error by tapping bench player when limit exceeded
+    const benchBtn = await screen.findByText("#10");
+    fireEvent.click(benchBtn);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Cannot exceed the limit of 7 active players.",
+    );
+
+    // Rerender with period active state set to true (simulating START PERIOD)
+    const activeStore = createTestStore({
+      match: { isPeriodActive: true, isPeriodEnded: false },
+    });
+
+    rerender(
+      <Provider store={activeStore}>
+        <PlayerPresencePanel
+          matchId="test-match"
+          selectedPlayerId={null}
+          setSelectedPlayerId={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
   });
 });
