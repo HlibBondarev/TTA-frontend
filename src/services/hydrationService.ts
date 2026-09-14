@@ -3,6 +3,7 @@ import { sportService } from "./sportService";
 import { db } from "../db/ttaDatabase";
 import type {
   MatchLookup,
+  TrackedMatch,
   MatchLineupLookup,
   TimeAnchor,
   PlayerPresence,
@@ -23,11 +24,6 @@ export class StaleUserError extends Error {
     this.name = "StaleUserError";
   }
 }
-
-type TrackedMatch = MatchLookup & {
-  trackedTeamId?: string;
-  selectedTeamId?: string;
-};
 
 const syncLineups = async (matchId: string, lineups?: MatchLineupLookup[]) => {
   if (!lineups) return;

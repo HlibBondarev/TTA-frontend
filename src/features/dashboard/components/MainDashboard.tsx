@@ -13,7 +13,7 @@ import {
   discardUnfinishedMatch,
   StaleUserError,
 } from "../../../services/hydrationService";
-import type { MatchLookup } from "../../../db/ttaDatabase";
+import type { TrackedMatch } from "../../../db/ttaDatabase";
 
 export interface MainDashboardProps {
   onResumeMatch?: (matchId: string, teamId: string) => Promise<void>;
@@ -44,9 +44,9 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     currentUserIdRef.current = currentUserId;
   }, [currentUserId]);
 
-  const [unfinishedMatch, setUnfinishedMatch] = useState<
-    (MatchLookup & { trackedTeamId?: string; selectedTeamId?: string }) | null
-  >(null);
+  const [unfinishedMatch, setUnfinishedMatch] = useState<TrackedMatch | null>(
+    null,
+  );
 
   const [activeOp, setActiveOp] = useState<ActiveOperation | null>(null);
 
