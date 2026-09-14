@@ -1,5 +1,9 @@
 import { apiClient } from "../api/client";
 import { db } from "../db/ttaDatabase";
+import {
+  UNRECOVERABLE_STATUS_CODES,
+  extractErrorStatus,
+} from "../utils/syncErrorUtils";
 
 let isSyncing = false;
 
@@ -14,6 +18,20 @@ interface PresenceItemPayload {
   id: string;
   matchLineupId: string;
 }
+
+interface MatchTeamData {
+  trackedTeamId?: string;
+  selectedTeamId?: string;
+  homeTeamId?: string;
+  guestTeamId?: string;
+}
+
+interface SyncCacheContext {
+  lineupTeamCache?: Map<string, string | null>;
+  matchRecordCache?: Map<string, MatchTeamData | null>;
+}
+
+const MATCH_TEAM_ENDPOINT_REGEX = /\/Matches\/([^/]+)\/teams\/([^/]+)/;
 
 const extractPresenceLineupIds = (
   presencePayload: Record<string, unknown>,
@@ -32,7 +50,42 @@ const extractPresenceLineupIds = (
   ].filter(Boolean) as string[];
 };
 
-const syncPresences = async (payload: unknown): Promise<void> => {
+const extractEntityIds = (
+  segment: "events" | "anchors",
+  endpoint: string,
+  payload: unknown,
+): string[] => {
+  const ids = new Set<string>();
+  const items = Array.isArray(payload) ? payload : [payload];
+  for (const item of items) {
+    if (
+      typeof item === "object" &&
+      item !== null &&
+      "id" in item &&
+      typeof (item as { id?: string }).id === "string"
+    ) {
+      ids.add((item as { id: string }).id);
+    }
+  }
+
+  const match = new RegExp(`/${segment}/([^/]+)`).exec(endpoint);
+  if (match?.[1] && match[1] !== "batch" && !match[1].startsWith("?")) {
+    ids.add(match[1]);
+  }
+
+  return Array.from(ids);
+};
+
+const extractEventIds = (endpoint: string, payload: unknown): string[] =>
+  extractEntityIds("events", endpoint, payload);
+
+const extractAnchorIds = (endpoint: string, payload: unknown): string[] =>
+  extractEntityIds("anchors", endpoint, payload);
+
+const syncPresences = async (
+  payload: unknown,
+  targetStatus: number = 1,
+): Promise<void> => {
   const presencePayload = payload as Record<string, unknown>;
   if (
     typeof presencePayload.periodNumber !== "number" ||
@@ -54,69 +107,69 @@ const syncPresences = async (payload: unknown): Promise<void> => {
         p.timeIn !== null &&
         p.timeOut !== null,
     )
-    .modify({ isSynced: 1 });
+    .modify({ isSynced: targetStatus });
 };
 
-const syncEvents = async (payload: unknown): Promise<void> => {
+const syncEvents = async (
+  endpoint: string,
+  payload: unknown,
+  targetStatus: number = 1,
+): Promise<void> => {
   if (!db?.gameevents) return;
 
-  const eventsList = Array.isArray(payload) ? payload : [payload];
-  const eventIds = eventsList
-    .map((item) => (item as { id?: string })?.id)
-    .filter((id): id is string => Boolean(id));
+  const eventIds = extractEventIds(endpoint, payload);
 
   if (eventIds.length > 0) {
-    await db.gameevents.where("id").anyOf(eventIds).modify({ isSynced: 1 });
+    await db.gameevents
+      .where("id")
+      .anyOf(eventIds)
+      .modify({ isSynced: targetStatus });
   }
 };
 
-const syncAnchors = async (payload: unknown): Promise<void> => {
+const syncAnchors = async (
+  endpoint: string,
+  payload: unknown,
+  targetStatus: number = 1,
+): Promise<void> => {
   if (!db?.timeanchors) return;
 
-  const anchorsList = Array.isArray(payload) ? payload : [payload];
-  const anchorIds = anchorsList
-    .map((item) => (item as { id?: string })?.id)
-    .filter((id): id is string => Boolean(id));
+  const anchorIds = extractAnchorIds(endpoint, payload);
 
   if (anchorIds.length > 0) {
-    await db.timeanchors.where("id").anyOf(anchorIds).modify({ isSynced: 1 });
+    await db.timeanchors
+      .where("id")
+      .anyOf(anchorIds)
+      .modify({ isSynced: targetStatus });
   }
 };
 
 /**
- * Updates local IndexedDB entities (playerpresences, gameevents, timeanchors) to isSynced = 1 upon successful server sync.
+ * Updates local IndexedDB entities (playerpresences, gameevents, timeanchors) to targetStatus upon sync finalization or purge.
  */
 export const markEntitiesSynced = async (
   endpoint: string,
   payload: unknown,
+  targetStatus: number = 1,
 ): Promise<void> => {
   if (!endpoint || !payload) return;
 
   if (endpoint.includes("/presence") || endpoint.includes("/substitutions")) {
-    await syncPresences(payload);
+    await syncPresences(payload, targetStatus);
   } else if (endpoint.includes("/events")) {
-    await syncEvents(payload);
+    await syncEvents(endpoint, payload, targetStatus);
   } else if (endpoint.includes("/anchors")) {
-    await syncAnchors(payload);
+    await syncAnchors(endpoint, payload, targetStatus);
   }
 };
 
-/**
- * Backward-compatible alias for presences sync marker.
- */
 export const markPresencesSynced = markEntitiesSynced;
 
-/**
- * Determines whether an HTTP operation endpoint supports array payload batching.
- */
 const isBatchableEndpoint = (actionType: string, endpoint: string): boolean => {
   if (actionType !== "POST") return false;
   return endpoint.endsWith("/events") || endpoint.endsWith("/anchors");
 };
 
-/**
- * Safely parses a JSON payload string, returning null on error.
- */
 const parsePayload = (payloadStr: string): unknown => {
   try {
     return JSON.parse(payloadStr);
@@ -125,23 +178,144 @@ const parsePayload = (payloadStr: string): unknown => {
   }
 };
 
+const resolveEventTeamId = async (
+  event: Record<string, unknown>,
+  lineupTeamCache?: Map<string, string | null>,
+): Promise<string> => {
+  if (
+    typeof event?.matchLineupId === "string" &&
+    db?.matchlineups &&
+    db?.playerrosters
+  ) {
+    const lineupId = event.matchLineupId;
+    if (lineupTeamCache?.has(lineupId)) {
+      const cached = lineupTeamCache.get(lineupId);
+      return cached ?? "UNRESOLVED";
+    }
+
+    const lineup = await db.matchlineups.get(lineupId);
+    if (lineup?.playerRosterId) {
+      const roster = await db.playerrosters.get(lineup.playerRosterId);
+      if (roster?.teamId) {
+        lineupTeamCache?.set(lineupId, roster.teamId);
+        return roster.teamId;
+      }
+    }
+    lineupTeamCache?.set(lineupId, null);
+    return "UNRESOLVED";
+  }
+
+  if ("matchLineupId" in event && event.matchLineupId !== undefined) {
+    return "UNRESOLVED";
+  }
+
+  return "NO_LINEUP";
+};
+
+const resolveSingleEventTeamId = async (
+  item: unknown,
+  lineupTeamCache?: Map<string, string | null>,
+): Promise<string> => {
+  if (typeof item !== "object" || item === null) {
+    return "UNRESOLVED";
+  }
+  return resolveEventTeamId(item as Record<string, unknown>, lineupTeamCache);
+};
+
+const resolveBatchTeamId = async (
+  payload: unknown,
+  lineupTeamCache?: Map<string, string | null>,
+): Promise<string> => {
+  const eventsList = Array.isArray(payload) ? payload : [payload];
+  if (eventsList.length === 0) return "NO_LINEUP";
+
+  let commonTeamId: string | null = null;
+
+  for (const item of eventsList) {
+    const result = await resolveSingleEventTeamId(item, lineupTeamCache);
+    if (result === "UNRESOLVED") return "UNRESOLVED";
+    if (result === "NO_LINEUP") continue;
+
+    if (commonTeamId === null) {
+      commonTeamId = result;
+    } else if (commonTeamId !== result) {
+      return "UNRESOLVED";
+    }
+  }
+
+  return commonTeamId ?? "NO_LINEUP";
+};
+
+const isNextItemCompatible = async (
+  currentItem: SyncQueueItem,
+  currentTeamResult: string,
+  nextItem: SyncQueueItem,
+  lineupTeamCache?: Map<string, string | null>,
+): Promise<{ compatible: boolean; payload: unknown }> => {
+  if (
+    nextItem.actionType !== currentItem.actionType ||
+    nextItem.endpoint !== currentItem.endpoint
+  ) {
+    return { compatible: false, payload: null };
+  }
+
+  const nextPayload = parsePayload(nextItem.payload);
+  if (nextPayload === null) {
+    return { compatible: false, payload: null };
+  }
+
+  if (currentItem.endpoint.includes("/teams/")) {
+    let nextTeamResult: string;
+    try {
+      nextTeamResult = await resolveBatchTeamId(nextPayload, lineupTeamCache);
+    } catch {
+      nextTeamResult = "UNRESOLVED";
+    }
+
+    if (
+      currentTeamResult === "UNRESOLVED" ||
+      nextTeamResult === "UNRESOLVED" ||
+      currentTeamResult !== nextTeamResult
+    ) {
+      return { compatible: false, payload: null };
+    }
+  }
+
+  return { compatible: true, payload: nextPayload };
+};
+
+const getInitialTeamResult = async (
+  endpoint: string,
+  payload: unknown,
+  cache?: Map<string, string | null>,
+): Promise<string> => {
+  if (!endpoint.includes("/teams/")) return "NO_LINEUP";
+  try {
+    return await resolveBatchTeamId(payload, cache);
+  } catch {
+    return "UNRESOLVED";
+  }
+};
+
 /**
- * Aggregates consecutive batchable POST queue items targeting the same endpoint.
+ * Aggregates consecutive batchable POST queue items targeting the same endpoint and resolving to the same team.
  */
-const collectBatch = (
+const collectBatch = async (
   pendingItems: SyncQueueItem[],
   startIndex: number,
   currentItem: SyncQueueItem,
   currentPayload: unknown,
-): { batchItems: SyncQueueItem[]; effectivePayload: unknown } => {
-  const batchable = isBatchableEndpoint(
-    currentItem.actionType,
-    currentItem.endpoint,
-  );
-
-  if (!batchable) {
+  lineupTeamCache?: Map<string, string | null>,
+): Promise<{ batchItems: SyncQueueItem[]; effectivePayload: unknown }> => {
+  if (!isBatchableEndpoint(currentItem.actionType, currentItem.endpoint)) {
     return { batchItems: [currentItem], effectivePayload: currentPayload };
   }
+
+  const currentTeamResult = await getInitialTeamResult(
+    currentItem.endpoint,
+    currentPayload,
+    lineupTeamCache,
+  );
 
   const aggregatedArray: unknown[] = Array.isArray(currentPayload)
     ? [...currentPayload]
@@ -150,20 +324,19 @@ const collectBatch = (
 
   for (let j = startIndex + 1; j < pendingItems.length; j++) {
     const nextItem = pendingItems[j];
-    if (
-      nextItem.actionType !== currentItem.actionType ||
-      nextItem.endpoint !== currentItem.endpoint
-    ) {
-      break;
-    }
+    const { compatible, payload } = await isNextItemCompatible(
+      currentItem,
+      currentTeamResult,
+      nextItem,
+      lineupTeamCache,
+    );
 
-    const nextPayload = parsePayload(nextItem.payload);
-    if (nextPayload === null) break;
+    if (!compatible) break;
 
-    if (Array.isArray(nextPayload)) {
-      aggregatedArray.push(...nextPayload);
+    if (Array.isArray(payload)) {
+      aggregatedArray.push(...payload);
     } else {
-      aggregatedArray.push(nextPayload);
+      aggregatedArray.push(payload);
     }
     batchItems.push(nextItem);
   }
@@ -171,12 +344,79 @@ const collectBatch = (
   return { batchItems, effectivePayload: aggregatedArray };
 };
 
-/**
- * Executes the appropriate HTTP method for a sync queue batch/item with an X-Idempotency-Key header.
- */
+const getCachedMatchRecord = async (
+  matchId: string,
+  cache?: SyncCacheContext,
+): Promise<MatchTeamData | undefined> => {
+  if (cache?.matchRecordCache?.has(matchId)) {
+    return cache.matchRecordCache.get(matchId) ?? undefined;
+  }
+  if (!db?.matches) return undefined;
+  const matchRecord = await db.matches.get(matchId);
+  const matchData = matchRecord as MatchTeamData | undefined;
+  cache?.matchRecordCache?.set(matchId, matchData ?? null);
+  return matchData;
+};
+
+const resolveFallbackTeamEndpoint = async (
+  targetEndpoint: string,
+  cache?: SyncCacheContext,
+): Promise<string> => {
+  const matchIdMatch = MATCH_TEAM_ENDPOINT_REGEX.exec(targetEndpoint);
+  if (!matchIdMatch?.[1] || !matchIdMatch[2]) {
+    return targetEndpoint;
+  }
+
+  const matchId = matchIdMatch[1];
+  const matchData = await getCachedMatchRecord(matchId, cache);
+
+  const explicitTeamId = matchData?.trackedTeamId ?? matchData?.selectedTeamId;
+  if (explicitTeamId) {
+    return targetEndpoint.replace(/\/teams\/[^/]+/, `/teams/${explicitTeamId}`);
+  }
+
+  return targetEndpoint;
+};
+
+const normalizeTeamEndpoint = async (
+  endpoint: string,
+  payload: unknown,
+  actionType?: string,
+  cache?: SyncCacheContext,
+): Promise<string> => {
+  if (!endpoint.includes("/teams/") || !db) {
+    return endpoint;
+  }
+
+  if (actionType === "DELETE" && endpoint.endsWith("/catch")) {
+    return endpoint;
+  }
+
+  try {
+    const resolvedTeamResult = await resolveBatchTeamId(
+      payload,
+      cache?.lineupTeamCache,
+    );
+    if (
+      resolvedTeamResult === "UNRESOLVED" ||
+      resolvedTeamResult === "NO_LINEUP"
+    ) {
+      return await resolveFallbackTeamEndpoint(endpoint, cache);
+    }
+
+    return endpoint.replace(/\/teams\/[^/]+/, `/teams/${resolvedTeamResult}`);
+  } catch (err) {
+    console.warn(
+      "Failed to normalize teamId in sync endpoint, falling back to match trackedTeamId or original endpoint:",
+      err,
+    );
+    return await resolveFallbackTeamEndpoint(endpoint, cache);
+  }
+};
+
 const executeHttpRequest = async (
   actionType: string,
-  endpoint: string,
+  targetEndpoint: string,
   payload: unknown,
   batchItems: SyncQueueItem[],
 ): Promise<{ status?: number }> => {
@@ -190,28 +430,66 @@ const executeHttpRequest = async (
     : undefined;
 
   if (actionType === "POST") {
-    return apiClient.post(endpoint, payload, config);
+    return apiClient.post(targetEndpoint, payload, config);
   }
   if (actionType === "PUT") {
-    return apiClient.put(endpoint, payload, config);
+    return apiClient.put(targetEndpoint, payload, config);
   }
   if (actionType === "DELETE") {
-    return apiClient.delete(endpoint, config);
+    return apiClient.delete(targetEndpoint, config);
   }
   throw new Error(`Unsupported sync actionType: ${actionType}`);
 };
 
-/**
- * Validates whether an HTTP response status represents a successful execution (2xx range or unwrapped response).
- */
 const isSuccessStatus = (status?: number): boolean => {
   if (status === undefined) return true;
   return status >= 200 && status < 300;
 };
 
-/**
- * Marks local entities as synced and deletes successfully processed queue items within an atomic Dexie transaction.
- */
+const isUnrecoverableStatus = (status?: number): boolean => {
+  if (status === undefined) return false;
+  return UNRECOVERABLE_STATUS_CODES.has(status);
+};
+
+const purgeBatchFromSyncQueue = async (
+  batchItems: SyncQueueItem[],
+  endpoint?: string,
+  payload?: unknown,
+): Promise<void> => {
+  if (!db) return;
+
+  const performPurge = async (): Promise<void> => {
+    if (endpoint && payload) {
+      await markEntitiesSynced(endpoint, payload, -1);
+    } else {
+      for (const item of batchItems) {
+        const itemPayload = parsePayload(item.payload);
+        if (item.endpoint && itemPayload) {
+          await markEntitiesSynced(item.endpoint, itemPayload, -1);
+        }
+      }
+    }
+
+    for (const item of batchItems) {
+      if (item.id !== undefined && db.syncQueue) {
+        await db.syncQueue.delete(item.id);
+      }
+    }
+  };
+
+  if (typeof db.transaction === "function") {
+    const tables = [
+      db.playerpresences,
+      db.gameevents,
+      db.timeanchors,
+      db.syncQueue,
+    ].filter(Boolean);
+    await db.transaction("rw", tables, performPurge);
+  } else {
+    await performPurge();
+  }
+};
+
 const finalizeBatchSync = async (
   endpoint: string,
   payload: unknown,
@@ -220,7 +498,7 @@ const finalizeBatchSync = async (
   if (!db) return 0;
 
   const performFinalization = async (): Promise<number> => {
-    await markEntitiesSynced(endpoint, payload);
+    await markEntitiesSynced(endpoint, payload, 1);
     let count = 0;
     for (const item of batchItems) {
       if (item.id !== undefined && db.syncQueue) {
@@ -244,6 +522,119 @@ const finalizeBatchSync = async (
   return performFinalization();
 };
 
+interface BatchResult {
+  syncedCount: number;
+  shouldContinue: boolean;
+}
+
+const handleUnrecoverableError = async (
+  batchItems: SyncQueueItem[],
+  endpoint: string,
+  payload: unknown,
+  status?: number,
+): Promise<BatchResult> => {
+  console.warn(
+    `Unrecoverable sync error (${status ?? "unknown"}) for endpoint ${endpoint}. Purging batch from syncQueue.`,
+  );
+  try {
+    await purgeBatchFromSyncQueue(batchItems, endpoint, payload);
+    return { syncedCount: 0, shouldContinue: true };
+  } catch (purgeErr) {
+    console.error(
+      `Failed to purge unrecoverable batch for endpoint ${endpoint}:`,
+      purgeErr,
+    );
+    return { syncedCount: 0, shouldContinue: false };
+  }
+};
+
+/**
+ * Helper to process response status and handle success vs unrecoverable error branches.
+ */
+const evaluateResponseStatus = async (
+  status: number | undefined,
+  currentItem: SyncQueueItem,
+  effectivePayload: unknown,
+  batchItems: SyncQueueItem[],
+): Promise<BatchResult | null> => {
+  if (isSuccessStatus(status)) {
+    const syncedCount = await finalizeBatchSync(
+      currentItem.endpoint,
+      effectivePayload,
+      batchItems,
+    );
+    return { syncedCount, shouldContinue: true };
+  }
+
+  if (isUnrecoverableStatus(status)) {
+    return handleUnrecoverableError(
+      batchItems,
+      currentItem.endpoint,
+      effectivePayload,
+      status,
+    );
+  }
+
+  return null;
+};
+
+const processSyncBatch = async (
+  currentItem: SyncQueueItem,
+  effectivePayload: unknown,
+  batchItems: SyncQueueItem[],
+  cache?: SyncCacheContext,
+): Promise<BatchResult> => {
+  try {
+    const targetEndpoint = await normalizeTeamEndpoint(
+      currentItem.endpoint,
+      effectivePayload,
+      currentItem.actionType,
+      cache,
+    );
+
+    if (targetEndpoint === "UNRESOLVED") {
+      return { syncedCount: 0, shouldContinue: false };
+    }
+
+    const response = await executeHttpRequest(
+      currentItem.actionType,
+      targetEndpoint,
+      effectivePayload,
+      batchItems,
+    );
+
+    const evaluatedResult = await evaluateResponseStatus(
+      response?.status,
+      currentItem,
+      effectivePayload,
+      batchItems,
+    );
+
+    if (evaluatedResult) {
+      return evaluatedResult;
+    }
+
+    return { syncedCount: 0, shouldContinue: false };
+  } catch (err) {
+    const status = extractErrorStatus(err);
+
+    if (isUnrecoverableStatus(status)) {
+      return handleUnrecoverableError(
+        batchItems,
+        currentItem.endpoint,
+        effectivePayload,
+        status,
+      );
+    }
+
+    console.error(
+      `Sync batch execution failed for endpoint ${currentItem.endpoint}:`,
+      err,
+    );
+    return { syncedCount: 0, shouldContinue: false };
+  }
+};
+
 /**
  * Processes pending syncQueue items with batching for consecutive identical POST endpoints.
  */
@@ -254,6 +645,10 @@ export const processSyncQueue = async (): Promise<number> => {
 
   isSyncing = true;
   let processedCount = 0;
+
+  const lineupTeamCache = new Map<string, string | null>();
+  const matchRecordCache = new Map<string, MatchTeamData | null>();
+  const cache: SyncCacheContext = { lineupTeamCache, matchRecordCache };
 
   try {
     const pendingItems = (await db.syncQueue
@@ -274,39 +669,27 @@ export const processSyncQueue = async (): Promise<number> => {
         break;
       }
 
-      const { batchItems, effectivePayload } = collectBatch(
+      const { batchItems, effectivePayload } = await collectBatch(
         pendingItems,
         i,
         currentItem,
         currentPayload,
+        lineupTeamCache,
       );
 
-      try {
-        const response = await executeHttpRequest(
-          currentItem.actionType,
-          currentItem.endpoint,
-          effectivePayload,
-          batchItems,
-        );
+      const { syncedCount, shouldContinue } = await processSyncBatch(
+        currentItem,
+        effectivePayload,
+        batchItems,
+        cache,
+      );
 
-        if (isSuccessStatus(response?.status)) {
-          const syncedCount = await finalizeBatchSync(
-            currentItem.endpoint,
-            effectivePayload,
-            batchItems,
-          );
-          processedCount += syncedCount;
-          i += batchItems.length;
-        } else {
-          break;
-        }
-      } catch (err) {
-        console.error(
-          `Sync batch execution failed for endpoint ${currentItem.endpoint}:`,
-          err,
-        );
+      processedCount += syncedCount;
+      if (!shouldContinue) {
         break;
       }
+
+      i += batchItems.length;
     }
   } finally {
     isSyncing = false;

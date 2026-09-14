@@ -11,6 +11,10 @@ import type {
   TournamentLookup,
   SportConfigurationLookup,
 } from "../db/ttaDatabase";
+import {
+  UNRECOVERABLE_STATUS_CODES,
+  extractErrorStatus,
+} from "../utils/syncErrorUtils";
 import { seedTestData } from "../db/seed";
 
 export class StaleUserError extends Error {
@@ -19,6 +23,11 @@ export class StaleUserError extends Error {
     this.name = "StaleUserError";
   }
 }
+
+type TrackedMatch = MatchLookup & {
+  trackedTeamId?: string;
+  selectedTeamId?: string;
+};
 
 const syncLineups = async (matchId: string, lineups?: MatchLineupLookup[]) => {
   if (!lineups) return;
@@ -33,7 +42,7 @@ const syncAnchors = async (matchId: string, anchors?: TimeAnchor[]) => {
   await db.timeanchors
     .where("matchId")
     .equals(matchId)
-    .and((a) => a.isSynced === 1)
+    .and((a) => a.isSynced === 1 || a.isSynced === -1)
     .delete();
   if (anchors.length > 0) {
     const syncedAnchors = anchors.map((a) => ({ ...a, isSynced: 1 }));
@@ -48,7 +57,11 @@ const syncPresence = async (
   if (!presence) return;
 
   const syncedKeys = await db.playerpresences
-    .filter((p) => matchLineupIds.has(p.matchLineupId) && p.isSynced === 1)
+    .filter(
+      (p) =>
+        matchLineupIds.has(p.matchLineupId) &&
+        (p.isSynced === 1 || p.isSynced === -1),
+    )
     .primaryKeys();
 
   if (syncedKeys.length > 0) {
@@ -77,7 +90,11 @@ const syncEvents = async (
   if (!events) return;
 
   const syncedKeys = await db.gameevents
-    .filter((e) => matchLineupIds.has(e.matchLineupId) && e.isSynced === 1)
+    .filter(
+      (e) =>
+        matchLineupIds.has(e.matchLineupId) &&
+        (e.isSynced === 1 || e.isSynced === -1),
+    )
     .primaryKeys();
 
   if (syncedKeys.length > 0) {
@@ -161,14 +178,45 @@ const fetchTournamentMetadata = async (
  */
 export const checkUnfinishedMatch = async (
   userId?: string,
-): Promise<MatchLookup | null> => {
+): Promise<TrackedMatch | null> => {
   if (!db?.matches || !userId) return null;
   const matches = await db.matches.toArray();
-  return (
-    matches.find(
-      (m) => m.homeScore == null && m.guestScore == null && m.userId === userId,
-    ) ?? null
+  const match = matches.find(
+    (m) => m.homeScore == null && m.guestScore == null && m.userId === userId,
   );
+  if (!match) return null;
+
+  const extendedMatch = match as TrackedMatch;
+  let trackedTeamId =
+    extendedMatch.trackedTeamId || extendedMatch.selectedTeamId;
+
+  // Fallback: extract correct teamId from db.syncQueue catch endpoint if missing in legacy records
+  if (!trackedTeamId && db.syncQueue) {
+    try {
+      const syncItems = await db.syncQueue.toArray();
+      const matchPrefix = `/Matches/${match.id}/teams/`;
+      const catchItem = syncItems.find(
+        (item) =>
+          item.actionType === "POST" &&
+          item.endpoint?.startsWith(matchPrefix) &&
+          item.endpoint?.endsWith("/catch"),
+      );
+      if (catchItem) {
+        const parts = catchItem.endpoint.split("/");
+        const teamsIndex = parts.indexOf("teams");
+        if (teamsIndex !== -1 && parts[teamsIndex + 1]) {
+          trackedTeamId = parts[teamsIndex + 1];
+        }
+      }
+    } catch (err) {
+      console.error("Failed to recover trackedTeamId from syncQueue:", err);
+    }
+  }
+
+  return {
+    ...match,
+    trackedTeamId,
+  };
 };
 
 /**
@@ -213,94 +261,192 @@ export const getMatchRecoveryState = async (
   return { recoveredPeriod, activePlayersLimit };
 };
 
+const resolveEffectiveTeamId = async (
+  match: TrackedMatch,
+  explicitTeamId?: string,
+): Promise<string | undefined> => {
+  let effectiveTeamId =
+    explicitTeamId?.trim() || match.trackedTeamId || match.selectedTeamId;
+
+  if (!effectiveTeamId && db.syncQueue) {
+    try {
+      const syncItems = await db.syncQueue.toArray();
+      const matchPrefix = `/Matches/${match.id}/teams/`;
+      const matchItem = syncItems.find(
+        (item) =>
+          item.actionType === "POST" &&
+          item.endpoint?.startsWith(matchPrefix) &&
+          item.endpoint?.endsWith("/catch"),
+      );
+      if (matchItem) {
+        const parts = matchItem.endpoint.split("/");
+        const teamsIndex = parts.indexOf("teams");
+        if (teamsIndex !== -1 && parts[teamsIndex + 1]) {
+          effectiveTeamId = parts[teamsIndex + 1];
+        }
+      }
+    } catch (err) {
+      console.error(
+        "Failed to recover correct teamId from syncQueue during discard:",
+        err,
+      );
+    }
+  }
+
+  return effectiveTeamId;
+};
+
+const purgePendingMatchMutations = async (matchId: string): Promise<void> => {
+  if (!db.syncQueue) return;
+  const endpointPrefix = `/Matches/${matchId}`;
+  const idsToPurge = (await db.syncQueue
+    .filter(
+      (item) =>
+        (item.endpoint === endpointPrefix ||
+          item.endpoint.startsWith(`${endpointPrefix}/`)) &&
+        (item.actionType === "POST" || item.actionType === "PUT"),
+    )
+    .primaryKeys()) as number[];
+
+  if (idsToPurge.length > 0) {
+    await db.syncQueue.bulkDelete(idsToPurge);
+  }
+};
+
+const deleteLocalMatchEntities = async (matchId: string): Promise<void> => {
+  const lineups = await db.matchlineups
+    .where("matchId")
+    .equals(matchId)
+    .toArray();
+  const lineupIds = lineups.map((l) => l.id);
+
+  if (lineupIds.length > 0) {
+    await db.playerpresences.where("matchLineupId").anyOf(lineupIds).delete();
+    await db.gameevents.where("matchLineupId").anyOf(lineupIds).delete();
+  }
+
+  await db.matches.delete(matchId);
+  await db.matchlineups.where("matchId").equals(matchId).delete();
+  await db.timeanchors.where("matchId").equals(matchId).delete();
+};
+
+const dispatchUncatchPostCommit = async (
+  catchEndpoint: string,
+  stagedSyncQueueId?: number,
+): Promise<void> => {
+  try {
+    await apiClient.delete(catchEndpoint);
+    if (stagedSyncQueueId !== undefined && db.syncQueue) {
+      await db.syncQueue.delete(stagedSyncQueueId);
+    }
+  } catch (err) {
+    if (err instanceof StaleUserError) throw err;
+
+    const status = extractErrorStatus(err);
+    if (status !== undefined && UNRECOVERABLE_STATUS_CODES.has(status)) {
+      console.warn(
+        `Uncatch match API call failed online with unrecoverable status (${status}). Purging staged syncQueue item:`,
+        err,
+      );
+      if (stagedSyncQueueId !== undefined && db.syncQueue) {
+        await db.syncQueue.delete(stagedSyncQueueId);
+      }
+      return;
+    }
+
+    console.warn(
+      "Uncatch match API call failed online, fallback to syncQueue:",
+      err,
+    );
+  }
+};
+
 /**
  * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
  * Issues UncatchMatch request to server when teamId is supplied (with syncQueue offline fallback)
  * only if the match exists and is unfinished (both scores are null).
+ * Staging of Uncatch DELETE occurs within the local transaction, dispatched post-commit.
  */
 export const discardUnfinishedMatch = async (
   matchId: string,
   teamId?: string,
-): Promise<void> => {
+  checkFreshness?: () => void,
+  userId?: string,
+) => {
   if (!db?.matches) return;
 
-  const initialMatch = await db.matches.get(matchId);
-  if (
-    !initialMatch ||
-    initialMatch.homeScore != null ||
-    initialMatch.guestScore != null
-  ) {
-    return;
-  }
+  const tables = [
+    db.matches,
+    db.matchlineups,
+    db.playerpresences,
+    db.gameevents,
+    db.timeanchors,
+    db.syncQueue,
+  ].filter(Boolean);
 
-  if (teamId?.trim()) {
-    const catchEndpoint = `/Matches/${matchId}/teams/${teamId.trim()}/catch`;
-    let uncatchSuccess = false;
+  let stagedCatchEndpoint: string | null = null;
+  let stagedSyncQueueId: number | undefined = undefined;
 
-    if (navigator.onLine) {
-      try {
-        await apiClient.delete(catchEndpoint);
-        uncatchSuccess = true;
-      } catch (err) {
-        if (err instanceof StaleUserError) throw err;
-        console.warn(
-          "Uncatch match API call failed online, fallback to syncQueue:",
-          err,
-        );
-      }
+  await db.transaction("rw", tables, async () => {
+    checkFreshness?.();
+
+    const match = (await db.matches.get(matchId)) as TrackedMatch | undefined;
+
+    if (!match || match.homeScore != null || match.guestScore != null) {
+      return;
     }
 
-    if (!uncatchSuccess && db.syncQueue) {
-      await db.syncQueue.put({
+    if (userId?.trim() && match.userId && match.userId !== userId.trim()) {
+      return;
+    }
+
+    const effectiveTeamId = await resolveEffectiveTeamId(match, teamId);
+
+    // Re-verify session freshness post async team resolution before mutating DB records
+    checkFreshness?.();
+
+    await purgePendingMatchMutations(matchId);
+
+    if (effectiveTeamId?.trim() && db.syncQueue) {
+      stagedCatchEndpoint = `/Matches/${matchId}/teams/${effectiveTeamId.trim()}/catch`;
+      stagedSyncQueueId = await db.syncQueue.put({
         actionType: "DELETE",
-        endpoint: catchEndpoint,
+        endpoint: stagedCatchEndpoint,
         payload: "{}",
         createdAt: new Date().toISOString(),
       });
     }
-  }
 
-  await db.transaction(
-    "rw",
-    [
-      db.matches,
-      db.matchlineups,
-      db.playerpresences,
-      db.gameevents,
-      db.timeanchors,
-    ],
-    async () => {
-      const match = await db.matches.get(matchId);
-      if (match && match.homeScore == null && match.guestScore == null) {
-        const lineups = await db.matchlineups
-          .where("matchId")
-          .equals(matchId)
-          .toArray();
-        const lineupIds = lineups.map((l) => l.id);
+    await deleteLocalMatchEntities(matchId);
+    checkFreshness?.();
+  });
 
-        if (lineupIds.length > 0) {
-          await db.playerpresences
-            .where("matchLineupId")
-            .anyOf(lineupIds)
-            .delete();
-          await db.gameevents.where("matchLineupId").anyOf(lineupIds).delete();
-        }
-
-        await db.matches.delete(matchId);
-        await db.matchlineups.where("matchId").equals(matchId).delete();
-        await db.timeanchors.where("matchId").equals(matchId).delete();
+  if (stagedCatchEndpoint && navigator.onLine) {
+    try {
+      checkFreshness?.();
+    } catch (err) {
+      if (
+        err instanceof StaleUserError ||
+        (err instanceof Error && err.name === "StaleUserError")
+      ) {
+        return;
       }
-    },
-  );
+      throw err;
+    }
+    await dispatchUncatchPostCommit(stagedCatchEndpoint, stagedSyncQueueId);
+  }
 };
 
 const verifyAndStoreMatch = async (
   matchId: string,
   match: MatchLookup | undefined,
   userId?: string,
+  teamId?: string,
 ): Promise<void> => {
   if (!match || !db.matches) return;
-  const existingMatch = await db.matches.get(matchId);
+  const existingMatch = (await db.matches.get(matchId)) as
+    | TrackedMatch
+    | undefined;
   if (
     userId?.trim() &&
     existingMatch?.userId &&
@@ -311,9 +457,20 @@ const verifyAndStoreMatch = async (
   const effectiveUserId = userId?.trim()
     ? userId.trim()
     : existingMatch?.userId;
-  const matchToStore = effectiveUserId
-    ? { ...match, userId: effectiveUserId }
-    : match;
+
+  // Preserve tracked team ID from incoming teamId argument or existing local record
+  const effectiveTrackedTeamId =
+    teamId?.trim() ||
+    existingMatch?.trackedTeamId ||
+    existingMatch?.selectedTeamId;
+
+  const matchToStore = {
+    ...match,
+    ...(effectiveUserId ? { userId: effectiveUserId } : {}),
+    ...(effectiveTrackedTeamId
+      ? { trackedTeamId: effectiveTrackedTeamId }
+      : {}),
+  };
   await db.matches.put(matchToStore);
 };
 
@@ -351,6 +508,7 @@ const persistHydrationPayloads = async (
 
 interface MatchHydrationContext {
   matchId: string;
+  teamId?: string;
   match?: MatchLookup;
   tournament?: TournamentLookup | null;
   sportConfig?: SportConfigurationLookup | null;
@@ -364,6 +522,7 @@ const executeMatchTransaction = async (
 ): Promise<void> => {
   const {
     matchId,
+    teamId,
     match,
     tournament,
     sportConfig,
@@ -387,7 +546,7 @@ const executeMatchTransaction = async (
     async () => {
       checkFreshness?.();
 
-      await verifyAndStoreMatch(matchId, match, userId);
+      await verifyAndStoreMatch(matchId, match, userId, teamId);
       if (tournament) await db.tournaments.put(tournament);
       if (sportConfig) await db.sportconfigurations.put(sportConfig);
 
@@ -423,26 +582,6 @@ const getTournamentAndConfig = async (match?: MatchLookup) => {
   return { tournament: metadata.tournament, sportConfig: metadata.sportConfig };
 };
 
-const persistMatchWithRollback = async (
-  matchId: string,
-  match: MatchLookup | undefined,
-  tournament: TournamentLookup | null | undefined,
-  sportConfig: SportConfigurationLookup | null | undefined,
-  payloads: HydrationPayloads,
-  userId?: string,
-  checkFreshness?: () => void,
-) => {
-  await executeMatchTransaction({
-    matchId,
-    match,
-    tournament,
-    sportConfig,
-    payloads,
-    userId,
-    checkFreshness,
-  });
-};
-
 export const hydrateMatchData = async (
   matchId: string,
   teamId: string,
@@ -468,15 +607,16 @@ export const hydrateMatchData = async (
     const { tournament, sportConfig } = await getTournamentAndConfig(match);
     checkFreshness?.();
 
-    await persistMatchWithRollback(
+    await executeMatchTransaction({
       matchId,
+      teamId,
       match,
       tournament,
       sportConfig,
-      { lineups, anchors, presence, events, definitions },
+      payloads: { lineups, anchors, presence, events, definitions },
       userId,
       checkFreshness,
-    );
+    });
 
     return { success: true, isOfflineFallback: false };
   } catch (err) {

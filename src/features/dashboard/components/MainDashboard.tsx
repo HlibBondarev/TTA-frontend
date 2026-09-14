@@ -1,10 +1,17 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useRef,
+  useCallback,
+} from "react";
 import { useDispatch } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 import { setCurrentView } from "../../../store/slices/navigationSlice";
 import {
   checkUnfinishedMatch,
   discardUnfinishedMatch,
+  StaleUserError,
 } from "../../../services/hydrationService";
 import type { MatchLookup } from "../../../db/ttaDatabase";
 
@@ -33,7 +40,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   const currentUserId = user?.sub ?? user?.email;
   const currentUserIdRef = useRef(currentUserId);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     currentUserIdRef.current = currentUserId;
   }, [currentUserId]);
 
@@ -77,18 +84,31 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
 
   const handleResume = useCallback(async () => {
     if (!activeUnfinishedMatch || isRecoveryBusy || !currentUserId) return;
+    const teamToResume = (
+      activeUnfinishedMatch.trackedTeamId ||
+      activeUnfinishedMatch.selectedTeamId ||
+      activeUnfinishedMatch.homeTeamId ||
+      activeUnfinishedMatch.guestTeamId ||
+      ""
+    ).trim();
+
+    if (!teamToResume) {
+      console.error(
+        "Failed to resume unfinished match:",
+        new Error("Missing team identity for interrupted match."),
+      );
+      return;
+    }
+
     const initiatedUserId = currentUserId;
     const token = generateToken();
     setActiveOp({ userId: initiatedUserId, token, type: "resume" });
     try {
       if (onResumeMatch) {
-        const teamToResume =
-          activeUnfinishedMatch.trackedTeamId ||
-          activeUnfinishedMatch.selectedTeamId ||
-          activeUnfinishedMatch.homeTeamId ||
-          "";
         await onResumeMatch(activeUnfinishedMatch.id, teamToResume);
       }
+    } catch (err) {
+      console.error("Failed to resume unfinished match:", err);
     } finally {
       setActiveOp((prev) =>
         prev?.userId === initiatedUserId && prev?.token === token ? null : prev,
@@ -103,18 +123,33 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     const teamToDiscard =
       activeUnfinishedMatch.trackedTeamId ||
       activeUnfinishedMatch.selectedTeamId ||
-      activeUnfinishedMatch.homeTeamId ||
       "";
     const token = generateToken();
     setActiveOp({ userId: initiatedUserId, token, type: "discard" });
     try {
-      await discardUnfinishedMatch(matchIdToDiscard, teamToDiscard);
+      const checkFreshness = () => {
+        if (currentUserIdRef.current !== initiatedUserId) {
+          throw new StaleUserError();
+        }
+      };
+      await discardUnfinishedMatch(
+        matchIdToDiscard,
+        teamToDiscard,
+        checkFreshness,
+        initiatedUserId,
+      );
       if (currentUserIdRef.current === initiatedUserId) {
         setUnfinishedMatch((prev) =>
           prev?.id === matchIdToDiscard ? null : prev,
         );
       }
     } catch (err) {
+      if (
+        err instanceof StaleUserError ||
+        (err instanceof Error && err.name === "StaleUserError")
+      ) {
+        return;
+      }
       console.error("Failed to discard unfinished match:", err);
     } finally {
       setActiveOp((prev) =>

@@ -76,6 +76,7 @@ export interface MatchLookup {
   guestScore: number | null;
   createdAt: string;
   userId?: string;
+  trackedTeamId?: string;
 }
 
 export interface MatchLineupLookup {
