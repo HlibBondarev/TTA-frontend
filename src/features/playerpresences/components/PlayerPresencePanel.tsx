@@ -32,6 +32,21 @@ export const PlayerPresencePanel: React.FC<{
   >({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [prevLifecycle, setPrevLifecycle] = useState({
+    currentPeriod,
+    isPeriodActive,
+    isPeriodEnded,
+  });
+
+  if (
+    prevLifecycle.currentPeriod !== currentPeriod ||
+    prevLifecycle.isPeriodActive !== isPeriodActive ||
+    prevLifecycle.isPeriodEnded !== isPeriodEnded
+  ) {
+    setPrevLifecycle({ currentPeriod, isPeriodActive, isPeriodEnded });
+    setErrorMessage(null);
+  }
+
   const loadRosterData = useCallback(
     async (ignore: boolean) => {
       try {
