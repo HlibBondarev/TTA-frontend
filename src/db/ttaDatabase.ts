@@ -77,6 +77,12 @@ export interface MatchLookup {
   createdAt: string;
   userId?: string;
   trackedTeamId?: string;
+  selectedTeamId?: string;
+}
+
+export interface TrackedMatch extends MatchLookup {
+  trackedTeamId?: string;
+  selectedTeamId?: string;
 }
 
 export interface MatchLineupLookup {
