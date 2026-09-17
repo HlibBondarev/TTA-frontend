@@ -2667,4 +2667,75 @@ describe("MatchSetupWizard Component", () => {
       expect(handleQuickStart).toHaveBeenCalled();
     });
   });
+
+  it("should clear active event definition IDs when changing selected sport discipline", async () => {
+    const mockWPDefinitions = [
+      { id: "def-WP-1", name: "WP Goal", isEnabled: true, sortOrder: 1 },
+    ];
+    const mockBBDefinitions = [
+      { id: "def-BB-1", name: "BB Basket", isEnabled: true, sortOrder: 1 },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValue(
+      mockConfigs,
+    );
+    vi.mocked(eventDefinitionService.getAvailableForSport)
+      .mockResolvedValueOnce(mockWPDefinitions as never)
+      .mockResolvedValueOnce(mockBBDefinitions as never);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    expect(await screen.findByText("WP Goal")).toBeDefined();
+
+    // Switch discipline to Basketball
+    const bbBtn = screen.getByText("Basketball");
+    fireEvent.click(bbBtn);
+
+    await waitFor(() => {
+      expect(eventDefinitionService.getAvailableForSport).toHaveBeenCalledWith(
+        "sport-2",
+      );
+    });
+  });
+
+  it("should prevent handleConfirmQuickStart if action definitions have not finished loading", async () => {
+    const handleQuickStart = vi.fn();
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    // Simulate pending/long-running event definitions fetch
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockReturnValueOnce(
+      new Promise(() => {}) as never,
+    );
+
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    // Trigger match initialization
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    // Attempt to confirm while areDefinitionsLoaded is false
+    const confirmBtn = screen.getByRole("button", {
+      name: /Confirm & Start Tracking/i,
+    });
+    fireEvent.click(confirmBtn);
+
+    expect(eventDefinitionService.savePreset).not.toHaveBeenCalled();
+    expect(handleQuickStart).not.toHaveBeenCalled();
+  });
 });

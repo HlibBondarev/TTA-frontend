@@ -14,6 +14,7 @@ interface EventDefinitionsConfiguratorProps {
   sportId: string;
   onPresetSaved?: () => void;
   onChange?: (activeIds: string[]) => void;
+  onLoadStateChange?: (loaded: boolean) => void;
 }
 
 const getTextColorClass = (
@@ -28,7 +29,7 @@ const getTextColorClass = (
 
 export const EventDefinitionsConfigurator: React.FC<
   EventDefinitionsConfiguratorProps
-> = ({ sportId, onPresetSaved, onChange }) => {
+> = ({ sportId, onPresetSaved, onChange, onLoadStateChange }) => {
   const [definitions, setDefinitions] = useState<EventDefinitionResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -41,11 +42,13 @@ export const EventDefinitionsConfigurator: React.FC<
   const [newIsPositive, setNewIsPositive] = useState(true);
   const [creating, setCreating] = useState(false);
 
-  // Store latest onChange callback reference without breaking useEffect memoization
   const onChangeRef = useRef(onChange);
+  const onLoadStateChangeRef = useRef(onLoadStateChange);
+
   useLayoutEffect(() => {
     onChangeRef.current = onChange;
-  }, [onChange]);
+    onLoadStateChangeRef.current = onLoadStateChange;
+  }, [onChange, onLoadStateChange]);
 
   const notifyParent = useCallback((items: EventDefinitionResponse[]) => {
     if (onChangeRef.current) {
@@ -58,10 +61,12 @@ export const EventDefinitionsConfigurator: React.FC<
 
   useEffect(() => {
     let ignore = false;
+    onLoadStateChangeRef.current?.(false);
 
     async function fetchDefinitions() {
       if (!sportId) return;
       try {
+        setLoading(true);
         const data = await eventDefinitionService.getAvailableForSport(sportId);
         if (!ignore) {
           const sorted = [...data].sort(
@@ -70,6 +75,7 @@ export const EventDefinitionsConfigurator: React.FC<
           setDefinitions(sorted);
           notifyParent(sorted);
           setError(null);
+          onLoadStateChangeRef.current?.(true);
         }
       } catch (err) {
         if (!ignore) {
@@ -78,6 +84,8 @@ export const EventDefinitionsConfigurator: React.FC<
               ? err.message
               : "Failed to load event definitions.",
           );
+          notifyParent([]);
+          onLoadStateChangeRef.current?.(false);
         }
       } finally {
         if (!ignore) {
@@ -86,7 +94,7 @@ export const EventDefinitionsConfigurator: React.FC<
       }
     }
 
-    fetchDefinitions();
+    void fetchDefinitions();
 
     return () => {
       ignore = true;
@@ -103,12 +111,14 @@ export const EventDefinitionsConfigurator: React.FC<
       setDefinitions(sorted);
       notifyParent(sorted);
       setError(null);
+      onLoadStateChangeRef.current?.(true);
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
           : "Failed to load event definitions.",
       );
+      onLoadStateChangeRef.current?.(false);
     }
   };
 

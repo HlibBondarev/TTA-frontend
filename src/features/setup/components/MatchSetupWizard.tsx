@@ -609,6 +609,8 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   const [activeEventDefinitionIds, setActiveEventDefinitionIds] = useState<
     string[]
   >([]);
+  const [areDefinitionsLoaded, setAreDefinitionsLoaded] =
+    useState<boolean>(false);
 
   const [pendingMatchId, setPendingMatchId] = useState<string | null>(null);
   const [teams, setTeams] = useState<{
@@ -742,6 +744,8 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     setPendingMatchId(null);
     setTeams(null);
     setSelectedTeamId(null);
+    setActiveEventDefinitionIds([]);
+    setAreDefinitionsLoaded(false);
     await loadConfigurations(sportId, sports);
   };
 
@@ -833,6 +837,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       !selectedSportId ||
       !selectedConfigId ||
       !selectedTeamId ||
+      !areDefinitionsLoaded ||
       isSubmitting
     ) {
       return;
@@ -1027,6 +1032,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           <EventDefinitionsConfigurator
             sportId={selectedSportId}
             onChange={setActiveEventDefinitionIds}
+            onLoadStateChange={setAreDefinitionsLoaded}
           />
         </fieldset>
       )}

@@ -328,4 +328,39 @@ describe("EventDefinitionsConfigurator Component", () => {
       expect(onChangeMock).toHaveBeenLastCalledWith([DEF_ID_2]);
     });
   });
+
+  it("invokes onLoadStateChange with false on start and true when definitions load successfully", async () => {
+    const onLoadStateChangeMock = vi.fn();
+
+    render(
+      <EventDefinitionsConfigurator
+        sportId={SPORT_ID}
+        onLoadStateChange={onLoadStateChangeMock}
+      />,
+    );
+
+    expect(onLoadStateChangeMock).toHaveBeenCalledWith(false);
+
+    await waitFor(() => {
+      expect(onLoadStateChangeMock).toHaveBeenLastCalledWith(true);
+    });
+  });
+
+  it("invokes onLoadStateChange with false if fetching definitions fails", async () => {
+    const onLoadStateChangeMock = vi.fn();
+    vi.mocked(
+      eventDefinitionService.getAvailableForSport,
+    ).mockRejectedValueOnce(new Error("Failed to load"));
+
+    render(
+      <EventDefinitionsConfigurator
+        sportId={SPORT_ID}
+        onLoadStateChange={onLoadStateChangeMock}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onLoadStateChangeMock).toHaveBeenLastCalledWith(false);
+    });
+  });
 });
