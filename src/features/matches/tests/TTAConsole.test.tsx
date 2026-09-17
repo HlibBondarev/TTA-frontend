@@ -119,7 +119,6 @@ describe("TTAConsole Component", () => {
         name: "Pass",
         shortName: "PS",
         isPositive: true,
-        createdAt: new Date().toISOString(),
       },
       {
         id: "def-goal",
@@ -127,7 +126,6 @@ describe("TTAConsole Component", () => {
         name: "Goal",
         shortName: "GL",
         isPositive: true,
-        createdAt: new Date().toISOString(),
       },
     ]);
 
@@ -137,7 +135,6 @@ describe("TTAConsole Component", () => {
       name: "Pass",
       shortName: "PS",
       isPositive: true,
-      createdAt: new Date().toISOString(),
     });
 
     vi.mocked(createGameEventTx).mockResolvedValue({

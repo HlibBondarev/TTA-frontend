@@ -143,6 +143,29 @@ describe("Hydration Service", () => {
     vi.mocked(db.syncQueue.bulkDelete).mockReset().mockResolvedValue(undefined);
   });
 
+  it("fetches event definitions from /Matches/{matchId}/event-definitions and persists them to IndexedDB", async () => {
+    const mockDefinitions = [
+      { id: "def-1", name: "Goal", isPositive: true },
+      { id: "def-2", name: "Turnover", isPositive: false },
+    ];
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(mockDefinitions);
+
+    const result = await hydrateMatchData(matchId, teamId);
+
+    expect(result).toEqual({ success: true, isOfflineFallback: false });
+    expect(apiClient.get).toHaveBeenCalledWith(
+      `/Matches/${matchId}/event-definitions`,
+    );
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(mockDefinitions);
+  });
+
   it("should NOT issue UncatchMatch DELETE API call or enqueue in syncQueue when discardUnfinishedMatch is called for a completed match with non-null scores and teamId", async () => {
     vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,

@@ -595,7 +595,7 @@ export const hydrateMatchData = async (
         apiClient.get<PlayerPresence[]>(`/Matches/${matchId}/presence`),
         apiClient.get<GameEvent[]>(`/Matches/${matchId}/events`),
         apiClient.get<EventDefinitionLookup[]>(
-          `/Matches/${matchId}/eventdefinitions`,
+          `/Matches/${matchId}/event-definitions`,
         ),
       ]);
 

@@ -67,7 +67,6 @@ describe("useGameEvents Custom Hook", () => {
       name: "Goal",
       shortName: "GL",
       isPositive: true,
-      createdAt: new Date().toISOString(),
     });
 
     vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce({
@@ -255,7 +254,6 @@ describe("useGameEvents Custom Hook", () => {
       name: "Pass",
       shortName: "PS",
       isPositive: true,
-      createdAt: new Date().toISOString(),
     });
 
     vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce({
@@ -314,7 +312,6 @@ describe("useGameEvents Custom Hook", () => {
       name: "Foul",
       shortName: "FL",
       isPositive: false,
-      createdAt: new Date().toISOString(),
     });
 
     vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce({

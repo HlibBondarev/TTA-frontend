@@ -150,7 +150,6 @@ describe("ActionsLog Component", () => {
       name: "Turnover",
       shortName: "TO",
       isPositive: false,
-      createdAt: "",
     });
 
     vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
@@ -335,7 +334,6 @@ describe("ActionsLog Component", () => {
       name: "Turnover",
       shortName: "TO",
       isPositive: false,
-      createdAt: "",
     });
 
     vi.mocked(eventService.updateGameEventTx).mockRejectedValueOnce(
