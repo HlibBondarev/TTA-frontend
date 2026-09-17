@@ -44,6 +44,7 @@ export const EventDefinitionsConfigurator: React.FC<
 
   const onChangeRef = useRef(onChange);
   const onLoadStateChangeRef = useRef(onLoadStateChange);
+  const requestCountRef = useRef(0);
 
   useLayoutEffect(() => {
     onChangeRef.current = onChange;
@@ -59,52 +60,13 @@ export const EventDefinitionsConfigurator: React.FC<
     }
   }, []);
 
-  useEffect(() => {
-    let ignore = false;
-    onLoadStateChangeRef.current?.(false);
-
-    async function fetchDefinitions() {
-      if (!sportId) return;
-      try {
-        setLoading(true);
-        const data = await eventDefinitionService.getAvailableForSport(sportId);
-        if (!ignore) {
-          const sorted = [...data].sort(
-            (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
-          );
-          setDefinitions(sorted);
-          notifyParent(sorted);
-          setError(null);
-          onLoadStateChangeRef.current?.(true);
-        }
-      } catch (err) {
-        if (!ignore) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Failed to load event definitions.",
-          );
-          notifyParent([]);
-          onLoadStateChangeRef.current?.(false);
-        }
-      } finally {
-        if (!ignore) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void fetchDefinitions();
-
-    return () => {
-      ignore = true;
-    };
-  }, [sportId, notifyParent]);
-
-  const reloadDefinitions = async () => {
+  const reloadDefinitions = useCallback(async () => {
     if (!sportId) return;
+    const requestId = ++requestCountRef.current;
     try {
       const data = await eventDefinitionService.getAvailableForSport(sportId);
+      if (requestId !== requestCountRef.current) return;
+
       const sorted = [...data].sort(
         (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
       );
@@ -113,6 +75,8 @@ export const EventDefinitionsConfigurator: React.FC<
       setError(null);
       onLoadStateChangeRef.current?.(true);
     } catch (err) {
+      if (requestId !== requestCountRef.current) return;
+
       setError(
         err instanceof Error
           ? err.message
@@ -120,7 +84,45 @@ export const EventDefinitionsConfigurator: React.FC<
       );
       onLoadStateChangeRef.current?.(false);
     }
-  };
+  }, [sportId, notifyParent]);
+
+  useEffect(() => {
+    const requestId = ++requestCountRef.current;
+    onLoadStateChangeRef.current?.(false);
+
+    async function fetchDefinitions() {
+      if (!sportId) return;
+      try {
+        setLoading(true);
+        const data = await eventDefinitionService.getAvailableForSport(sportId);
+        if (requestId !== requestCountRef.current) return;
+
+        const sorted = [...data].sort(
+          (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
+        );
+        setDefinitions(sorted);
+        notifyParent(sorted);
+        setError(null);
+        onLoadStateChangeRef.current?.(true);
+      } catch (err) {
+        if (requestId !== requestCountRef.current) return;
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load event definitions.",
+        );
+        notifyParent([]);
+        onLoadStateChangeRef.current?.(false);
+      } finally {
+        if (requestId === requestCountRef.current) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void fetchDefinitions();
+  }, [sportId, notifyParent]);
 
   const handleToggleEnabled = (id: string) => {
     setDefinitions((prev) => {

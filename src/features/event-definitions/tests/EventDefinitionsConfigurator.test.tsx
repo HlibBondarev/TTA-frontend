@@ -363,4 +363,55 @@ describe("EventDefinitionsConfigurator Component", () => {
       expect(onLoadStateChangeMock).toHaveBeenLastCalledWith(false);
     });
   });
+
+  it("ignores stale definition reloads if a newer fetch request was initiated", async () => {
+    const onChangeMock = vi.fn();
+    let resolveFirstFetch: (value: typeof mockDefinitions) => void;
+
+    const firstFetchPromise = new Promise<typeof mockDefinitions>((resolve) => {
+      resolveFirstFetch = resolve;
+    });
+
+    const secondFetchData = [
+      {
+        id: "def-99",
+        name: "Basket",
+        shortName: "BSK",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+        isCustom: false,
+      },
+    ];
+
+    vi.mocked(eventDefinitionService.getAvailableForSport)
+      .mockReturnValueOnce(firstFetchPromise)
+      .mockResolvedValueOnce(secondFetchData);
+
+    const { rerender } = render(
+      <EventDefinitionsConfigurator
+        sportId="sport-waterpolo"
+        onChange={onChangeMock}
+      />,
+    );
+
+    // Trigger a second load with a different sportId before the first resolves
+    rerender(
+      <EventDefinitionsConfigurator
+        sportId="sport-basketball"
+        onChange={onChangeMock}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onChangeMock).toHaveBeenCalledWith(["def-99"]);
+    });
+
+    // Resolve stale first request
+    resolveFirstFetch!(mockDefinitions);
+
+    // Ensure stale fetch results do not overwrite state or notify parent
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onChangeMock).not.toHaveBeenLastCalledWith([DEF_ID_1, DEF_ID_2]);
+  });
 });
