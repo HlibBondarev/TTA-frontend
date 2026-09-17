@@ -122,6 +122,10 @@ export const EventDefinitionsConfigurator: React.FC<
     }
 
     void fetchDefinitions();
+
+    return () => {
+      requestCountRef.current += 1;
+    };
   }, [sportId, notifyParent]);
 
   const handleToggleEnabled = (id: string) => {

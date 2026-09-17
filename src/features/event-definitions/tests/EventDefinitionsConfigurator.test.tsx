@@ -414,4 +414,35 @@ describe("EventDefinitionsConfigurator Component", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onChangeMock).not.toHaveBeenLastCalledWith([DEF_ID_1, DEF_ID_2]);
   });
+
+  it("invalidates pending fetch requests on unmount via effect cleanup", async () => {
+    const onChangeMock = vi.fn();
+    let resolvePendingFetch: (value: typeof mockDefinitions) => void;
+
+    const pendingPromise = new Promise<typeof mockDefinitions>((resolve) => {
+      resolvePendingFetch = resolve;
+    });
+
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockReturnValueOnce(
+      pendingPromise,
+    );
+
+    const { unmount } = render(
+      <EventDefinitionsConfigurator
+        sportId={SPORT_ID}
+        onChange={onChangeMock}
+      />,
+    );
+
+    // Unmount component while fetch is pending
+    unmount();
+
+    // Resolve stale request after unmount
+    resolvePendingFetch!(mockDefinitions);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Ensure state updates and callbacks were suppressed
+    expect(onChangeMock).not.toHaveBeenCalledWith([DEF_ID_1, DEF_ID_2]);
+  });
 });
