@@ -2738,4 +2738,42 @@ describe("MatchSetupWizard Component", () => {
     expect(eventDefinitionService.savePreset).not.toHaveBeenCalled();
     expect(handleQuickStart).not.toHaveBeenCalled();
   });
+
+  it("should remount EventDefinitionsConfigurator and clear active event definition IDs when currentUserId changes", async () => {
+    const mockDefinitionsUser1 = [
+      { id: "def-1", name: "Action User 1", isEnabled: true, sortOrder: 1 },
+    ];
+    const mockDefinitionsUser2 = [
+      { id: "def-2", name: "Action User 2", isEnabled: true, sortOrder: 1 },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(eventDefinitionService.getAvailableForSport)
+      .mockResolvedValueOnce(mockDefinitionsUser1 as never)
+      .mockResolvedValueOnce(mockDefinitionsUser2 as never);
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    expect(await screen.findByText("Action User 1")).toBeDefined();
+
+    // Simulate user change
+    mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={vi.fn()} />
+      </Provider>,
+    );
+
+    // Verify that definitions are re-fetched for the new user key boundary
+    await waitFor(() => {
+      expect(eventDefinitionService.getAvailableForSport).toHaveBeenCalledTimes(
+        2,
+      );
+    });
+  });
 });

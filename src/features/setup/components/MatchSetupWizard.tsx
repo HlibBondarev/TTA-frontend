@@ -639,6 +639,8 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       setPendingMatchId(null);
       setTeams(null);
       setSelectedTeamId(null);
+      setActiveEventDefinitionIds([]);
+      setAreDefinitionsLoaded(false);
       setIsSubmitting(false);
       setIsLoadingTeams(false);
       setErrorMessage(null);
@@ -1030,6 +1032,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
             3. Configure Actions
           </legend>
           <EventDefinitionsConfigurator
+            key={`${currentUserId ?? "anonymous"}:${selectedSportId}`}
             sportId={selectedSportId}
             onChange={setActiveEventDefinitionIds}
             onLoadStateChange={setAreDefinitionsLoaded}
