@@ -1,4 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useLayoutEffect,
+} from "react";
 import {
   eventDefinitionService,
   type EventDefinitionResponse,
@@ -7,11 +13,12 @@ import {
 interface EventDefinitionsConfiguratorProps {
   sportId: string;
   onPresetSaved?: () => void;
+  onChange?: (activeIds: string[]) => void;
 }
 
 export const EventDefinitionsConfigurator: React.FC<
   EventDefinitionsConfiguratorProps
-> = ({ sportId, onPresetSaved }) => {
+> = ({ sportId, onPresetSaved, onChange }) => {
   const [definitions, setDefinitions] = useState<EventDefinitionResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -23,6 +30,21 @@ export const EventDefinitionsConfigurator: React.FC<
   const [newShortName, setNewShortName] = useState("");
   const [newIsPositive, setNewIsPositive] = useState(true);
   const [creating, setCreating] = useState(false);
+
+  // Store latest onChange callback reference without breaking useEffect memoization
+  const onChangeRef = useRef(onChange);
+  useLayoutEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  const notifyParent = useCallback((items: EventDefinitionResponse[]) => {
+    if (onChangeRef.current) {
+      const activeIds = items
+        .filter((def) => def.isEnabled && def.id)
+        .map((def) => def.id as string);
+      onChangeRef.current(activeIds);
+    }
+  }, []);
 
   useEffect(() => {
     let ignore = false;
@@ -36,6 +58,7 @@ export const EventDefinitionsConfigurator: React.FC<
             (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
           );
           setDefinitions(sorted);
+          notifyParent(sorted);
           setError(null);
         }
       } catch (err) {
@@ -58,7 +81,7 @@ export const EventDefinitionsConfigurator: React.FC<
     return () => {
       ignore = true;
     };
-  }, [sportId]);
+  }, [sportId, notifyParent]);
 
   const reloadDefinitions = async () => {
     if (!sportId) return;
@@ -68,6 +91,7 @@ export const EventDefinitionsConfigurator: React.FC<
         (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
       );
       setDefinitions(sorted);
+      notifyParent(sorted);
       setError(null);
     } catch (err) {
       setError(
@@ -79,11 +103,13 @@ export const EventDefinitionsConfigurator: React.FC<
   };
 
   const handleToggleEnabled = (id: string) => {
-    setDefinitions((prev) =>
-      prev.map((def) =>
+    setDefinitions((prev) => {
+      const updated = prev.map((def) =>
         def.id === id ? { ...def, isEnabled: !def.isEnabled } : def,
-      ),
-    );
+      );
+      notifyParent(updated);
+      return updated;
+    });
   };
 
   const handleMove = (index: number, direction: "up" | "down") => {
@@ -100,6 +126,7 @@ export const EventDefinitionsConfigurator: React.FC<
     }));
 
     setDefinitions(reordered);
+    notifyParent(reordered);
   };
 
   const handleSavePreset = async () => {

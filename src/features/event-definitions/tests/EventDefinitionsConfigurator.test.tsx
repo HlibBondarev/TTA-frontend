@@ -138,4 +138,29 @@ describe("EventDefinitionsConfigurator Component", () => {
       );
     });
   });
+
+  it("calls onChange prop with active event definition IDs on load and toggle", async () => {
+    const onChangeMock = vi.fn();
+
+    render(
+      <EventDefinitionsConfigurator
+        sportId={sportId}
+        onChange={onChangeMock}
+      />,
+    );
+
+    // Wait for the initial call upon data loading
+    await waitFor(() => {
+      expect(onChangeMock).toHaveBeenCalledWith(["def-1", "def-2"]);
+    });
+
+    // Toggle off the first checkbox
+    const checkboxes = screen.getAllByRole("checkbox");
+    fireEvent.click(checkboxes[0]);
+
+    // Verify onChange was called with the updated list
+    await waitFor(() => {
+      expect(onChangeMock).toHaveBeenLastCalledWith(["def-2"]);
+    });
+  });
 });

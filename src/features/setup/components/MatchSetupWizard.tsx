@@ -12,12 +12,14 @@ import { teamService } from "../../../services/teamService";
 import { apiClient } from "../../../api/client";
 import { db } from "../../../db/ttaDatabase";
 import { navigateToHub } from "../../../store/slices/navigationSlice";
+import { EventDefinitionsConfigurator } from "../../event-definitions/components/EventDefinitionsConfigurator";
 import type {
   SportLookup,
   SportConfigurationLookup,
   MatchLookup,
   TeamLookup,
 } from "../../../db/ttaDatabase";
+import { eventDefinitionService } from "../../../services/eventDefinitionService";
 
 interface MatchSetupWizardProps {
   onQuickStart: (
@@ -538,7 +540,6 @@ async function compensateAndRollbackIfNeeded(
 ): Promise<void> {
   let localRollbackSucceeded = true;
 
-  // 1. Always perform local IndexedDB rollback first to guarantee local state consistency
   if (localPersistResult?.didPersist) {
     localRollbackSucceeded = await rollbackTrackedTeamLocally(
       pendingMatchId,
@@ -547,8 +548,6 @@ async function compensateAndRollbackIfNeeded(
     );
   }
 
-  // 2. Perform remote catch compensation ONLY IF local rollback succeeded (or wasn't needed)
-  // If local storage rollback fails, skip remote compensation to prevent leaving local DB inconsistent with remote server
   if (catchResult && localRollbackSucceeded) {
     try {
       await compensateCatchMatch(catchEndpoint, catchResult);
@@ -606,6 +605,10 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     SportConfigurationLookup[]
   >([]);
   const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null);
+
+  const [activeEventDefinitionIds, setActiveEventDefinitionIds] = useState<
+    string[]
+  >([]);
 
   const [pendingMatchId, setPendingMatchId] = useState<string | null>(null);
   const [teams, setTeams] = useState<{
@@ -852,6 +855,12 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       setIsSubmitting(true);
       setErrorMessage(null);
 
+      // Save active event definitions preset before persisting match/team state
+      await eventDefinitionService.savePreset(selectedSportId, {
+        eventDefinitionIds: activeEventDefinitionIds,
+      });
+      verifyFreshness();
+
       localPersistResult = await persistTrackedTeamLocally(
         pendingMatchId,
         selectedTeamId,
@@ -1010,10 +1019,22 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         {renderConfigurationsContent()}
       </fieldset>
 
+      {selectedSportId && (
+        <fieldset className="mb-6 min-w-0 border-0 p-0 m-0">
+          <legend className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold p-0">
+            3. Configure Actions
+          </legend>
+          <EventDefinitionsConfigurator
+            sportId={selectedSportId}
+            onChange={setActiveEventDefinitionIds}
+          />
+        </fieldset>
+      )}
+
       {teams && (
         <fieldset className="mb-6 min-w-0 border-0 p-0 m-0">
           <legend className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold p-0">
-            3. Select Team to Track
+            4. Select Team to Track
           </legend>
           <div className="grid grid-cols-2 gap-2">
             <button
