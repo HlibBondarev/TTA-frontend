@@ -164,7 +164,7 @@ export const EventDefinitionsConfigurator: React.FC<
     }
   };
 
-  const handleCreateCustom = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleCreateCustom = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!newName.trim() || !newShortName.trim()) return;
 
