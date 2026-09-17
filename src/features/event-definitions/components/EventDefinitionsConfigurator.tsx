@@ -16,6 +16,16 @@ interface EventDefinitionsConfiguratorProps {
   onChange?: (activeIds: string[]) => void;
 }
 
+const getTextColorClass = (
+  isEnabled: boolean,
+  isPositive?: boolean,
+): string => {
+  if (!isEnabled) {
+    return "text-gray-500";
+  }
+  return isPositive ? "text-emerald-400" : "text-rose-400";
+};
+
 export const EventDefinitionsConfigurator: React.FC<
   EventDefinitionsConfiguratorProps
 > = ({ sportId, onPresetSaved, onChange }) => {
@@ -154,7 +164,7 @@ export const EventDefinitionsConfigurator: React.FC<
     }
   };
 
-  const handleCreateCustom = async (e: React.FormEvent) => {
+  const handleCreateCustom = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!newName.trim() || !newShortName.trim()) return;
 
@@ -266,6 +276,8 @@ export const EventDefinitionsConfigurator: React.FC<
             if (!defId) return null;
 
             const isEnabled = Boolean(def.isEnabled);
+            const textColorClass = getTextColorClass(isEnabled, def.isPositive);
+
             return (
               <div
                 key={defId}
@@ -284,13 +296,7 @@ export const EventDefinitionsConfigurator: React.FC<
                   />
                   <div className="flex items-center gap-1.5 truncate">
                     <span
-                      className={`font-semibold truncate ${
-                        isEnabled
-                          ? def.isPositive
-                            ? "text-emerald-400"
-                            : "text-rose-400"
-                          : "text-gray-500"
-                      }`}
+                      className={`font-semibold truncate ${textColorClass}`}
                     >
                       {def.name}
                     </span>
@@ -398,10 +404,14 @@ export const EventDefinitionsConfigurator: React.FC<
             </h4>
             <form onSubmit={handleCreateCustom} className="space-y-3">
               <div>
-                <label className="block text-[11px] text-gray-400 mb-1">
+                <label
+                  htmlFor="customActionName"
+                  className="block text-[11px] text-gray-400 mb-1"
+                >
                   Action Name
                 </label>
                 <input
+                  id="customActionName"
                   type="text"
                   required
                   value={newName}
@@ -412,10 +422,14 @@ export const EventDefinitionsConfigurator: React.FC<
               </div>
 
               <div>
-                <label className="block text-[11px] text-gray-400 mb-1">
+                <label
+                  htmlFor="customActionShortName"
+                  className="block text-[11px] text-gray-400 mb-1"
+                >
                   Short Name / Abbreviation
                 </label>
                 <input
+                  id="customActionShortName"
                   type="text"
                   required
                   maxLength={5}
