@@ -290,6 +290,7 @@ export const EventDefinitionsConfigurator: React.FC<
                 <div className="flex items-center gap-2.5 min-w-0">
                   <input
                     type="checkbox"
+                    aria-label={`Enable ${def.name}`}
                     checked={isEnabled}
                     onChange={() => handleToggleEnabled(defId)}
                     className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"
