@@ -31,6 +31,25 @@ const getTextColorClass = (
   return isPositive ? "text-emerald-400" : "text-rose-400";
 };
 
+const groupDefinitionsByEnabled = (
+  items: EventDefinitionResponse[],
+): EventDefinitionResponse[] => {
+  const positive = items.filter((d) => d.isPositive);
+  const negative = items.filter((d) => !d.isPositive);
+
+  const sortCategory = (cat: EventDefinitionResponse[]) => [
+    ...cat.filter((d) => d.isEnabled),
+    ...cat.filter((d) => !d.isEnabled),
+  ];
+
+  return [...sortCategory(positive), ...sortCategory(negative)].map(
+    (item, idx) => ({
+      ...item,
+      sortOrder: idx + 1,
+    }),
+  );
+};
+
 export const EventDefinitionsConfigurator: React.FC<
   EventDefinitionsConfiguratorProps
 > = ({
@@ -124,9 +143,11 @@ export const EventDefinitionsConfigurator: React.FC<
             : def.isEnabled,
       }));
 
-      setDefinitions(merged);
-      notifyParent(merged);
-      await syncToDexie(merged);
+      const grouped = groupDefinitionsByEnabled(merged);
+
+      setDefinitions(grouped);
+      notifyParent(grouped);
+      await syncToDexie(grouped);
       setError(null);
       setDefinitionsReady(true);
       onLoadStateChangeRef.current?.(true);
@@ -160,9 +181,11 @@ export const EventDefinitionsConfigurator: React.FC<
           (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
         );
 
-        setDefinitions(sorted);
-        notifyParent(sorted);
-        await syncToDexie(sorted);
+        const grouped = groupDefinitionsByEnabled(sorted);
+
+        setDefinitions(grouped);
+        notifyParent(grouped);
+        await syncToDexie(grouped);
         setError(null);
         setDefinitionsReady(true);
         onLoadStateChangeRef.current?.(true);
@@ -193,12 +216,60 @@ export const EventDefinitionsConfigurator: React.FC<
 
   const handleToggleEnabled = (id: string) => {
     if (isLocked) return;
-    const updated = definitions.map((def) =>
-      def.id === id ? { ...def, isEnabled: !def.isEnabled } : def,
+
+    const targetIndex = definitions.findIndex((d) => d.id === id);
+    if (targetIndex === -1) return;
+
+    const targetItem = definitions[targetIndex];
+    const newEnabledState = !targetItem.isEnabled;
+    const targetIsPositive = targetItem.isPositive;
+
+    const currentCategory = definitions.filter(
+      (d) => Boolean(d.isPositive) === Boolean(targetIsPositive),
     );
-    setDefinitions(updated);
-    notifyParent(updated);
-    void syncToDexie(updated);
+
+    const remainingCategory = currentCategory.filter((d) => d.id !== id);
+    const updatedTargetItem = { ...targetItem, isEnabled: newEnabledState };
+
+    let reorderedCategory: EventDefinitionResponse[] = [];
+
+    if (!newEnabledState) {
+      // Move disabled item to the end of the category
+      reorderedCategory = [...remainingCategory, updatedTargetItem];
+    } else {
+      // Move enabled item to the end of the enabled section in this category
+      const lastEnabledIdx = remainingCategory.findLastIndex(
+        (d) => d.isEnabled,
+      );
+      if (lastEnabledIdx === -1) {
+        reorderedCategory = [updatedTargetItem, ...remainingCategory];
+      } else {
+        reorderedCategory = [
+          ...remainingCategory.slice(0, lastEnabledIdx + 1),
+          updatedTargetItem,
+          ...remainingCategory.slice(lastEnabledIdx + 1),
+        ];
+      }
+    }
+
+    let catPointer = 0;
+    const reorderedDefinitions = definitions.map((d) => {
+      if (Boolean(d.isPositive) === Boolean(targetIsPositive)) {
+        const newItem = reorderedCategory[catPointer];
+        catPointer++;
+        return newItem;
+      }
+      return d;
+    });
+
+    const finalDefinitions = reorderedDefinitions.map((item, idx) => ({
+      ...item,
+      sortOrder: idx + 1,
+    }));
+
+    setDefinitions(finalDefinitions);
+    notifyParent(finalDefinitions);
+    void syncToDexie(finalDefinitions);
   };
 
   const handleMove = (id: string, direction: "up" | "down") => {

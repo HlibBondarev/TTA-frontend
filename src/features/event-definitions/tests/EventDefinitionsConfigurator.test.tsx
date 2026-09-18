@@ -703,9 +703,9 @@ describe("EventDefinitionsConfigurator Component", () => {
     });
 
     const updatedCheckboxes = screen.getAllByRole("checkbox");
-    expect(updatedCheckboxes[0]).not.toBeChecked(); // Goal stayed unchecked
-    expect(updatedCheckboxes[1]).toBeChecked(); // Assist
-    expect(updatedCheckboxes[2]).toBeChecked(); // New Custom Action
+    expect(updatedCheckboxes[0]).toBeChecked(); // Assist
+    expect(updatedCheckboxes[1]).toBeChecked(); // New Custom Action
+    expect(updatedCheckboxes[2]).not.toBeChecked(); // Goal moved to bottom on uncheck
   });
 
   it("syncs loaded event definitions into Dexie IndexedDB on load", async () => {
@@ -758,8 +758,8 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     await waitFor(() => {
       expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
-        expect.objectContaining({ id: DEF_ID_1, isEnabled: false }),
         expect.objectContaining({ id: DEF_ID_2, isEnabled: true }),
+        expect.objectContaining({ id: DEF_ID_1, isEnabled: false }),
         expect.objectContaining({ id: DEF_ID_3, isEnabled: true }),
       ]);
     });
@@ -835,6 +835,35 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     await waitFor(() => {
       expect(eventDefinitionService.createCustom).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("moves disabled item to bottom and re-enabled item to end of enabled section", async () => {
+    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+
+    await screen.findByText("Goal");
+
+    const checkboxes = screen.getAllByRole("checkbox");
+
+    // Toggle off Goal (disable) -> Goal should move below Assist
+    fireEvent.click(checkboxes[0]);
+
+    await waitFor(() => {
+      const labels = screen
+        .getAllByRole("checkbox")
+        .map((cb) => cb.getAttribute("aria-label"));
+      expect(labels).toEqual(["Enable Assist", "Enable Goal"]);
+    });
+
+    // Toggle Goal back on (enable) -> Goal should move back to end of enabled section (after Assist)
+    const updatedCheckboxes = screen.getAllByRole("checkbox");
+    fireEvent.click(updatedCheckboxes[1]); // Goal is now second checkbox
+
+    await waitFor(() => {
+      const labels = screen
+        .getAllByRole("checkbox")
+        .map((cb) => cb.getAttribute("aria-label"));
+      expect(labels).toEqual(["Enable Assist", "Enable Goal"]);
     });
   });
 });
