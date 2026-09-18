@@ -2533,9 +2533,9 @@ describe("MatchSetupWizard Component", () => {
   it("should save active event definitions preset during confirm step before executing catch", async () => {
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
     const mockDefinitions = [
-      { id: "def-WP-1", isEnabled: true, sortOrder: 1 },
-      { id: "def-WP-2", isEnabled: false, sortOrder: 2 },
-      { id: "def-WP-3", isEnabled: true, sortOrder: 3 },
+      { id: "def-WP-1", isPositive: true, isEnabled: true, sortOrder: 1 },
+      { id: "def-WP-2", isPositive: true, isEnabled: false, sortOrder: 2 },
+      { id: "def-WP-3", isPositive: true, isEnabled: true, sortOrder: 3 },
     ];
 
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
@@ -2622,8 +2622,20 @@ describe("MatchSetupWizard Component", () => {
   it("should allow toggling action definitions in UI and save updated active preset list on confirm", async () => {
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
     const mockDefinitions = [
-      { id: "def-WP-1", name: "Goal", isEnabled: true, sortOrder: 1 },
-      { id: "def-WP-2", name: "Foul", isEnabled: false, sortOrder: 2 },
+      {
+        id: "def-WP-1",
+        name: "Goal",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+      {
+        id: "def-WP-2",
+        name: "Foul",
+        isPositive: true,
+        isEnabled: false,
+        sortOrder: 2,
+      },
     ];
 
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
@@ -2647,11 +2659,9 @@ describe("MatchSetupWizard Component", () => {
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
 
-    // Chek if definitions loaded into the wizard
     expect(await screen.findByText("Goal")).toBeDefined();
     expect(screen.getByText("Foul")).toBeDefined();
 
-    // Find all action checkboxes and toggle the disabled one (Foul)
     const checkboxes = screen.getAllByRole("checkbox");
     const foulCheckbox = checkboxes.find(
       (cb) => (cb as HTMLInputElement).checked === false,
@@ -2678,10 +2688,22 @@ describe("MatchSetupWizard Component", () => {
 
   it("should clear active event definition IDs when changing selected sport discipline", async () => {
     const mockWPDefinitions = [
-      { id: "def-WP-1", name: "WP Goal", isEnabled: true, sortOrder: 1 },
+      {
+        id: "def-WP-1",
+        name: "WP Goal",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
     ];
     const mockBBDefinitions = [
-      { id: "def-BB-1", name: "BB Basket", isEnabled: true, sortOrder: 1 },
+      {
+        id: "def-BB-1",
+        name: "BB Basket",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
     ];
 
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
@@ -2696,7 +2718,6 @@ describe("MatchSetupWizard Component", () => {
 
     expect(await screen.findByText("WP Goal")).toBeDefined();
 
-    // Switch discipline to Basketball
     const bbBtn = screen.getByText("Basketball");
     fireEvent.click(bbBtn);
 
@@ -2715,7 +2736,6 @@ describe("MatchSetupWizard Component", () => {
       mockConfigs,
     );
 
-    // Simulate pending/long-running event definitions fetch
     vi.mocked(eventDefinitionService.getAvailableForSport).mockReturnValueOnce(
       new Promise(() => {}) as never,
     );
@@ -2728,7 +2748,6 @@ describe("MatchSetupWizard Component", () => {
 
     renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
 
-    // Trigger match initialization
     const quickStartBtn = await screen.findByRole("button", {
       name: /Quick Start Match/i,
     });
@@ -2737,7 +2756,6 @@ describe("MatchSetupWizard Component", () => {
     expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
     fireEvent.click(screen.getByText("Home Squad"));
 
-    // Attempt to confirm while areDefinitionsLoaded is false
     const confirmBtn = screen.getByRole("button", {
       name: /Confirm & Start Tracking/i,
     });
@@ -2749,10 +2767,22 @@ describe("MatchSetupWizard Component", () => {
 
   it("should remount EventDefinitionsConfigurator and clear active event definition IDs when currentUserId changes", async () => {
     const mockDefinitionsUser1 = [
-      { id: "def-1", name: "Action User 1", isEnabled: true, sortOrder: 1 },
+      {
+        id: "def-1",
+        name: "Action User 1",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
     ];
     const mockDefinitionsUser2 = [
-      { id: "def-2", name: "Action User 2", isEnabled: true, sortOrder: 1 },
+      {
+        id: "def-2",
+        name: "Action User 2",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
     ];
 
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
@@ -2769,7 +2799,6 @@ describe("MatchSetupWizard Component", () => {
 
     expect(await screen.findByText("Action User 1")).toBeDefined();
 
-    // Simulate user change
     mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
     rerender(
       <Provider store={store}>
@@ -2777,7 +2806,6 @@ describe("MatchSetupWizard Component", () => {
       </Provider>,
     );
 
-    // Verify that definitions are re-fetched for the new user key boundary
     await waitFor(() => {
       expect(eventDefinitionService.getAvailableForSport).toHaveBeenCalledTimes(
         2,
@@ -2788,8 +2816,20 @@ describe("MatchSetupWizard Component", () => {
   it("syncs active event definitions into Dexie DB upon confirming quick start", async () => {
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
     const mockDefs = [
-      { id: "def-WP-1", sportId: "sport-1", name: "Goal", isEnabled: true },
-      { id: "def-WP-2", sportId: "sport-1", name: "Foul", isEnabled: true },
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        isPositive: true,
+        isEnabled: true,
+      },
+      {
+        id: "def-WP-2",
+        sportId: "sport-1",
+        name: "Foul",
+        isPositive: true,
+        isEnabled: true,
+      },
     ];
 
     vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
@@ -2822,7 +2862,6 @@ describe("MatchSetupWizard Component", () => {
       await screen.findByText(/Select Team to Track/i),
     ).toBeInTheDocument();
 
-    // Disable 'Foul' action
     const checkboxes = screen.getAllByRole("checkbox");
     fireEvent.click(checkboxes[1]);
 

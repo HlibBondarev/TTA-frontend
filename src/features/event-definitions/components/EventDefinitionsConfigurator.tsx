@@ -19,6 +19,8 @@ interface EventDefinitionsConfiguratorProps {
   onLoadStateChange?: (loaded: boolean) => void;
 }
 
+type TabType = "POSITIVE" | "NEGATIVE";
+
 const getTextColorClass = (
   isEnabled: boolean,
   isPositive?: boolean,
@@ -39,6 +41,7 @@ export const EventDefinitionsConfigurator: React.FC<
   onLoadStateChange,
 }) => {
   const [definitions, setDefinitions] = useState<EventDefinitionResponse[]>([]);
+  const [activeTab, setActiveTab] = useState<TabType>("POSITIVE");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [definitionsReady, setDefinitionsReady] = useState(false);
@@ -73,7 +76,6 @@ export const EventDefinitionsConfigurator: React.FC<
     }
   }, []);
 
-  // Helper to keep Dexie DB immediately in sync with UI checkbox and sort changes
   const syncToDexie = useCallback(
     async (items: EventDefinitionResponse[]) => {
       if (!sportId || !db.eventdefinitions) return;
@@ -106,7 +108,6 @@ export const EventDefinitionsConfigurator: React.FC<
       const data = await eventDefinitionService.getAvailableForSport(sportId);
       if (requestId !== requestCountRef.current) return;
 
-      // Preserve existing local checkbox toggles across reloads
       const localEnabledMap = new Map(
         definitionsRef.current.map((def) => [def.id, def.isEnabled]),
       );
@@ -200,14 +201,36 @@ export const EventDefinitionsConfigurator: React.FC<
     void syncToDexie(updated);
   };
 
-  const handleMove = (index: number, direction: "up" | "down") => {
+  const handleMove = (id: string, direction: "up" | "down") => {
     if (isLocked) return;
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= definitions.length) return;
+
+    const filteredCategory = definitions.filter((d) =>
+      activeTab === "POSITIVE" ? d.isPositive : !d.isPositive,
+    );
+
+    const categoryIndex = filteredCategory.findIndex((d) => d.id === id);
+    if (categoryIndex === -1) return;
+
+    const targetCategoryIndex =
+      direction === "up" ? categoryIndex - 1 : categoryIndex + 1;
+    if (
+      targetCategoryIndex < 0 ||
+      targetCategoryIndex >= filteredCategory.length
+    )
+      return;
+
+    const currentItem = filteredCategory[categoryIndex];
+    const targetItem = filteredCategory[targetCategoryIndex];
+
+    const mainIdx1 = definitions.findIndex((d) => d.id === currentItem.id);
+    const mainIdx2 = definitions.findIndex((d) => d.id === targetItem.id);
+
+    if (mainIdx1 === -1 || mainIdx2 === -1) return;
 
     const updated = [...definitions];
-    const [movedItem] = updated.splice(index, 1);
-    updated.splice(targetIndex, 0, movedItem);
+    const temp = updated[mainIdx1];
+    updated[mainIdx1] = updated[mainIdx2];
+    updated[mainIdx2] = temp;
 
     const reordered = updated.map((item, idx) => ({
       ...item,
@@ -266,6 +289,7 @@ export const EventDefinitionsConfigurator: React.FC<
 
       if (requestId !== requestCountRef.current) return;
 
+      setActiveTab(newIsPositive ? "POSITIVE" : "NEGATIVE");
       setNewName("");
       setNewShortName("");
       setNewIsPositive(true);
@@ -322,15 +346,28 @@ export const EventDefinitionsConfigurator: React.FC<
     );
   }
 
+  const positiveDefinitions = definitions.filter((def) => def.isPositive);
+  const negativeDefinitions = definitions.filter((def) => !def.isPositive);
+
+  const activeCategoryDefs =
+    activeTab === "POSITIVE" ? positiveDefinitions : negativeDefinitions;
+
+  const activePositiveCount = positiveDefinitions.filter(
+    (d) => d.isEnabled,
+  ).length;
+  const activeNegativeCount = negativeDefinitions.filter(
+    (d) => d.isEnabled,
+  ).length;
+
   return (
-    <div className="w-full bg-gray-950 text-gray-100 p-3 rounded-xl border border-gray-800 space-y-4">
+    <div className="w-full bg-gray-950 text-gray-100 p-3 rounded-xl border border-gray-800 space-y-3">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-bold text-gray-200">
             Configure TTA Actions
           </h3>
           <p className="text-[11px] text-gray-400">
-            Enable, reorder, or add custom action definitions for this match.
+            Enable, reorder, or add custom action definitions.
           </p>
         </div>
         <button
@@ -365,14 +402,47 @@ export const EventDefinitionsConfigurator: React.FC<
         </div>
       )}
 
+      {/* Tabs Header */}
+      <div className="grid grid-cols-2 gap-1 bg-gray-900 p-1 rounded-lg border border-gray-800 text-xs font-bold">
+        <button
+          type="button"
+          onClick={() => setActiveTab("POSITIVE")}
+          className={`py-1.5 rounded-md transition-all flex items-center justify-center gap-1.5 ${
+            activeTab === "POSITIVE"
+              ? "bg-gray-800 text-emerald-400 border border-emerald-500/40 shadow-sm"
+              : "text-gray-400 hover:text-gray-200"
+          }`}
+        >
+          <span>POSITIVE</span>
+          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-950 border border-emerald-800 text-emerald-300 font-mono">
+            {activePositiveCount}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("NEGATIVE")}
+          className={`py-1.5 rounded-md transition-all flex items-center justify-center gap-1.5 ${
+            activeTab === "NEGATIVE"
+              ? "bg-gray-800 text-rose-400 border border-rose-500/40 shadow-sm"
+              : "text-gray-400 hover:text-gray-200"
+          }`}
+        >
+          <span>NEGATIVE</span>
+          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-950 border border-rose-800 text-rose-300 font-mono">
+            {activeNegativeCount}
+          </span>
+        </button>
+      </div>
+
       {/* Action List */}
       <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
-        {definitions.length === 0 ? (
+        {activeCategoryDefs.length === 0 ? (
           <p className="text-xs text-gray-500 italic text-center py-4">
-            No definitions available for this sport.
+            No {activeTab.toLowerCase()} definitions available.
           </p>
         ) : (
-          definitions.map((def, index) => {
+          activeCategoryDefs.map((def, catIndex) => {
             const defId = def.id;
             if (!defId) return null;
 
@@ -415,11 +485,10 @@ export const EventDefinitionsConfigurator: React.FC<
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
-                  {/* Reorder Buttons */}
                   <button
                     type="button"
-                    disabled={isLocked || index === 0}
-                    onClick={() => handleMove(index, "up")}
+                    disabled={isLocked || catIndex === 0}
+                    onClick={() => handleMove(defId, "up")}
                     className="p-1 hover:bg-gray-800 rounded disabled:opacity-20 text-gray-400"
                     title="Move Up"
                   >
@@ -439,8 +508,10 @@ export const EventDefinitionsConfigurator: React.FC<
                   </button>
                   <button
                     type="button"
-                    disabled={isLocked || index === definitions.length - 1}
-                    onClick={() => handleMove(index, "down")}
+                    disabled={
+                      isLocked || catIndex === activeCategoryDefs.length - 1
+                    }
+                    onClick={() => handleMove(defId, "down")}
                     className="p-1 hover:bg-gray-800 rounded disabled:opacity-20 text-gray-400"
                     title="Move Down"
                   >
@@ -459,7 +530,6 @@ export const EventDefinitionsConfigurator: React.FC<
                     </svg>
                   </button>
 
-                  {/* Delete button for user custom items */}
                   {def.isCustom && (
                     <button
                       type="button"

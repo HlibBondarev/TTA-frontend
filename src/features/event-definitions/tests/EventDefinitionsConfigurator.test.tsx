@@ -25,6 +25,7 @@ describe("EventDefinitionsConfigurator Component", () => {
   const SPORT_ID = "sport-waterpolo";
   const DEF_ID_1 = "def-1";
   const DEF_ID_2 = "def-2";
+  const DEF_ID_3 = "def-3";
 
   const mockDefinitions = [
     {
@@ -38,11 +39,20 @@ describe("EventDefinitionsConfigurator Component", () => {
     },
     {
       id: DEF_ID_2,
+      name: "Assist",
+      shortName: "AST",
+      isPositive: true,
+      isEnabled: true,
+      sortOrder: 2,
+      isCustom: false,
+    },
+    {
+      id: DEF_ID_3,
       name: "Turnover",
       shortName: "TO",
       isPositive: false,
       isEnabled: true,
-      sortOrder: 2,
+      sortOrder: 3,
       isCustom: true,
     },
   ];
@@ -58,19 +68,26 @@ describe("EventDefinitionsConfigurator Component", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders loaded action definitions", async () => {
+  it("renders loaded action definitions split across POSITIVE and NEGATIVE tabs", async () => {
     render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     expect(
       screen.getByText("Loading action definitions..."),
     ).toBeInTheDocument();
 
+    // Default tab is POSITIVE
     expect(await screen.findByText("Goal")).toBeInTheDocument();
+    expect(screen.getByText("Assist")).toBeInTheDocument();
+    expect(screen.queryByText("Turnover")).not.toBeInTheDocument();
+
+    // Switch to NEGATIVE tab
+    fireEvent.click(screen.getByRole("button", { name: /NEGATIVE/i }));
+
     expect(screen.getByText("Turnover")).toBeInTheDocument();
     expect(screen.getByText("Custom")).toBeInTheDocument();
   });
 
-  it("renders empty state message when no definitions are returned", async () => {
+  it("renders empty state message when no definitions are returned for current tab", async () => {
     vi.mocked(
       eventDefinitionService.getAvailableForSport,
     ).mockResolvedValueOnce([]);
@@ -78,7 +95,7 @@ describe("EventDefinitionsConfigurator Component", () => {
     render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     expect(
-      await screen.findByText("No definitions available for this sport."),
+      await screen.findByText("No positive definitions available."),
     ).toBeInTheDocument();
   });
 
@@ -94,7 +111,7 @@ describe("EventDefinitionsConfigurator Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("allows reordering items up and down", async () => {
+  it("allows reordering items up and down within active tab", async () => {
     render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     await screen.findByText("Goal");
@@ -102,10 +119,10 @@ describe("EventDefinitionsConfigurator Component", () => {
     const moveDownBtns = screen.getAllByTitle("Move Down");
     const moveUpBtns = screen.getAllByTitle("Move Up");
 
-    expect(moveUpBtns[0]).toBeDisabled();
-    expect(moveDownBtns[1]).toBeDisabled();
+    expect(moveUpBtns[0]).toBeDisabled(); // First item (Goal) cannot move up
+    expect(moveDownBtns[1]).toBeDisabled(); // Second item (Assist) cannot move down
 
-    // Move first item down
+    // Move Goal down
     fireEvent.click(moveDownBtns[0]);
 
     // Save preset to verify reordered order
@@ -117,7 +134,7 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     await waitFor(() => {
       expect(eventDefinitionService.savePreset).toHaveBeenCalledWith(SPORT_ID, {
-        eventDefinitionIds: [DEF_ID_2, DEF_ID_1],
+        eventDefinitionIds: [DEF_ID_2, DEF_ID_1, DEF_ID_3],
       });
     });
   });
@@ -142,7 +159,7 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     await waitFor(() => {
       expect(eventDefinitionService.savePreset).toHaveBeenCalledWith(SPORT_ID, {
-        eventDefinitionIds: [DEF_ID_1, DEF_ID_2],
+        eventDefinitionIds: [DEF_ID_1, DEF_ID_2, DEF_ID_3],
       });
     });
 
@@ -166,12 +183,12 @@ describe("EventDefinitionsConfigurator Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens modal, allows filling form, and creates new custom action definition", async () => {
+  it("opens modal, allows filling form, creates custom action definition and switches to its tab", async () => {
     const customGoalName = "Counter Goal";
     const customGoalShort = "CG";
 
     vi.mocked(eventDefinitionService.createCustom).mockResolvedValueOnce({
-      id: "def-3",
+      id: "def-4",
       name: customGoalName,
       shortName: customGoalShort,
       isPositive: true,
@@ -272,6 +289,11 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
+    await screen.findByText("Goal");
+
+    // Switch to NEGATIVE tab where custom item (Turnover) resides
+    fireEvent.click(screen.getByRole("button", { name: /NEGATIVE/i }));
+
     const deleteBtn = await screen.findByTitle("Delete Custom Action");
     fireEvent.click(deleteBtn);
 
@@ -287,12 +309,17 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
+    await screen.findByText("Goal");
+
+    // Switch to NEGATIVE tab where custom item (Turnover) resides
+    fireEvent.click(screen.getByRole("button", { name: /NEGATIVE/i }));
+
     const deleteBtn = await screen.findByTitle("Delete Custom Action");
     fireEvent.click(deleteBtn);
 
     await waitFor(() => {
       expect(eventDefinitionService.softDeleteCustom).toHaveBeenCalledWith(
-        DEF_ID_2,
+        DEF_ID_3,
       );
     });
 
@@ -306,6 +333,11 @@ describe("EventDefinitionsConfigurator Component", () => {
     );
 
     render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+
+    await screen.findByText("Goal");
+
+    // Switch to NEGATIVE tab
+    fireEvent.click(screen.getByRole("button", { name: /NEGATIVE/i }));
 
     const deleteBtn = await screen.findByTitle("Delete Custom Action");
     fireEvent.click(deleteBtn);
@@ -328,14 +360,14 @@ describe("EventDefinitionsConfigurator Component", () => {
     );
 
     await waitFor(() => {
-      expect(onChangeMock).toHaveBeenCalledWith([DEF_ID_1, DEF_ID_2]);
+      expect(onChangeMock).toHaveBeenCalledWith([DEF_ID_1, DEF_ID_2, DEF_ID_3]);
     });
 
     const checkboxes = screen.getAllByRole("checkbox");
-    fireEvent.click(checkboxes[0]);
+    fireEvent.click(checkboxes[0]); // Toggle off Goal
 
     await waitFor(() => {
-      expect(onChangeMock).toHaveBeenLastCalledWith([DEF_ID_2]);
+      expect(onChangeMock).toHaveBeenLastCalledWith([DEF_ID_2, DEF_ID_3]);
     });
   });
 
@@ -420,9 +452,12 @@ describe("EventDefinitionsConfigurator Component", () => {
     // Resolve stale first request
     resolveFirstFetch!(mockDefinitions);
 
-    // Ensure stale fetch results do not overwrite state or notify parent
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(onChangeMock).not.toHaveBeenLastCalledWith([DEF_ID_1, DEF_ID_2]);
+    expect(onChangeMock).not.toHaveBeenLastCalledWith([
+      DEF_ID_1,
+      DEF_ID_2,
+      DEF_ID_3,
+    ]);
   });
 
   it("invalidates pending fetch requests on unmount via effect cleanup", async () => {
@@ -444,7 +479,6 @@ describe("EventDefinitionsConfigurator Component", () => {
       />,
     );
 
-    // Unmount component while fetch is pending
     unmount();
 
     // Resolve stale request after unmount
@@ -452,8 +486,11 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Ensure state updates and callbacks were suppressed
-    expect(onChangeMock).not.toHaveBeenCalledWith([DEF_ID_1, DEF_ID_2]);
+    expect(onChangeMock).not.toHaveBeenCalledWith([
+      DEF_ID_1,
+      DEF_ID_2,
+      DEF_ID_3,
+    ]);
   });
 
   it("disables Save Active Preset button when definitions are not ready or reload fails", async () => {
@@ -468,7 +505,9 @@ describe("EventDefinitionsConfigurator Component", () => {
     });
     expect(saveBtn).not.toBeDisabled();
 
-    // Mock a failed reload after soft delete
+    // Switch to NEGATIVE tab for soft delete
+    fireEvent.click(screen.getByRole("button", { name: /NEGATIVE/i }));
+
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
     vi.mocked(eventDefinitionService.softDeleteCustom).mockResolvedValueOnce(
       undefined,
@@ -507,13 +546,11 @@ describe("EventDefinitionsConfigurator Component", () => {
     });
     const checkboxes = screen.getAllByRole("checkbox");
     const moveDownBtns = screen.getAllByTitle("Move Down");
-    const deleteBtn = screen.getByTitle("Delete Custom Action");
 
     expect(openCustomModalBtn).toBeDisabled();
     expect(savePresetBtn).toBeDisabled();
     expect(checkboxes[0]).toBeDisabled();
     expect(moveDownBtns[0]).toBeDisabled();
-    expect(deleteBtn).toBeDisabled();
   });
 
   it("aborts custom creation state updates and reload when sportId changes before createCustom resolves", async () => {
@@ -548,7 +585,6 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     await screen.findByText("Goal");
 
-    // Open modal and submit form
     fireEvent.click(screen.getByRole("button", { name: /^Custom Action$/i }));
     fireEvent.change(screen.getByPlaceholderText("e.g. Counter Attack Goal"), {
       target: { value: "New Goal" },
@@ -558,10 +594,8 @@ describe("EventDefinitionsConfigurator Component", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    // Change sport scope while mutation is pending
     rerender(<EventDefinitionsConfigurator sportId="sport-basketball" />);
 
-    // Resolve pending create request
     resolveCreate!({
       id: "def-new",
       name: "New Goal",
@@ -572,10 +606,9 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Ensure reloadDefinitions was not initiated for stale request
     expect(eventDefinitionService.getAvailableForSport).toHaveBeenCalledTimes(
       2,
-    ); // Only initial mounts
+    );
   });
 
   it("aborts soft delete reload when sportId changes before softDeleteCustom resolves", async () => {
@@ -598,21 +631,21 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     await screen.findByText("Goal");
 
+    // Switch to NEGATIVE tab
+    fireEvent.click(screen.getByRole("button", { name: /NEGATIVE/i }));
+
     const deleteBtn = screen.getByTitle("Delete Custom Action");
     fireEvent.click(deleteBtn);
 
-    // Change sport scope while delete is pending
     rerender(<EventDefinitionsConfigurator sportId="sport-basketball" />);
 
-    // Resolve pending delete
     resolveDelete!();
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Ensure reload was not triggered for old scope
     expect(eventDefinitionService.getAvailableForSport).toHaveBeenCalledTimes(
       2,
-    ); // Only initial mounts
+    );
 
     confirmSpy.mockRestore();
   });
@@ -626,14 +659,13 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     await screen.findByText("Goal");
 
-    // Toggle off the first definition
+    // Toggle off Goal
     const checkboxes = screen.getAllByRole("checkbox");
     fireEvent.click(checkboxes[0]);
     expect(checkboxes[0]).not.toBeChecked();
 
-    // Mock createCustom and updated definitions response
     vi.mocked(eventDefinitionService.createCustom).mockResolvedValueOnce({
-      id: "def-3",
+      id: "def-4",
       name: "New Custom Action",
       shortName: "NCA",
       isPositive: true,
@@ -643,12 +675,12 @@ describe("EventDefinitionsConfigurator Component", () => {
     const updatedDefinitions = [
       ...mockDefinitions,
       {
-        id: "def-3",
+        id: "def-4",
         name: "New Custom Action",
         shortName: "NCA",
         isPositive: true,
         isEnabled: true,
-        sortOrder: 3,
+        sortOrder: 4,
         isCustom: true,
       },
     ];
@@ -657,7 +689,6 @@ describe("EventDefinitionsConfigurator Component", () => {
       eventDefinitionService.getAvailableForSport,
     ).mockResolvedValueOnce(updatedDefinitions);
 
-    // Open custom action modal and submit form
     fireEvent.click(screen.getByRole("button", { name: /^Custom Action$/i }));
     fireEvent.change(screen.getByPlaceholderText("e.g. Counter Attack Goal"), {
       target: { value: "New Custom Action" },
@@ -671,11 +702,10 @@ describe("EventDefinitionsConfigurator Component", () => {
       expect(screen.getByText("New Custom Action")).toBeInTheDocument();
     });
 
-    // Ensure the first definition stayed unchecked according to user selection
     const updatedCheckboxes = screen.getAllByRole("checkbox");
-    expect(updatedCheckboxes[0]).not.toBeChecked();
-    expect(updatedCheckboxes[1]).toBeChecked();
-    expect(updatedCheckboxes[2]).toBeChecked();
+    expect(updatedCheckboxes[0]).not.toBeChecked(); // Goal stayed unchecked
+    expect(updatedCheckboxes[1]).toBeChecked(); // Assist
+    expect(updatedCheckboxes[2]).toBeChecked(); // New Custom Action
   });
 
   it("syncs loaded event definitions into Dexie IndexedDB on load", async () => {
@@ -697,12 +727,22 @@ describe("EventDefinitionsConfigurator Component", () => {
       {
         id: DEF_ID_2,
         sportId: SPORT_ID,
+        name: "Assist",
+        shortName: "AST",
+        isPositive: true,
+        isCustom: false,
+        isEnabled: true,
+        sortOrder: 2,
+      },
+      {
+        id: DEF_ID_3,
+        sportId: SPORT_ID,
         name: "Turnover",
         shortName: "TO",
         isPositive: false,
         isCustom: true,
         isEnabled: true,
-        sortOrder: 2,
+        sortOrder: 3,
       },
     ]);
   });
@@ -714,30 +754,31 @@ describe("EventDefinitionsConfigurator Component", () => {
     vi.mocked(db.eventdefinitions.bulkPut).mockClear();
 
     const checkboxes = screen.getAllByRole("checkbox");
-    // Toggle off the first action (Goal)
-    fireEvent.click(checkboxes[0]);
+    fireEvent.click(checkboxes[0]); // Toggle off Goal
 
     await waitFor(() => {
       expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
         expect.objectContaining({ id: DEF_ID_1, isEnabled: false }),
         expect.objectContaining({ id: DEF_ID_2, isEnabled: true }),
+        expect.objectContaining({ id: DEF_ID_3, isEnabled: true }),
       ]);
     });
   });
 
-  it("syncs reordered items to Dexie IndexedDB when moving items", async () => {
+  it("syncs reordered items to Dexie IndexedDB when moving items within active tab", async () => {
     render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     await screen.findByText("Goal");
     vi.mocked(db.eventdefinitions.bulkPut).mockClear();
 
     const moveDownBtns = screen.getAllByTitle("Move Down");
-    fireEvent.click(moveDownBtns[0]);
+    fireEvent.click(moveDownBtns[0]); // Move Goal down
 
     await waitFor(() => {
       expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
         expect.objectContaining({ id: DEF_ID_2, sortOrder: 1 }),
         expect.objectContaining({ id: DEF_ID_1, sortOrder: 2 }),
+        expect.objectContaining({ id: DEF_ID_3, sortOrder: 3 }),
       ]);
     });
   });
