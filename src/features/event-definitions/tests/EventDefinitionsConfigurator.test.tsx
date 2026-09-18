@@ -706,4 +706,39 @@ describe("EventDefinitionsConfigurator Component", () => {
       },
     ]);
   });
+
+  it("syncs updated enabled states to Dexie IndexedDB on checkbox toggle", async () => {
+    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+
+    await screen.findByText("Goal");
+    vi.mocked(db.eventdefinitions.bulkPut).mockClear();
+
+    const checkboxes = screen.getAllByRole("checkbox");
+    // Toggle off the first action (Goal)
+    fireEvent.click(checkboxes[0]);
+
+    await waitFor(() => {
+      expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+        expect.objectContaining({ id: DEF_ID_1, isEnabled: false }),
+        expect.objectContaining({ id: DEF_ID_2, isEnabled: true }),
+      ]);
+    });
+  });
+
+  it("syncs reordered items to Dexie IndexedDB when moving items", async () => {
+    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+
+    await screen.findByText("Goal");
+    vi.mocked(db.eventdefinitions.bulkPut).mockClear();
+
+    const moveDownBtns = screen.getAllByTitle("Move Down");
+    fireEvent.click(moveDownBtns[0]);
+
+    await waitFor(() => {
+      expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+        expect.objectContaining({ id: DEF_ID_2, sortOrder: 1 }),
+        expect.objectContaining({ id: DEF_ID_1, sortOrder: 2 }),
+      ]);
+    });
+  });
 });

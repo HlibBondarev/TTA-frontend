@@ -868,6 +868,22 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       });
       verifyFreshness();
 
+      // Explicitly sync Dexie DB isEnabled states for the selected sport
+      if (db.eventdefinitions) {
+        const activeSet = new Set(activeEventDefinitionIds);
+        const sportDefs = await db.eventdefinitions
+          .where("sportId")
+          .equals(selectedSportId)
+          .toArray();
+        if (sportDefs.length > 0) {
+          const updatedDefs = sportDefs.map((def) => ({
+            ...def,
+            isEnabled: activeSet.has(def.id),
+          }));
+          await db.eventdefinitions.bulkPut(updatedDefs);
+        }
+      }
+
       localPersistResult = await persistTrackedTeamLocally(
         pendingMatchId,
         selectedTeamId,

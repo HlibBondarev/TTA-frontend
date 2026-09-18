@@ -70,6 +70,14 @@ vi.mock("../../../db/ttaDatabase", () => ({
       put: vi.fn().mockResolvedValue(1),
       delete: vi.fn().mockResolvedValue(undefined),
     },
+    eventdefinitions: {
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+      bulkPut: vi.fn().mockResolvedValue([]),
+    },
   },
 }));
 
@@ -2774,6 +2782,60 @@ describe("MatchSetupWizard Component", () => {
       expect(eventDefinitionService.getAvailableForSport).toHaveBeenCalledTimes(
         2,
       );
+    });
+  });
+
+  it("syncs active event definitions into Dexie DB upon confirming quick start", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+    const mockDefs = [
+      { id: "def-WP-1", sportId: "sport-1", name: "Goal", isEnabled: true },
+      { id: "def-WP-2", sportId: "sport-1", name: "Foul", isEnabled: true },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(
+      eventDefinitionService.getAvailableForSport,
+    ).mockResolvedValueOnce(mockDefs as never);
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    vi.mocked(db.eventdefinitions.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValueOnce(mockDefs),
+      }),
+    } as never);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(
+      await screen.findByText(/Select Team to Track/i),
+    ).toBeInTheDocument();
+
+    // Disable 'Foul' action
+    const checkboxes = screen.getAllByRole("checkbox");
+    fireEvent.click(checkboxes[1]);
+
+    fireEvent.click(screen.getByText("Home Squad"));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+        expect.objectContaining({ id: "def-WP-1", isEnabled: true }),
+        expect.objectContaining({ id: "def-WP-2", isEnabled: false }),
+      ]);
     });
   });
 });

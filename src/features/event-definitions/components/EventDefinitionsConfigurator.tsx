@@ -73,6 +73,29 @@ export const EventDefinitionsConfigurator: React.FC<
     }
   }, []);
 
+  // Helper to keep Dexie DB immediately in sync with UI checkbox and sort changes
+  const syncToDexie = useCallback(
+    async (items: EventDefinitionResponse[]) => {
+      if (!sportId || !db.eventdefinitions) return;
+      const recordsToPut: EventDefinitionLookup[] = items
+        .filter((def): def is EventDefinitionResponse & { id: string } =>
+          Boolean(def.id),
+        )
+        .map((def, idx) => ({
+          id: def.id,
+          sportId,
+          name: def.name ?? "",
+          shortName: def.shortName ?? "",
+          isPositive: Boolean(def.isPositive),
+          isCustom: def.isCustom,
+          isEnabled: Boolean(def.isEnabled),
+          sortOrder: def.sortOrder ?? idx + 1,
+        }));
+      await db.eventdefinitions.bulkPut(recordsToPut);
+    },
+    [sportId],
+  );
+
   const reloadDefinitions = useCallback(async () => {
     if (!sportId) return;
     const requestId = ++requestCountRef.current;
@@ -82,23 +105,6 @@ export const EventDefinitionsConfigurator: React.FC<
     try {
       const data = await eventDefinitionService.getAvailableForSport(sportId);
       if (requestId !== requestCountRef.current) return;
-
-      // Sync event definitions into local IndexedDB for immediate usage in TTA Console
-      if (data.length > 0 && db.eventdefinitions) {
-        const recordsToPut: EventDefinitionLookup[] = data
-          .filter((def) => Boolean(def.id))
-          .map((def) => ({
-            id: def.id!,
-            sportId,
-            name: def.name ?? "",
-            shortName: def.shortName ?? "",
-            isPositive: Boolean(def.isPositive),
-            isCustom: def.isCustom,
-            isEnabled: def.isEnabled,
-            sortOrder: def.sortOrder,
-          }));
-        await db.eventdefinitions.bulkPut(recordsToPut);
-      }
 
       // Preserve existing local checkbox toggles across reloads
       const localEnabledMap = new Map(
@@ -119,6 +125,7 @@ export const EventDefinitionsConfigurator: React.FC<
 
       setDefinitions(merged);
       notifyParent(merged);
+      await syncToDexie(merged);
       setError(null);
       setDefinitionsReady(true);
       onLoadStateChangeRef.current?.(true);
@@ -133,7 +140,7 @@ export const EventDefinitionsConfigurator: React.FC<
       );
       onLoadStateChangeRef.current?.(false);
     }
-  }, [sportId, notifyParent]);
+  }, [sportId, notifyParent, syncToDexie]);
 
   useEffect(() => {
     const requestId = ++requestCountRef.current;
@@ -148,28 +155,13 @@ export const EventDefinitionsConfigurator: React.FC<
         const data = await eventDefinitionService.getAvailableForSport(sportId);
         if (requestId !== requestCountRef.current) return;
 
-        // Sync event definitions into local IndexedDB for immediate usage in TTA Console
-        if (data.length > 0 && db.eventdefinitions) {
-          const recordsToPut: EventDefinitionLookup[] = data
-            .filter((def) => Boolean(def.id))
-            .map((def) => ({
-              id: def.id!,
-              sportId,
-              name: def.name ?? "",
-              shortName: def.shortName ?? "",
-              isPositive: Boolean(def.isPositive),
-              isCustom: def.isCustom,
-              isEnabled: def.isEnabled,
-              sortOrder: def.sortOrder,
-            }));
-          await db.eventdefinitions.bulkPut(recordsToPut);
-        }
-
         const sorted = [...data].sort(
           (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
         );
+
         setDefinitions(sorted);
         notifyParent(sorted);
+        await syncToDexie(sorted);
         setError(null);
         setDefinitionsReady(true);
         onLoadStateChangeRef.current?.(true);
@@ -196,7 +188,7 @@ export const EventDefinitionsConfigurator: React.FC<
     return () => {
       requestCountRef.current += 1;
     };
-  }, [sportId, notifyParent]);
+  }, [sportId, notifyParent, syncToDexie]);
 
   const handleToggleEnabled = (id: string) => {
     if (isLocked) return;
@@ -205,6 +197,7 @@ export const EventDefinitionsConfigurator: React.FC<
     );
     setDefinitions(updated);
     notifyParent(updated);
+    void syncToDexie(updated);
   };
 
   const handleMove = (index: number, direction: "up" | "down") => {
@@ -223,6 +216,7 @@ export const EventDefinitionsConfigurator: React.FC<
 
     setDefinitions(reordered);
     notifyParent(reordered);
+    void syncToDexie(reordered);
   };
 
   const handleSavePreset = async () => {
@@ -238,6 +232,8 @@ export const EventDefinitionsConfigurator: React.FC<
       await eventDefinitionService.savePreset(sportId, {
         eventDefinitionIds: activeIds,
       });
+
+      await syncToDexie(definitions);
 
       if (onPresetSaved) {
         onPresetSaved();
@@ -261,7 +257,6 @@ export const EventDefinitionsConfigurator: React.FC<
       setCreating(true);
       setError(null);
 
-      // Generate client-side UUID for Frontend First architecture
       await eventDefinitionService.createCustom(sportId, {
         id: crypto.randomUUID(),
         name: newName.trim(),
