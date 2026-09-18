@@ -873,4 +873,67 @@ describe("EventDefinitionsConfigurator Component", () => {
       expect(labels).toEqual(["Enable Assist", "Enable Goal"]);
     });
   });
+
+  it("preserves local definition order when reloading definitions after custom creation", async () => {
+    vi.mocked(
+      eventDefinitionService.getAvailableForSport,
+    ).mockResolvedValueOnce(mockDefinitions);
+
+    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+
+    await screen.findByText("Goal");
+
+    // Move Goal down so Assist comes before Goal
+    const moveDownBtns = screen.getAllByTitle("Move Down");
+    fireEvent.click(moveDownBtns[0]);
+
+    // Create a custom action which triggers reloadDefinitions
+    vi.mocked(eventDefinitionService.createCustom).mockResolvedValueOnce({
+      id: "def-4",
+      name: "New Custom Action",
+      shortName: "NCA",
+      isPositive: true,
+      isCustom: true,
+    });
+
+    const serverDefinitionsOnReload = [
+      ...mockDefinitions,
+      {
+        id: "def-4",
+        name: "New Custom Action",
+        shortName: "NCA",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 4,
+        isCustom: true,
+      },
+    ];
+
+    vi.mocked(
+      eventDefinitionService.getAvailableForSport,
+    ).mockResolvedValueOnce(serverDefinitionsOnReload);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Custom Action$/i }));
+    fireEvent.change(screen.getByPlaceholderText("e.g. Counter Attack Goal"), {
+      target: { value: "New Custom Action" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("e.g. CAG"), {
+      target: { value: "NCA" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("New Custom Action")).toBeInTheDocument();
+    });
+
+    // Verify relative order remains [Assist, Goal, New Custom Action]
+    const labels = screen
+      .getAllByRole("checkbox")
+      .map((cb) => cb.getAttribute("aria-label"));
+    expect(labels).toEqual([
+      "Enable Assist",
+      "Enable Goal",
+      "Enable New Custom Action",
+    ]);
+  });
 });

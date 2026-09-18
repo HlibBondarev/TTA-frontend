@@ -128,23 +128,28 @@ export const EventDefinitionsConfigurator: React.FC<
       const data = await eventDefinitionService.getAvailableForSport(sportId);
       if (requestId !== requestCountRef.current) return;
 
-      const localEnabledMap = new Map(
-        definitionsRef.current.map((def) => [def.id, def.isEnabled]),
+      const serverMap = new Map(
+        data.filter((def) => def.id).map((def) => [def.id as string, def]),
       );
 
-      const sorted = [...data].sort(
+      const existingOrdered: EventDefinitionResponse[] = [];
+      for (const localDef of definitionsRef.current) {
+        if (localDef.id && serverMap.has(localDef.id)) {
+          const serverDef = serverMap.get(localDef.id)!;
+          existingOrdered.push({
+            ...serverDef,
+            isEnabled: localDef.isEnabled,
+          });
+          serverMap.delete(localDef.id);
+        }
+      }
+
+      const newServerDefs = Array.from(serverMap.values()).sort(
         (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
       );
 
-      const merged = sorted.map((def) => ({
-        ...def,
-        isEnabled:
-          def.id && localEnabledMap.has(def.id)
-            ? localEnabledMap.get(def.id)
-            : def.isEnabled,
-      }));
-
-      const grouped = groupDefinitionsByEnabled(merged);
+      const combined = [...existingOrdered, ...newServerDefs];
+      const grouped = groupDefinitionsByEnabled(combined);
 
       setDefinitions(grouped);
       notifyParent(grouped);
