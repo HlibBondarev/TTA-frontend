@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventDefinitionsConfigurator } from "../components/EventDefinitionsConfigurator";
 import { eventDefinitionService } from "../../../services/eventDefinitionService";
+import { db } from "../../../db/ttaDatabase";
 
 vi.mock("../../../services/eventDefinitionService", () => ({
   eventDefinitionService: {
@@ -9,6 +10,14 @@ vi.mock("../../../services/eventDefinitionService", () => ({
     savePreset: vi.fn(),
     createCustom: vi.fn(),
     softDeleteCustom: vi.fn(),
+  },
+}));
+
+vi.mock("../../../db/ttaDatabase", () => ({
+  db: {
+    eventdefinitions: {
+      bulkPut: vi.fn(),
+    },
   },
 }));
 
@@ -667,5 +676,34 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(updatedCheckboxes[0]).not.toBeChecked();
     expect(updatedCheckboxes[1]).toBeChecked();
     expect(updatedCheckboxes[2]).toBeChecked();
+  });
+
+  it("syncs loaded event definitions into Dexie IndexedDB on load", async () => {
+    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+
+    await screen.findByText("Goal");
+
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+      {
+        id: DEF_ID_1,
+        sportId: SPORT_ID,
+        name: "Goal",
+        shortName: "GL",
+        isPositive: true,
+        isCustom: false,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+      {
+        id: DEF_ID_2,
+        sportId: SPORT_ID,
+        name: "Turnover",
+        shortName: "TO",
+        isPositive: false,
+        isCustom: true,
+        isEnabled: true,
+        sortOrder: 2,
+      },
+    ]);
   });
 });

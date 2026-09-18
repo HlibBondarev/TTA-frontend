@@ -9,6 +9,7 @@ import {
   eventDefinitionService,
   type EventDefinitionResponse,
 } from "../../../services/eventDefinitionService";
+import { db, type EventDefinitionLookup } from "../../../db/ttaDatabase";
 
 interface EventDefinitionsConfiguratorProps {
   sportId: string;
@@ -82,6 +83,23 @@ export const EventDefinitionsConfigurator: React.FC<
       const data = await eventDefinitionService.getAvailableForSport(sportId);
       if (requestId !== requestCountRef.current) return;
 
+      // Sync event definitions into local IndexedDB for immediate usage in TTA Console
+      if (data.length > 0 && db.eventdefinitions) {
+        const recordsToPut: EventDefinitionLookup[] = data
+          .filter((def) => Boolean(def.id))
+          .map((def) => ({
+            id: def.id!,
+            sportId,
+            name: def.name ?? "",
+            shortName: def.shortName ?? "",
+            isPositive: Boolean(def.isPositive),
+            isCustom: def.isCustom,
+            isEnabled: def.isEnabled,
+            sortOrder: def.sortOrder,
+          }));
+        await db.eventdefinitions.bulkPut(recordsToPut);
+      }
+
       // Preserve existing local checkbox toggles across reloads
       const localEnabledMap = new Map(
         definitionsRef.current.map((def) => [def.id, def.isEnabled]),
@@ -129,6 +147,23 @@ export const EventDefinitionsConfigurator: React.FC<
 
         const data = await eventDefinitionService.getAvailableForSport(sportId);
         if (requestId !== requestCountRef.current) return;
+
+        // Sync event definitions into local IndexedDB for immediate usage in TTA Console
+        if (data.length > 0 && db.eventdefinitions) {
+          const recordsToPut: EventDefinitionLookup[] = data
+            .filter((def) => Boolean(def.id))
+            .map((def) => ({
+              id: def.id!,
+              sportId,
+              name: def.name ?? "",
+              shortName: def.shortName ?? "",
+              isPositive: Boolean(def.isPositive),
+              isCustom: def.isCustom,
+              isEnabled: def.isEnabled,
+              sortOrder: def.sortOrder,
+            }));
+          await db.eventdefinitions.bulkPut(recordsToPut);
+        }
 
         const sorted = [...data].sort(
           (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
