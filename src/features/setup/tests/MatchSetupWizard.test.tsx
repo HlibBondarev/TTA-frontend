@@ -2879,11 +2879,9 @@ describe("MatchSetupWizard Component", () => {
 
     fireEvent.click(screen.getByText("Home Squad"));
 
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
-      );
-    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
 
     await waitFor(() => {
       expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
