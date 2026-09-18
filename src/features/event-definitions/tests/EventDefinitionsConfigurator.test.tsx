@@ -607,4 +607,65 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     confirmSpy.mockRestore();
   });
+
+  it("preserves local checkbox selections when reloading definitions after custom creation", async () => {
+    vi.mocked(
+      eventDefinitionService.getAvailableForSport,
+    ).mockResolvedValueOnce(mockDefinitions);
+
+    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+
+    await screen.findByText("Goal");
+
+    // Toggle off the first definition
+    const checkboxes = screen.getAllByRole("checkbox");
+    fireEvent.click(checkboxes[0]);
+    expect(checkboxes[0]).not.toBeChecked();
+
+    // Mock createCustom and updated definitions response
+    vi.mocked(eventDefinitionService.createCustom).mockResolvedValueOnce({
+      id: "def-3",
+      name: "New Custom Action",
+      shortName: "NCA",
+      isPositive: true,
+      isCustom: true,
+    });
+
+    const updatedDefinitions = [
+      ...mockDefinitions,
+      {
+        id: "def-3",
+        name: "New Custom Action",
+        shortName: "NCA",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 3,
+        isCustom: true,
+      },
+    ];
+
+    vi.mocked(
+      eventDefinitionService.getAvailableForSport,
+    ).mockResolvedValueOnce(updatedDefinitions);
+
+    // Open custom action modal and submit form
+    fireEvent.click(screen.getByRole("button", { name: /^Custom Action$/i }));
+    fireEvent.change(screen.getByPlaceholderText("e.g. Counter Attack Goal"), {
+      target: { value: "New Custom Action" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("e.g. CAG"), {
+      target: { value: "NCA" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("New Custom Action")).toBeInTheDocument();
+    });
+
+    // Ensure the first definition stayed unchecked according to user selection
+    const updatedCheckboxes = screen.getAllByRole("checkbox");
+    expect(updatedCheckboxes[0]).not.toBeChecked();
+    expect(updatedCheckboxes[1]).toBeChecked();
+    expect(updatedCheckboxes[2]).toBeChecked();
+  });
 });

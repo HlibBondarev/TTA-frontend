@@ -53,13 +53,15 @@ export const EventDefinitionsConfigurator: React.FC<
   const onChangeRef = useRef(onChange);
   const onLoadStateChangeRef = useRef(onLoadStateChange);
   const requestCountRef = useRef(0);
+  const definitionsRef = useRef(definitions);
 
   const isLocked = disabled || saving;
 
   useLayoutEffect(() => {
     onChangeRef.current = onChange;
     onLoadStateChangeRef.current = onLoadStateChange;
-  }, [onChange, onLoadStateChange]);
+    definitionsRef.current = definitions;
+  }, [onChange, onLoadStateChange, definitions]);
 
   const notifyParent = useCallback((items: EventDefinitionResponse[]) => {
     if (onChangeRef.current) {
@@ -80,11 +82,25 @@ export const EventDefinitionsConfigurator: React.FC<
       const data = await eventDefinitionService.getAvailableForSport(sportId);
       if (requestId !== requestCountRef.current) return;
 
+      // Preserve existing local checkbox toggles across reloads
+      const localEnabledMap = new Map(
+        definitionsRef.current.map((def) => [def.id, def.isEnabled]),
+      );
+
       const sorted = [...data].sort(
         (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
       );
-      setDefinitions(sorted);
-      notifyParent(sorted);
+
+      const merged = sorted.map((def) => ({
+        ...def,
+        isEnabled:
+          def.id && localEnabledMap.has(def.id)
+            ? localEnabledMap.get(def.id)
+            : def.isEnabled,
+      }));
+
+      setDefinitions(merged);
+      notifyParent(merged);
       setError(null);
       setDefinitionsReady(true);
       onLoadStateChangeRef.current?.(true);
