@@ -64,6 +64,8 @@ export const EventDefinitionsConfigurator: React.FC<
   const [activeTab, setActiveTab] = useState<TabType>("POSITIVE");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [definitionsReady, setDefinitionsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,14 +74,13 @@ export const EventDefinitionsConfigurator: React.FC<
   const [newName, setNewName] = useState("");
   const [newShortName, setNewShortName] = useState("");
   const [newIsPositive, setNewIsPositive] = useState(true);
-  const [creating, setCreating] = useState(false);
 
   const onChangeRef = useRef(onChange);
   const onLoadStateChangeRef = useRef(onLoadStateChange);
   const requestCountRef = useRef(0);
   const definitionsRef = useRef(definitions);
 
-  const isLocked = disabled || saving;
+  const isLocked = disabled || saving || creating || deleting;
 
   useLayoutEffect(() => {
     onChangeRef.current = onChange;
@@ -248,10 +249,8 @@ export const EventDefinitionsConfigurator: React.FC<
     let reorderedCategory: EventDefinitionResponse[] = [];
 
     if (!newEnabledState) {
-      // Move disabled item to the end of the category
       reorderedCategory = [...remainingCategory, updatedTargetItem];
     } else {
-      // Move enabled item to the end of the enabled section in this category
       const lastEnabledIdx = remainingCategory.findLastIndex(
         (d) => d.isEnabled,
       );
@@ -405,6 +404,7 @@ export const EventDefinitionsConfigurator: React.FC<
     const requestId = requestCountRef.current;
 
     try {
+      setDeleting(true);
       setError(null);
       await eventDefinitionService.softDeleteCustom(id);
       if (requestId !== requestCountRef.current) return;
@@ -418,6 +418,8 @@ export const EventDefinitionsConfigurator: React.FC<
           ? err.message
           : "Failed to delete custom definition.",
       );
+    } finally {
+      setDeleting(false);
     }
   };
 

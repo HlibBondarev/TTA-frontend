@@ -968,4 +968,43 @@ describe("EventDefinitionsConfigurator Component", () => {
       }),
     ]);
   });
+
+  it("disables controls and sets isLocked while softDeleteCustom is pending", async () => {
+    let resolveDelete: (value: void) => void;
+    const deletePromise = new Promise<void>((resolve) => {
+      resolveDelete = resolve;
+    });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+    vi.mocked(eventDefinitionService.softDeleteCustom).mockReturnValueOnce(
+      deletePromise,
+    );
+
+    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+
+    await screen.findByText("Goal");
+
+    // Switch to NEGATIVE tab where custom item resides
+    fireEvent.click(screen.getByRole("button", { name: /NEGATIVE/i }));
+
+    const deleteBtn = await screen.findByTitle("Delete Custom Action");
+    const savePresetBtn = screen.getByRole("button", {
+      name: "Save Active Preset",
+    });
+
+    fireEvent.click(deleteBtn);
+
+    // Verify UI controls are locked while delete promise is pending
+    expect(savePresetBtn).toBeDisabled();
+    expect(deleteBtn).toBeDisabled();
+
+    // Resolve deletion promise
+    resolveDelete!();
+
+    await waitFor(() => {
+      expect(savePresetBtn).not.toBeDisabled();
+    });
+
+    confirmSpy.mockRestore();
+  });
 });
