@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
@@ -225,5 +225,34 @@ describe("TTDActionsPanel Component", () => {
     // Verify dynamically rendered action buttons receive disabled state
     const actionBtn = await screen.findByText("Goal");
     expect(actionBtn).toBeDisabled();
+  });
+
+  it("returns empty event definitions when targetSportId cannot be resolved", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "test-match-1",
+      tournamentId: "tour-without-sport",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "tour-without-sport",
+      sportId: null,
+    } as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTDActionsPanel
+          onActionSelect={vi.fn()}
+          selectedAction={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    // Перевіряємо, що жодне визначення не рендериться, оскільки sportId не знайдено
+    await waitFor(() => {
+      expect(screen.queryByText("Goal")).not.toBeInTheDocument();
+    });
+    expect(db.eventdefinitions.where).not.toHaveBeenCalled();
   });
 });

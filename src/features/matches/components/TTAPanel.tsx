@@ -48,12 +48,12 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
         }
       }
 
-      const definitions = targetSportId
-        ? await db.eventdefinitions
-            .where("sportId")
-            .equals(targetSportId)
-            .toArray()
-        : await db.eventdefinitions.toArray();
+      if (!targetSportId) return [];
+
+      const definitions = await db.eventdefinitions
+        .where("sportId")
+        .equals(targetSportId)
+        .toArray();
 
       return definitions
         .filter((def) => def.isEnabled !== false)
