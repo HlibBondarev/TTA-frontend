@@ -206,6 +206,8 @@ export const EventDefinitionsConfigurator: React.FC<
     e.preventDefault();
     if (isLocked || !newName.trim() || !newShortName.trim()) return;
 
+    const requestId = requestCountRef.current;
+
     try {
       setCreating(true);
       setError(null);
@@ -215,6 +217,8 @@ export const EventDefinitionsConfigurator: React.FC<
         isPositive: newIsPositive,
       });
 
+      if (requestId !== requestCountRef.current) return;
+
       setNewName("");
       setNewShortName("");
       setNewIsPositive(true);
@@ -222,13 +226,17 @@ export const EventDefinitionsConfigurator: React.FC<
 
       await reloadDefinitions();
     } catch (err) {
+      if (requestId !== requestCountRef.current) return;
+
       setError(
         err instanceof Error
           ? err.message
           : "Failed to create custom definition.",
       );
     } finally {
-      setCreating(false);
+      if (requestId === requestCountRef.current) {
+        setCreating(false);
+      }
     }
   };
 
@@ -240,11 +248,17 @@ export const EventDefinitionsConfigurator: React.FC<
       return;
     }
 
+    const requestId = requestCountRef.current;
+
     try {
       setError(null);
       await eventDefinitionService.softDeleteCustom(id);
+      if (requestId !== requestCountRef.current) return;
+
       await reloadDefinitions();
     } catch (err) {
+      if (requestId !== requestCountRef.current) return;
+
       setError(
         err instanceof Error
           ? err.message

@@ -505,4 +505,105 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(moveDownBtns[0]).toBeDisabled();
     expect(deleteBtn).toBeDisabled();
   });
+
+  it("aborts custom creation state updates and reload when sportId changes before createCustom resolves", async () => {
+    let resolveCreate: (value: {
+      id: string;
+      name: string;
+      shortName: string;
+      isPositive: boolean;
+      isCustom: boolean;
+    }) => void;
+
+    const createPromise = new Promise<{
+      id: string;
+      name: string;
+      shortName: string;
+      isPositive: boolean;
+      isCustom: boolean;
+    }>((resolve) => {
+      resolveCreate = resolve;
+    });
+
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue(
+      mockDefinitions,
+    );
+    vi.mocked(eventDefinitionService.createCustom).mockReturnValueOnce(
+      createPromise,
+    );
+
+    const { rerender } = render(
+      <EventDefinitionsConfigurator sportId="sport-waterpolo" />,
+    );
+
+    await screen.findByText("Goal");
+
+    // Open modal and submit form
+    fireEvent.click(screen.getByRole("button", { name: /^Custom Action$/i }));
+    fireEvent.change(screen.getByPlaceholderText("e.g. Counter Attack Goal"), {
+      target: { value: "New Goal" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("e.g. CAG"), {
+      target: { value: "NG" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    // Change sport scope while mutation is pending
+    rerender(<EventDefinitionsConfigurator sportId="sport-basketball" />);
+
+    // Resolve pending create request
+    resolveCreate!({
+      id: "def-new",
+      name: "New Goal",
+      shortName: "NG",
+      isPositive: true,
+      isCustom: true,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Ensure reloadDefinitions was not initiated for stale request
+    expect(eventDefinitionService.getAvailableForSport).toHaveBeenCalledTimes(
+      2,
+    ); // Only initial mounts
+  });
+
+  it("aborts soft delete reload when sportId changes before softDeleteCustom resolves", async () => {
+    let resolveDelete: (value: void) => void;
+    const deletePromise = new Promise<void>((resolve) => {
+      resolveDelete = resolve;
+    });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue(
+      mockDefinitions,
+    );
+    vi.mocked(eventDefinitionService.softDeleteCustom).mockReturnValueOnce(
+      deletePromise,
+    );
+
+    const { rerender } = render(
+      <EventDefinitionsConfigurator sportId="sport-waterpolo" />,
+    );
+
+    await screen.findByText("Goal");
+
+    const deleteBtn = screen.getByTitle("Delete Custom Action");
+    fireEvent.click(deleteBtn);
+
+    // Change sport scope while delete is pending
+    rerender(<EventDefinitionsConfigurator sportId="sport-basketball" />);
+
+    // Resolve pending delete
+    resolveDelete!();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Ensure reload was not triggered for old scope
+    expect(eventDefinitionService.getAvailableForSport).toHaveBeenCalledTimes(
+      2,
+    ); // Only initial mounts
+
+    confirmSpy.mockRestore();
+  });
 });
