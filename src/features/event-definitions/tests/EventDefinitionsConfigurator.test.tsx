@@ -192,6 +192,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       expect(eventDefinitionService.createCustom).toHaveBeenCalledWith(
         SPORT_ID,
         {
+          id: expect.any(String),
           name: customGoalName,
           shortName: customGoalShort,
           isPositive: true,

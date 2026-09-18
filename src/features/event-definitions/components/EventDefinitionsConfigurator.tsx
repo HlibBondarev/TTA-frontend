@@ -149,13 +149,11 @@ export const EventDefinitionsConfigurator: React.FC<
 
   const handleToggleEnabled = (id: string) => {
     if (isLocked) return;
-    setDefinitions((prev) => {
-      const updated = prev.map((def) =>
-        def.id === id ? { ...def, isEnabled: !def.isEnabled } : def,
-      );
-      notifyParent(updated);
-      return updated;
-    });
+    const updated = definitions.map((def) =>
+      def.id === id ? { ...def, isEnabled: !def.isEnabled } : def,
+    );
+    setDefinitions(updated);
+    notifyParent(updated);
   };
 
   const handleMove = (index: number, direction: "up" | "down") => {
@@ -211,7 +209,10 @@ export const EventDefinitionsConfigurator: React.FC<
     try {
       setCreating(true);
       setError(null);
+
+      // Generate client-side UUID for Frontend First architecture
       await eventDefinitionService.createCustom(sportId, {
+        id: crypto.randomUUID(),
         name: newName.trim(),
         shortName: newShortName.trim(),
         isPositive: newIsPositive,
