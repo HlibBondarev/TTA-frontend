@@ -36,15 +36,18 @@ export const useGameEvents = (matchId: string) => {
   /**
    * Helper to resolve sportId for the active match.
    */
-  const resolveSportId = async (
-    normalizedMatchId: string,
-  ): Promise<string | undefined> => {
+  const resolveSportId = async (normalizedMatchId: string): Promise<string> => {
     const match = await db.matches.get(normalizedMatchId);
-    if (match?.tournamentId) {
-      const tournament = await db.tournaments.get(match.tournamentId);
-      return tournament?.sportId;
+    if (!match?.tournamentId) {
+      throw new Error(`Tournament is missing for match: ${normalizedMatchId}`);
     }
-    return undefined;
+
+    const tournament = await db.tournaments.get(match.tournamentId);
+    if (!tournament?.sportId?.trim()) {
+      throw new Error(`Sport is missing for match: ${normalizedMatchId}`);
+    }
+
+    return tournament.sportId.trim();
   };
 
   /**

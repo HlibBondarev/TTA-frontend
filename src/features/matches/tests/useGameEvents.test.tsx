@@ -557,4 +557,68 @@ describe("useGameEvents Custom Hook", () => {
     expect(eventService.deleteGameEventTx).toHaveBeenCalledWith("event-del-1");
     expect(store.getState().match.recentActions).toHaveLength(0);
   });
+
+  it("should throw an error if tournamentId is missing for match", async () => {
+    const store = createTestStore();
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-1",
+      matchId: "test-match-id",
+      playerRosterId: "roster-1",
+      number: 1,
+      positionId: null,
+    });
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "test-match-id",
+      tournamentId: "",
+    } as never);
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.recordGameEvent({
+          selectedPlayerId: "lineup-uuid-1",
+          actionName: "Pass",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow("Tournament is missing for match: test-match-id");
+  });
+
+  it("should throw an error if sportId is missing or blank for tournament", async () => {
+    const store = createTestStore();
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-1",
+      matchId: "test-match-id",
+      playerRosterId: "roster-1",
+      number: 1,
+      positionId: null,
+    });
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "test-match-id",
+      tournamentId: "tour-123",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "tour-123",
+      sportId: "   ",
+    } as never);
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.recordGameEvent({
+          selectedPlayerId: "lineup-uuid-1",
+          actionName: "Pass",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow("Sport is missing for match: test-match-id");
+  });
 });
