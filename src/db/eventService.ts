@@ -7,25 +7,36 @@ import {
 
 // In-memory cache for event definitions to avoid repeated IndexedDB reads during rapid recording
 let eventDefinitionsCache: Map<string, EventDefinitionLookup> | null = null;
+let cachedSportId: string | undefined = undefined;
 
 /**
- * Loads all event definitions from IndexedDB into memory map for fast lookup by name.
+ * Loads event definitions from IndexedDB into memory map for fast lookup by name, filtered by sportId if provided.
  */
-export const loadEventDefinitionsCache = async (): Promise<
-  Map<string, EventDefinitionLookup>
-> => {
-  if (eventDefinitionsCache && eventDefinitionsCache.size > 0) {
+export const loadEventDefinitionsCache = async (
+  sportId?: string,
+): Promise<Map<string, EventDefinitionLookup>> => {
+  if (
+    eventDefinitionsCache &&
+    eventDefinitionsCache.size > 0 &&
+    cachedSportId === sportId
+  ) {
     return eventDefinitionsCache;
   }
 
-  const definitions = await db.eventdefinitions.toArray();
+  const definitions = sportId
+    ? await db.eventdefinitions.where("sportId").equals(sportId).toArray()
+    : await db.eventdefinitions.toArray();
+
   const map = new Map<string, EventDefinitionLookup>();
 
-  definitions.forEach((def) => {
-    map.set(def.name.toLowerCase(), def);
-  });
+  definitions
+    .filter((def) => def.isEnabled !== false)
+    .forEach((def) => {
+      map.set(def.name.toLowerCase(), def);
+    });
 
   eventDefinitionsCache = map;
+  cachedSportId = sportId;
   return map;
 };
 
@@ -34,15 +45,17 @@ export const loadEventDefinitionsCache = async (): Promise<
  */
 export const clearEventDefinitionsCache = () => {
   eventDefinitionsCache = null;
+  cachedSportId = undefined;
 };
 
 /**
- * Resolves event definition ID by name (case-insensitive).
+ * Resolves event definition ID by name (case-insensitive) and optional sportId.
  */
 export const getEventDefinitionByName = async (
   actionName: string,
+  sportId?: string,
 ): Promise<EventDefinitionLookup | undefined> => {
-  const cache = await loadEventDefinitionsCache();
+  const cache = await loadEventDefinitionsCache(sportId);
   return cache.get(actionName.trim().toLowerCase());
 };
 

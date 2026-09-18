@@ -34,6 +34,20 @@ export const useGameEvents = (matchId: string) => {
   const { periodNumber, activeTeamId } = useAppSelector((state) => state.match);
 
   /**
+   * Helper to resolve sportId for the active match.
+   */
+  const resolveSportId = async (
+    normalizedMatchId: string,
+  ): Promise<string | undefined> => {
+    const match = await db.matches.get(normalizedMatchId);
+    if (match?.tournamentId) {
+      const tournament = await db.tournaments.get(match.tournamentId);
+      return tournament?.sportId;
+    }
+    return undefined;
+  };
+
+  /**
    * Resolves player jersey number, event definition ID, persists GameEvent to Dexie DB,
    * and dispatches state updates to Redux.
    */
@@ -66,8 +80,9 @@ export const useGameEvents = (matchId: string) => {
       );
     }
 
-    // 2. Resolve Event Definition by action name
-    const eventDef = await getEventDefinitionByName(actionName);
+    // 2. Resolve Event Definition by action name and sportId
+    const sportId = await resolveSportId(normalizedMatchId);
+    const eventDef = await getEventDefinitionByName(actionName, sportId);
     if (!eventDef) {
       throw new Error(`Event definition not found for action: "${actionName}"`);
     }
@@ -139,7 +154,8 @@ export const useGameEvents = (matchId: string) => {
 
     let resolvedEventDefId = eventDefinitionId;
     if (!resolvedEventDefId) {
-      const eventDef = await getEventDefinitionByName(actionName);
+      const sportId = await resolveSportId(normalizedMatchId);
+      const eventDef = await getEventDefinitionByName(actionName, sportId);
       if (!eventDef) {
         throw new Error(
           `Event definition not found for action: "${actionName}"`,

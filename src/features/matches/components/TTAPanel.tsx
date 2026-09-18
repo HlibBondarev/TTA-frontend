@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
+import { useSelector } from "react-redux";
 import { liveQuery } from "dexie";
 import { db, type EventDefinitionLookup } from "../../../db/ttaDatabase";
+import type { RootState } from "../../../store";
 
 interface TTDActionsPanelProps {
   onActionSelect: (action: string, isPositive: boolean) => void;
@@ -20,6 +22,9 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
   selectedAction,
   disabled,
 }) => {
+  const activeMatchId = useSelector(
+    (state: RootState) => state.match.activeMatchId,
+  );
   const [activeTab, setActiveTab] = useState<"positive" | "negative">(
     "positive",
   );
@@ -27,15 +32,35 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
     EventDefinitionLookup[]
   >([]);
 
-  // Reactive subscription to Dexie eventdefinitions table using liveQuery
+  // Reactive subscription to Dexie eventdefinitions table filtered by active sport and enabled state
   useEffect(() => {
-    const subscription = liveQuery(() =>
-      db.eventdefinitions.toArray(),
-    ).subscribe({
-      next: (definitions) => {
-        if (definitions) {
-          setEventDefinitions(definitions);
+    const subscription = liveQuery(async () => {
+      if (!activeMatchId) return [];
+
+      const match = await db.matches.get(activeMatchId);
+      if (!match) return [];
+
+      let targetSportId: string | null = null;
+      if (match.tournamentId) {
+        const tournament = await db.tournaments.get(match.tournamentId);
+        if (tournament?.sportId) {
+          targetSportId = tournament.sportId;
         }
+      }
+
+      const definitions = targetSportId
+        ? await db.eventdefinitions
+            .where("sportId")
+            .equals(targetSportId)
+            .toArray()
+        : await db.eventdefinitions.toArray();
+
+      return definitions
+        .filter((def) => def.isEnabled !== false)
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    }).subscribe({
+      next: (definitions) => {
+        setEventDefinitions(definitions || []);
       },
       error: (err) => {
         console.error("Failed to load event definitions from Dexie:", err);
@@ -45,7 +70,7 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [activeMatchId]);
 
   const positiveActions = eventDefinitions.filter((def) =>
     checkIsPositive(def),

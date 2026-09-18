@@ -11,9 +11,16 @@ import { configureStore } from "@reduxjs/toolkit";
 import { ActionsLog } from "../components/ActionsLog";
 import matchReducer, { type ActionEntry } from "../store/matchSlice";
 import * as eventService from "../../../db/eventService";
+import { db } from "../../../db/ttaDatabase";
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
+    matches: {
+      get: vi.fn(),
+    },
+    tournaments: {
+      get: vi.fn(),
+    },
     gameevents: {
       where: vi.fn().mockReturnValue({
         anyOf: vi.fn().mockReturnValue({
@@ -82,6 +89,14 @@ const createStoreWithActions = (actions: ActionEntry[]) => {
 describe("ActionsLog Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: "test-match",
+      tournamentId: "tour-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValue({
+      id: "tour-1",
+      sportId: "s1",
+    } as never);
   });
 
   afterEach(() => {

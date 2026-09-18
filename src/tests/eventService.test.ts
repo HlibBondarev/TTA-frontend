@@ -15,11 +15,15 @@ const mockGameEventsDelete = vi.fn();
 const mockSyncQueueUpdate = vi.fn();
 const mockSyncQueueDelete = vi.fn();
 const mockSyncQueueFilter = vi.fn();
+const mockWhereEqualsToArray = vi.fn();
 
 vi.mock("../db/ttaDatabase", () => ({
   db: {
     eventdefinitions: {
       toArray: vi.fn(),
+      where: vi.fn(() => ({
+        equals: mockWhereEqualsToArray,
+      })),
     },
     gameevents: {
       add: vi.fn(),
@@ -58,6 +62,7 @@ describe("Event Database Service (eventService)", () => {
       name: "Goal",
       shortName: "GL",
       isPositive: true,
+      isEnabled: true,
       createdAt: "2026-07-22T10:00:00.000Z",
     },
     {
@@ -66,6 +71,16 @@ describe("Event Database Service (eventService)", () => {
       name: "Pass",
       shortName: "PS",
       isPositive: true,
+      isEnabled: true,
+      createdAt: "2026-07-22T10:00:00.000Z",
+    },
+    {
+      id: "def-3",
+      sportId: "sport-1",
+      name: "Disabled Action",
+      shortName: "DA",
+      isPositive: false,
+      isEnabled: false,
       createdAt: "2026-07-22T10:00:00.000Z",
     },
   ];
@@ -89,6 +104,20 @@ describe("Event Database Service (eventService)", () => {
     expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(1);
   });
 
+  it("should filter definitions by sportId when sportId is passed to cache loader", async () => {
+    const sport1Definitions = [mockDefinitions[0]];
+    mockWhereEqualsToArray.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValueOnce(sport1Definitions),
+    });
+
+    const cache = await loadEventDefinitionsCache("sport-1");
+
+    expect(db.eventdefinitions.where).toHaveBeenCalledWith("sportId");
+    expect(mockWhereEqualsToArray).toHaveBeenCalledWith("sport-1");
+    expect(cache.size).toBe(1);
+    expect(cache.get("goal")).toBeDefined();
+  });
+
   it("should resolve event definition by name case-insensitively and with whitespace", async () => {
     vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce(
       mockDefinitions,
@@ -102,8 +131,8 @@ describe("Event Database Service (eventService)", () => {
     expect(passDef).toBeDefined();
     expect(passDef?.id).toBe("def-2");
 
-    const unknownDef = await getEventDefinitionByName("UnknownAction");
-    expect(unknownDef).toBeUndefined();
+    const disabledDef = await getEventDefinitionByName("Disabled Action");
+    expect(disabledDef).toBeUndefined();
   });
 
   it("should clear cache correctly when clearEventDefinitionsCache is invoked", async () => {

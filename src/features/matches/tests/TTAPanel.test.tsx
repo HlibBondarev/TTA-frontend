@@ -1,12 +1,26 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import { Provider } from "react-redux";
+import { configureStore } from "@reduxjs/toolkit";
 import { TTDActionsPanel } from "../components/TTAPanel";
 import { db } from "../../../db/ttaDatabase";
+import matchReducer from "../store/matchSlice";
+
+const mockWhereEqualsToArray = vi.fn();
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
+    matches: {
+      get: vi.fn(),
+    },
+    tournaments: {
+      get: vi.fn(),
+    },
     eventdefinitions: {
       toArray: vi.fn(),
+      where: vi.fn(() => ({
+        equals: mockWhereEqualsToArray,
+      })),
     },
   },
 }));
@@ -30,6 +44,27 @@ vi.mock("dexie", async (importOriginal) => {
   };
 });
 
+const createTestStore = (activeMatchId: string | null = "test-match-1") =>
+  configureStore({
+    reducer: {
+      match: matchReducer,
+    },
+    preloadedState: {
+      match: {
+        activeMatchId,
+        activeTeamId: "team-1",
+        periodNumber: 1,
+        homeScore: 0,
+        guestScore: 0,
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        isPeriodEnded: false,
+        globalSequenceNumber: 1,
+        recentActions: [],
+      },
+    },
+  });
+
 describe("TTDActionsPanel Component", () => {
   const mockEventDefinitions = [
     {
@@ -38,6 +73,8 @@ describe("TTDActionsPanel Component", () => {
       name: "Goal",
       shortName: "GL",
       isPositive: true,
+      isEnabled: true,
+      sortOrder: 1,
       createdAt: "",
     },
     {
@@ -46,6 +83,8 @@ describe("TTDActionsPanel Component", () => {
       name: "Pass",
       shortName: "PS",
       isPositive: true,
+      isEnabled: true,
+      sortOrder: 2,
       createdAt: "",
     },
     {
@@ -54,6 +93,8 @@ describe("TTDActionsPanel Component", () => {
       name: "Turnover",
       shortName: "TO",
       isPositive: false,
+      isEnabled: true,
+      sortOrder: 3,
       createdAt: "",
     },
     {
@@ -62,12 +103,36 @@ describe("TTDActionsPanel Component", () => {
       name: "Foul",
       shortName: "FL",
       isPositive: false,
+      isEnabled: true,
+      sortOrder: 4,
+      createdAt: "",
+    },
+    {
+      id: "5",
+      sportId: "s1",
+      name: "Disabled Action",
+      shortName: "DA",
+      isPositive: true,
+      isEnabled: false,
+      sortOrder: 5,
       createdAt: "",
     },
   ];
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: "test-match-1",
+      tournamentId: "tour-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValue({
+      id: "tour-1",
+      sportId: "s1",
+    } as never);
+
+    mockWhereEqualsToArray.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockEventDefinitions),
+    });
     vi.mocked(db.eventdefinitions.toArray).mockResolvedValue(
       mockEventDefinitions,
     );
@@ -75,13 +140,16 @@ describe("TTDActionsPanel Component", () => {
 
   it("allows selecting actions loaded dynamically from Dexie DB and switching tabs", async () => {
     const mockOnActionSelect = vi.fn();
+    const store = createTestStore();
 
     render(
-      <TTDActionsPanel
-        onActionSelect={mockOnActionSelect}
-        selectedAction={null}
-        disabled={false}
-      />,
+      <Provider store={store}>
+        <TTDActionsPanel
+          onActionSelect={mockOnActionSelect}
+          selectedAction={null}
+          disabled={false}
+        />
+      </Provider>,
     );
 
     // Wait for dynamic event definitions to resolve and render
@@ -99,25 +167,50 @@ describe("TTDActionsPanel Component", () => {
   });
 
   it("applies selected styling to the active action button", async () => {
+    const store = createTestStore();
+
     render(
-      <TTDActionsPanel
-        onActionSelect={vi.fn()}
-        selectedAction="Goal"
-        disabled={false}
-      />,
+      <Provider store={store}>
+        <TTDActionsPanel
+          onActionSelect={vi.fn()}
+          selectedAction="Goal"
+          disabled={false}
+        />
+      </Provider>,
     );
 
     const goalBtn = await screen.findByText("Goal");
     expect(goalBtn).toHaveClass("bg-blue-600");
   });
 
+  it("filters out disabled event definitions from display", async () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTDActionsPanel
+          onActionSelect={vi.fn()}
+          selectedAction={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+    expect(screen.queryByText("Disabled Action")).not.toBeInTheDocument();
+  });
+
   it("respects disabled prop for tabs and action buttons", async () => {
+    const store = createTestStore();
+
     const { container } = render(
-      <TTDActionsPanel
-        onActionSelect={vi.fn()}
-        selectedAction={null}
-        disabled={true}
-      />,
+      <Provider store={store}>
+        <TTDActionsPanel
+          onActionSelect={vi.fn()}
+          selectedAction={null}
+          disabled={true}
+        />
+      </Provider>,
     );
 
     expect(container.firstChild).toHaveClass("opacity-50");

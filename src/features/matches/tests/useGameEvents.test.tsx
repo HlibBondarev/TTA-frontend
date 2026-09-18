@@ -12,6 +12,12 @@ vi.mock("../../../db/ttaDatabase", () => ({
     matchlineups: {
       get: vi.fn(),
     },
+    matches: {
+      get: vi.fn(),
+    },
+    tournaments: {
+      get: vi.fn(),
+    },
   },
 }));
 
@@ -48,6 +54,14 @@ const createTestStore = (preloadedState = {}) => {
 describe("useGameEvents Custom Hook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: "test-match-id",
+      tournamentId: "tour-123",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValue({
+      id: "tour-123",
+      sportId: "waterpolo-sport-id",
+    } as never);
   });
 
   it("should successfully record game event with explicit isLeadToGoal, increment sequence, and add recent action with real jersey number", async () => {
@@ -94,6 +108,11 @@ describe("useGameEvents Custom Hook", () => {
       });
       expect(success).toBe(true);
     });
+
+    expect(eventService.getEventDefinitionByName).toHaveBeenCalledWith(
+      "Goal",
+      "waterpolo-sport-id",
+    );
 
     expect(eventService.createGameEventTx).toHaveBeenCalledWith({
       matchId: "test-match-id",
@@ -297,6 +316,11 @@ describe("useGameEvents Custom Hook", () => {
     const store = createTestStore({
       activeTeamId: "  team-padded-999  ",
     });
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "test-match-id",
+      tournamentId: "tour-123",
+    } as never);
 
     vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
       id: "lineup-uuid-padded",
