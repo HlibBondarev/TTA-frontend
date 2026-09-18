@@ -149,13 +149,28 @@ describe("Hydration Service", () => {
       { id: "def-2", name: "Turnover", isPositive: false },
     ];
 
+    const tournamentId = "t-1";
+    const sportId = "sport-1";
+    const configId = "cfg-1";
+
     vi.mocked(apiClient.get)
-      .mockResolvedValueOnce({ id: matchId })
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(mockDefinitions);
+      .mockResolvedValueOnce(mockDefinitions)
+      .mockResolvedValueOnce({
+        id: tournamentId,
+        sportId,
+        configurationId: configId,
+      });
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      { id: configId, sportId } as unknown as Awaited<
+        ReturnType<typeof sportService.getSportConfigurations>
+      >[0],
+    ]);
 
     const result = await hydrateMatchData(matchId, teamId);
 
@@ -163,7 +178,28 @@ describe("Hydration Service", () => {
     expect(apiClient.get).toHaveBeenCalledWith(
       `/Matches/${matchId}/event-definitions`,
     );
-    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(mockDefinitions);
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+      {
+        id: "def-1",
+        sportId: "sport-1",
+        name: "Goal",
+        shortName: "",
+        isPositive: true,
+        isCustom: undefined,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+      {
+        id: "def-2",
+        sportId: "sport-1",
+        name: "Turnover",
+        shortName: "",
+        isPositive: false,
+        isCustom: undefined,
+        isEnabled: true,
+        sortOrder: 2,
+      },
+    ]);
   });
 
   it("should NOT issue UncatchMatch DELETE API call or enqueue in syncQueue when discardUnfinishedMatch is called for a completed match with non-null scores and teamId", async () => {
