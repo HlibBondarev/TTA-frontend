@@ -4,6 +4,7 @@ import {
   loadEventDefinitionsCache,
   clearEventDefinitionsCache,
   getEventDefinitionByName,
+  saveEventDefinitionsToDb,
   createGameEventTx,
   updateGameEventTx,
   deleteGameEventTx,
@@ -21,6 +22,7 @@ vi.mock("../db/ttaDatabase", () => ({
   db: {
     eventdefinitions: {
       toArray: vi.fn(),
+      bulkPut: vi.fn(),
       where: vi.fn(() => ({
         equals: mockWhereEqualsToArray,
       })),
@@ -143,6 +145,43 @@ describe("Event Database Service (eventService)", () => {
 
     clearEventDefinitionsCache();
 
+    await loadEventDefinitionsCache();
+    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
+  });
+
+  it("should persist definitions to IndexedDB and invalidate cache when saveEventDefinitionsToDb is called", async () => {
+    const mockPutDefinitions = [
+      {
+        id: "def-new",
+        sportId: "sport-1",
+        name: "New Goal",
+        shortName: "NG",
+        isPositive: true,
+        isEnabled: true,
+      },
+    ];
+
+    // Prime cache first
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce(
+      mockDefinitions,
+    );
+    await loadEventDefinitionsCache();
+    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(1);
+
+    // Call saveEventDefinitionsToDb
+    vi.mocked(db.eventdefinitions.bulkPut).mockResolvedValueOnce(
+      undefined as never,
+    );
+    await saveEventDefinitionsToDb(mockPutDefinitions);
+
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(
+      mockPutDefinitions,
+    );
+
+    // Verify cache was invalidated (next loadEventDefinitionsCache queries DB again)
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce(
+      mockPutDefinitions,
+    );
     await loadEventDefinitionsCache();
     expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
   });

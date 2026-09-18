@@ -49,6 +49,17 @@ export const clearEventDefinitionsCache = () => {
 };
 
 /**
+ * Persists event definition records to IndexedDB and invalidates the in-memory definition cache upon success.
+ */
+export const saveEventDefinitionsToDb = async (
+  definitions: EventDefinitionLookup[],
+): Promise<void> => {
+  if (!db.eventdefinitions || definitions.length === 0) return;
+  await db.eventdefinitions.bulkPut(definitions);
+  clearEventDefinitionsCache();
+};
+
+/**
  * Resolves event definition ID by name (case-insensitive) and optional sportId.
  */
 export const getEventDefinitionByName = async (

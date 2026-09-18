@@ -1,5 +1,6 @@
 import { apiClient } from "../api/client";
 import { sportService } from "./sportService";
+import { saveEventDefinitionsToDb } from "../db/eventService";
 import { db } from "../db/ttaDatabase";
 import type {
   MatchLookup,
@@ -498,7 +499,7 @@ const persistHydrationPayloads = async (
   await syncEvents(matchLineupIds, payloads.events);
 
   if (payloads.definitions && payloads.definitions.length > 0) {
-    await db.eventdefinitions.bulkPut(payloads.definitions);
+    await saveEventDefinitionsToDb(payloads.definitions);
   }
 };
 
