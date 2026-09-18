@@ -2891,7 +2891,7 @@ describe("MatchSetupWizard Component", () => {
     });
   });
 
-  it("should restore original event definitions if user account changes while sync bulkPut is pending", async () => {
+  it("should restore original event definitions if user account changes while sync bulkPut is pending and DB was not mutated by another account", async () => {
     const handleQuickStart = vi.fn().mockResolvedValue(undefined);
     const mockDefs = [
       {
@@ -2916,11 +2916,21 @@ describe("MatchSetupWizard Component", () => {
       .mockResolvedValueOnce(mockHomeTeam)
       .mockResolvedValueOnce(mockGuestTeam);
 
-    vi.mocked(db.eventdefinitions.where).mockReturnValue({
-      equals: vi.fn().mockReturnValue({
-        toArray: vi.fn().mockResolvedValue(mockDefs),
-      }),
-    } as never);
+    let currentStore = mockDefs;
+    vi.mocked(db.eventdefinitions.bulkPut).mockImplementation((defs) => {
+      currentStore = defs as unknown as typeof mockDefs;
+      return Promise.resolve([]) as never;
+    });
+    vi.mocked(db.eventdefinitions.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockImplementation(() => Promise.resolve(currentStore)),
+          }),
+        }) as never,
+    );
 
     const { rerender, store } = renderWithRedux(
       <MatchSetupWizard onQuickStart={handleQuickStart} />,
@@ -2940,10 +2950,10 @@ describe("MatchSetupWizard Component", () => {
       resolveBulkPut = resolve;
     });
 
-    // Set up mock right before confirmation to intercept the call from handleConfirmQuickStart
-    vi.mocked(db.eventdefinitions.bulkPut).mockImplementationOnce(
-      () => bulkPutPromise as never,
-    );
+    vi.mocked(db.eventdefinitions.bulkPut).mockImplementationOnce((defs) => {
+      currentStore = defs as unknown as typeof mockDefs;
+      return bulkPutPromise as never;
+    });
 
     fireEvent.click(
       screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
@@ -2965,7 +2975,117 @@ describe("MatchSetupWizard Component", () => {
     });
 
     await waitFor(() => {
-      expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(mockDefs);
+      expect(db.eventdefinitions.bulkPut).toHaveBeenLastCalledWith([
+        expect.objectContaining(mockDefs[0]),
+      ]);
+    });
+  });
+
+  it("should skip event definitions rollback if a new account persisted newer definitions before stale rollback continuation", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+    const mockDefs = [
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        isPositive: true,
+        isEnabled: false,
+      },
+    ];
+
+    const newerAccountDefs = [
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        isPositive: true,
+        isEnabled: true,
+      },
+      {
+        id: "def-WP-NEW",
+        sportId: "sport-1",
+        name: "New Action",
+        isPositive: true,
+        isEnabled: true,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue(
+      mockDefs as never,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    let currentStore = mockDefs;
+    vi.mocked(db.eventdefinitions.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockImplementation(() => Promise.resolve(currentStore)),
+          }),
+        }) as never,
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={handleQuickStart} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(
+      await screen.findByText(/Select Team to Track/i),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    let resolveBulkPut: () => void;
+    const bulkPutPromise = new Promise<void>((resolve) => {
+      resolveBulkPut = resolve;
+    });
+
+    vi.mocked(db.eventdefinitions.bulkPut).mockImplementationOnce((defs) => {
+      currentStore = defs as unknown as typeof mockDefs;
+      return bulkPutPromise as never;
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    // Account changes to User B while bulkPut is pending
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    await act(async () => {
+      rerender(
+        <Provider store={store}>
+          <MatchSetupWizard onQuickStart={handleQuickStart} />
+        </Provider>,
+      );
+    });
+
+    // User B persists newer definitions before User A's rollback executes
+    currentStore = newerAccountDefs;
+
+    await act(async () => {
+      resolveBulkPut!();
+      await bulkPutPromise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => {
+      // Ensure originalSportDefs were NOT restored over User B's newer definitions
+      expect(db.eventdefinitions.bulkPut).not.toHaveBeenLastCalledWith(
+        mockDefs,
+      );
     });
   });
 });
