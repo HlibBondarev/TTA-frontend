@@ -33,6 +33,7 @@ export const EventDefinitionsConfigurator: React.FC<
   const [definitions, setDefinitions] = useState<EventDefinitionResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [definitionsReady, setDefinitionsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Modal State for Custom Definition Creation
@@ -63,6 +64,9 @@ export const EventDefinitionsConfigurator: React.FC<
   const reloadDefinitions = useCallback(async () => {
     if (!sportId) return;
     const requestId = ++requestCountRef.current;
+    setDefinitionsReady(false);
+    onLoadStateChangeRef.current?.(false);
+
     try {
       const data = await eventDefinitionService.getAvailableForSport(sportId);
       if (requestId !== requestCountRef.current) return;
@@ -73,10 +77,12 @@ export const EventDefinitionsConfigurator: React.FC<
       setDefinitions(sorted);
       notifyParent(sorted);
       setError(null);
+      setDefinitionsReady(true);
       onLoadStateChangeRef.current?.(true);
     } catch (err) {
       if (requestId !== requestCountRef.current) return;
 
+      setDefinitionsReady(false);
       setError(
         err instanceof Error
           ? err.message
@@ -88,12 +94,14 @@ export const EventDefinitionsConfigurator: React.FC<
 
   useEffect(() => {
     const requestId = ++requestCountRef.current;
-    onLoadStateChangeRef.current?.(false);
 
     async function fetchDefinitions() {
       if (!sportId) return;
       try {
         setLoading(true);
+        setDefinitionsReady(false);
+        onLoadStateChangeRef.current?.(false);
+
         const data = await eventDefinitionService.getAvailableForSport(sportId);
         if (requestId !== requestCountRef.current) return;
 
@@ -103,10 +111,12 @@ export const EventDefinitionsConfigurator: React.FC<
         setDefinitions(sorted);
         notifyParent(sorted);
         setError(null);
+        setDefinitionsReady(true);
         onLoadStateChangeRef.current?.(true);
       } catch (err) {
         if (requestId !== requestCountRef.current) return;
 
+        setDefinitionsReady(false);
         setError(
           err instanceof Error
             ? err.message
@@ -406,7 +416,7 @@ export const EventDefinitionsConfigurator: React.FC<
       <button
         type="button"
         onClick={handleSavePreset}
-        disabled={saving}
+        disabled={saving || !definitionsReady}
         className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 text-white font-bold rounded-lg text-xs uppercase tracking-wider transition-colors"
       >
         {saving ? "Saving Preset..." : "Save Active Preset"}

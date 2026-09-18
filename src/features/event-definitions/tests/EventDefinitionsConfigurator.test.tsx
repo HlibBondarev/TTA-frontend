@@ -445,4 +445,38 @@ describe("EventDefinitionsConfigurator Component", () => {
     // Ensure state updates and callbacks were suppressed
     expect(onChangeMock).not.toHaveBeenCalledWith([DEF_ID_1, DEF_ID_2]);
   });
+
+  it("disables Save Active Preset button when definitions are not ready or reload fails", async () => {
+    vi.mocked(
+      eventDefinitionService.getAvailableForSport,
+    ).mockResolvedValueOnce(mockDefinitions);
+
+    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+
+    const saveBtn = await screen.findByRole("button", {
+      name: "Save Active Preset",
+    });
+    expect(saveBtn).not.toBeDisabled();
+
+    // Mock a failed reload after soft delete
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+    vi.mocked(eventDefinitionService.softDeleteCustom).mockResolvedValueOnce(
+      undefined,
+    );
+    vi.mocked(
+      eventDefinitionService.getAvailableForSport,
+    ).mockRejectedValueOnce(new Error("Failed reloading definitions"));
+
+    const deleteBtn = screen.getByTitle("Delete Custom Action");
+    fireEvent.click(deleteBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Failed reloading definitions",
+      );
+    });
+
+    expect(saveBtn).toBeDisabled();
+    confirmSpy.mockRestore();
+  });
 });
