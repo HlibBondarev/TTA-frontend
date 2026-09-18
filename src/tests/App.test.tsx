@@ -89,8 +89,8 @@ vi.mock("../services/eventDefinitionService", () => ({
   eventDefinitionService: {
     getAvailableForSport: vi.fn().mockResolvedValue([]),
     savePreset: vi.fn().mockResolvedValue(undefined),
-    createCustomAction: vi.fn().mockResolvedValue({}),
-    softDeleteAction: vi.fn().mockResolvedValue(true),
+    createCustom: vi.fn().mockResolvedValue({}),
+    softDeleteCustom: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
