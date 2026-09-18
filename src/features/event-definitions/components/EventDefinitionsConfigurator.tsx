@@ -9,7 +9,7 @@ import {
   eventDefinitionService,
   type EventDefinitionResponse,
 } from "../../../services/eventDefinitionService";
-import { saveEventDefinitionsToDb } from "../../../db/eventService";
+import { replaceSportEventDefinitionsInDb } from "../../../db/eventService";
 import { db, type EventDefinitionLookup } from "../../../db/ttaDatabase";
 
 interface EventDefinitionsConfiguratorProps {
@@ -113,7 +113,7 @@ export const EventDefinitionsConfigurator: React.FC<
           isEnabled: Boolean(def.isEnabled),
           sortOrder: def.sortOrder ?? idx + 1,
         }));
-      await saveEventDefinitionsToDb(recordsToPut);
+      await replaceSportEventDefinitionsInDb(sportId, recordsToPut);
     },
     [sportId],
   );

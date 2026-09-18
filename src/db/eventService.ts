@@ -315,3 +315,38 @@ export const deleteGameEventTx = async (eventId: string): Promise<void> => {
     }
   });
 };
+
+/**
+ * Atomically replaces event definitions for a specific sportId in IndexedDB:
+ * removes existing records for sportId whose IDs are absent from incoming items,
+ * performs bulkPut for updated records, and clears the in-memory cache.
+ */
+export const replaceSportEventDefinitionsInDb = async (
+  sportId: string,
+  definitions: EventDefinitionLookup[],
+): Promise<void> => {
+  if (!db.eventdefinitions || !sportId) return;
+
+  const incomingIds = new Set(definitions.map((def) => def.id));
+
+  await db.transaction("rw", [db.eventdefinitions], async () => {
+    const existingForSport = await db.eventdefinitions
+      .where("sportId")
+      .equals(sportId)
+      .toArray();
+
+    const idsToDelete = existingForSport
+      .filter((def) => !incomingIds.has(def.id))
+      .map((def) => def.id);
+
+    if (idsToDelete.length > 0) {
+      await db.eventdefinitions.bulkDelete(idsToDelete);
+    }
+
+    if (definitions.length > 0) {
+      await db.eventdefinitions.bulkPut(definitions);
+    }
+  });
+
+  clearEventDefinitionsCache();
+};

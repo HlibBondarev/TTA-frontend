@@ -17,7 +17,14 @@ vi.mock("../../../db/ttaDatabase", () => ({
   db: {
     eventdefinitions: {
       bulkPut: vi.fn(),
+      bulkDelete: vi.fn(),
+      where: vi.fn(() => ({
+        equals: vi.fn(() => ({
+          toArray: vi.fn().mockResolvedValue([]),
+        })),
+      })),
     },
+    transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
 }));
 

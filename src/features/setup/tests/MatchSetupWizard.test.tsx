@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { MatchSetupWizard } from "../components/MatchSetupWizard";
@@ -77,7 +83,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
         }),
       }),
       bulkPut: vi.fn().mockResolvedValue([]),
+      bulkDelete: vi.fn().mockResolvedValue(undefined),
     },
+    transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
 }));
 
@@ -2836,9 +2844,9 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
     );
-    vi.mocked(
-      eventDefinitionService.getAvailableForSport,
-    ).mockResolvedValueOnce(mockDefs as never);
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue(
+      mockDefs as never,
+    );
     vi.mocked(apiClient.post)
       .mockResolvedValueOnce({ id: "match-123" })
       .mockResolvedValueOnce({});
@@ -2849,7 +2857,7 @@ describe("MatchSetupWizard Component", () => {
 
     vi.mocked(db.eventdefinitions.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
-        toArray: vi.fn().mockResolvedValueOnce(mockDefs),
+        toArray: vi.fn().mockResolvedValue(mockDefs),
       }),
     } as never);
 
@@ -2866,9 +2874,12 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(checkboxes[1]);
 
     fireEvent.click(screen.getByText("Home Squad"));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
-    );
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+      );
+    });
 
     await waitFor(() => {
       expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([

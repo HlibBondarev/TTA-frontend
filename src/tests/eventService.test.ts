@@ -5,6 +5,7 @@ import {
   clearEventDefinitionsCache,
   getEventDefinitionByName,
   saveEventDefinitionsToDb,
+  replaceSportEventDefinitionsInDb,
   createGameEventTx,
   updateGameEventTx,
   deleteGameEventTx,
@@ -23,6 +24,7 @@ vi.mock("../db/ttaDatabase", () => ({
     eventdefinitions: {
       toArray: vi.fn(),
       bulkPut: vi.fn(),
+      bulkDelete: vi.fn(),
       where: vi.fn(() => ({
         equals: mockWhereEqualsToArray,
       })),
@@ -161,14 +163,12 @@ describe("Event Database Service (eventService)", () => {
       },
     ];
 
-    // Prime cache first
     vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce(
       mockDefinitions,
     );
     await loadEventDefinitionsCache();
     expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(1);
 
-    // Call saveEventDefinitionsToDb
     vi.mocked(db.eventdefinitions.bulkPut).mockResolvedValueOnce(
       undefined as never,
     );
@@ -178,9 +178,80 @@ describe("Event Database Service (eventService)", () => {
       mockPutDefinitions,
     );
 
-    // Verify cache was invalidated (next loadEventDefinitionsCache queries DB again)
     vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce(
       mockPutDefinitions,
+    );
+    await loadEventDefinitionsCache();
+    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
+  });
+
+  it("should replace sport event definitions atomically, purge missing IDs for sportId, and clear cache", async () => {
+    const existingSport1Records = [
+      {
+        id: "def-1",
+        sportId: "sport-1",
+        name: "Goal",
+        shortName: "GL",
+        isPositive: true,
+        isEnabled: true,
+      },
+      {
+        id: "def-obsolete",
+        sportId: "sport-1",
+        name: "Obsolete",
+        shortName: "OBS",
+        isPositive: false,
+        isEnabled: true,
+      },
+    ];
+
+    mockWhereEqualsToArray.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValueOnce(existingSport1Records),
+    });
+
+    const updatedSport1Records = [
+      {
+        id: "def-1",
+        sportId: "sport-1",
+        name: "Goal Updated",
+        shortName: "GL",
+        isPositive: true,
+        isEnabled: true,
+      },
+      {
+        id: "def-new",
+        sportId: "sport-1",
+        name: "New Goal",
+        shortName: "NG",
+        isPositive: true,
+        isEnabled: true,
+      },
+    ];
+
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce(
+      mockDefinitions,
+    );
+    await loadEventDefinitionsCache();
+    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(1);
+
+    await replaceSportEventDefinitionsInDb("sport-1", updatedSport1Records);
+
+    expect(db.transaction).toHaveBeenCalledWith(
+      "rw",
+      [db.eventdefinitions],
+      expect.any(Function),
+    );
+    expect(db.eventdefinitions.where).toHaveBeenCalledWith("sportId");
+    expect(mockWhereEqualsToArray).toHaveBeenCalledWith("sport-1");
+    expect(db.eventdefinitions.bulkDelete).toHaveBeenCalledWith([
+      "def-obsolete",
+    ]);
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(
+      updatedSport1Records,
+    );
+
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce(
+      updatedSport1Records,
     );
     await loadEventDefinitionsCache();
     expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
