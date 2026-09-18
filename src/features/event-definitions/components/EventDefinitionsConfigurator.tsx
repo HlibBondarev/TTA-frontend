@@ -12,6 +12,7 @@ import {
 
 interface EventDefinitionsConfiguratorProps {
   sportId: string;
+  disabled?: boolean;
   onPresetSaved?: () => void;
   onChange?: (activeIds: string[]) => void;
   onLoadStateChange?: (loaded: boolean) => void;
@@ -29,7 +30,13 @@ const getTextColorClass = (
 
 export const EventDefinitionsConfigurator: React.FC<
   EventDefinitionsConfiguratorProps
-> = ({ sportId, onPresetSaved, onChange, onLoadStateChange }) => {
+> = ({
+  sportId,
+  disabled = false,
+  onPresetSaved,
+  onChange,
+  onLoadStateChange,
+}) => {
   const [definitions, setDefinitions] = useState<EventDefinitionResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -46,6 +53,8 @@ export const EventDefinitionsConfigurator: React.FC<
   const onChangeRef = useRef(onChange);
   const onLoadStateChangeRef = useRef(onLoadStateChange);
   const requestCountRef = useRef(0);
+
+  const isLocked = disabled || saving;
 
   useLayoutEffect(() => {
     onChangeRef.current = onChange;
@@ -139,6 +148,7 @@ export const EventDefinitionsConfigurator: React.FC<
   }, [sportId, notifyParent]);
 
   const handleToggleEnabled = (id: string) => {
+    if (isLocked) return;
     setDefinitions((prev) => {
       const updated = prev.map((def) =>
         def.id === id ? { ...def, isEnabled: !def.isEnabled } : def,
@@ -149,6 +159,7 @@ export const EventDefinitionsConfigurator: React.FC<
   };
 
   const handleMove = (index: number, direction: "up" | "down") => {
+    if (isLocked) return;
     const targetIndex = direction === "up" ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= definitions.length) return;
 
@@ -166,6 +177,7 @@ export const EventDefinitionsConfigurator: React.FC<
   };
 
   const handleSavePreset = async () => {
+    if (isLocked || !definitionsReady) return;
     try {
       setSaving(true);
       setError(null);
@@ -192,7 +204,7 @@ export const EventDefinitionsConfigurator: React.FC<
 
   const handleCreateCustom = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!newName.trim() || !newShortName.trim()) return;
+    if (isLocked || !newName.trim() || !newShortName.trim()) return;
 
     try {
       setCreating(true);
@@ -221,6 +233,7 @@ export const EventDefinitionsConfigurator: React.FC<
   };
 
   const handleDeleteCustom = async (id: string) => {
+    if (isLocked) return;
     if (
       !window.confirm("Are you sure you want to delete this custom definition?")
     ) {
@@ -261,8 +274,9 @@ export const EventDefinitionsConfigurator: React.FC<
         </div>
         <button
           type="button"
+          disabled={isLocked}
           onClick={() => setIsModalOpen(true)}
-          className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors"
+          className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors"
         >
           <svg
             className="w-3.5 h-3.5"
@@ -316,10 +330,11 @@ export const EventDefinitionsConfigurator: React.FC<
                 <div className="flex items-center gap-2.5 min-w-0">
                   <input
                     type="checkbox"
+                    disabled={isLocked}
                     aria-label={`Enable ${def.name}`}
                     checked={isEnabled}
                     onChange={() => handleToggleEnabled(defId)}
-                    className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"
+                    className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                   />
                   <div className="flex items-center gap-1.5 truncate">
                     <span
@@ -342,7 +357,7 @@ export const EventDefinitionsConfigurator: React.FC<
                   {/* Reorder Buttons */}
                   <button
                     type="button"
-                    disabled={index === 0}
+                    disabled={isLocked || index === 0}
                     onClick={() => handleMove(index, "up")}
                     className="p-1 hover:bg-gray-800 rounded disabled:opacity-20 text-gray-400"
                     title="Move Up"
@@ -363,7 +378,7 @@ export const EventDefinitionsConfigurator: React.FC<
                   </button>
                   <button
                     type="button"
-                    disabled={index === definitions.length - 1}
+                    disabled={isLocked || index === definitions.length - 1}
                     onClick={() => handleMove(index, "down")}
                     className="p-1 hover:bg-gray-800 rounded disabled:opacity-20 text-gray-400"
                     title="Move Down"
@@ -387,8 +402,9 @@ export const EventDefinitionsConfigurator: React.FC<
                   {def.isCustom && (
                     <button
                       type="button"
+                      disabled={isLocked}
                       onClick={() => handleDeleteCustom(defId)}
-                      className="p-1 hover:bg-rose-950 hover:text-rose-400 rounded text-gray-500 transition-colors ml-1"
+                      className="p-1 hover:bg-rose-950 hover:text-rose-400 rounded text-gray-500 disabled:opacity-20 transition-colors ml-1"
                       title="Delete Custom Action"
                     >
                       <svg
@@ -416,7 +432,7 @@ export const EventDefinitionsConfigurator: React.FC<
       <button
         type="button"
         onClick={handleSavePreset}
-        disabled={saving || !definitionsReady}
+        disabled={isLocked || !definitionsReady}
         className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 text-white font-bold rounded-lg text-xs uppercase tracking-wider transition-colors"
       >
         {saving ? "Saving Preset..." : "Save Active Preset"}
@@ -493,7 +509,7 @@ export const EventDefinitionsConfigurator: React.FC<
                 </button>
                 <button
                   type="submit"
-                  disabled={creating}
+                  disabled={creating || isLocked}
                   className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold disabled:opacity-50"
                 >
                   {creating ? "Creating..." : "Create"}

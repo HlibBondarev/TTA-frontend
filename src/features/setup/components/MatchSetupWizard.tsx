@@ -1034,6 +1034,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           <EventDefinitionsConfigurator
             key={`${currentUserId ?? "anonymous"}:${selectedSportId}`}
             sportId={selectedSportId}
+            disabled={isSubmitting}
             onChange={setActiveEventDefinitionIds}
             onLoadStateChange={setAreDefinitionsLoaded}
           />

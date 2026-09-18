@@ -479,4 +479,30 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(saveBtn).toBeDisabled();
     confirmSpy.mockRestore();
   });
+
+  it("disables all interactive controls and prevents mutations when disabled prop is true", async () => {
+    vi.mocked(
+      eventDefinitionService.getAvailableForSport,
+    ).mockResolvedValueOnce(mockDefinitions);
+
+    render(<EventDefinitionsConfigurator sportId={SPORT_ID} disabled={true} />);
+
+    expect(await screen.findByText("Goal")).toBeInTheDocument();
+
+    const openCustomModalBtn = screen.getByRole("button", {
+      name: /^Custom Action$/i,
+    });
+    const savePresetBtn = screen.getByRole("button", {
+      name: "Save Active Preset",
+    });
+    const checkboxes = screen.getAllByRole("checkbox");
+    const moveDownBtns = screen.getAllByTitle("Move Down");
+    const deleteBtn = screen.getByTitle("Delete Custom Action");
+
+    expect(openCustomModalBtn).toBeDisabled();
+    expect(savePresetBtn).toBeDisabled();
+    expect(checkboxes[0]).toBeDisabled();
+    expect(moveDownBtns[0]).toBeDisabled();
+    expect(deleteBtn).toBeDisabled();
+  });
 });
