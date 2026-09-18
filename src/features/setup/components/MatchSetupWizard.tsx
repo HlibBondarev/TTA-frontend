@@ -871,16 +871,28 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       // Explicitly sync Dexie DB isEnabled states for the selected sport
       if (db.eventdefinitions) {
         const activeSet = new Set(activeEventDefinitionIds);
+        verifyFreshness();
         const sportDefs = await db.eventdefinitions
           .where("sportId")
           .equals(selectedSportId)
           .toArray();
+        verifyFreshness();
+
         if (sportDefs.length > 0) {
+          const originalSportDefs = sportDefs.map((def) => ({ ...def }));
           const updatedDefs = sportDefs.map((def) => ({
             ...def,
             isEnabled: activeSet.has(def.id),
           }));
+
           await db.eventdefinitions.bulkPut(updatedDefs);
+
+          try {
+            verifyFreshness();
+          } catch (err) {
+            await db.eventdefinitions.bulkPut(originalSportDefs);
+            throw err;
+          }
         }
       }
 

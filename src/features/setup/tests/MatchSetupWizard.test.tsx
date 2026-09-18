@@ -2888,4 +2888,82 @@ describe("MatchSetupWizard Component", () => {
       ]);
     });
   });
+
+  it("should restore original event definitions if user account changes while sync bulkPut is pending", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+    const mockDefs = [
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        isPositive: true,
+        isEnabled: false,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue(
+      mockDefs as never,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    vi.mocked(db.eventdefinitions.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockDefs),
+      }),
+    } as never);
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={handleQuickStart} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(
+      await screen.findByText(/Select Team to Track/i),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    let resolveBulkPut: () => void;
+    const bulkPutPromise = new Promise<void>((resolve) => {
+      resolveBulkPut = resolve;
+    });
+
+    // Set up mock right before confirmation to intercept the call from handleConfirmQuickStart
+    vi.mocked(db.eventdefinitions.bulkPut).mockImplementationOnce(
+      () => bulkPutPromise as never,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    mockUser = { email: "newuser@tta.com", sub: "auth0|user-new" };
+    await act(async () => {
+      rerender(
+        <Provider store={store}>
+          <MatchSetupWizard onQuickStart={handleQuickStart} />
+        </Provider>,
+      );
+    });
+
+    await act(async () => {
+      resolveBulkPut!();
+      await bulkPutPromise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => {
+      expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(mockDefs);
+    });
+  });
 });
