@@ -936,4 +936,36 @@ describe("EventDefinitionsConfigurator Component", () => {
       "Enable New Custom Action",
     ]);
   });
+
+  it("defaults isEnabled to true when isEnabled property is omitted or undefined in server response", async () => {
+    const definitionsWithMissingIsEnabled = [
+      {
+        id: "def-omitted",
+        name: "Corner Throw",
+        shortName: "CT",
+        isPositive: true,
+        // isEnabled is intentionally omitted (undefined)
+        sortOrder: 1,
+        isCustom: false,
+      },
+    ];
+
+    vi.mocked(
+      eventDefinitionService.getAvailableForSport,
+    ).mockResolvedValueOnce(definitionsWithMissingIsEnabled as never);
+
+    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+
+    expect(await screen.findByText("Corner Throw")).toBeInTheDocument();
+
+    const checkbox = screen.getByRole("checkbox");
+    expect(checkbox).toBeChecked();
+
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: "def-omitted",
+        isEnabled: true,
+      }),
+    ]);
+  });
 });

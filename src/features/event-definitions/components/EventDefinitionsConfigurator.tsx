@@ -110,7 +110,7 @@ export const EventDefinitionsConfigurator: React.FC<
           shortName: def.shortName ?? "",
           isPositive: Boolean(def.isPositive),
           isCustom: def.isCustom,
-          isEnabled: Boolean(def.isEnabled),
+          isEnabled: def.isEnabled ?? true,
           sortOrder: def.sortOrder ?? idx + 1,
         }));
       await replaceSportEventDefinitionsInDb(sportId, recordsToPut);
@@ -138,15 +138,18 @@ export const EventDefinitionsConfigurator: React.FC<
           const serverDef = serverMap.get(localDef.id)!;
           existingOrdered.push({
             ...serverDef,
-            isEnabled: localDef.isEnabled,
+            isEnabled: localDef.isEnabled ?? true,
           });
           serverMap.delete(localDef.id);
         }
       }
 
-      const newServerDefs = Array.from(serverMap.values()).sort(
-        (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
-      );
+      const newServerDefs = Array.from(serverMap.values())
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+        .map((def) => ({
+          ...def,
+          isEnabled: def.isEnabled ?? true,
+        }));
 
       const combined = [...existingOrdered, ...newServerDefs];
       const grouped = groupDefinitionsByEnabled(combined);
@@ -187,7 +190,12 @@ export const EventDefinitionsConfigurator: React.FC<
           (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
         );
 
-        const grouped = groupDefinitionsByEnabled(sorted);
+        const normalized = sorted.map((def) => ({
+          ...def,
+          isEnabled: def.isEnabled ?? true,
+        }));
+
+        const grouped = groupDefinitionsByEnabled(normalized);
 
         setDefinitions(grouped);
         notifyParent(grouped);
