@@ -2767,6 +2767,10 @@ describe("MatchSetupWizard Component", () => {
     const confirmBtn = screen.getByRole("button", {
       name: /Confirm & Start Tracking/i,
     });
+
+    // Verify button is disabled in UI while event definitions are pending
+    expect(confirmBtn).toBeDisabled();
+
     fireEvent.click(confirmBtn);
 
     expect(eventDefinitionService.savePreset).not.toHaveBeenCalled();
