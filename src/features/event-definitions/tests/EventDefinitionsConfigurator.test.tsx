@@ -782,4 +782,59 @@ describe("EventDefinitionsConfigurator Component", () => {
       ]);
     });
   });
+
+  it("allows creating multiple custom actions sequentially without getting stuck in creating state", async () => {
+    vi.mocked(eventDefinitionService.createCustom)
+      .mockResolvedValueOnce({
+        id: "def-4",
+        name: "First Custom Action",
+        shortName: "FCA",
+        isPositive: true,
+        isCustom: true,
+      })
+      .mockResolvedValueOnce({
+        id: "def-5",
+        name: "Second Custom Action",
+        shortName: "SCA",
+        isPositive: true,
+        isCustom: true,
+      });
+
+    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    await screen.findByText("Goal");
+
+    // First custom creation
+    fireEvent.click(screen.getByRole("button", { name: /^Custom Action$/i }));
+    fireEvent.change(screen.getByPlaceholderText("e.g. Counter Attack Goal"), {
+      target: { value: "First Custom Action" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("e.g. CAG"), {
+      target: { value: "FCA" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText("Create Custom Action"),
+      ).not.toBeInTheDocument();
+    });
+
+    // Second custom creation (verify Create button is not stuck/disabled)
+    fireEvent.click(screen.getByRole("button", { name: /^Custom Action$/i }));
+    fireEvent.change(screen.getByPlaceholderText("e.g. Counter Attack Goal"), {
+      target: { value: "Second Custom Action" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("e.g. CAG"), {
+      target: { value: "SCA" },
+    });
+
+    const createBtn = screen.getByRole("button", { name: "Create" });
+    expect(createBtn).not.toBeDisabled();
+
+    fireEvent.click(createBtn);
+
+    await waitFor(() => {
+      expect(eventDefinitionService.createCustom).toHaveBeenCalledTimes(2);
+    });
+  });
 });

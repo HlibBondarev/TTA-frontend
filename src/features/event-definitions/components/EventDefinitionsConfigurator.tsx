@@ -305,9 +305,7 @@ export const EventDefinitionsConfigurator: React.FC<
           : "Failed to create custom definition.",
       );
     } finally {
-      if (requestId === requestCountRef.current) {
-        setCreating(false);
-      }
+      setCreating(false);
     }
   };
 
@@ -373,7 +371,10 @@ export const EventDefinitionsConfigurator: React.FC<
         <button
           type="button"
           disabled={isLocked}
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            setCreating(false);
+            setIsModalOpen(true);
+          }}
           className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors"
         >
           <svg
