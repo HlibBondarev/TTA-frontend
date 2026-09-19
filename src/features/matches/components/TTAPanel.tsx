@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useSelector } from "react-redux";
+import { useAuth0 } from "@auth0/auth0-react";
 import { liveQuery } from "dexie";
 import { db, type EventDefinitionLookup } from "../../../db/ttaDatabase";
 import {
@@ -12,6 +13,7 @@ interface TTDActionsPanelProps {
   onActionSelect: (action: string, isPositive: boolean) => void;
   selectedAction: string | null;
   disabled: boolean;
+  userId?: string;
 }
 
 // Helper to safely evaluate isPositive supporting both camelCase and legacy keys
@@ -25,11 +27,14 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
   onActionSelect,
   selectedAction,
   disabled,
+  userId,
 }) => {
   const activeMatchId = useSelector(
     (state: RootState) => state.match.activeMatchId,
   );
-  const currentUserId = useSelector(
+  const { user } = useAuth0();
+  const auth0UserId = user?.sub || user?.id;
+  const reduxUserId = useSelector(
     (state: RootState) =>
       (
         state as unknown as {
@@ -42,6 +47,8 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
         }
       ).auth?.user?.id,
   );
+  const currentUserId = userId?.trim() || auth0UserId || reduxUserId;
+
   const [activeTab, setActiveTab] = useState<"positive" | "negative">(
     "positive",
   );
@@ -64,10 +71,13 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
     const subscription = liveQuery(async () => {
       if (!activeMatchId) return [];
 
+      const normalizedUserId = currentUserId?.trim();
+      if (!normalizedUserId) return [];
+
       const match = await db.matches.get(activeMatchId);
       if (!match) return [];
 
-      if (currentUserId && match.userId && match.userId !== currentUserId) {
+      if (match.userId && match.userId !== normalizedUserId) {
         return [];
       }
 
@@ -81,10 +91,7 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
 
       if (!targetSportId) return [];
 
-      if (
-        currentUserId &&
-        !isSportHydratedForUser(targetSportId, currentUserId)
-      ) {
+      if (!isSportHydratedForUser(targetSportId, normalizedUserId)) {
         return [];
       }
 

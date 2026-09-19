@@ -13,6 +13,12 @@ import matchReducer from "../store/matchSlice";
 
 const mockWhereEqualsToArray = vi.hoisted(() => vi.fn());
 
+vi.mock("@auth0/auth0-react", () => ({
+  useAuth0: () => ({
+    user: undefined,
+  }),
+}));
+
 vi.mock("../../../db/eventService", () => ({
   clearEventDefinitionsCache: vi.fn(),
   isSportHydratedForUser: vi.fn().mockReturnValue(true),
@@ -390,5 +396,23 @@ describe("TTDActionsPanel Component", () => {
     );
 
     expect(await screen.findByText("Goal")).toBeInTheDocument();
+  });
+
+  it("fails closed and renders no actions when userId is absent or unhydrated", async () => {
+    const noUserStore = createTestStore("test-match-1", null);
+
+    render(
+      <Provider store={noUserStore}>
+        <TTDActionsPanel
+          onActionSelect={vi.fn()}
+          selectedAction={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("Goal")).not.toBeInTheDocument();
+    });
   });
 });

@@ -25,6 +25,13 @@ interface MockPresenceProps {
 let mockPeriodActive = true;
 let mockPeriodNumber = 1;
 
+// Mock Auth0 to provide a valid authenticated user ID for TTAPanel
+vi.mock("@auth0/auth0-react", () => ({
+  useAuth0: () => ({
+    user: { sub: "user-1", id: "user-1" },
+  }),
+}));
+
 vi.mock("../components/MatchLifecyclePanel", () => ({
   MatchLifecyclePanel: ({
     onFinalizeSuccess,
@@ -107,6 +114,8 @@ vi.mock("dexie", async (importOriginal) => {
 vi.mock("../../../db/eventService", () => ({
   getEventDefinitionByName: vi.fn(),
   createGameEventTx: vi.fn(),
+  clearEventDefinitionsCache: vi.fn(),
+  isSportHydratedForUser: vi.fn().mockReturnValue(true),
 }));
 
 const rootReducer = combineReducers({
@@ -146,6 +155,7 @@ describe("TTAConsole Component", () => {
     vi.mocked(db.matches.get).mockResolvedValue({
       id: "test-id",
       tournamentId: "t-1",
+      userId: "user-1",
     } as never);
 
     vi.mocked(db.tournaments.get).mockResolvedValue({
