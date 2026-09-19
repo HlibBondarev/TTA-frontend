@@ -233,6 +233,75 @@ const processQueueItemDelete = async (
 };
 
 /**
+ * Helper to validate lineups, match ownership, and event definition during game event update.
+ */
+const validateEventUpdateContext = async (
+  existing: GameEvent,
+  params: UpdateGameEventParams,
+): Promise<void> => {
+  const targetLineup = await db.matchlineups.get(params.matchLineupId);
+  if (!targetLineup) {
+    throw new Error(`Target lineup record not found: ${params.matchLineupId}`);
+  }
+
+  const existingLineup = await db.matchlineups.get(existing.matchLineupId);
+  if (!existingLineup) {
+    throw new Error(
+      `Existing lineup record not found: ${existing.matchLineupId}`,
+    );
+  }
+
+  if (targetLineup.matchId?.trim() !== existingLineup.matchId?.trim()) {
+    throw new Error(
+      `Lineup ${params.matchLineupId} does not belong to event match: ${existingLineup.matchId}`,
+    );
+  }
+
+  const targetMatchId = targetLineup.matchId || existingLineup.matchId;
+  if (targetMatchId) {
+    const match = await db.matches.get(targetMatchId);
+    const normalizedUserId = params.userId?.trim();
+    if (
+      normalizedUserId &&
+      match?.userId &&
+      match.userId !== normalizedUserId
+    ) {
+      throw new Error(`Event ${params.eventId} belongs to another user.`);
+    }
+  }
+
+  if (params.eventDefinitionId) {
+    const eventDef = await db.eventdefinitions.get(params.eventDefinitionId);
+    if (!eventDef) {
+      throw new Error(
+        `Event definition not found: ${params.eventDefinitionId}`,
+      );
+    }
+  }
+};
+
+/**
+ * Helper to update matching syncQueue item payload for a modified game event.
+ */
+const updateSyncQueueForEvent = async (
+  params: UpdateGameEventParams,
+): Promise<void> => {
+  const queueItems = await db.syncQueue
+    .filter((item) => item.endpoint.includes("/events"))
+    .toArray();
+
+  for (const item of queueItems) {
+    if (await processQueueItemUpdate(item, params)) {
+      return;
+    }
+  }
+
+  throw new Error(
+    `Matching sync queue payload not found for event ID: ${params.eventId}`,
+  );
+};
+
+/**
  * Atomically persists a new GameEvent entity to IndexedDB and enqueues the team-scoped sync payload.
  */
 export const createGameEventTx = async (
@@ -325,52 +394,7 @@ export const updateGameEventTx = async (
         throw new Error("Cannot edit a synchronized event.");
       }
 
-      // 1. Validate existence of both target and existing lineups prior to writing
-      const targetLineup = await db.matchlineups.get(params.matchLineupId);
-      if (!targetLineup) {
-        throw new Error(
-          `Target lineup record not found: ${params.matchLineupId}`,
-        );
-      }
-
-      const existingLineup = await db.matchlineups.get(existing.matchLineupId);
-      if (!existingLineup) {
-        throw new Error(
-          `Existing lineup record not found: ${existing.matchLineupId}`,
-        );
-      }
-
-      if (targetLineup.matchId?.trim() !== existingLineup.matchId?.trim()) {
-        throw new Error(
-          `Lineup ${params.matchLineupId} does not belong to event match: ${existingLineup.matchId}`,
-        );
-      }
-
-      // 2. Validate match existence and user ownership
-      const targetMatchId = targetLineup.matchId || existingLineup.matchId;
-      if (targetMatchId) {
-        const match = await db.matches.get(targetMatchId);
-        const normalizedUserId = params.userId?.trim();
-        if (
-          normalizedUserId &&
-          match?.userId &&
-          match.userId !== normalizedUserId
-        ) {
-          throw new Error(`Event ${params.eventId} belongs to another user.`);
-        }
-      }
-
-      // 3. Validate event definition exists
-      if (params.eventDefinitionId) {
-        const eventDef = await db.eventdefinitions.get(
-          params.eventDefinitionId,
-        );
-        if (!eventDef) {
-          throw new Error(
-            `Event definition not found: ${params.eventDefinitionId}`,
-          );
-        }
-      }
+      await validateEventUpdateContext(existing, params);
 
       updatedEvent = {
         ...existing,
@@ -381,23 +405,7 @@ export const updateGameEventTx = async (
 
       await db.gameevents.put(updatedEvent);
 
-      const queueItems = await db.syncQueue
-        .filter((item) => item.endpoint.includes("/events"))
-        .toArray();
-
-      let payloadUpdated = false;
-      for (const item of queueItems) {
-        if (await processQueueItemUpdate(item, params)) {
-          payloadUpdated = true;
-          break;
-        }
-      }
-
-      if (!payloadUpdated) {
-        throw new Error(
-          `Matching sync queue payload not found for event ID: ${params.eventId}`,
-        );
-      }
+      await updateSyncQueueForEvent(params);
     },
   );
 
