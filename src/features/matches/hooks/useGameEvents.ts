@@ -1,3 +1,4 @@
+import { useAuth0 } from "@auth0/auth0-react";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import {
   setGlobalSequenceNumber,
@@ -29,9 +30,46 @@ export interface UpdateGameEventParams {
   eventDefinitionId?: string;
 }
 
-export const useGameEvents = (matchId: string) => {
+export const useGameEvents = (matchId: string, userId?: string) => {
   const dispatch = useAppDispatch();
   const { periodNumber, activeTeamId } = useAppSelector((state) => state.match);
+  const { user } = useAuth0();
+  const auth0UserId = user?.sub ?? user?.email;
+  const reduxUserId = useAppSelector(
+    (state) =>
+      (
+        state as unknown as {
+          auth?: { user?: { id?: string }; currentUserId?: string };
+        }
+      ).auth?.currentUserId ??
+      (
+        state as unknown as {
+          auth?: { user?: { id?: string }; currentUserId?: string };
+        }
+      ).auth?.user?.id,
+  );
+  const currentUserId = userId?.trim() || auth0UserId || reduxUserId;
+
+  /**
+   * Helper to resolve sportId for the active match and verify user ownership.
+   */
+  const resolveSportId = async (normalizedMatchId: string): Promise<string> => {
+    const match = await db.matches.get(normalizedMatchId);
+    if (!match?.tournamentId) {
+      throw new Error(`Tournament is missing for match: ${normalizedMatchId}`);
+    }
+
+    if (currentUserId && match.userId && match.userId !== currentUserId) {
+      throw new Error(`Match ${normalizedMatchId} belongs to another user.`);
+    }
+
+    const tournament = await db.tournaments.get(match.tournamentId);
+    if (!tournament?.sportId?.trim()) {
+      throw new Error(`Sport is missing for match: ${normalizedMatchId}`);
+    }
+
+    return tournament.sportId.trim();
+  };
 
   /**
    * Resolves player jersey number, event definition ID, persists GameEvent to Dexie DB,
@@ -66,8 +104,13 @@ export const useGameEvents = (matchId: string) => {
       );
     }
 
-    // 2. Resolve Event Definition by action name
-    const eventDef = await getEventDefinitionByName(actionName);
+    // 2. Resolve Event Definition by action name, sportId, and currentUserId
+    const sportId = await resolveSportId(normalizedMatchId);
+    const eventDef = await getEventDefinitionByName(
+      actionName,
+      sportId,
+      currentUserId,
+    );
     if (!eventDef) {
       throw new Error(`Event definition not found for action: "${actionName}"`);
     }
@@ -139,7 +182,12 @@ export const useGameEvents = (matchId: string) => {
 
     let resolvedEventDefId = eventDefinitionId;
     if (!resolvedEventDefId) {
-      const eventDef = await getEventDefinitionByName(actionName);
+      const sportId = await resolveSportId(normalizedMatchId);
+      const eventDef = await getEventDefinitionByName(
+        actionName,
+        sportId,
+        currentUserId,
+      );
       if (!eventDef) {
         throw new Error(
           `Event definition not found for action: "${actionName}"`,
@@ -153,6 +201,7 @@ export const useGameEvents = (matchId: string) => {
       matchLineupId: lineup.id,
       eventDefinitionId: resolvedEventDefId,
       isLeadToGoal,
+      userId: currentUserId,
     });
 
     dispatch(

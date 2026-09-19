@@ -1,5 +1,6 @@
 import { apiClient } from "../api/client";
 import { sportService } from "./sportService";
+import { saveEventDefinitionsToDb } from "../db/eventService";
 import { db } from "../db/ttaDatabase";
 import type {
   MatchLookup,
@@ -8,10 +9,10 @@ import type {
   TimeAnchor,
   PlayerPresence,
   GameEvent,
-  EventDefinitionLookup,
   TournamentLookup,
   SportConfigurationLookup,
 } from "../db/ttaDatabase";
+import type { EventDefinitionResponse } from "./eventDefinitionService";
 import {
   UNRECOVERABLE_STATUS_CODES,
   extractErrorStatus,
@@ -475,12 +476,14 @@ interface HydrationPayloads {
   anchors?: TimeAnchor[];
   presence?: PlayerPresence[];
   events?: GameEvent[];
-  definitions?: EventDefinitionLookup[];
+  definitions?: EventDefinitionResponse[];
 }
 
 const persistHydrationPayloads = async (
   matchId: string,
+  sportId: string | undefined,
   payloads: HydrationPayloads,
+  userId?: string,
 ): Promise<void> => {
   const existingLineups = await db.matchlineups
     .where("matchId")
@@ -497,8 +500,23 @@ const persistHydrationPayloads = async (
   await syncPresence(matchLineupIds, payloads.presence);
   await syncEvents(matchLineupIds, payloads.events);
 
-  if (payloads.definitions && payloads.definitions.length > 0) {
-    await db.eventdefinitions.bulkPut(payloads.definitions);
+  if (payloads.definitions && sportId) {
+    const definitions = payloads.definitions
+      .filter((def): def is EventDefinitionResponse & { id: string } =>
+        Boolean(def.id),
+      )
+      .map((def, idx) => ({
+        id: def.id,
+        sportId,
+        name: def.name ?? "",
+        shortName: def.shortName ?? "",
+        isPositive: Boolean(def.isPositive),
+        isCustom: def.isCustom,
+        isEnabled: def.isEnabled ?? true,
+        sortOrder: def.sortOrder ?? idx + 1,
+      }));
+
+    await saveEventDefinitionsToDb(definitions, sportId, userId);
   }
 };
 
@@ -546,7 +564,12 @@ const executeMatchTransaction = async (
       if (tournament) await db.tournaments.put(tournament);
       if (sportConfig) await db.sportconfigurations.put(sportConfig);
 
-      await persistHydrationPayloads(matchId, payloads);
+      await persistHydrationPayloads(
+        matchId,
+        tournament?.sportId ?? sportConfig?.sportId,
+        payloads,
+        userId,
+      );
 
       checkFreshness?.();
     },
@@ -594,8 +617,8 @@ export const hydrateMatchData = async (
         apiClient.get<TimeAnchor[]>(`/Matches/${matchId}/anchors`),
         apiClient.get<PlayerPresence[]>(`/Matches/${matchId}/presence`),
         apiClient.get<GameEvent[]>(`/Matches/${matchId}/events`),
-        apiClient.get<EventDefinitionLookup[]>(
-          `/Matches/${matchId}/eventdefinitions`,
+        apiClient.get<EventDefinitionResponse[]>(
+          `/Matches/${matchId}/event-definitions`,
         ),
       ]);
 

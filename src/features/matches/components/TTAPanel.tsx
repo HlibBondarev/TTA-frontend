@@ -1,11 +1,19 @@
 import React, { useEffect, useState } from "react";
+import { useSelector } from "react-redux";
+import { useAuth0 } from "@auth0/auth0-react";
 import { liveQuery } from "dexie";
 import { db, type EventDefinitionLookup } from "../../../db/ttaDatabase";
+import {
+  clearEventDefinitionsCache,
+  isSportHydratedForUser,
+} from "../../../db/eventService";
+import type { RootState } from "../../../store";
 
 interface TTDActionsPanelProps {
   onActionSelect: (action: string, isPositive: boolean) => void;
   selectedAction: string | null;
   disabled: boolean;
+  userId?: string;
 }
 
 // Helper to safely evaluate isPositive supporting both camelCase and legacy keys
@@ -19,33 +27,96 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
   onActionSelect,
   selectedAction,
   disabled,
+  userId,
 }) => {
+  const activeMatchId = useSelector(
+    (state: RootState) => state.match.activeMatchId,
+  );
+  const { user } = useAuth0();
+  const auth0UserId = user?.sub || user?.id;
+  const reduxUserId = useSelector(
+    (state: RootState) =>
+      (
+        state as unknown as {
+          auth?: { user?: { id?: string }; currentUserId?: string };
+        }
+      ).auth?.currentUserId ??
+      (
+        state as unknown as {
+          auth?: { user?: { id?: string }; currentUserId?: string };
+        }
+      ).auth?.user?.id,
+  );
+  const currentUserId = userId?.trim() || auth0UserId || reduxUserId;
+
   const [activeTab, setActiveTab] = useState<"positive" | "negative">(
     "positive",
   );
   const [eventDefinitions, setEventDefinitions] = useState<
     EventDefinitionLookup[]
   >([]);
+  const [prevActiveMatchId, setPrevActiveMatchId] = useState(activeMatchId);
+  const [prevUserId, setPrevUserId] = useState(currentUserId);
 
-  // Reactive subscription to Dexie eventdefinitions table using liveQuery
+  // Synchronously adjust state during render when activeMatchId or user account changes
+  if (prevActiveMatchId !== activeMatchId || prevUserId !== currentUserId) {
+    setPrevActiveMatchId(activeMatchId);
+    setPrevUserId(currentUserId);
+    setEventDefinitions([]);
+    clearEventDefinitionsCache();
+  }
+
+  // Reactive subscription to Dexie eventdefinitions table filtered by active sport and enabled state
   useEffect(() => {
-    const subscription = liveQuery(() =>
-      db.eventdefinitions.toArray(),
-    ).subscribe({
-      next: (definitions) => {
-        if (definitions) {
-          setEventDefinitions(definitions);
+    const subscription = liveQuery(async () => {
+      if (!activeMatchId) return [];
+
+      const normalizedUserId = currentUserId?.trim();
+      if (!normalizedUserId) return [];
+
+      const match = await db.matches.get(activeMatchId);
+      if (!match) return [];
+
+      if (match.userId && match.userId !== normalizedUserId) {
+        return [];
+      }
+
+      let targetSportId: string | null = null;
+      if (match.tournamentId) {
+        const tournament = await db.tournaments.get(match.tournamentId);
+        if (tournament?.sportId) {
+          targetSportId = tournament.sportId;
         }
+      }
+
+      if (!targetSportId) return [];
+
+      if (!isSportHydratedForUser(targetSportId, normalizedUserId)) {
+        return [];
+      }
+
+      const definitions = await db.eventdefinitions
+        .where("sportId")
+        .equals(targetSportId)
+        .toArray();
+
+      return definitions
+        .filter((def) => def.isEnabled !== false)
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    }).subscribe({
+      next: (definitions) => {
+        setEventDefinitions(definitions || []);
       },
       error: (err) => {
         console.error("Failed to load event definitions from Dexie:", err);
+        setEventDefinitions([]);
       },
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [activeMatchId, currentUserId]);
 
   const positiveActions = eventDefinitions.filter((def) =>
     checkIsPositive(def),

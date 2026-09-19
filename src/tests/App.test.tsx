@@ -16,6 +16,7 @@ import {
   getMatchRecoveryState,
   StaleUserError,
 } from "../services/hydrationService";
+import { eventDefinitionService } from "../services/eventDefinitionService";
 
 let mockIsAuthenticated = true;
 let mockUser = { email: "tester@tta.com", sub: "auth0|tester-123" };
@@ -84,6 +85,15 @@ vi.mock("../services/syncService", () => ({
   processSyncQueue: vi.fn().mockResolvedValue(0),
 }));
 
+vi.mock("../services/eventDefinitionService", () => ({
+  eventDefinitionService: {
+    getAvailableForSport: vi.fn().mockResolvedValue([]),
+    savePreset: vi.fn().mockResolvedValue(undefined),
+    createCustom: vi.fn().mockResolvedValue({}),
+    softDeleteCustom: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 const createTestStore = (
   preloadedState?: Parameters<typeof configureStore>[0]["preloadedState"],
 ) => {
@@ -133,6 +143,9 @@ describe("App Bootstrapping Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(eventDefinitionService.getAvailableForSport)
+      .mockReset()
+      .mockResolvedValue([]);
     mockIsAuthenticated = true;
     mockUser = { email: "tester@tta.com", sub: "auth0|tester-123" };
   });
@@ -268,7 +281,7 @@ describe("App Bootstrapping Component", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     // Select team before confirming quick start
     fireEvent.click(screen.getByText("Home Squad"));
@@ -354,7 +367,7 @@ describe("App Bootstrapping Component", () => {
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
     fireEvent.click(screen.getByText("Home Squad"));
 
     fireEvent.click(
@@ -399,7 +412,7 @@ describe("App Bootstrapping Component", () => {
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
     fireEvent.click(screen.getByText("Home Squad"));
 
     fireEvent.click(
@@ -493,7 +506,7 @@ describe("App Bootstrapping Component", () => {
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
     fireEvent.click(screen.getByText("Home Squad"));
 
     fireEvent.click(

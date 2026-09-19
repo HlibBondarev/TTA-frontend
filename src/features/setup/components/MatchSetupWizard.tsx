@@ -11,13 +11,16 @@ import { sportService } from "../../../services/sportService";
 import { teamService } from "../../../services/teamService";
 import { apiClient } from "../../../api/client";
 import { db } from "../../../db/ttaDatabase";
+import { clearEventDefinitionsCache } from "../../../db/eventService";
 import { navigateToHub } from "../../../store/slices/navigationSlice";
+import { EventDefinitionsConfigurator } from "../../event-definitions/components/EventDefinitionsConfigurator";
 import type {
   SportLookup,
   SportConfigurationLookup,
   MatchLookup,
   TeamLookup,
 } from "../../../db/ttaDatabase";
+import { eventDefinitionService } from "../../../services/eventDefinitionService";
 
 interface MatchSetupWizardProps {
   onQuickStart: (
@@ -538,7 +541,6 @@ async function compensateAndRollbackIfNeeded(
 ): Promise<void> {
   let localRollbackSucceeded = true;
 
-  // 1. Always perform local IndexedDB rollback first to guarantee local state consistency
   if (localPersistResult?.didPersist) {
     localRollbackSucceeded = await rollbackTrackedTeamLocally(
       pendingMatchId,
@@ -547,8 +549,6 @@ async function compensateAndRollbackIfNeeded(
     );
   }
 
-  // 2. Perform remote catch compensation ONLY IF local rollback succeeded (or wasn't needed)
-  // If local storage rollback fails, skip remote compensation to prevent leaving local DB inconsistent with remote server
   if (catchResult && localRollbackSucceeded) {
     try {
       await compensateCatchMatch(catchEndpoint, catchResult);
@@ -607,6 +607,12 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
   >([]);
   const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null);
 
+  const [activeEventDefinitionIds, setActiveEventDefinitionIds] = useState<
+    string[]
+  >([]);
+  const [areDefinitionsLoaded, setAreDefinitionsLoaded] =
+    useState<boolean>(false);
+
   const [pendingMatchId, setPendingMatchId] = useState<string | null>(null);
   const [teams, setTeams] = useState<{
     home: TeamLookup;
@@ -634,6 +640,8 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       setPendingMatchId(null);
       setTeams(null);
       setSelectedTeamId(null);
+      setActiveEventDefinitionIds([]);
+      setAreDefinitionsLoaded(false);
       setIsSubmitting(false);
       setIsLoadingTeams(false);
       setErrorMessage(null);
@@ -739,6 +747,8 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     setPendingMatchId(null);
     setTeams(null);
     setSelectedTeamId(null);
+    setActiveEventDefinitionIds([]);
+    setAreDefinitionsLoaded(false);
     await loadConfigurations(sportId, sports);
   };
 
@@ -830,6 +840,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       !selectedSportId ||
       !selectedConfigId ||
       !selectedTeamId ||
+      !areDefinitionsLoaded ||
       isSubmitting
     ) {
       return;
@@ -851,6 +862,68 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
     try {
       setIsSubmitting(true);
       setErrorMessage(null);
+
+      // Save active event definitions preset before persisting match/team state
+      await eventDefinitionService.savePreset(selectedSportId, {
+        eventDefinitionIds: activeEventDefinitionIds,
+      });
+      verifyFreshness();
+
+      // Explicitly sync Dexie DB isEnabled states for the selected sport
+      if (db.eventdefinitions) {
+        const activeSet = new Set(activeEventDefinitionIds);
+        verifyFreshness();
+        const sportDefs = await db.eventdefinitions
+          .where("sportId")
+          .equals(selectedSportId)
+          .toArray();
+        verifyFreshness();
+
+        if (sportDefs.length > 0) {
+          const originalSportDefs = sportDefs.map((def) => ({ ...def }));
+          const updatedDefs = sportDefs.map((def) => ({
+            ...def,
+            isEnabled: activeSet.has(def.id),
+          }));
+
+          await db.eventdefinitions.bulkPut(updatedDefs);
+          clearEventDefinitionsCache();
+
+          try {
+            verifyFreshness();
+          } catch (err) {
+            await db.transaction("rw", db.eventdefinitions, async () => {
+              const currentDefs = await db.eventdefinitions
+                .where("sportId")
+                .equals(selectedSportId)
+                .toArray();
+
+              const updatedMap = new Map(updatedDefs.map((d) => [d.id, d]));
+
+              const isUnchangedFromUpdate =
+                currentDefs.length === updatedDefs.length &&
+                currentDefs.every((curr) => {
+                  const updated = updatedMap.get(curr.id);
+                  if (!updated) return false;
+                  return (
+                    curr.isEnabled === updated.isEnabled &&
+                    curr.sortOrder === updated.sortOrder &&
+                    curr.name === updated.name &&
+                    curr.shortName === updated.shortName &&
+                    curr.isPositive === updated.isPositive &&
+                    curr.isCustom === updated.isCustom
+                  );
+                });
+
+              if (isUnchangedFromUpdate) {
+                await db.eventdefinitions.bulkPut(originalSportDefs);
+                clearEventDefinitionsCache();
+              }
+            });
+            throw err;
+          }
+        }
+      }
 
       localPersistResult = await persistTrackedTeamLocally(
         pendingMatchId,
@@ -1010,10 +1083,25 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
         {renderConfigurationsContent()}
       </fieldset>
 
+      {selectedSportId && (
+        <fieldset className="mb-6 min-w-0 border-0 p-0 m-0">
+          <legend className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold p-0">
+            3. Configure Actions
+          </legend>
+          <EventDefinitionsConfigurator
+            key={`${currentUserId ?? "anonymous"}:${selectedSportId}`}
+            sportId={selectedSportId}
+            disabled={isSubmitting}
+            onChange={setActiveEventDefinitionIds}
+            onLoadStateChange={setAreDefinitionsLoaded}
+          />
+        </fieldset>
+      )}
+
       {teams && (
         <fieldset className="mb-6 min-w-0 border-0 p-0 m-0">
           <legend className="block text-[10px] uppercase text-gray-400 mb-1.5 font-bold p-0">
-            3. Select Team to Track
+            4. Select Team to Track
           </legend>
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -1069,7 +1157,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
       ) : (
         <button
           type="button"
-          disabled={!selectedTeamId || isSubmitting}
+          disabled={!selectedTeamId || !areDefinitionsLoaded || isSubmitting}
           onClick={() => void handleConfirmQuickStart()}
           className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-black uppercase rounded-xl transition-colors tracking-wider text-xs shadow-lg"
         >

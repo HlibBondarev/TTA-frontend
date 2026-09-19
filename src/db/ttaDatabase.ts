@@ -99,7 +99,10 @@ export interface EventDefinitionLookup {
   name: string;
   shortName: string;
   isPositive: boolean;
-  createdAt: string;
+  isCustom?: boolean;
+  isEnabled?: boolean;
+  sortOrder?: number;
+  ownerId?: string | null;
 }
 
 export interface GameEvent {

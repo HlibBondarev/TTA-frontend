@@ -11,9 +11,16 @@ import { configureStore } from "@reduxjs/toolkit";
 import { ActionsLog } from "../components/ActionsLog";
 import matchReducer, { type ActionEntry } from "../store/matchSlice";
 import * as eventService from "../../../db/eventService";
+import { db } from "../../../db/ttaDatabase";
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
+    matches: {
+      get: vi.fn(),
+    },
+    tournaments: {
+      get: vi.fn(),
+    },
     gameevents: {
       where: vi.fn().mockReturnValue({
         anyOf: vi.fn().mockReturnValue({
@@ -82,6 +89,14 @@ const createStoreWithActions = (actions: ActionEntry[]) => {
 describe("ActionsLog Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: "test-match",
+      tournamentId: "tour-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValue({
+      id: "tour-1",
+      sportId: "s1",
+    } as never);
   });
 
   afterEach(() => {
@@ -150,7 +165,6 @@ describe("ActionsLog Component", () => {
       name: "Turnover",
       shortName: "TO",
       isPositive: false,
-      createdAt: "",
     });
 
     vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
@@ -335,7 +349,6 @@ describe("ActionsLog Component", () => {
       name: "Turnover",
       shortName: "TO",
       isPositive: false,
-      createdAt: "",
     });
 
     vi.mocked(eventService.updateGameEventTx).mockRejectedValueOnce(
@@ -416,5 +429,55 @@ describe("ActionsLog Component", () => {
     fireEvent.click(closeBtn);
 
     expect(screen.queryByText("Edit Action")).not.toBeInTheDocument();
+  });
+
+  it("uses stored eventDefinitionId during Goal Lead toggle when getEventDefinitionByName returns undefined", async () => {
+    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValue(
+      undefined,
+    );
+
+    vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
+      id: "action-2",
+      matchLineupId: "lineup-2",
+      eventDefinitionId: "def-2",
+      periodNumber: 1,
+      eventTimestamp: "",
+      isLeadToGoal: true,
+      createdAt: "",
+      sequenceNumber: 1,
+      isSynced: 0,
+    });
+
+    const store = createStoreWithActions([
+      {
+        id: "action-2",
+        playerNumber: 3,
+        actionName: "Custom Action",
+        isPositive: false,
+        timestamp: new Date().toISOString(),
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-2",
+        isLeadToGoal: false,
+        isSynced: 0,
+      },
+    ]);
+
+    render(
+      <Provider store={store}>
+        <ActionsLog />
+      </Provider>,
+    );
+
+    const checkbox = screen.getByRole("checkbox");
+    fireEvent.click(checkbox);
+
+    await waitFor(() => {
+      expect(eventService.updateGameEventTx).toHaveBeenCalledWith({
+        eventId: "action-2",
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-2",
+        isLeadToGoal: true,
+      });
+    });
   });
 });
