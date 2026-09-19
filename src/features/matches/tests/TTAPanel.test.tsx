@@ -255,4 +255,35 @@ describe("TTDActionsPanel Component", () => {
     });
     expect(db.eventdefinitions.where).not.toHaveBeenCalled();
   });
+
+  it("clears event definitions on Dexie liveQuery subscription error", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.mocked(db.matches.get).mockRejectedValueOnce(
+      new Error("Dexie query error"),
+    );
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTDActionsPanel
+          onActionSelect={vi.fn()}
+          selectedAction={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "Failed to load event definitions from Dexie:",
+        expect.any(Error),
+      );
+    });
+
+    expect(screen.queryByText("Goal")).not.toBeInTheDocument();
+    consoleErrorSpy.mockRestore();
+  });
 });

@@ -31,6 +31,13 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
   const [eventDefinitions, setEventDefinitions] = useState<
     EventDefinitionLookup[]
   >([]);
+  const [prevActiveMatchId, setPrevActiveMatchId] = useState(activeMatchId);
+
+  // Synchronously adjust state during render when activeMatchId changes to avoid cascading effect renders
+  if (prevActiveMatchId !== activeMatchId) {
+    setPrevActiveMatchId(activeMatchId);
+    setEventDefinitions([]);
+  }
 
   // Reactive subscription to Dexie eventdefinitions table filtered by active sport and enabled state
   useEffect(() => {
@@ -64,6 +71,7 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
       },
       error: (err) => {
         console.error("Failed to load event definitions from Dexie:", err);
+        setEventDefinitions([]);
       },
     });
 
