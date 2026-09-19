@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventDefinitionsConfigurator } from "../components/EventDefinitionsConfigurator";
 import { eventDefinitionService } from "../../../services/eventDefinitionService";
+import * as eventService from "../../../db/eventService";
 import { db } from "../../../db/ttaDatabase";
 
 vi.mock("../../../services/eventDefinitionService", () => ({
@@ -11,6 +12,14 @@ vi.mock("../../../services/eventDefinitionService", () => ({
     createCustom: vi.fn(),
     softDeleteCustom: vi.fn(),
   },
+}));
+
+vi.mock("../../../db/eventService", () => ({
+  replaceSportEventDefinitionsInDb: vi.fn(async (_sportId, records) => {
+    if (db.eventdefinitions) {
+      await db.eventdefinitions.bulkPut(records);
+    }
+  }),
 }));
 
 vi.mock("../../../db/ttaDatabase", () => ({
@@ -1006,5 +1015,62 @@ describe("EventDefinitionsConfigurator Component", () => {
     });
 
     confirmSpy.mockRestore();
+  });
+
+  it("aborts state updates and readiness signal if sportId changes while syncToDexie is pending", async () => {
+    let resolveSync: () => void;
+    const syncPromise = new Promise<void>((resolve) => {
+      resolveSync = resolve;
+    });
+
+    let resolveSecondFetch: (val: typeof mockDefinitions) => void;
+    const secondFetchPromise = new Promise<typeof mockDefinitions>(
+      (resolve) => {
+        resolveSecondFetch = resolve;
+      },
+    );
+
+    vi.mocked(
+      eventService.replaceSportEventDefinitionsInDb,
+    ).mockImplementationOnce(() => syncPromise);
+
+    vi.mocked(eventDefinitionService.getAvailableForSport)
+      .mockResolvedValueOnce(mockDefinitions)
+      .mockReturnValueOnce(secondFetchPromise);
+
+    const onLoadStateChangeMock = vi.fn();
+
+    const { rerender } = render(
+      <EventDefinitionsConfigurator
+        sportId="sport-waterpolo"
+        onLoadStateChange={onLoadStateChangeMock}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        eventService.replaceSportEventDefinitionsInDb,
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    onLoadStateChangeMock.mockClear();
+
+    // Change sportId while first syncToDexie is pending asynchronously
+    rerender(
+      <EventDefinitionsConfigurator
+        sportId="sport-basketball"
+        onLoadStateChange={onLoadStateChangeMock}
+      />,
+    );
+
+    // Resolve stale syncToDexie promise
+    resolveSync!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Readiness signal for stale request should not be invoked with true
+    expect(onLoadStateChangeMock).not.toHaveBeenCalledWith(true);
+
+    // Cleanup second request promise
+    resolveSecondFetch!(mockDefinitions);
   });
 });

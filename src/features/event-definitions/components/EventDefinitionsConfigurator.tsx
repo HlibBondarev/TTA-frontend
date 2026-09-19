@@ -158,6 +158,8 @@ export const EventDefinitionsConfigurator: React.FC<
       setDefinitions(grouped);
       notifyParent(grouped);
       await syncToDexie(grouped);
+      if (requestId !== requestCountRef.current) return;
+
       setError(null);
       setDefinitionsReady(true);
       onLoadStateChangeRef.current?.(true);
@@ -201,6 +203,8 @@ export const EventDefinitionsConfigurator: React.FC<
         setDefinitions(grouped);
         notifyParent(grouped);
         await syncToDexie(grouped);
+        if (requestId !== requestCountRef.current) return;
+
         setError(null);
         setDefinitionsReady(true);
         onLoadStateChangeRef.current?.(true);
