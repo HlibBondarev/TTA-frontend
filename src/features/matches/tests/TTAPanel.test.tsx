@@ -271,8 +271,9 @@ describe("TTDActionsPanel Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.queryByText("Goal")).not.toBeInTheDocument();
+      expect(db.tournaments.get).toHaveBeenCalledWith("tour-without-sport");
     });
+    expect(screen.queryByText("Goal")).not.toBeInTheDocument();
     expect(db.eventdefinitions.where).not.toHaveBeenCalled();
   });
 
