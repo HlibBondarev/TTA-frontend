@@ -430,4 +430,54 @@ describe("ActionsLog Component", () => {
 
     expect(screen.queryByText("Edit Action")).not.toBeInTheDocument();
   });
+
+  it("uses stored eventDefinitionId during Goal Lead toggle when getEventDefinitionByName returns undefined", async () => {
+    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValue(
+      undefined,
+    );
+
+    vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
+      id: "action-2",
+      matchLineupId: "lineup-2",
+      eventDefinitionId: "def-2",
+      periodNumber: 1,
+      eventTimestamp: "",
+      isLeadToGoal: true,
+      createdAt: "",
+      sequenceNumber: 1,
+      isSynced: 0,
+    });
+
+    const store = createStoreWithActions([
+      {
+        id: "action-2",
+        playerNumber: 3,
+        actionName: "Custom Action",
+        isPositive: false,
+        timestamp: new Date().toISOString(),
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-2",
+        isLeadToGoal: false,
+        isSynced: 0,
+      },
+    ]);
+
+    render(
+      <Provider store={store}>
+        <ActionsLog />
+      </Provider>,
+    );
+
+    const checkbox = screen.getByRole("checkbox");
+    fireEvent.click(checkbox);
+
+    await waitFor(() => {
+      expect(eventService.updateGameEventTx).toHaveBeenCalledWith({
+        eventId: "action-2",
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-2",
+        isLeadToGoal: true,
+      });
+    });
+  });
 });
