@@ -325,42 +325,43 @@ export const updateGameEventTx = async (
         throw new Error("Cannot edit a synchronized event.");
       }
 
-      // 1. Validate lineup & user ownership if matchlineups table is accessible
-      if (typeof db.matchlineups?.get === "function") {
-        const targetLineup = await db.matchlineups.get(params.matchLineupId);
-        const existingLineup = await db.matchlineups.get(
-          existing.matchLineupId,
+      // 1. Validate existence of both target and existing lineups prior to writing
+      const targetLineup = await db.matchlineups.get(params.matchLineupId);
+      if (!targetLineup) {
+        throw new Error(
+          `Target lineup record not found: ${params.matchLineupId}`,
         );
+      }
 
+      const existingLineup = await db.matchlineups.get(existing.matchLineupId);
+      if (!existingLineup) {
+        throw new Error(
+          `Existing lineup record not found: ${existing.matchLineupId}`,
+        );
+      }
+
+      if (targetLineup.matchId?.trim() !== existingLineup.matchId?.trim()) {
+        throw new Error(
+          `Lineup ${params.matchLineupId} does not belong to event match: ${existingLineup.matchId}`,
+        );
+      }
+
+      // 2. Validate match existence and user ownership
+      const targetMatchId = targetLineup.matchId || existingLineup.matchId;
+      if (targetMatchId) {
+        const match = await db.matches.get(targetMatchId);
+        const normalizedUserId = params.userId?.trim();
         if (
-          targetLineup &&
-          existingLineup &&
-          targetLineup.matchId?.trim() !== existingLineup.matchId?.trim()
+          normalizedUserId &&
+          match?.userId &&
+          match.userId !== normalizedUserId
         ) {
-          throw new Error(
-            `Lineup ${params.matchLineupId} does not belong to event match: ${existingLineup.matchId}`,
-          );
-        }
-
-        const targetMatchId = targetLineup?.matchId || existingLineup?.matchId;
-        if (targetMatchId && typeof db.matches?.get === "function") {
-          const match = await db.matches.get(targetMatchId);
-          const normalizedUserId = params.userId?.trim();
-          if (
-            normalizedUserId &&
-            match?.userId &&
-            match.userId !== normalizedUserId
-          ) {
-            throw new Error(`Event ${params.eventId} belongs to another user.`);
-          }
+          throw new Error(`Event ${params.eventId} belongs to another user.`);
         }
       }
 
-      // 2. Validate event definition exists if definition table is accessible
-      if (
-        params.eventDefinitionId &&
-        typeof db.eventdefinitions?.get === "function"
-      ) {
+      // 3. Validate event definition exists
+      if (params.eventDefinitionId) {
         const eventDef = await db.eventdefinitions.get(
           params.eventDefinitionId,
         );

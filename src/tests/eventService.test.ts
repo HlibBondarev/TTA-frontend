@@ -15,6 +15,7 @@ import {
 const mockGameEventsGet = vi.fn();
 const mockGameEventsPut = vi.fn();
 const mockGameEventsDelete = vi.fn();
+const mockEventDefinitionsGet = vi.fn();
 const mockMatchLineupsGet = vi.fn();
 const mockMatchesGet = vi.fn();
 const mockSyncQueueUpdate = vi.fn();
@@ -25,6 +26,7 @@ const mockWhereEqualsToArray = vi.fn();
 vi.mock("../db/ttaDatabase", () => ({
   db: {
     eventdefinitions: {
+      get: (...args: unknown[]) => mockEventDefinitionsGet(...args),
       toArray: vi.fn(),
       bulkPut: vi.fn(),
       bulkDelete: vi.fn(),
@@ -103,6 +105,16 @@ describe("Event Database Service (eventService)", () => {
     clearEventDefinitionsCache();
     mockMatchLineupsGet.mockResolvedValue(undefined);
     mockMatchesGet.mockResolvedValue(undefined);
+    mockEventDefinitionsGet.mockImplementation((id: string) =>
+      Promise.resolve({
+        id,
+        sportId: "sport-1",
+        name: "Test Action",
+        shortName: "TA",
+        isPositive: true,
+        isEnabled: true,
+      }),
+    );
     mockWhereEqualsToArray.mockReturnValue({
       toArray: vi.fn().mockResolvedValue([]),
     });
@@ -399,6 +411,12 @@ describe("Event Database Service (eventService)", () => {
     };
 
     mockGameEventsGet.mockResolvedValueOnce(existingEvent);
+    mockMatchLineupsGet.mockImplementation((id: string) => {
+      if (id === "lineup-1" || id === "lineup-2") {
+        return Promise.resolve({ id, matchId: "match-123" });
+      }
+      return Promise.resolve(undefined);
+    });
     mockSyncQueueFilter.mockReturnValueOnce({
       toArray: vi.fn().mockResolvedValue([
         { id: 99, endpoint: "/other", payload: "invalid-json" },
@@ -460,7 +478,15 @@ describe("Event Database Service (eventService)", () => {
   it("should throw error when matching sync queue payload is missing during update", async () => {
     mockGameEventsGet.mockResolvedValueOnce({
       id: "event-orphaned",
+      matchLineupId: "lineup-1",
       isSynced: 0,
+    });
+
+    mockMatchLineupsGet.mockImplementation((id: string) => {
+      if (id === "lineup-1" || id === "lineup-2") {
+        return Promise.resolve({ id, matchId: "match-123" });
+      }
+      return Promise.resolve(undefined);
     });
 
     mockSyncQueueFilter.mockReturnValueOnce({
@@ -676,5 +702,55 @@ describe("Event Database Service (eventService)", () => {
         userId: "user-attacker",
       }),
     ).rejects.toThrow("Event event-1 belongs to another user.");
+  });
+
+  it("should throw error in updateGameEventTx if target lineup is missing", async () => {
+    mockGameEventsGet.mockResolvedValueOnce({
+      id: "event-1",
+      matchLineupId: "lineup-A",
+      eventDefinitionId: "def-1",
+    });
+
+    mockMatchLineupsGet.mockImplementation((id: string) => {
+      if (id === "lineup-A") {
+        return Promise.resolve({ id: "lineup-A", matchId: "match-A" });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    await expect(
+      updateGameEventTx({
+        eventId: "event-1",
+        matchLineupId: "lineup-missing",
+        eventDefinitionId: "def-1",
+        isLeadToGoal: false,
+      }),
+    ).rejects.toThrow("Target lineup record not found: lineup-missing");
+  });
+
+  it("should throw error in updateGameEventTx if existing lineup is missing", async () => {
+    mockGameEventsGet.mockResolvedValueOnce({
+      id: "event-1",
+      matchLineupId: "lineup-missing-existing",
+      eventDefinitionId: "def-1",
+    });
+
+    mockMatchLineupsGet.mockImplementation((id: string) => {
+      if (id === "lineup-B") {
+        return Promise.resolve({ id: "lineup-B", matchId: "match-A" });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    await expect(
+      updateGameEventTx({
+        eventId: "event-1",
+        matchLineupId: "lineup-B",
+        eventDefinitionId: "def-1",
+        isLeadToGoal: false,
+      }),
+    ).rejects.toThrow(
+      "Existing lineup record not found: lineup-missing-existing",
+    );
   });
 });
