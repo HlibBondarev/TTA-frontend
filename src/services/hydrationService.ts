@@ -516,9 +516,7 @@ const persistHydrationPayloads = async (
         sortOrder: def.sortOrder ?? idx + 1,
       }));
 
-    if (definitions.length > 0) {
-      await saveEventDefinitionsToDb(definitions, sportId, userId);
-    }
+    await saveEventDefinitionsToDb(definitions, sportId, userId);
   }
 };
 
