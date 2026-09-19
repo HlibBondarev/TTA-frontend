@@ -49,6 +49,21 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
   );
   const currentUserId = userId?.trim() || auth0UserId || reduxUserId;
 
+  // Reactive signal observing Redux match hydration state changes
+  const hydrationSignal = useSelector(
+    (state: RootState) =>
+      (
+        state as unknown as {
+          match?: { hydrationVersion?: number; isHydrated?: boolean };
+        }
+      ).match?.hydrationVersion ??
+      (
+        state as unknown as {
+          match?: { hydrationVersion?: number; isHydrated?: boolean };
+        }
+      ).match?.isHydrated,
+  );
+
   const [activeTab, setActiveTab] = useState<"positive" | "negative">(
     "positive",
   );
@@ -116,7 +131,7 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
     return () => {
       subscription.unsubscribe();
     };
-  }, [activeMatchId, currentUserId]);
+  }, [activeMatchId, currentUserId, hydrationSignal]);
 
   const positiveActions = eventDefinitions.filter((def) =>
     checkIsPositive(def),

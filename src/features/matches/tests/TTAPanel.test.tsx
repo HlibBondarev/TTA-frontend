@@ -416,4 +416,49 @@ describe("TTDActionsPanel Component", () => {
       expect(screen.queryByText("Goal")).not.toBeInTheDocument();
     });
   });
+
+  it("re-queries Dexie DB and renders actions automatically when Redux hydration signal updates", async () => {
+    let isHydrated = false;
+    vi.mocked(isSportHydratedForUser).mockImplementation(() => isHydrated);
+
+    const store = configureStore({
+      reducer: {
+        match: (
+          state = { activeMatchId: "test-match-1", hydrationVersion: 0 },
+          action,
+        ) => {
+          if (action.type === "MATCH_HYDRATED") {
+            return {
+              ...state,
+              hydrationVersion: (state.hydrationVersion || 0) + 1,
+            };
+          }
+          return state;
+        },
+        auth: (state = { currentUserId: "user-1" }) => state,
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <TTDActionsPanel
+          onActionSelect={vi.fn()}
+          selectedAction={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    // Actions should not be rendered before hydration completes
+    await waitFor(() => {
+      expect(screen.queryByText("Goal")).not.toBeInTheDocument();
+    });
+
+    // Simulate successful hydration: update marker and dispatch Redux signal
+    isHydrated = true;
+    store.dispatch({ type: "MATCH_HYDRATED" });
+
+    // Panel re-queries Dexie DB via hydrationSignal in useEffect and renders action buttons
+    expect(await screen.findByText("Goal")).toBeInTheDocument();
+  });
 });
