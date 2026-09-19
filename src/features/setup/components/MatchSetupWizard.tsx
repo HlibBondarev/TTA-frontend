@@ -11,6 +11,7 @@ import { sportService } from "../../../services/sportService";
 import { teamService } from "../../../services/teamService";
 import { apiClient } from "../../../api/client";
 import { db } from "../../../db/ttaDatabase";
+import { clearEventDefinitionsCache } from "../../../db/eventService";
 import { navigateToHub } from "../../../store/slices/navigationSlice";
 import { EventDefinitionsConfigurator } from "../../event-definitions/components/EventDefinitionsConfigurator";
 import type {
@@ -886,6 +887,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           }));
 
           await db.eventdefinitions.bulkPut(updatedDefs);
+          clearEventDefinitionsCache();
 
           try {
             verifyFreshness();
@@ -915,6 +917,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
 
               if (isUnchangedFromUpdate) {
                 await db.eventdefinitions.bulkPut(originalSportDefs);
+                clearEventDefinitionsCache();
               }
             });
             throw err;
