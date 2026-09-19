@@ -55,7 +55,7 @@ vi.mock("../../playerpresences/components/PlayerPresencePanel", () => ({
   ),
 }));
 
-const mockWhereEqualsToArray = vi.fn();
+const mockWhereEqualsToArray = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
