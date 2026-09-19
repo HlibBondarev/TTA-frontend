@@ -62,6 +62,56 @@ function combineAbortSignals(
   return combinedController.signal;
 }
 
+/**
+ * Safely parses RFC 7807 Problem Details payload or constructs fallback error message from HTTP response.
+ */
+async function parseProblemDetails(
+  response: Response,
+): Promise<{ errorMessage: string; problemDetails?: ProblemDetails }> {
+  let problemDetails: ProblemDetails | undefined;
+  let errorMessage = `API Request failed: ${response.status} ${response.statusText}`;
+
+  try {
+    const text = await response.text();
+    if (!text?.trim()) {
+      return { errorMessage, problemDetails };
+    }
+
+    const parsed = JSON.parse(text) as ProblemDetails;
+    if (parsed && typeof parsed === "object") {
+      problemDetails = parsed;
+      const detailMsg = parsed.detail?.trim();
+      const titleMsg = parsed.title?.trim();
+
+      if (detailMsg) {
+        errorMessage = detailMsg;
+      } else if (titleMsg) {
+        errorMessage = titleMsg;
+      }
+    }
+  } catch {
+    // Fallback to default HTTP status message if body parsing fails
+  }
+
+  return { errorMessage, problemDetails };
+}
+
+/**
+ * Safely parses successful response body, handling 204 No Content and empty payload responses.
+ */
+async function parseResponseBody<T>(response: Response): Promise<T> {
+  if (response.status === 204) {
+    return {} as T;
+  }
+
+  const text = await response.text();
+  if (!text?.trim()) {
+    return {} as T;
+  }
+
+  return JSON.parse(text) as T;
+}
+
 export const apiClient = {
   async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { token, headers, signal: externalSignal, ...rest } = options;
@@ -71,7 +121,6 @@ export const apiClient = {
       ...(headers as Record<string, string>),
     };
 
-    // Use passed token or resolve dynamically via tokenService
     const authToken = token || (await getAuthToken());
     if (authToken) {
       requestHeaders["Authorization"] = `Bearer ${authToken}`;
@@ -100,40 +149,14 @@ export const apiClient = {
       });
 
       if (!response.ok) {
-        let problemDetails: ProblemDetails | undefined;
-        let errorMessage = `API Request failed: ${response.status} ${response.statusText}`;
-
-        try {
-          const text = await response.text();
-          if (text?.trim()) {
-            const parsed = JSON.parse(text) as ProblemDetails;
-            if (parsed && typeof parsed === "object") {
-              problemDetails = parsed;
-              if (parsed.detail?.trim()) {
-                errorMessage = parsed.detail.trim();
-              } else if (parsed.title?.trim()) {
-                errorMessage = parsed.title.trim();
-              }
-            }
-          }
-        } catch {
-          // Fallback to default HTTP status message if body parsing fails
-        }
-
+        const { errorMessage, problemDetails } =
+          await parseProblemDetails(response);
         throw new ApiError(errorMessage, response.status, problemDetails);
       }
 
-      // Handle 204 No Content
-      if (response.status === 204) {
-        return {} as T;
-      }
-
-      // Safe JSON parsing for HTTP 200/201 responses with empty body
-      const text = await response.text();
-      return text?.trim() ? (JSON.parse(text) as T) : ({} as T);
+      return await parseResponseBody<T>(response);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
-        // Suppress or format user-friendly message for aborted signals
         console.warn(
           `[apiClient] Request aborted for ${normalizedEndpoint}:`,
           err.message,
