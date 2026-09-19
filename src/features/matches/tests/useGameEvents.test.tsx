@@ -445,6 +445,7 @@ describe("useGameEvents Custom Hook", () => {
       matchLineupId: "lineup-10",
       eventDefinitionId: "def-steal-direct",
       isLeadToGoal: true,
+      userId: "user-123",
     });
 
     expect(store.getState().match.recentActions[0]).toEqual(

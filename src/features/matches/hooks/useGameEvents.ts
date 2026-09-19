@@ -201,6 +201,7 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       matchLineupId: lineup.id,
       eventDefinitionId: resolvedEventDefId,
       isLeadToGoal,
+      userId: currentUserId,
     });
 
     dispatch(

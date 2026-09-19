@@ -15,6 +15,8 @@ import {
 const mockGameEventsGet = vi.fn();
 const mockGameEventsPut = vi.fn();
 const mockGameEventsDelete = vi.fn();
+const mockMatchLineupsGet = vi.fn();
+const mockMatchesGet = vi.fn();
 const mockSyncQueueUpdate = vi.fn();
 const mockSyncQueueDelete = vi.fn();
 const mockSyncQueueFilter = vi.fn();
@@ -38,6 +40,12 @@ vi.mock("../db/ttaDatabase", () => ({
       orderBy: vi.fn().mockReturnValue({
         last: vi.fn().mockResolvedValue({ sequenceNumber: 4 }),
       }),
+    },
+    matchlineups: {
+      get: (...args: unknown[]) => mockMatchLineupsGet(...args),
+    },
+    matches: {
+      get: (...args: unknown[]) => mockMatchesGet(...args),
     },
     timeanchors: {
       orderBy: vi.fn().mockReturnValue({
@@ -93,6 +101,8 @@ describe("Event Database Service (eventService)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearEventDefinitionsCache();
+    mockMatchLineupsGet.mockResolvedValue(undefined);
+    mockMatchesGet.mockResolvedValue(undefined);
     mockWhereEqualsToArray.mockReturnValue({
       toArray: vi.fn().mockResolvedValue([]),
     });
@@ -598,5 +608,73 @@ describe("Event Database Service (eventService)", () => {
 
     const def = await getEventDefinitionByName("Goal", coldSportId, userId);
     expect(def).toBeUndefined();
+  });
+
+  it("should throw error in updateGameEventTx if target event is not found", async () => {
+    await expect(
+      updateGameEventTx({
+        eventId: "non-existent-event",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        isLeadToGoal: false,
+      }),
+    ).rejects.toThrow("Game event not found for ID: non-existent-event");
+  });
+
+  it("should throw error in updateGameEventTx if lineup belongs to a different match", async () => {
+    mockGameEventsGet.mockResolvedValueOnce({
+      id: "event-1",
+      matchLineupId: "lineup-A",
+      eventDefinitionId: "def-1",
+    });
+
+    mockMatchLineupsGet.mockImplementation((id: string) => {
+      if (id === "lineup-A") {
+        return Promise.resolve({ id: "lineup-A", matchId: "match-A" });
+      }
+      if (id === "lineup-B") {
+        return Promise.resolve({ id: "lineup-B", matchId: "match-B" });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    await expect(
+      updateGameEventTx({
+        eventId: "event-1",
+        matchLineupId: "lineup-B",
+        eventDefinitionId: "def-1",
+        isLeadToGoal: false,
+      }),
+    ).rejects.toThrow(
+      "Lineup lineup-B does not belong to event match: match-A",
+    );
+  });
+
+  it("should throw error in updateGameEventTx if event belongs to another user", async () => {
+    mockGameEventsGet.mockResolvedValueOnce({
+      id: "event-1",
+      matchLineupId: "lineup-A",
+      eventDefinitionId: "def-1",
+    });
+
+    mockMatchLineupsGet.mockResolvedValue({
+      id: "lineup-A",
+      matchId: "match-A",
+    });
+
+    mockMatchesGet.mockResolvedValue({
+      id: "match-A",
+      userId: "user-owner",
+    });
+
+    await expect(
+      updateGameEventTx({
+        eventId: "event-1",
+        matchLineupId: "lineup-A",
+        eventDefinitionId: "def-1",
+        isLeadToGoal: false,
+        userId: "user-attacker",
+      }),
+    ).rejects.toThrow("Event event-1 belongs to another user.");
   });
 });
