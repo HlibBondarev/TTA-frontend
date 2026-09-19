@@ -2,6 +2,8 @@ import { apiClient } from "../api/client";
 import { sportService } from "./sportService";
 import { saveEventDefinitionsToDb } from "../db/eventService";
 import { db } from "../db/ttaDatabase";
+import { store } from "../store";
+import { incrementHydrationVersion } from "../features/matches/store/matchSlice";
 import type {
   MatchLookup,
   TrackedMatch,
@@ -637,6 +639,8 @@ export const hydrateMatchData = async (
       checkFreshness,
     });
 
+    store.dispatch(incrementHydrationVersion());
+
     return { success: true, isOfflineFallback: false };
   } catch (err) {
     if (shouldRethrowError(err)) {
@@ -648,6 +652,7 @@ export const hydrateMatchData = async (
       err,
     );
     await seedTestData();
+    store.dispatch(incrementHydrationVersion());
     return { success: true, isOfflineFallback: true };
   }
 };

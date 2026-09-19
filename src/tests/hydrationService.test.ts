@@ -10,6 +10,14 @@ import { apiClient } from "../api/client";
 import { sportService } from "../services/sportService";
 import { db, type MatchLookup } from "../db/ttaDatabase";
 import { seedTestData } from "../db/seed";
+import { store } from "../store";
+import { incrementHydrationVersion } from "../features/matches/store/matchSlice";
+
+vi.mock("../store", () => ({
+  store: {
+    dispatch: vi.fn(),
+  },
+}));
 
 vi.mock("../api/client", () => ({
   apiClient: {
@@ -209,6 +217,7 @@ describe("Hydration Service", () => {
         sortOrder: 2,
       },
     ]);
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
   it("should NOT issue UncatchMatch DELETE API call or enqueue in syncQueue when discardUnfinishedMatch is called for a completed match with non-null scores and teamId", async () => {
@@ -383,6 +392,7 @@ describe("Hydration Service", () => {
     expect(result).toEqual({ success: true, isOfflineFallback: false });
     expect(db.playerpresences.bulkPut).not.toHaveBeenCalled();
     expect(db.gameevents.bulkPut).not.toHaveBeenCalled();
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
   it("should identify error objects with StaleUserError name or string match in shouldRethrowError", async () => {
@@ -707,6 +717,7 @@ describe("Hydration Service", () => {
     expect(db.matchlineups.bulkPut).toHaveBeenCalledWith([
       { id: "l1", matchId },
     ]);
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
   it("preserves existing local userId and trackedTeamId when userId parameter is omitted during hydration", async () => {
@@ -733,6 +744,7 @@ describe("Hydration Service", () => {
       userId: "existing-owner-id",
       trackedTeamId: teamId,
     });
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
   it("fetches and stores tournament and sport configuration when match contains tournamentId", async () => {
@@ -776,6 +788,7 @@ describe("Hydration Service", () => {
       configurationId: configId,
     });
     expect(db.sportconfigurations.put).toHaveBeenCalledWith(mockConfig);
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
   it("re-throws Hydration Metadata Error when tournament fetch fails", async () => {
@@ -794,6 +807,7 @@ describe("Hydration Service", () => {
       "Hydration Metadata Error: Failed to fetch tournament 'tourn-failed' during hydration: Tournament fetch failed 500",
     );
     expect(seedTestData).not.toHaveBeenCalled();
+    expect(store.dispatch).not.toHaveBeenCalled();
   });
 
   it("re-throws Hydration Metadata Error when tournament response is null", async () => {
@@ -812,6 +826,7 @@ describe("Hydration Service", () => {
       `Hydration Metadata Error: Tournament '${tournamentId}' returned null during hydration.`,
     );
     expect(seedTestData).not.toHaveBeenCalled();
+    expect(store.dispatch).not.toHaveBeenCalled();
   });
 
   it("re-throws Hydration Metadata Error when sportService.getSportConfigurations request is rejected", async () => {
@@ -840,6 +855,7 @@ describe("Hydration Service", () => {
       `Hydration Metadata Error: Failed to fetch sport configurations for sport '${sportId}': Network error loading sport configurations`,
     );
     expect(seedTestData).not.toHaveBeenCalled();
+    expect(store.dispatch).not.toHaveBeenCalled();
   });
 
   it("re-throws Hydration Metadata Error when tournament is missing required IDs", async () => {
@@ -858,6 +874,7 @@ describe("Hydration Service", () => {
       "Hydration Metadata Error: Tournament 'tourn-incomplete' is missing sportId or configurationId.",
     );
     expect(seedTestData).not.toHaveBeenCalled();
+    expect(store.dispatch).not.toHaveBeenCalled();
   });
 
   it("re-throws Hydration Metadata Error when sport configuration fetch fails or matching config is not found", async () => {
@@ -884,6 +901,7 @@ describe("Hydration Service", () => {
       "Hydration Metadata Error: SportConfiguration 'config-missing' not found for sport 'sport-111'.",
     );
     expect(seedTestData).not.toHaveBeenCalled();
+    expect(store.dispatch).not.toHaveBeenCalled();
   });
 
   it("deletes synced presence and event rows for removed lineup IDs when server returns empty lineups", async () => {
@@ -957,6 +975,7 @@ describe("Hydration Service", () => {
       "synced-old-p1",
     ]);
     expect(db.gameevents.bulkDelete).toHaveBeenCalledWith(["synced-old-e1"]);
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
   it("handles undefined server collections and empty definitions gracefully", async () => {
@@ -973,6 +992,7 @@ describe("Hydration Service", () => {
     expect(result).toEqual({ success: true, isOfflineFallback: false });
     expect(db.matches.put).not.toHaveBeenCalled();
     expect(db.eventdefinitions.bulkPut).not.toHaveBeenCalled();
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
   it("executes Dexie filter predicates and handles presence/event bulk operations", async () => {
@@ -1038,6 +1058,7 @@ describe("Hydration Service", () => {
     expect(result).toEqual({ success: true, isOfflineFallback: false });
     expect(db.playerpresences.bulkDelete).toHaveBeenCalledWith(["synced-p1"]);
     expect(db.gameevents.bulkDelete).toHaveBeenCalledWith(["synced-e1"]);
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
   it("re-throws 401 or 403 authentication errors to caller", async () => {
@@ -1047,6 +1068,7 @@ describe("Hydration Service", () => {
 
     await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow("401");
     expect(seedTestData).not.toHaveBeenCalled();
+    expect(store.dispatch).not.toHaveBeenCalled();
   });
 
   it("re-throws 403 Forbidden error when message contains 403", async () => {
@@ -1056,6 +1078,7 @@ describe("Hydration Service", () => {
 
     await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow("403");
     expect(seedTestData).not.toHaveBeenCalled();
+    expect(store.dispatch).not.toHaveBeenCalled();
   });
 
   it("re-throws non-Error throwables if they contain 401 or 403", async () => {
@@ -1063,24 +1086,27 @@ describe("Hydration Service", () => {
 
     await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow("401");
     expect(seedTestData).not.toHaveBeenCalled();
+    expect(store.dispatch).not.toHaveBeenCalled();
   });
 
-  it("falls back to local seedTestData on non-Error throwable general failures", async () => {
+  it("falls back to local seedTestData and dispatches incrementHydrationVersion on non-Error throwable general failures", async () => {
     vi.mocked(apiClient.get).mockRejectedValue("Generic string exception");
 
     const result = await hydrateMatchData(matchId, teamId);
 
     expect(result).toEqual({ success: true, isOfflineFallback: true });
     expect(seedTestData).toHaveBeenCalledTimes(1);
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
-  it("falls back to local seedTestData on general network/server errors", async () => {
+  it("falls back to local seedTestData and dispatches incrementHydrationVersion on general network/server errors", async () => {
     vi.mocked(apiClient.get).mockRejectedValue(new Error("Failed to fetch"));
 
     const result = await hydrateMatchData(matchId, teamId);
 
     expect(result).toEqual({ success: true, isOfflineFallback: true });
     expect(seedTestData).toHaveBeenCalledTimes(1);
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
   it("should skip finished matches and return the first unfinished match when IndexedDB contains multiple match rows", async () => {
@@ -1154,6 +1180,7 @@ describe("Hydration Service", () => {
     ).rejects.toThrow(StaleUserError);
 
     expect(db.matches.put).not.toHaveBeenCalled();
+    expect(store.dispatch).not.toHaveBeenCalled();
   });
 
   it("should rely on transaction rollback if checkFreshness throws StaleUserError after persistence", async () => {
@@ -1186,6 +1213,7 @@ describe("Hydration Service", () => {
 
     expect(db.matches.put).toHaveBeenCalled();
     expect(db.matches.delete).not.toHaveBeenCalled();
+    expect(store.dispatch).not.toHaveBeenCalled();
   });
 
   it("rejects hydration when existing local match belongs to a different userId", async () => {
@@ -1208,6 +1236,7 @@ describe("Hydration Service", () => {
     );
 
     expect(db.matches.put).not.toHaveBeenCalled();
+    expect(store.dispatch).not.toHaveBeenCalled();
   });
 
   it("preserves existing local userId and trackedTeamId when userId parameter is empty string during hydration", async () => {
@@ -1234,6 +1263,7 @@ describe("Hydration Service", () => {
       userId: "existing-owner-id",
       trackedTeamId: teamId,
     });
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
   it("should recover trackedTeamId from syncQueue catch endpoint if missing in match record", async () => {
@@ -1382,6 +1412,7 @@ describe("Hydration Service", () => {
         trackedTeamId: "team-guest-2",
       }),
     );
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
   it("should catch and log error when db.syncQueue.toArray fails during checkUnfinishedMatch team recovery", async () => {
@@ -1606,6 +1637,7 @@ describe("Hydration Service", () => {
       "terminal-e1",
       "synced-e2",
     ]);
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
   it("should purge staged syncQueue item and not leave in queue when discardUnfinishedMatch API delete fails online with unrecoverable status (e.g., 404)", async () => {
@@ -1765,6 +1797,7 @@ describe("Hydration Service", () => {
 
     expect(result).toEqual({ success: true, isOfflineFallback: false });
     expect(db.eventdefinitions.where).toHaveBeenCalledWith("sportId");
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
   it("persists event definitions using tournament.sportId fallback when sportConfig omits sportId", async () => {
@@ -1787,7 +1820,6 @@ describe("Hydration Service", () => {
         configurationId: configId,
       });
 
-    // sportConfig omits sportId property
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
       { id: configId } as unknown as Awaited<
         ReturnType<typeof sportService.getSportConfigurations>
@@ -1804,5 +1836,6 @@ describe("Hydration Service", () => {
         name: "Goal",
       }),
     ]);
+    expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 });
