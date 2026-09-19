@@ -98,7 +98,7 @@ async function parseProblemDetails(
     }
 
     const plainText = trimmedText
-      .replace(/<[^>]*>/g, " ")
+      .replace(/<[^<>]*>/g, " ")
       .replace(/\s+/g, " ")
       .trim();
 
