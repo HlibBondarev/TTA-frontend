@@ -92,6 +92,9 @@ describe("Event Database Service (eventService)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearEventDefinitionsCache();
+    mockWhereEqualsToArray.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([]),
+    });
   });
 
   it("should load definitions into cache and return in-memory cache on subsequent calls", async () => {
@@ -183,6 +186,53 @@ describe("Event Database Service (eventService)", () => {
     );
     await loadEventDefinitionsCache();
     expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
+  });
+
+  it("should remove omitted definitions when hydrating a new definition set for the same sport via saveEventDefinitionsToDb", async () => {
+    const initialSet = [
+      {
+        id: "def-1",
+        sportId: "sport-1",
+        name: "Goal",
+        shortName: "GL",
+        isPositive: true,
+        isEnabled: true,
+      },
+      {
+        id: "def-2",
+        sportId: "sport-1",
+        name: "Foul",
+        shortName: "FL",
+        isPositive: false,
+        isEnabled: true,
+      },
+    ];
+
+    const updatedSet = [
+      {
+        id: "def-1",
+        sportId: "sport-1",
+        name: "Goal Updated",
+        shortName: "GL",
+        isPositive: true,
+        isEnabled: true,
+      },
+    ];
+
+    mockWhereEqualsToArray.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValueOnce([]),
+    });
+    await saveEventDefinitionsToDb(initialSet, "sport-1");
+
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(initialSet);
+
+    mockWhereEqualsToArray.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValueOnce(initialSet),
+    });
+    await saveEventDefinitionsToDb(updatedSet, "sport-1");
+
+    expect(db.eventdefinitions.bulkDelete).toHaveBeenCalledWith(["def-2"]);
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(updatedSet);
   });
 
   it("should replace sport event definitions atomically, purge missing IDs for sportId, and clear cache", async () => {

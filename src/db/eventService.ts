@@ -23,9 +23,10 @@ export const loadEventDefinitionsCache = async (
     return eventDefinitionsCache;
   }
 
-  const definitions = sportId
-    ? await db.eventdefinitions.where("sportId").equals(sportId).toArray()
-    : await db.eventdefinitions.toArray();
+  const definitions =
+    sportId && typeof db.eventdefinitions?.where === "function"
+      ? await db.eventdefinitions.where("sportId").equals(sportId).toArray()
+      : await db.eventdefinitions.toArray();
 
   const map = new Map<string, EventDefinitionLookup>();
 
@@ -49,14 +50,40 @@ export const clearEventDefinitionsCache = () => {
 };
 
 /**
- * Persists event definition records to IndexedDB and invalidates the in-memory definition cache upon success.
+ * Persists event definition records to IndexedDB for a sport, replacing obsolete definitions with the hydrated snapshot.
  */
 export const saveEventDefinitionsToDb = async (
   definitions: EventDefinitionLookup[],
+  sportId?: string,
 ): Promise<void> => {
-  if (!db.eventdefinitions || definitions.length === 0) return;
-  await db.eventdefinitions.bulkPut(definitions);
-  clearEventDefinitionsCache();
+  if (!db.eventdefinitions) return;
+
+  if (sportId) {
+    await replaceSportEventDefinitionsInDb(sportId, definitions);
+    return;
+  }
+
+  if (definitions.length === 0) return;
+
+  const bySport = new Map<string, EventDefinitionLookup[]>();
+  for (const def of definitions) {
+    if (!def.sportId) continue;
+    const list = bySport.get(def.sportId) ?? [];
+    list.push(def);
+    bySport.set(def.sportId, list);
+  }
+
+  if (bySport.size === 0) {
+    if (typeof db.eventdefinitions.bulkPut === "function") {
+      await db.eventdefinitions.bulkPut(definitions);
+    }
+    clearEventDefinitionsCache();
+    return;
+  }
+
+  for (const [sId, defs] of bySport.entries()) {
+    await replaceSportEventDefinitionsInDb(sId, defs);
+  }
 };
 
 /**
@@ -330,20 +357,33 @@ export const replaceSportEventDefinitionsInDb = async (
   const incomingIds = new Set(definitions.map((def) => def.id));
 
   await db.transaction("rw", [db.eventdefinitions], async () => {
-    const existingForSport = await db.eventdefinitions
-      .where("sportId")
-      .equals(sportId)
-      .toArray();
+    let existingForSport: EventDefinitionLookup[] = [];
+
+    if (typeof db.eventdefinitions.where === "function") {
+      existingForSport = await db.eventdefinitions
+        .where("sportId")
+        .equals(sportId)
+        .toArray();
+    } else if (typeof db.eventdefinitions.toArray === "function") {
+      const all = await db.eventdefinitions.toArray();
+      existingForSport = (all || []).filter((def) => def.sportId === sportId);
+    }
 
     const idsToDelete = existingForSport
       .filter((def) => !incomingIds.has(def.id))
       .map((def) => def.id);
 
-    if (idsToDelete.length > 0) {
+    if (
+      idsToDelete.length > 0 &&
+      typeof db.eventdefinitions.bulkDelete === "function"
+    ) {
       await db.eventdefinitions.bulkDelete(idsToDelete);
     }
 
-    if (definitions.length > 0) {
+    if (
+      definitions.length > 0 &&
+      typeof db.eventdefinitions.bulkPut === "function"
+    ) {
       await db.eventdefinitions.bulkPut(definitions);
     }
   });
