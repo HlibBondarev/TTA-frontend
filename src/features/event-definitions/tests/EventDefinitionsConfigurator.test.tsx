@@ -1,5 +1,7 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Provider } from "react-redux";
+import { configureStore } from "@reduxjs/toolkit";
 import { EventDefinitionsConfigurator } from "../components/EventDefinitionsConfigurator";
 import { eventDefinitionService } from "../../../services/eventDefinitionService";
 import * as eventService from "../../../db/eventService";
@@ -37,6 +39,24 @@ vi.mock("../../../db/ttaDatabase", () => ({
     transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
 }));
+
+const createTestStore = (currentUserId = "test-user-1") =>
+  configureStore({
+    reducer: {
+      auth: (state = { currentUserId }) => state,
+    },
+    preloadedState: {
+      auth: { currentUserId },
+    },
+  });
+
+const renderWithProvider = (ui: React.ReactElement, userId = "test-user-1") => {
+  const store = createTestStore(userId);
+  return {
+    store,
+    ...render(<Provider store={store}>{ui}</Provider>),
+  };
+};
 
 describe("EventDefinitionsConfigurator Component", () => {
   const SPORT_ID = "sport-waterpolo";
@@ -86,7 +106,7 @@ describe("EventDefinitionsConfigurator Component", () => {
   });
 
   it("renders loaded action definitions split across POSITIVE and NEGATIVE tabs", async () => {
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     expect(
       screen.getByText("Loading action definitions..."),
@@ -109,7 +129,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       eventDefinitionService.getAvailableForSport,
     ).mockResolvedValueOnce([]);
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     expect(
       await screen.findByText("No positive definitions available."),
@@ -121,7 +141,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       eventDefinitionService.getAvailableForSport,
     ).mockRejectedValueOnce(new Error("Network connection error"));
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     expect(
       await screen.findByText("Network connection error"),
@@ -129,7 +149,7 @@ describe("EventDefinitionsConfigurator Component", () => {
   });
 
   it("allows reordering items up and down within active tab", async () => {
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     await screen.findByText("Goal");
 
@@ -162,7 +182,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       undefined,
     );
 
-    render(
+    renderWithProvider(
       <EventDefinitionsConfigurator
         sportId={SPORT_ID}
         onPresetSaved={onPresetSaved}
@@ -188,7 +208,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       new Error("Failed to save preset on server"),
     );
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     const saveBtn = await screen.findByRole("button", {
       name: "Save Active Preset",
@@ -212,7 +232,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       isCustom: true,
     });
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     const openModalBtn = await screen.findByRole("button", {
       name: /^Custom Action$/i,
@@ -245,7 +265,7 @@ describe("EventDefinitionsConfigurator Component", () => {
   });
 
   it("allows closing the custom action modal without submitting", async () => {
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     const openModalBtn = await screen.findByRole("button", {
       name: /^Custom Action$/i,
@@ -261,7 +281,7 @@ describe("EventDefinitionsConfigurator Component", () => {
   });
 
   it("does not trigger custom creation if name or shortName is blank", async () => {
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     const openModalBtn = await screen.findByRole("button", {
       name: /^Custom Action$/i,
@@ -279,7 +299,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       new Error("Duplicate definition name"),
     );
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     const openModalBtn = await screen.findByRole("button", {
       name: /^Custom Action$/i,
@@ -304,7 +324,7 @@ describe("EventDefinitionsConfigurator Component", () => {
   it("does not delete custom definition if confirmation is cancelled", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     await screen.findByText("Goal");
 
@@ -324,7 +344,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       undefined,
     );
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     await screen.findByText("Goal");
 
@@ -349,7 +369,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       new Error("Forbidden to delete item"),
     );
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     await screen.findByText("Goal");
 
@@ -369,7 +389,7 @@ describe("EventDefinitionsConfigurator Component", () => {
   it("calls onChange prop with active event definition IDs on load and toggle", async () => {
     const onChangeMock = vi.fn();
 
-    render(
+    renderWithProvider(
       <EventDefinitionsConfigurator
         sportId={SPORT_ID}
         onChange={onChangeMock}
@@ -391,7 +411,7 @@ describe("EventDefinitionsConfigurator Component", () => {
   it("invokes onLoadStateChange with false on start and true when definitions load successfully", async () => {
     const onLoadStateChangeMock = vi.fn();
 
-    render(
+    renderWithProvider(
       <EventDefinitionsConfigurator
         sportId={SPORT_ID}
         onLoadStateChange={onLoadStateChangeMock}
@@ -411,7 +431,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       eventDefinitionService.getAvailableForSport,
     ).mockRejectedValueOnce(new Error("Failed to load"));
 
-    render(
+    renderWithProvider(
       <EventDefinitionsConfigurator
         sportId={SPORT_ID}
         onLoadStateChange={onLoadStateChangeMock}
@@ -447,19 +467,24 @@ describe("EventDefinitionsConfigurator Component", () => {
       .mockReturnValueOnce(firstFetchPromise)
       .mockResolvedValueOnce(secondFetchData);
 
+    const store = createTestStore();
     const { rerender } = render(
-      <EventDefinitionsConfigurator
-        sportId="sport-waterpolo"
-        onChange={onChangeMock}
-      />,
+      <Provider store={store}>
+        <EventDefinitionsConfigurator
+          sportId="sport-waterpolo"
+          onChange={onChangeMock}
+        />
+      </Provider>,
     );
 
     // Trigger a second load with a different sportId before the first resolves
     rerender(
-      <EventDefinitionsConfigurator
-        sportId="sport-basketball"
-        onChange={onChangeMock}
-      />,
+      <Provider store={store}>
+        <EventDefinitionsConfigurator
+          sportId="sport-basketball"
+          onChange={onChangeMock}
+        />
+      </Provider>,
     );
 
     await waitFor(() => {
@@ -489,7 +514,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       pendingPromise,
     );
 
-    const { unmount } = render(
+    const { unmount } = renderWithProvider(
       <EventDefinitionsConfigurator
         sportId={SPORT_ID}
         onChange={onChangeMock}
@@ -515,7 +540,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       eventDefinitionService.getAvailableForSport,
     ).mockResolvedValueOnce(mockDefinitions);
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     const saveBtn = await screen.findByRole("button", {
       name: "Save Active Preset",
@@ -551,7 +576,9 @@ describe("EventDefinitionsConfigurator Component", () => {
       eventDefinitionService.getAvailableForSport,
     ).mockResolvedValueOnce(mockDefinitions);
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} disabled={true} />);
+    renderWithProvider(
+      <EventDefinitionsConfigurator sportId={SPORT_ID} disabled={true} />,
+    );
 
     expect(await screen.findByText("Goal")).toBeInTheDocument();
 
@@ -596,8 +623,11 @@ describe("EventDefinitionsConfigurator Component", () => {
       createPromise,
     );
 
+    const store = createTestStore();
     const { rerender } = render(
-      <EventDefinitionsConfigurator sportId="sport-waterpolo" />,
+      <Provider store={store}>
+        <EventDefinitionsConfigurator sportId="sport-waterpolo" />
+      </Provider>,
     );
 
     await screen.findByText("Goal");
@@ -611,7 +641,11 @@ describe("EventDefinitionsConfigurator Component", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    rerender(<EventDefinitionsConfigurator sportId="sport-basketball" />);
+    rerender(
+      <Provider store={store}>
+        <EventDefinitionsConfigurator sportId="sport-basketball" />
+      </Provider>,
+    );
 
     resolveCreate!({
       id: "def-new",
@@ -642,8 +676,11 @@ describe("EventDefinitionsConfigurator Component", () => {
       deletePromise,
     );
 
+    const store = createTestStore();
     const { rerender } = render(
-      <EventDefinitionsConfigurator sportId="sport-waterpolo" />,
+      <Provider store={store}>
+        <EventDefinitionsConfigurator sportId="sport-waterpolo" />
+      </Provider>,
     );
 
     await screen.findByText("Goal");
@@ -654,7 +691,11 @@ describe("EventDefinitionsConfigurator Component", () => {
     const deleteBtn = screen.getByTitle("Delete Custom Action");
     fireEvent.click(deleteBtn);
 
-    rerender(<EventDefinitionsConfigurator sportId="sport-basketball" />);
+    rerender(
+      <Provider store={store}>
+        <EventDefinitionsConfigurator sportId="sport-basketball" />
+      </Provider>,
+    );
 
     resolveDelete!();
 
@@ -672,7 +713,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       eventDefinitionService.getAvailableForSport,
     ).mockResolvedValueOnce(mockDefinitions);
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     await screen.findByText("Goal");
 
@@ -726,7 +767,7 @@ describe("EventDefinitionsConfigurator Component", () => {
   });
 
   it("syncs loaded event definitions into Dexie IndexedDB on load", async () => {
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     await screen.findByText("Goal");
 
@@ -765,7 +806,7 @@ describe("EventDefinitionsConfigurator Component", () => {
   });
 
   it("syncs updated enabled states to Dexie IndexedDB on checkbox toggle", async () => {
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     await screen.findByText("Goal");
     vi.mocked(db.eventdefinitions.bulkPut).mockClear();
@@ -783,7 +824,7 @@ describe("EventDefinitionsConfigurator Component", () => {
   });
 
   it("syncs reordered items to Dexie IndexedDB when moving items within active tab", async () => {
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     await screen.findByText("Goal");
     vi.mocked(db.eventdefinitions.bulkPut).mockClear();
@@ -817,7 +858,7 @@ describe("EventDefinitionsConfigurator Component", () => {
         isCustom: true,
       });
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
     await screen.findByText("Goal");
 
     // First custom creation
@@ -856,7 +897,7 @@ describe("EventDefinitionsConfigurator Component", () => {
   });
 
   it("moves disabled item to bottom and re-enabled item to end of enabled section", async () => {
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     await screen.findByText("Goal");
 
@@ -889,7 +930,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       eventDefinitionService.getAvailableForSport,
     ).mockResolvedValueOnce(mockDefinitions);
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     await screen.findByText("Goal");
 
@@ -964,7 +1005,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       eventDefinitionService.getAvailableForSport,
     ).mockResolvedValueOnce(definitionsWithMissingIsEnabled as never);
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     expect(await screen.findByText("Corner Throw")).toBeInTheDocument();
 
@@ -990,7 +1031,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       deletePromise,
     );
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     await screen.findByText("Goal");
 
@@ -1041,11 +1082,14 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     const onLoadStateChangeMock = vi.fn();
 
+    const store = createTestStore();
     const { rerender } = render(
-      <EventDefinitionsConfigurator
-        sportId="sport-waterpolo"
-        onLoadStateChange={onLoadStateChangeMock}
-      />,
+      <Provider store={store}>
+        <EventDefinitionsConfigurator
+          sportId="sport-waterpolo"
+          onLoadStateChange={onLoadStateChangeMock}
+        />
+      </Provider>,
     );
 
     await waitFor(() => {
@@ -1058,10 +1102,12 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     // Change sportId while first syncToDexie is pending asynchronously
     rerender(
-      <EventDefinitionsConfigurator
-        sportId="sport-basketball"
-        onLoadStateChange={onLoadStateChangeMock}
-      />,
+      <Provider store={store}>
+        <EventDefinitionsConfigurator
+          sportId="sport-basketball"
+          onLoadStateChange={onLoadStateChangeMock}
+        />
+      </Provider>,
     );
 
     // Resolve stale syncToDexie promise
@@ -1091,7 +1137,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       conflictError,
     );
 
-    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+    renderWithProvider(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
 
     const openModalBtn = await screen.findByRole("button", {
       name: /^Custom Action$/i,
@@ -1113,5 +1159,20 @@ describe("EventDefinitionsConfigurator Component", () => {
         "An active custom event definition with this name already exists for the sport.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("passes currentUserId to replaceSportEventDefinitionsInDb when syncing to Dexie", async () => {
+    renderWithProvider(
+      <EventDefinitionsConfigurator sportId={SPORT_ID} />,
+      "user-xyz",
+    );
+
+    await screen.findByText("Goal");
+
+    expect(eventService.replaceSportEventDefinitionsInDb).toHaveBeenCalledWith(
+      SPORT_ID,
+      expect.any(Array),
+      "user-xyz",
+    );
   });
 });

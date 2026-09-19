@@ -5,12 +5,14 @@ import React, {
   useRef,
   useLayoutEffect,
 } from "react";
+import { useSelector } from "react-redux";
 import {
   eventDefinitionService,
   type EventDefinitionResponse,
 } from "../../../services/eventDefinitionService";
 import { replaceSportEventDefinitionsInDb } from "../../../db/eventService";
 import { db, type EventDefinitionLookup } from "../../../db/ttaDatabase";
+import type { RootState } from "../../../store";
 
 interface EventDefinitionsConfiguratorProps {
   sportId: string;
@@ -60,6 +62,20 @@ export const EventDefinitionsConfigurator: React.FC<
   onChange,
   onLoadStateChange,
 }) => {
+  const currentUserId = useSelector(
+    (state: RootState) =>
+      (
+        state as unknown as {
+          auth?: { user?: { id?: string }; currentUserId?: string };
+        }
+      ).auth?.currentUserId ??
+      (
+        state as unknown as {
+          auth?: { user?: { id?: string }; currentUserId?: string };
+        }
+      ).auth?.user?.id,
+  );
+
   const [definitions, setDefinitions] = useState<EventDefinitionResponse[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>("POSITIVE");
   const [loading, setLoading] = useState(true);
@@ -115,9 +131,13 @@ export const EventDefinitionsConfigurator: React.FC<
           isEnabled: def.isEnabled ?? true,
           sortOrder: def.sortOrder ?? idx + 1,
         }));
-      await replaceSportEventDefinitionsInDb(sportId, recordsToPut);
+      await replaceSportEventDefinitionsInDb(
+        sportId,
+        recordsToPut,
+        currentUserId,
+      );
     },
-    [sportId],
+    [sportId, currentUserId],
   );
 
   const reloadDefinitions = useCallback(async () => {
@@ -359,7 +379,7 @@ export const EventDefinitionsConfigurator: React.FC<
     }
   };
 
-  const handleCreateCustom = async (e: React.SubmitEvent<HTMLFormElement>) => {
+  const handleCreateCustom = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (isLocked || !newName.trim() || !newShortName.trim()) return;
 

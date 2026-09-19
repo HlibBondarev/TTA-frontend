@@ -4,13 +4,19 @@ import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { TTDActionsPanel } from "../components/TTAPanel";
 import { db } from "../../../db/ttaDatabase";
-import { clearEventDefinitionsCache } from "../../../db/eventService";
+import {
+  clearEventDefinitionsCache,
+  isSportHydratedForUser,
+  setHydratedUserIdForSport,
+} from "../../../db/eventService";
 import matchReducer from "../store/matchSlice";
 
 const mockWhereEqualsToArray = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../db/eventService", () => ({
   clearEventDefinitionsCache: vi.fn(),
+  isSportHydratedForUser: vi.fn().mockReturnValue(true),
+  setHydratedUserIdForSport: vi.fn(),
 }));
 
 vi.mock("../../../db/ttaDatabase", () => ({
@@ -133,6 +139,7 @@ describe("TTDActionsPanel Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(isSportHydratedForUser).mockReturnValue(true);
     vi.mocked(db.matches.get).mockResolvedValue({
       id: "test-match-1",
       tournamentId: "tour-1",
@@ -321,5 +328,67 @@ describe("TTDActionsPanel Component", () => {
     );
 
     expect(clearEventDefinitionsCache).toHaveBeenCalled();
+  });
+
+  it("gates action rendering on account switch until new account sport snapshot replaces records", async () => {
+    let hydratedUser = "user-A";
+    vi.mocked(isSportHydratedForUser).mockImplementation(
+      (_sportId, userId) => !userId || userId === hydratedUser,
+    );
+    vi.mocked(setHydratedUserIdForSport).mockImplementation(
+      (_sportId, userId) => {
+        if (userId) hydratedUser = userId;
+      },
+    );
+
+    const storeUserA = createTestStore("test-match-1", "user-A");
+    setHydratedUserIdForSport("s1", "user-A");
+
+    const { rerender } = render(
+      <Provider store={storeUserA}>
+        <TTDActionsPanel
+          onActionSelect={vi.fn()}
+          selectedAction={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Goal")).toBeInTheDocument();
+
+    // Switch to user-B before user-B's hydration for s1 completes
+    hydratedUser = "user-A";
+    const storeUserB = createTestStore("test-match-1", "user-B");
+    rerender(
+      <Provider store={storeUserB}>
+        <TTDActionsPanel
+          onActionSelect={vi.fn()}
+          selectedAction={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    // Actions from user-A must NOT be rendered for user-B (gated)
+    await waitFor(() => {
+      expect(screen.queryByText("Goal")).not.toBeInTheDocument();
+    });
+
+    // Simulate user-B snapshot hydration completing
+    setHydratedUserIdForSport("s1", "user-B");
+
+    // Force re-render with key to re-mount component and trigger liveQuery effect with updated hydration state
+    rerender(
+      <Provider store={storeUserB}>
+        <TTDActionsPanel
+          key="user-B-hydrated"
+          onActionSelect={vi.fn()}
+          selectedAction={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Goal")).toBeInTheDocument();
   });
 });

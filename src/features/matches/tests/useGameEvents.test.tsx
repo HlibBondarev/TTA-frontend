@@ -28,10 +28,11 @@ vi.mock("../../../db/eventService", () => ({
   deleteGameEventTx: vi.fn(),
 }));
 
-const createTestStore = (preloadedState = {}) => {
+const createTestStore = (preloadedState = {}, currentUserId = "user-123") => {
   return configureStore({
     reducer: {
       match: matchReducer,
+      auth: (state = { currentUserId }) => state,
     },
     preloadedState: {
       match: {
@@ -46,6 +47,9 @@ const createTestStore = (preloadedState = {}) => {
         globalSequenceNumber: 10,
         recentActions: [],
         ...preloadedState,
+      },
+      auth: {
+        currentUserId,
       },
     },
   });
@@ -112,6 +116,7 @@ describe("useGameEvents Custom Hook", () => {
     expect(eventService.getEventDefinitionByName).toHaveBeenCalledWith(
       "Goal",
       "waterpolo-sport-id",
+      "user-123",
     );
 
     expect(eventService.createGameEventTx).toHaveBeenCalledWith({
@@ -620,5 +625,36 @@ describe("useGameEvents Custom Hook", () => {
         });
       }),
     ).rejects.toThrow("Sport is missing for match: test-match-id");
+  });
+
+  it("should throw an error if match belongs to another user", async () => {
+    const store = createTestStore({}, "user-B");
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-1",
+      matchId: "test-match-id",
+      playerRosterId: "roster-1",
+      number: 1,
+      positionId: null,
+    });
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "test-match-id",
+      tournamentId: "tour-123",
+      userId: "user-A",
+    } as never);
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.recordGameEvent({
+          selectedPlayerId: "lineup-uuid-1",
+          actionName: "Pass",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow("Match test-match-id belongs to another user.");
   });
 });

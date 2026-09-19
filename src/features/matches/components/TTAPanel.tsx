@@ -2,7 +2,10 @@ import React, { useEffect, useState } from "react";
 import { useSelector } from "react-redux";
 import { liveQuery } from "dexie";
 import { db, type EventDefinitionLookup } from "../../../db/ttaDatabase";
-import { clearEventDefinitionsCache } from "../../../db/eventService";
+import {
+  clearEventDefinitionsCache,
+  isSportHydratedForUser,
+} from "../../../db/eventService";
 import type { RootState } from "../../../store";
 
 interface TTDActionsPanelProps {
@@ -64,6 +67,10 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
       const match = await db.matches.get(activeMatchId);
       if (!match) return [];
 
+      if (currentUserId && match.userId && match.userId !== currentUserId) {
+        return [];
+      }
+
       let targetSportId: string | null = null;
       if (match.tournamentId) {
         const tournament = await db.tournaments.get(match.tournamentId);
@@ -73,6 +80,13 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
       }
 
       if (!targetSportId) return [];
+
+      if (
+        currentUserId &&
+        !isSportHydratedForUser(targetSportId, currentUserId)
+      ) {
+        return [];
+      }
 
       const definitions = await db.eventdefinitions
         .where("sportId")

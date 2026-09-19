@@ -483,6 +483,7 @@ const persistHydrationPayloads = async (
   matchId: string,
   sportId: string | undefined,
   payloads: HydrationPayloads,
+  userId?: string,
 ): Promise<void> => {
   const existingLineups = await db.matchlineups
     .where("matchId")
@@ -516,7 +517,7 @@ const persistHydrationPayloads = async (
       }));
 
     if (definitions.length > 0) {
-      await saveEventDefinitionsToDb(definitions);
+      await saveEventDefinitionsToDb(definitions, sportId, userId);
     }
   }
 };
@@ -565,7 +566,12 @@ const executeMatchTransaction = async (
       if (tournament) await db.tournaments.put(tournament);
       if (sportConfig) await db.sportconfigurations.put(sportConfig);
 
-      await persistHydrationPayloads(matchId, sportConfig?.sportId, payloads);
+      await persistHydrationPayloads(
+        matchId,
+        sportConfig?.sportId,
+        payloads,
+        userId,
+      );
 
       checkFreshness?.();
     },

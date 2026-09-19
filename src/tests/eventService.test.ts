@@ -560,4 +560,25 @@ describe("Event Database Service (eventService)", () => {
     await loadEventDefinitionsCache(undefined, "user-2");
     expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
   });
+
+  it("should track hydrated user ID per sport and return empty cache if sport is hydrated for a different user", async () => {
+    mockWhereEqualsToArray.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockDefinitions),
+    });
+
+    // Hydrate definitions for user-1
+    await replaceSportEventDefinitionsInDb(
+      "sport-1",
+      mockDefinitions,
+      "user-1",
+    );
+
+    // Cache lookup for user-1 should return items
+    const user1Cache = await loadEventDefinitionsCache("sport-1", "user-1");
+    expect(user1Cache.size).toBe(2);
+
+    // Cache lookup for user-2 (not yet hydrated for sport-1) should return empty Map (gated)
+    const user2Cache = await loadEventDefinitionsCache("sport-1", "user-2");
+    expect(user2Cache.size).toBe(0);
+  });
 });

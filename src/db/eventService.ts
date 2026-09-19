@@ -10,6 +10,30 @@ let eventDefinitionsCache: Map<string, EventDefinitionLookup> | null = null;
 let cachedSportId: string | undefined = undefined;
 let cachedUserId: string | undefined = undefined;
 
+// In-memory map tracking which userId last hydrated event definitions for each sportId
+const hydratedUserIdBySport = new Map<string, string>();
+
+export const setHydratedUserIdForSport = (sportId: string, userId?: string) => {
+  if (sportId && userId?.trim()) {
+    hydratedUserIdBySport.set(sportId, userId.trim());
+  }
+};
+
+export const getHydratedUserIdForSport = (
+  sportId: string,
+): string | undefined => {
+  return hydratedUserIdBySport.get(sportId);
+};
+
+export const isSportHydratedForUser = (
+  sportId: string,
+  userId?: string,
+): boolean => {
+  if (!userId?.trim()) return true;
+  const hydratedUser = hydratedUserIdBySport.get(sportId);
+  return !hydratedUser || hydratedUser === userId.trim();
+};
+
 /**
  * Loads event definitions from IndexedDB into memory map for fast lookup by name, filtered by sportId and userId if provided.
  */
@@ -17,6 +41,13 @@ export const loadEventDefinitionsCache = async (
   sportId?: string,
   userId?: string,
 ): Promise<Map<string, EventDefinitionLookup>> => {
+  if (sportId && userId?.trim()) {
+    const hydratedUser = hydratedUserIdBySport.get(sportId);
+    if (hydratedUser && hydratedUser !== userId.trim()) {
+      return new Map();
+    }
+  }
+
   if (
     eventDefinitionsCache &&
     eventDefinitionsCache.size > 0 &&
@@ -60,11 +91,12 @@ export const clearEventDefinitionsCache = () => {
 export const saveEventDefinitionsToDb = async (
   definitions: EventDefinitionLookup[],
   sportId?: string,
+  userId?: string,
 ): Promise<void> => {
   if (!db.eventdefinitions) return;
 
   if (sportId) {
-    await replaceSportEventDefinitionsInDb(sportId, definitions);
+    await replaceSportEventDefinitionsInDb(sportId, definitions, userId);
     return;
   }
 
@@ -87,7 +119,7 @@ export const saveEventDefinitionsToDb = async (
   }
 
   for (const [sId, defs] of bySport.entries()) {
-    await replaceSportEventDefinitionsInDb(sId, defs);
+    await replaceSportEventDefinitionsInDb(sId, defs, userId);
   }
 };
 
@@ -357,6 +389,7 @@ export const deleteGameEventTx = async (eventId: string): Promise<void> => {
 export const replaceSportEventDefinitionsInDb = async (
   sportId: string,
   definitions: EventDefinitionLookup[],
+  userId?: string,
 ): Promise<void> => {
   if (!db.eventdefinitions || !sportId) return;
 
@@ -393,6 +426,10 @@ export const replaceSportEventDefinitionsInDb = async (
       await db.eventdefinitions.bulkPut(definitions);
     }
   });
+
+  if (userId?.trim()) {
+    hydratedUserIdBySport.set(sportId, userId.trim());
+  }
 
   clearEventDefinitionsCache();
 };
