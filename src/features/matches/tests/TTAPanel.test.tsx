@@ -6,7 +6,7 @@ import { TTDActionsPanel } from "../components/TTAPanel";
 import { db } from "../../../db/ttaDatabase";
 import matchReducer from "../store/matchSlice";
 
-const mockWhereEqualsToArray = vi.fn();
+const mockWhereEqualsToArray = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
@@ -249,7 +249,6 @@ describe("TTDActionsPanel Component", () => {
       </Provider>,
     );
 
-    // Перевіряємо, що жодне визначення не рендериться, оскільки sportId не знайдено
     await waitFor(() => {
       expect(screen.queryByText("Goal")).not.toBeInTheDocument();
     });
