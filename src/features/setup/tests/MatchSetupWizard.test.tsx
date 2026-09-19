@@ -3154,13 +3154,8 @@ describe("MatchSetupWizard Component", () => {
     const checkbox = await screen.findByRole("checkbox", {
       name: /Enable Goal/i,
     });
-    await act(async () => {
-      fireEvent.click(checkbox);
-    });
-
-    await act(async () => {
-      fireEvent.click(screen.getByText("Home Squad"));
-    });
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByText("Home Squad"));
 
     let resolveBulkPut: () => void;
     const bulkPutPromise = new Promise<void>((resolve) => {
@@ -3172,19 +3167,21 @@ describe("MatchSetupWizard Component", () => {
       return bulkPutPromise as never;
     });
 
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
-      );
-    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
 
+    // Switch account to User B
     mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
-    await act(async () => {
-      rerender(
-        <Provider store={store}>
-          <MatchSetupWizard onQuickStart={handleQuickStart} />
-        </Provider>,
-      );
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={handleQuickStart} />
+      </Provider>,
+    );
+
+    // Wait for User B remount and background effects to settle completely
+    await waitFor(() => {
+      expect(screen.queryByText(/Select Team to Track/i)).toBeNull();
     });
 
     // Interleaving write modifies sortOrder in database store
