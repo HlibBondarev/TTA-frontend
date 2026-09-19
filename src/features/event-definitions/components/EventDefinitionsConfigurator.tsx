@@ -379,7 +379,9 @@ export const EventDefinitionsConfigurator: React.FC<
     }
   };
 
-  const handleCreateCustom = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleCreateCustom = async (
+    e: React.SyntheticEvent<HTMLFormElement>,
+  ) => {
     e.preventDefault();
     if (isLocked || !newName.trim() || !newShortName.trim()) return;
 
