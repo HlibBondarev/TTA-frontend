@@ -753,4 +753,42 @@ describe("Event Database Service (eventService)", () => {
       "Existing lineup record not found: lineup-missing-existing",
     );
   });
+
+  it("should defer hydratedUserIdBySport marker update until Dexie transaction complete event fires", async () => {
+    const completeListeners: Array<() => void> = [];
+    const mockTx = {
+      on: vi.fn((event: string, callback: () => void) => {
+        if (event === "complete") {
+          completeListeners.push(callback);
+        }
+      }),
+    };
+
+    // Simulate active Dexie transaction
+    const dexieModule = await import("dexie");
+    vi.spyOn(dexieModule.default, "currentTransaction", "get").mockReturnValue(
+      mockTx as unknown as import("dexie").Transaction,
+    );
+
+    mockWhereEqualsToArray.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValueOnce([]),
+    });
+
+    const sportId = "sport-tx-test";
+    const userId = "user-tx-1";
+
+    await replaceSportEventDefinitionsInDb(sportId, mockDefinitions, userId);
+
+    // Verify event listener was registered on the active transaction
+    expect(mockTx.on).toHaveBeenCalledWith("complete", expect.any(Function));
+
+    // Before transaction completion, marker must NOT be set yet
+    expect(isSportHydratedForUser(sportId, userId)).toBe(false);
+
+    // Trigger transaction complete event
+    completeListeners.forEach((listener) => listener());
+
+    // After transaction completes, marker must be updated
+    expect(isSportHydratedForUser(sportId, userId)).toBe(true);
+  });
 });

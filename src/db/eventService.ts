@@ -1,3 +1,4 @@
+import Dexie from "dexie";
 import {
   db,
   type GameEvent,
@@ -462,6 +463,7 @@ export const replaceSportEventDefinitionsInDb = async (
   if (!db.eventdefinitions || !sportId) return;
 
   const incomingIds = new Set(definitions.map((def) => def.id));
+  const normalizedUserId = userId?.trim();
 
   await db.transaction("rw", [db.eventdefinitions], async () => {
     let existingForSport: EventDefinitionLookup[] = [];
@@ -493,11 +495,20 @@ export const replaceSportEventDefinitionsInDb = async (
     ) {
       await db.eventdefinitions.bulkPut(definitions);
     }
+
+    const currentTx = Dexie.currentTransaction;
+    if (currentTx && typeof currentTx.on === "function") {
+      currentTx.on("complete", () => {
+        if (normalizedUserId) {
+          hydratedUserIdBySport.set(sportId, normalizedUserId);
+        }
+        clearEventDefinitionsCache();
+      });
+    } else {
+      if (normalizedUserId) {
+        hydratedUserIdBySport.set(sportId, normalizedUserId);
+      }
+      clearEventDefinitionsCache();
+    }
   });
-
-  if (userId?.trim()) {
-    hydratedUserIdBySport.set(sportId, userId.trim());
-  }
-
-  clearEventDefinitionsCache();
 };
