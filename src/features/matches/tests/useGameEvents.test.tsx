@@ -7,6 +7,12 @@ import matchReducer from "../store/matchSlice";
 import { db } from "../../../db/ttaDatabase";
 import * as eventService from "../../../db/eventService";
 
+vi.mock("@auth0/auth0-react", () => ({
+  useAuth0: () => ({
+    user: undefined,
+  }),
+}));
+
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
     matchlineups: {

@@ -1,3 +1,4 @@
+import { useAuth0 } from "@auth0/auth0-react";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import {
   setGlobalSequenceNumber,
@@ -29,10 +30,12 @@ export interface UpdateGameEventParams {
   eventDefinitionId?: string;
 }
 
-export const useGameEvents = (matchId: string) => {
+export const useGameEvents = (matchId: string, userId?: string) => {
   const dispatch = useAppDispatch();
   const { periodNumber, activeTeamId } = useAppSelector((state) => state.match);
-  const currentUserId = useAppSelector(
+  const { user } = useAuth0();
+  const auth0UserId = user?.sub ?? user?.email;
+  const reduxUserId = useAppSelector(
     (state) =>
       (
         state as unknown as {
@@ -45,6 +48,7 @@ export const useGameEvents = (matchId: string) => {
         }
       ).auth?.user?.id,
   );
+  const currentUserId = userId?.trim() || auth0UserId || reduxUserId;
 
   /**
    * Helper to resolve sportId for the active match and verify user ownership.
