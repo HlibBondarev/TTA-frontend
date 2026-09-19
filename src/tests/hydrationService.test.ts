@@ -1766,4 +1766,43 @@ describe("Hydration Service", () => {
     expect(result).toEqual({ success: true, isOfflineFallback: false });
     expect(db.eventdefinitions.where).toHaveBeenCalledWith("sportId");
   });
+
+  it("persists event definitions using tournament.sportId fallback when sportConfig omits sportId", async () => {
+    const mockDefinitions = [{ id: "def-1", name: "Goal", isPositive: true }];
+
+    const tournamentId = "t-fallback-1";
+    const sportId = "sport-tournament-id";
+    const configId = "cfg-no-sport-id";
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId, tournamentId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(mockDefinitions)
+      .mockResolvedValueOnce({
+        id: tournamentId,
+        sportId,
+        configurationId: configId,
+      });
+
+    // sportConfig omits sportId property
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      { id: configId } as unknown as Awaited<
+        ReturnType<typeof sportService.getSportConfigurations>
+      >[0],
+    ]);
+
+    const result = await hydrateMatchData(matchId, teamId);
+
+    expect(result).toEqual({ success: true, isOfflineFallback: false });
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: "def-1",
+        sportId: "sport-tournament-id",
+        name: "Goal",
+      }),
+    ]);
+  });
 });

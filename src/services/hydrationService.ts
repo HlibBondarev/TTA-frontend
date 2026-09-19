@@ -566,7 +566,7 @@ const executeMatchTransaction = async (
 
       await persistHydrationPayloads(
         matchId,
-        sportConfig?.sportId,
+        tournament?.sportId ?? sportConfig?.sportId,
         payloads,
         userId,
       );
