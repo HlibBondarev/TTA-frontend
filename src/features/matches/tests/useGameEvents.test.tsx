@@ -52,6 +52,7 @@ const createTestStore = (preloadedState = {}, currentUserId = "user-123") => {
         isPeriodEnded: false,
         globalSequenceNumber: 10,
         recentActions: [],
+        hydrationVersion: 0,
         ...preloadedState,
       },
       auth: {

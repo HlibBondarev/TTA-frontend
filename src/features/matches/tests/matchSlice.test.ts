@@ -30,6 +30,7 @@ describe("matchSlice Reducers", () => {
     isPeriodEnded: false,
     globalSequenceNumber: 0,
     recentActions: [],
+    hydrationVersion: 0,
   };
 
   const sampleAction: ActionEntry = {

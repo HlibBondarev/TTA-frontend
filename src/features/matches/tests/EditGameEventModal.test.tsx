@@ -57,6 +57,7 @@ const createStore = () =>
         isPeriodEnded: false,
         globalSequenceNumber: 1,
         recentActions: [],
+        hydrationVersion: 0,
       },
     },
   });

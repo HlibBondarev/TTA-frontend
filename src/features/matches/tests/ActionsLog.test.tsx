@@ -81,6 +81,7 @@ const createStoreWithActions = (actions: ActionEntry[]) => {
         isPeriodEnded: false,
         globalSequenceNumber: 2,
         recentActions: actions,
+        hydrationVersion: 0,
       },
     },
   });

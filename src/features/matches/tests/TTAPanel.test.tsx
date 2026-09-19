@@ -9,7 +9,7 @@ import {
   isSportHydratedForUser,
   setHydratedUserIdForSport,
 } from "../../../db/eventService";
-import matchReducer from "../store/matchSlice";
+import matchReducer, { incrementHydrationVersion } from "../store/matchSlice";
 
 const mockWhereEqualsToArray = vi.hoisted(() => vi.fn());
 
@@ -82,6 +82,7 @@ const createTestStore = (
         isPeriodEnded: false,
         globalSequenceNumber: 1,
         recentActions: [],
+        hydrationVersion: 0,
       },
       auth: {
         currentUserId,
@@ -421,23 +422,7 @@ describe("TTDActionsPanel Component", () => {
     let isHydrated = false;
     vi.mocked(isSportHydratedForUser).mockImplementation(() => isHydrated);
 
-    const store = configureStore({
-      reducer: {
-        match: (
-          state = { activeMatchId: "test-match-1", hydrationVersion: 0 },
-          action,
-        ) => {
-          if (action.type === "MATCH_HYDRATED") {
-            return {
-              ...state,
-              hydrationVersion: (state.hydrationVersion || 0) + 1,
-            };
-          }
-          return state;
-        },
-        auth: (state = { currentUserId: "user-1" }) => state,
-      },
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -454,11 +439,11 @@ describe("TTDActionsPanel Component", () => {
       expect(screen.queryByText("Goal")).not.toBeInTheDocument();
     });
 
-    // Simulate successful hydration: update marker and dispatch Redux signal
+    // Simulate successful hydration: update marker and dispatch production action
     isHydrated = true;
-    store.dispatch({ type: "MATCH_HYDRATED" });
+    store.dispatch(incrementHydrationVersion());
 
-    // Panel re-queries Dexie DB via hydrationSignal in useEffect and renders action buttons
+    // Panel re-queries Dexie DB via hydrationVersion in useEffect and renders action buttons
     expect(await screen.findByText("Goal")).toBeInTheDocument();
   });
 });

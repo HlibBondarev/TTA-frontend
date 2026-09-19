@@ -49,6 +49,7 @@ const createTestStore = (
         isPeriodEnded: true,
         globalSequenceNumber: 10,
         recentActions: [],
+        hydrationVersion: 0,
         ...preloadedMatchState,
       },
       navigation: initialNavigationState,
