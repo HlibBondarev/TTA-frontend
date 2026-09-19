@@ -4,6 +4,7 @@ import { EventDefinitionsConfigurator } from "../components/EventDefinitionsConf
 import { eventDefinitionService } from "../../../services/eventDefinitionService";
 import * as eventService from "../../../db/eventService";
 import { db } from "../../../db/ttaDatabase";
+import { ApiError } from "../../../api/client";
 
 vi.mock("../../../services/eventDefinitionService", () => ({
   eventDefinitionService: {
@@ -1072,5 +1073,45 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     // Cleanup second request promise
     resolveSecondFetch!(mockDefinitions);
+  });
+
+  it("displays server problem details error message inside creation modal on 409 Conflict", async () => {
+    const conflictError = new ApiError(
+      "An active custom event definition with this name already exists for the sport.",
+      409,
+      {
+        title: "Status 409",
+        status: 409,
+        detail:
+          "An active custom event definition with this name already exists for the sport.",
+      },
+    );
+
+    vi.mocked(eventDefinitionService.createCustom).mockRejectedValueOnce(
+      conflictError,
+    );
+
+    render(<EventDefinitionsConfigurator sportId={SPORT_ID} />);
+
+    const openModalBtn = await screen.findByRole("button", {
+      name: /^Custom Action$/i,
+    });
+    fireEvent.click(openModalBtn);
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Counter Attack Goal"), {
+      target: { value: "My TTA - 2" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("e.g. CAG"), {
+      target: { value: "MTTA2" },
+    });
+
+    const createBtn = screen.getByRole("button", { name: "Create" });
+    fireEvent.click(createBtn);
+
+    expect(
+      await screen.findByText(
+        "An active custom event definition with this name already exists for the sport.",
+      ),
+    ).toBeInTheDocument();
   });
 });

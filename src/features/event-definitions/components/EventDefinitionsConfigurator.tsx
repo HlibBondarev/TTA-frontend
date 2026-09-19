@@ -71,6 +71,7 @@ export const EventDefinitionsConfigurator: React.FC<
 
   // Modal State for Custom Definition Creation
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newShortName, setNewShortName] = useState("");
   const [newIsPositive, setNewIsPositive] = useState(true);
@@ -366,7 +367,7 @@ export const EventDefinitionsConfigurator: React.FC<
 
     try {
       setCreating(true);
-      setError(null);
+      setModalError(null);
 
       await eventDefinitionService.createCustom(sportId, {
         id: crypto.randomUUID(),
@@ -381,13 +382,14 @@ export const EventDefinitionsConfigurator: React.FC<
       setNewName("");
       setNewShortName("");
       setNewIsPositive(true);
+      setModalError(null);
       setIsModalOpen(false);
 
       await reloadDefinitions();
     } catch (err) {
       if (requestId !== requestCountRef.current) return;
 
-      setError(
+      setModalError(
         err instanceof Error
           ? err.message
           : "Failed to create custom definition.",
@@ -464,6 +466,7 @@ export const EventDefinitionsConfigurator: React.FC<
           disabled={isLocked}
           onClick={() => {
             setCreating(false);
+            setModalError(null);
             setIsModalOpen(true);
           }}
           className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors"
@@ -668,6 +671,16 @@ export const EventDefinitionsConfigurator: React.FC<
             <h4 className="text-sm font-bold text-gray-200">
               Create Custom Action
             </h4>
+
+            {modalError && (
+              <div
+                role="alert"
+                className="p-2 text-xs bg-red-950/80 border border-red-800 text-red-200 rounded-lg"
+              >
+                {modalError}
+              </div>
+            )}
+
             <form onSubmit={handleCreateCustom} className="space-y-3">
               <div>
                 <label

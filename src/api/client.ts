@@ -3,6 +3,38 @@ import { getAuthToken } from "../services/tokenService";
 const BASE_URL = import.meta.env.VITE_API_URL || "/api";
 const DEFAULT_TIMEOUT_MS = 15000;
 
+/**
+ * Standard RFC 7807 Problem Details payload structure returned by backend services.
+ */
+export interface ProblemDetails {
+  title?: string;
+  status?: number;
+  detail?: string;
+  instance?: string;
+  traceId?: string;
+  errors?: Record<string, string[]>;
+  [key: string]: unknown;
+}
+
+/**
+ * Custom API Error class wrapping HTTP status codes and structured Problem Details response.
+ */
+export class ApiError extends Error {
+  status: number;
+  problemDetails?: ProblemDetails;
+
+  constructor(
+    message: string,
+    status: number,
+    problemDetails?: ProblemDetails,
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.problemDetails = problemDetails;
+  }
+}
+
 export interface RequestOptions extends RequestInit {
   token?: string;
 }
@@ -68,11 +100,27 @@ export const apiClient = {
       });
 
       if (!response.ok) {
-        const error = new Error(
-          `API Request failed: ${response.status} ${response.statusText}`,
-        ) as Error & { status?: number };
-        error.status = response.status;
-        throw error;
+        let problemDetails: ProblemDetails | undefined;
+        let errorMessage = `API Request failed: ${response.status} ${response.statusText}`;
+
+        try {
+          const text = await response.text();
+          if (text?.trim()) {
+            const parsed = JSON.parse(text) as ProblemDetails;
+            if (parsed && typeof parsed === "object") {
+              problemDetails = parsed;
+              if (parsed.detail?.trim()) {
+                errorMessage = parsed.detail.trim();
+              } else if (parsed.title?.trim()) {
+                errorMessage = parsed.title.trim();
+              }
+            }
+          }
+        } catch {
+          // Fallback to default HTTP status message if body parsing fails
+        }
+
+        throw new ApiError(errorMessage, response.status, problemDetails);
       }
 
       // Handle 204 No Content

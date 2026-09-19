@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { apiClient } from "../api/client";
+import { apiClient, ApiError } from "../api/client";
 import * as tokenService from "../services/tokenService";
 
 describe("API Client", () => {
@@ -161,6 +161,48 @@ describe("API Client", () => {
 
     await expect(apiClient.get("aborted-endpoint")).rejects.toThrow(
       "The operation was aborted",
+    );
+  });
+
+  it("throws ApiError containing problemDetails and detail message on RFC 7807 Problem Details response", async () => {
+    const problemPayload = {
+      title: "Status 409",
+      status: 409,
+      detail:
+        "An active custom event definition with this name already exists for the sport.",
+      instance: "POST /api/Sports/123/event-definitions/custom",
+      traceId: "0HNOLORBPJ827:00000001",
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 409,
+      statusText: "Conflict",
+      text: async () => JSON.stringify(problemPayload),
+    } as Response);
+
+    const promise = apiClient.get("/test-conflict");
+
+    await expect(promise).rejects.toThrow(
+      "An active custom event definition with this name already exists for the sport.",
+    );
+    await expect(promise).rejects.toBeInstanceOf(ApiError);
+    await expect(promise).rejects.toMatchObject({
+      status: 409,
+      problemDetails: problemPayload,
+    });
+  });
+
+  it("uses title as error message if detail field is missing in Problem Details payload", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      text: async () => JSON.stringify({ title: "Validation failed" }),
+    } as Response);
+
+    await expect(apiClient.get("/test-bad-request")).rejects.toThrow(
+      "Validation failed",
     );
   });
 });
