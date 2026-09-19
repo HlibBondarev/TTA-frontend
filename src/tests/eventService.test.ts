@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { db } from "../db/ttaDatabase";
 import {
+  isSportHydratedForUser,
   loadEventDefinitionsCache,
   clearEventDefinitionsCache,
   getEventDefinitionByName,
@@ -580,5 +581,22 @@ describe("Event Database Service (eventService)", () => {
     // Cache lookup for user-2 (not yet hydrated for sport-1) should return empty Map (gated)
     const user2Cache = await loadEventDefinitionsCache("sport-1", "user-2");
     expect(user2Cache.size).toBe(0);
+  });
+
+  it("should return empty cache and false for isSportHydratedForUser on cold start when persisted records exist without an in-memory hydration marker", async () => {
+    const coldSportId = "sport-cold-start";
+    const userId = "user-1";
+
+    mockWhereEqualsToArray.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValueOnce(mockDefinitions),
+    });
+
+    expect(isSportHydratedForUser(coldSportId, userId)).toBe(false);
+
+    const cache = await loadEventDefinitionsCache(coldSportId, userId);
+    expect(cache.size).toBe(0);
+
+    const def = await getEventDefinitionByName("Goal", coldSportId, userId);
+    expect(def).toBeUndefined();
   });
 });

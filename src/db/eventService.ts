@@ -29,9 +29,9 @@ export const isSportHydratedForUser = (
   sportId: string,
   userId?: string,
 ): boolean => {
-  if (!userId?.trim()) return true;
-  const hydratedUser = hydratedUserIdBySport.get(sportId);
-  return !hydratedUser || hydratedUser === userId.trim();
+  const normalizedUserId = userId?.trim();
+  if (!normalizedUserId) return true;
+  return hydratedUserIdBySport.get(sportId) === normalizedUserId;
 };
 
 /**
@@ -41,9 +41,10 @@ export const loadEventDefinitionsCache = async (
   sportId?: string,
   userId?: string,
 ): Promise<Map<string, EventDefinitionLookup>> => {
-  if (sportId && userId?.trim()) {
+  const normalizedUserId = userId?.trim();
+  if (sportId && normalizedUserId) {
     const hydratedUser = hydratedUserIdBySport.get(sportId);
-    if (hydratedUser && hydratedUser !== userId.trim()) {
+    if (hydratedUser !== normalizedUserId) {
       return new Map();
     }
   }
