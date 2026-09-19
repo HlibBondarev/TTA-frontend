@@ -550,4 +550,14 @@ describe("Event Database Service (eventService)", () => {
       "Matching sync queue payload not found for event ID: event-orphaned",
     );
   });
+
+  it("should invalidate cache when userId parameter changes in loadEventDefinitionsCache", async () => {
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValue(mockDefinitions);
+
+    await loadEventDefinitionsCache(undefined, "user-1");
+    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(1);
+
+    await loadEventDefinitionsCache(undefined, "user-2");
+    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
+  });
 });

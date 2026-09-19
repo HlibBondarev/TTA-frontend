@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useSelector } from "react-redux";
 import { liveQuery } from "dexie";
 import { db, type EventDefinitionLookup } from "../../../db/ttaDatabase";
+import { clearEventDefinitionsCache } from "../../../db/eventService";
 import type { RootState } from "../../../store";
 
 interface TTDActionsPanelProps {
@@ -25,6 +26,19 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
   const activeMatchId = useSelector(
     (state: RootState) => state.match.activeMatchId,
   );
+  const currentUserId = useSelector(
+    (state: RootState) =>
+      (
+        state as unknown as {
+          auth?: { user?: { id?: string }; currentUserId?: string };
+        }
+      ).auth?.currentUserId ??
+      (
+        state as unknown as {
+          auth?: { user?: { id?: string }; currentUserId?: string };
+        }
+      ).auth?.user?.id,
+  );
   const [activeTab, setActiveTab] = useState<"positive" | "negative">(
     "positive",
   );
@@ -32,11 +46,14 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
     EventDefinitionLookup[]
   >([]);
   const [prevActiveMatchId, setPrevActiveMatchId] = useState(activeMatchId);
+  const [prevUserId, setPrevUserId] = useState(currentUserId);
 
-  // Synchronously adjust state during render when activeMatchId changes to avoid cascading effect renders
-  if (prevActiveMatchId !== activeMatchId) {
+  // Synchronously adjust state during render when activeMatchId or user account changes
+  if (prevActiveMatchId !== activeMatchId || prevUserId !== currentUserId) {
     setPrevActiveMatchId(activeMatchId);
+    setPrevUserId(currentUserId);
     setEventDefinitions([]);
+    clearEventDefinitionsCache();
   }
 
   // Reactive subscription to Dexie eventdefinitions table filtered by active sport and enabled state
@@ -78,7 +95,7 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
     return () => {
       subscription.unsubscribe();
     };
-  }, [activeMatchId]);
+  }, [activeMatchId, currentUserId]);
 
   const positiveActions = eventDefinitions.filter((def) =>
     checkIsPositive(def),

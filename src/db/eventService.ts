@@ -8,17 +8,20 @@ import {
 // In-memory cache for event definitions to avoid repeated IndexedDB reads during rapid recording
 let eventDefinitionsCache: Map<string, EventDefinitionLookup> | null = null;
 let cachedSportId: string | undefined = undefined;
+let cachedUserId: string | undefined = undefined;
 
 /**
- * Loads event definitions from IndexedDB into memory map for fast lookup by name, filtered by sportId if provided.
+ * Loads event definitions from IndexedDB into memory map for fast lookup by name, filtered by sportId and userId if provided.
  */
 export const loadEventDefinitionsCache = async (
   sportId?: string,
+  userId?: string,
 ): Promise<Map<string, EventDefinitionLookup>> => {
   if (
     eventDefinitionsCache &&
     eventDefinitionsCache.size > 0 &&
-    cachedSportId === sportId
+    cachedSportId === sportId &&
+    cachedUserId === userId
   ) {
     return eventDefinitionsCache;
   }
@@ -38,15 +41,17 @@ export const loadEventDefinitionsCache = async (
 
   eventDefinitionsCache = map;
   cachedSportId = sportId;
+  cachedUserId = userId;
   return map;
 };
 
 /**
- * Clears the in-memory cache (useful for test resets or dynamic configuration changes).
+ * Clears the in-memory cache (useful for test resets, account switches, or dynamic configuration changes).
  */
 export const clearEventDefinitionsCache = () => {
   eventDefinitionsCache = null;
   cachedSportId = undefined;
+  cachedUserId = undefined;
 };
 
 /**
@@ -87,13 +92,14 @@ export const saveEventDefinitionsToDb = async (
 };
 
 /**
- * Resolves event definition ID by name (case-insensitive) and optional sportId.
+ * Resolves event definition ID by name (case-insensitive) and optional sportId/userId.
  */
 export const getEventDefinitionByName = async (
   actionName: string,
   sportId?: string,
+  userId?: string,
 ): Promise<EventDefinitionLookup | undefined> => {
-  const cache = await loadEventDefinitionsCache(sportId);
+  const cache = await loadEventDefinitionsCache(sportId, userId);
   return cache.get(actionName.trim().toLowerCase());
 };
 

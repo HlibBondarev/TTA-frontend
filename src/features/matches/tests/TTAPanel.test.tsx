@@ -4,9 +4,14 @@ import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { TTDActionsPanel } from "../components/TTAPanel";
 import { db } from "../../../db/ttaDatabase";
+import { clearEventDefinitionsCache } from "../../../db/eventService";
 import matchReducer from "../store/matchSlice";
 
 const mockWhereEqualsToArray = vi.hoisted(() => vi.fn());
+
+vi.mock("../../../db/eventService", () => ({
+  clearEventDefinitionsCache: vi.fn(),
+}));
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
@@ -44,10 +49,14 @@ vi.mock("dexie", async (importOriginal) => {
   };
 });
 
-const createTestStore = (activeMatchId: string | null = "test-match-1") =>
+const createTestStore = (
+  activeMatchId: string | null = "test-match-1",
+  currentUserId: string | null = "user-1",
+) =>
   configureStore({
     reducer: {
       match: matchReducer,
+      auth: (state = { currentUserId }) => state,
     },
     preloadedState: {
       match: {
@@ -61,6 +70,9 @@ const createTestStore = (activeMatchId: string | null = "test-match-1") =>
         isPeriodEnded: false,
         globalSequenceNumber: 1,
         recentActions: [],
+      },
+      auth: {
+        currentUserId,
       },
     },
   });
@@ -152,13 +164,11 @@ describe("TTDActionsPanel Component", () => {
       </Provider>,
     );
 
-    // Wait for dynamic event definitions to resolve and render
     expect(await screen.findByText("Goal")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Pass"));
     expect(mockOnActionSelect).toHaveBeenCalledWith("Pass", true);
 
-    // Switch to negative tab
     fireEvent.click(screen.getByText("Negative"));
     expect(await screen.findByText("Turnover")).toBeInTheDocument();
 
@@ -215,14 +225,12 @@ describe("TTDActionsPanel Component", () => {
 
     expect(container.firstChild).toHaveClass("opacity-50");
 
-    // Verify tab buttons natively receive disabled state
     const positiveTabBtn = screen.getByRole("button", { name: /Positive/i });
     expect(positiveTabBtn).toBeDisabled();
 
     const negativeTabBtn = screen.getByRole("button", { name: /Negative/i });
     expect(negativeTabBtn).toBeDisabled();
 
-    // Verify dynamically rendered action buttons receive disabled state
     const actionBtn = await screen.findByText("Goal");
     expect(actionBtn).toBeDisabled();
   });
@@ -284,5 +292,34 @@ describe("TTDActionsPanel Component", () => {
 
     expect(screen.queryByText("Goal")).not.toBeInTheDocument();
     consoleErrorSpy.mockRestore();
+  });
+
+  it("clears event definition cache and resets state when currentUserId changes", async () => {
+    const store = createTestStore("test-match-1", "user-1");
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <TTDActionsPanel
+          onActionSelect={vi.fn()}
+          selectedAction={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Goal")).toBeInTheDocument();
+
+    const newUserStore = createTestStore("test-match-1", "user-2");
+    rerender(
+      <Provider store={newUserStore}>
+        <TTDActionsPanel
+          onActionSelect={vi.fn()}
+          selectedAction={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    expect(clearEventDefinitionsCache).toHaveBeenCalled();
   });
 });
