@@ -890,25 +890,28 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
           try {
             verifyFreshness();
           } catch (err) {
-            const currentDefs = await db.eventdefinitions
-              .where("sportId")
-              .equals(selectedSportId)
-              .toArray();
+            await db.transaction("rw", db.eventdefinitions, async () => {
+              const currentDefs = await db.eventdefinitions
+                .where("sportId")
+                .equals(selectedSportId)
+                .toArray();
 
-            const updatedMap = new Map(
-              updatedDefs.map((d) => [d.id, d.isEnabled]),
-            );
-
-            const isUnchangedFromUpdate =
-              currentDefs.length === updatedDefs.length &&
-              currentDefs.every(
-                (d) =>
-                  updatedMap.has(d.id) && updatedMap.get(d.id) === d.isEnabled,
+              const updatedMap = new Map(
+                updatedDefs.map((d) => [d.id, d.isEnabled]),
               );
 
-            if (isUnchangedFromUpdate) {
-              await db.eventdefinitions.bulkPut(originalSportDefs);
-            }
+              const isUnchangedFromUpdate =
+                currentDefs.length === updatedDefs.length &&
+                currentDefs.every(
+                  (d) =>
+                    updatedMap.has(d.id) &&
+                    updatedMap.get(d.id) === d.isEnabled,
+                );
+
+              if (isUnchangedFromUpdate) {
+                await db.eventdefinitions.bulkPut(originalSportDefs);
+              }
+            });
             throw err;
           }
         }
