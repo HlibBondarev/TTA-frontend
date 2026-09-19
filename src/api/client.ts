@@ -69,28 +69,44 @@ async function parseProblemDetails(
   response: Response,
 ): Promise<{ errorMessage: string; problemDetails?: ProblemDetails }> {
   let problemDetails: ProblemDetails | undefined;
-  let errorMessage = `API Request failed: ${response.status} ${response.statusText}`;
+  const statusPrefix = `API Request failed: ${response.status} ${response.statusText}`;
+  let errorMessage = statusPrefix;
 
   try {
-    const text = await response.text();
-    if (!text?.trim()) {
+    const rawText = await response.text();
+    const trimmedText = rawText?.trim();
+    if (!trimmedText) {
       return { errorMessage, problemDetails };
     }
 
-    const parsed = JSON.parse(text) as ProblemDetails;
-    if (parsed && typeof parsed === "object") {
-      problemDetails = parsed;
-      const detailMsg = parsed.detail?.trim();
-      const titleMsg = parsed.title?.trim();
+    try {
+      const parsed = JSON.parse(trimmedText) as ProblemDetails;
+      if (parsed && typeof parsed === "object") {
+        problemDetails = parsed;
+        const detailMsg = parsed.detail?.trim();
+        const titleMsg = parsed.title?.trim();
 
-      if (detailMsg) {
-        errorMessage = detailMsg;
-      } else if (titleMsg) {
-        errorMessage = titleMsg;
+        if (detailMsg) {
+          return { errorMessage: detailMsg, problemDetails };
+        }
+        if (titleMsg) {
+          return { errorMessage: titleMsg, problemDetails };
+        }
       }
+    } catch {
+      // JSON parsing failed, handle as plain text fallback
+    }
+
+    const plainText = trimmedText
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (plainText) {
+      errorMessage = `${statusPrefix} - ${plainText}`;
     }
   } catch {
-    // Fallback to default HTTP status message if body parsing fails
+    // Fallback to default HTTP status message if body reading fails
   }
 
   return { errorMessage, problemDetails };

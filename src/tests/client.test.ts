@@ -205,4 +205,47 @@ describe("API Client", () => {
       "Validation failed",
     );
   });
+
+  it("uses trimmed plain text with HTTP status when response is non-JSON text", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 409,
+      statusText: "Conflict",
+      text: async () => "  Match has already been finalized  ",
+    } as Response);
+
+    await expect(apiClient.post("/matches/1/finalize")).rejects.toMatchObject({
+      message:
+        "API Request failed: 409 Conflict - Match has already been finalized",
+      status: 409,
+    });
+  });
+
+  it("strips HTML tags and includes HTTP status when response is HTML", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      text: async () => "<html><body><h1>Server Error</h1></body></html>",
+    } as Response);
+
+    await expect(apiClient.get("/server-error")).rejects.toMatchObject({
+      message: "API Request failed: 500 Internal Server Error - Server Error",
+      status: 500,
+    });
+  });
+
+  it("uses JSON text with HTTP status when JSON yields no title or detail", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 409,
+      statusText: "Conflict",
+      text: async () => JSON.stringify({ code: "ALREADY_EXISTS" }),
+    } as Response);
+
+    await expect(apiClient.post("/matches/1/finalize")).rejects.toMatchObject({
+      message: 'API Request failed: 409 Conflict - {"code":"ALREADY_EXISTS"}',
+      status: 409,
+    });
+  });
 });
