@@ -896,17 +896,22 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = ({
                 .equals(selectedSportId)
                 .toArray();
 
-              const updatedMap = new Map(
-                updatedDefs.map((d) => [d.id, d.isEnabled]),
-              );
+              const updatedMap = new Map(updatedDefs.map((d) => [d.id, d]));
 
               const isUnchangedFromUpdate =
                 currentDefs.length === updatedDefs.length &&
-                currentDefs.every(
-                  (d) =>
-                    updatedMap.has(d.id) &&
-                    updatedMap.get(d.id) === d.isEnabled,
-                );
+                currentDefs.every((curr) => {
+                  const updated = updatedMap.get(curr.id);
+                  if (!updated) return false;
+                  return (
+                    curr.isEnabled === updated.isEnabled &&
+                    curr.sortOrder === updated.sortOrder &&
+                    curr.name === updated.name &&
+                    curr.shortName === updated.shortName &&
+                    curr.isPositive === updated.isPositive &&
+                    curr.isCustom === updated.isCustom
+                  );
+                });
 
               if (isUnchangedFromUpdate) {
                 await db.eventdefinitions.bulkPut(originalSportDefs);

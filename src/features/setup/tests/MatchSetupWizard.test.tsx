@@ -3088,4 +3088,119 @@ describe("MatchSetupWizard Component", () => {
       );
     });
   });
+
+  it("should skip event definitions rollback if a concurrent update modified sortOrder before stale rollback continuation", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+    const mockDefs = [
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        shortName: "G",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+    ];
+
+    const interleavedDefsWithDifferentSortOrder = [
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        shortName: "G",
+        isPositive: true,
+        isEnabled: false,
+        sortOrder: 99,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue(
+      mockDefs as never,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    let currentStore = mockDefs;
+    vi.mocked(db.eventdefinitions.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockImplementation(() => Promise.resolve(currentStore)),
+          }),
+        }) as never,
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={handleQuickStart} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(
+      await screen.findByText(/Select Team to Track/i),
+    ).toBeInTheDocument();
+
+    const checkbox = await screen.findByRole("checkbox", {
+      name: /Enable Goal/i,
+    });
+    await act(async () => {
+      fireEvent.click(checkbox);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Home Squad"));
+    });
+
+    let resolveBulkPut: () => void;
+    const bulkPutPromise = new Promise<void>((resolve) => {
+      resolveBulkPut = resolve;
+    });
+
+    vi.mocked(db.eventdefinitions.bulkPut).mockImplementationOnce((defs) => {
+      currentStore = defs as unknown as typeof mockDefs;
+      return bulkPutPromise as never;
+    });
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+      );
+    });
+
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    await act(async () => {
+      rerender(
+        <Provider store={store}>
+          <MatchSetupWizard onQuickStart={handleQuickStart} />
+        </Provider>,
+      );
+    });
+
+    // Interleaving write modifies sortOrder in database store
+    currentStore = interleavedDefsWithDifferentSortOrder;
+
+    // Clear background bulkPut calls from setup and component remounting
+    vi.mocked(db.eventdefinitions.bulkPut).mockClear();
+
+    await act(async () => {
+      resolveBulkPut!();
+      await bulkPutPromise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => {
+      expect(db.eventdefinitions.bulkPut).not.toHaveBeenCalled();
+    });
+  });
 });
