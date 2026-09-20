@@ -235,25 +235,20 @@ const processQueueItemDelete = async (
 };
 
 /**
- * Helper to validate lineups, match ownership, and event definition during game event update.
+ * Helper to validate lineups and match association during game event update.
  */
-/**
- * Helper to validate lineups, match ownership, and event definition during game event update.
- */
-const validateEventUpdateContext = async (
-  existing: GameEvent,
+const validateLineupAndMatchOwnership = async (
+  existingLineupId: string,
   params: UpdateGameEventParams,
-): Promise<void> => {
+): Promise<string | undefined> => {
   const targetLineup = await db.matchlineups.get(params.matchLineupId);
   if (!targetLineup) {
     throw new Error(`Target lineup record not found: ${params.matchLineupId}`);
   }
 
-  const existingLineup = await db.matchlineups.get(existing.matchLineupId);
+  const existingLineup = await db.matchlineups.get(existingLineupId);
   if (!existingLineup) {
-    throw new Error(
-      `Existing lineup record not found: ${existing.matchLineupId}`,
-    );
+    throw new Error(`Existing lineup record not found: ${existingLineupId}`);
   }
 
   if (targetLineup.matchId?.trim() !== existingLineup.matchId?.trim()) {
@@ -262,43 +257,74 @@ const validateEventUpdateContext = async (
     );
   }
 
-  const targetMatchId = targetLineup.matchId || existingLineup.matchId;
-  if (targetMatchId) {
-    const match = await db.matches.get(targetMatchId);
-    const normalizedUserId = params.userId?.trim();
-    if (
-      normalizedUserId &&
-      match?.userId &&
-      match.userId !== normalizedUserId
-    ) {
-      throw new Error(`Event ${params.eventId} belongs to another user.`);
-    }
+  return targetLineup.matchId || existingLineup.matchId;
+};
+
+/**
+ * Helper to validate user ownership over match entity.
+ */
+const validateMatchUserOwnership = async (
+  matchId: string | undefined,
+  eventId: string,
+  userId?: string,
+): Promise<void> => {
+  if (!matchId) return;
+
+  const normalizedUserId = userId?.trim();
+  if (!normalizedUserId) return;
+
+  const match = await db.matches.get(matchId);
+  if (match?.userId && match.userId !== normalizedUserId) {
+    throw new Error(`Event ${eventId} belongs to another user.`);
+  }
+};
+
+/**
+ * Helper to validate event definition existence and sport matching.
+ */
+const validateEventDefinitionContext = async (
+  existingDefId: string,
+  params: UpdateGameEventParams,
+): Promise<void> => {
+  if (!params.eventDefinitionId) return;
+
+  const isNewDefinition = params.eventDefinitionId !== existingDefId;
+  if (!isNewDefinition && !params.expectedSportId) return;
+
+  const eventDef = await db.eventdefinitions.get(params.eventDefinitionId);
+
+  if (!eventDef && isNewDefinition) {
+    throw new Error(
+      `Event definition record not found for ID: ${params.eventDefinitionId}`,
+    );
   }
 
-  if (params.eventDefinitionId) {
-    const isNewDefinition =
-      params.eventDefinitionId !== existing.eventDefinitionId;
-
-    if (isNewDefinition || params.expectedSportId) {
-      const eventDef = await db.eventdefinitions.get(params.eventDefinitionId);
-
-      if (!eventDef && isNewDefinition) {
-        throw new Error(
-          `Event definition record not found for ID: ${params.eventDefinitionId}`,
-        );
-      }
-
-      if (
-        eventDef &&
-        params.expectedSportId &&
-        eventDef.sportId !== params.expectedSportId
-      ) {
-        throw new Error(
-          `Event definition ${params.eventDefinitionId} does not belong to sport: ${params.expectedSportId}`,
-        );
-      }
-    }
+  if (
+    eventDef &&
+    params.expectedSportId &&
+    eventDef.sportId !== params.expectedSportId
+  ) {
+    throw new Error(
+      `Event definition ${params.eventDefinitionId} does not belong to sport: ${params.expectedSportId}`,
+    );
   }
+};
+
+/**
+ * Helper to validate lineups, match ownership, and event definition during game event update.
+ */
+const validateEventUpdateContext = async (
+  existing: GameEvent,
+  params: UpdateGameEventParams,
+): Promise<void> => {
+  const matchId = await validateLineupAndMatchOwnership(
+    existing.matchLineupId,
+    params,
+  );
+
+  await validateMatchUserOwnership(matchId, params.eventId, params.userId);
+
+  await validateEventDefinitionContext(existing.eventDefinitionId, params);
 };
 
 /**
