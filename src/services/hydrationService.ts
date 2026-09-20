@@ -1,6 +1,9 @@
 import { apiClient } from "../api/client";
 import { sportService } from "./sportService";
+import { saveEventDefinitionsToDb } from "../db/eventService";
 import { db } from "../db/ttaDatabase";
+import { store } from "../store";
+import { incrementHydrationVersion } from "../features/matches/store/matchSlice";
 import type {
   MatchLookup,
   TrackedMatch,
@@ -8,15 +11,14 @@ import type {
   TimeAnchor,
   PlayerPresence,
   GameEvent,
-  EventDefinitionLookup,
   TournamentLookup,
   SportConfigurationLookup,
 } from "../db/ttaDatabase";
+import type { EventDefinitionResponse } from "./eventDefinitionService";
 import {
   UNRECOVERABLE_STATUS_CODES,
   extractErrorStatus,
 } from "../utils/syncErrorUtils";
-import { seedTestData } from "../db/seed";
 
 export class StaleUserError extends Error {
   constructor(message = "Operation aborted due to user account change.") {
@@ -169,9 +171,6 @@ const fetchTournamentMetadata = async (
   return { tournament, sportConfig };
 };
 
-/**
- * Checks IndexedDB for an unfinished active match draft associated with the current authenticated user.
- */
 export const checkUnfinishedMatch = async (
   userId?: string,
 ): Promise<TrackedMatch | null> => {
@@ -186,7 +185,6 @@ export const checkUnfinishedMatch = async (
   let trackedTeamId =
     extendedMatch.trackedTeamId || extendedMatch.selectedTeamId;
 
-  // Fallback: extract correct teamId from db.syncQueue catch endpoint if missing in legacy records
   if (!trackedTeamId && db.syncQueue) {
     try {
       const syncItems = await db.syncQueue.toArray();
@@ -215,10 +213,6 @@ export const checkUnfinishedMatch = async (
   };
 };
 
-/**
- * Computes recovery parameters (last active period and active player presence limit)
- * from hydrated IndexedDB tables.
- */
 export const getMatchRecoveryState = async (
   matchId: string,
 ): Promise<{ recoveredPeriod: number; activePlayersLimit: number }> => {
@@ -357,12 +351,6 @@ const dispatchUncatchPostCommit = async (
   }
 };
 
-/**
- * Permanently deletes an unfinished match draft and all associated records from IndexedDB.
- * Issues UncatchMatch request to server when teamId is supplied (with syncQueue offline fallback)
- * only if the match exists and is unfinished (both scores are null).
- * Staging of Uncatch DELETE occurs within the local transaction, dispatched post-commit.
- */
 export const discardUnfinishedMatch = async (
   matchId: string,
   teamId?: string,
@@ -398,7 +386,6 @@ export const discardUnfinishedMatch = async (
 
     const effectiveTeamId = await resolveEffectiveTeamId(match, teamId);
 
-    // Re-verify session freshness post async team resolution before mutating DB records
     checkFreshness?.();
 
     await purgePendingMatchMutations(matchId);
@@ -454,7 +441,6 @@ const verifyAndStoreMatch = async (
     ? userId.trim()
     : existingMatch?.userId;
 
-  // Preserve tracked team ID from incoming teamId argument or existing local record
   const effectiveTrackedTeamId =
     teamId?.trim() ||
     existingMatch?.trackedTeamId ||
@@ -475,12 +461,14 @@ interface HydrationPayloads {
   anchors?: TimeAnchor[];
   presence?: PlayerPresence[];
   events?: GameEvent[];
-  definitions?: EventDefinitionLookup[];
+  definitions?: EventDefinitionResponse[];
 }
 
 const persistHydrationPayloads = async (
   matchId: string,
+  sportId: string | undefined,
   payloads: HydrationPayloads,
+  userId?: string,
 ): Promise<void> => {
   const existingLineups = await db.matchlineups
     .where("matchId")
@@ -497,8 +485,23 @@ const persistHydrationPayloads = async (
   await syncPresence(matchLineupIds, payloads.presence);
   await syncEvents(matchLineupIds, payloads.events);
 
-  if (payloads.definitions && payloads.definitions.length > 0) {
-    await db.eventdefinitions.bulkPut(payloads.definitions);
+  if (payloads.definitions && sportId) {
+    const definitions = payloads.definitions
+      .filter((def): def is EventDefinitionResponse & { id: string } =>
+        Boolean(def.id),
+      )
+      .map((def, idx) => ({
+        id: def.id,
+        sportId,
+        name: def.name ?? "",
+        shortName: def.shortName ?? "",
+        isPositive: Boolean(def.isPositive),
+        isCustom: def.isCustom,
+        isEnabled: def.isEnabled ?? true,
+        sortOrder: def.sortOrder ?? idx + 1,
+      }));
+
+    await saveEventDefinitionsToDb(definitions, sportId, userId);
   }
 };
 
@@ -546,27 +549,15 @@ const executeMatchTransaction = async (
       if (tournament) await db.tournaments.put(tournament);
       if (sportConfig) await db.sportconfigurations.put(sportConfig);
 
-      await persistHydrationPayloads(matchId, payloads);
+      await persistHydrationPayloads(
+        matchId,
+        tournament?.sportId ?? sportConfig?.sportId,
+        payloads,
+        userId,
+      );
 
       checkFreshness?.();
     },
-  );
-};
-
-const shouldRethrowError = (err: unknown): boolean => {
-  if (
-    err instanceof StaleUserError ||
-    (err instanceof Error && err.name === "StaleUserError")
-  ) {
-    return true;
-  }
-
-  const errorMessage = err instanceof Error ? err.message : String(err);
-  return (
-    errorMessage.includes("401") ||
-    errorMessage.includes("403") ||
-    errorMessage.includes("Hydration Metadata Error:") ||
-    errorMessage.includes("Match draft belongs to another user.")
   );
 };
 
@@ -583,48 +574,37 @@ export const hydrateMatchData = async (
   teamId: string,
   userId?: string,
   checkFreshness?: () => void,
-): Promise<{ success: boolean; isOfflineFallback: boolean }> => {
-  try {
-    const [match, lineups, anchors, presence, events, definitions] =
-      await Promise.all([
-        apiClient.get<MatchLookup>(`/Matches/${matchId}`),
-        apiClient.get<MatchLineupLookup[]>(
-          `/Matches/${matchId}/teams/${teamId}/lineup`,
-        ),
-        apiClient.get<TimeAnchor[]>(`/Matches/${matchId}/anchors`),
-        apiClient.get<PlayerPresence[]>(`/Matches/${matchId}/presence`),
-        apiClient.get<GameEvent[]>(`/Matches/${matchId}/events`),
-        apiClient.get<EventDefinitionLookup[]>(
-          `/Matches/${matchId}/eventdefinitions`,
-        ),
-      ]);
+): Promise<{ success: boolean }> => {
+  const [match, lineups, anchors, presence, events, definitions] =
+    await Promise.all([
+      apiClient.get<MatchLookup>(`/Matches/${matchId}`),
+      apiClient.get<MatchLineupLookup[]>(
+        `/Matches/${matchId}/teams/${teamId}/lineup`,
+      ),
+      apiClient.get<TimeAnchor[]>(`/Matches/${matchId}/anchors`),
+      apiClient.get<PlayerPresence[]>(`/Matches/${matchId}/presence`),
+      apiClient.get<GameEvent[]>(`/Matches/${matchId}/events`),
+      apiClient.get<EventDefinitionResponse[]>(
+        `/Matches/${matchId}/event-definitions`,
+      ),
+    ]);
 
-    checkFreshness?.();
-    const { tournament, sportConfig } = await getTournamentAndConfig(match);
-    checkFreshness?.();
+  checkFreshness?.();
+  const { tournament, sportConfig } = await getTournamentAndConfig(match);
+  checkFreshness?.();
 
-    await executeMatchTransaction({
-      matchId,
-      teamId,
-      match,
-      tournament,
-      sportConfig,
-      payloads: { lineups, anchors, presence, events, definitions },
-      userId,
-      checkFreshness,
-    });
+  await executeMatchTransaction({
+    matchId,
+    teamId,
+    match,
+    tournament,
+    sportConfig,
+    payloads: { lineups, anchors, presence, events, definitions },
+    userId,
+    checkFreshness,
+  });
 
-    return { success: true, isOfflineFallback: false };
-  } catch (err) {
-    if (shouldRethrowError(err)) {
-      throw err;
-    }
+  store.dispatch(incrementHydrationVersion());
 
-    console.warn(
-      "Backend or network unavailable. Hydrating via local seed fallback:",
-      err,
-    );
-    await seedTestData();
-    return { success: true, isOfflineFallback: true };
-  }
+  return { success: true };
 };

@@ -25,6 +25,13 @@ interface MockPresenceProps {
 let mockPeriodActive = true;
 let mockPeriodNumber = 1;
 
+// Mock Auth0 to provide a valid authenticated user ID for TTAPanel
+vi.mock("@auth0/auth0-react", () => ({
+  useAuth0: () => ({
+    user: { sub: "user-1", id: "user-1" },
+  }),
+}));
+
 vi.mock("../components/MatchLifecyclePanel", () => ({
   MatchLifecyclePanel: ({
     onFinalizeSuccess,
@@ -55,8 +62,16 @@ vi.mock("../../playerpresences/components/PlayerPresencePanel", () => ({
   ),
 }));
 
+const mockWhereEqualsToArray = vi.hoisted(() => vi.fn());
+
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
+    matches: {
+      get: vi.fn(),
+    },
+    tournaments: {
+      get: vi.fn(),
+    },
     matchlineups: {
       get: vi.fn(),
       where: vi.fn().mockReturnValue({
@@ -70,13 +85,37 @@ vi.mock("../../../db/ttaDatabase", () => ({
     },
     eventdefinitions: {
       toArray: vi.fn(),
+      where: vi.fn(() => ({
+        equals: mockWhereEqualsToArray,
+      })),
     },
   },
 }));
 
+// Lightweight liveQuery mock for async state subscription in tests
+vi.mock("dexie", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("dexie")>();
+  return {
+    ...actual,
+    liveQuery: (fn: () => Promise<unknown>) => ({
+      subscribe: (observer: {
+        next: (val: unknown) => void;
+        error?: (err: unknown) => void;
+      }) => {
+        fn()
+          .then((data) => observer.next(data))
+          .catch((err) => observer.error?.(err));
+        return { unsubscribe: vi.fn() };
+      },
+    }),
+  };
+});
+
 vi.mock("../../../db/eventService", () => ({
   getEventDefinitionByName: vi.fn(),
   createGameEventTx: vi.fn(),
+  clearEventDefinitionsCache: vi.fn(),
+  isSportHydratedForUser: vi.fn().mockReturnValue(true),
 }));
 
 const rootReducer = combineReducers({
@@ -89,10 +128,46 @@ type RootState = ReturnType<typeof rootReducer>;
 const initialMatchState = matchReducer(undefined, { type: "unknown" });
 
 describe("TTAConsole Component", () => {
+  const mockEventDefs = [
+    {
+      id: "def-pass",
+      sportId: "sport-1",
+      name: "Pass",
+      shortName: "PS",
+      isPositive: true,
+      isEnabled: true,
+    },
+    {
+      id: "def-goal",
+      sportId: "sport-1",
+      name: "Goal",
+      shortName: "GL",
+      isPositive: true,
+      isEnabled: true,
+    },
+  ];
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockPeriodActive = true;
     mockPeriodNumber = 1;
+
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: "test-id",
+      tournamentId: "t-1",
+      userId: "user-1",
+    } as never);
+
+    vi.mocked(db.tournaments.get).mockResolvedValue({
+      id: "t-1",
+      sportId: "sport-1",
+    } as never);
+
+    mockWhereEqualsToArray.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockEventDefs),
+    });
+
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValue(mockEventDefs);
 
     vi.mocked(db.matchlineups.get).mockResolvedValue({
       id: "player-1",
@@ -112,32 +187,12 @@ describe("TTAConsole Component", () => {
       positionId: "",
     });
 
-    vi.mocked(db.eventdefinitions.toArray).mockResolvedValue([
-      {
-        id: "def-pass",
-        sportId: "sport-1",
-        name: "Pass",
-        shortName: "PS",
-        isPositive: true,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: "def-goal",
-        sportId: "sport-1",
-        name: "Goal",
-        shortName: "GL",
-        isPositive: true,
-        createdAt: new Date().toISOString(),
-      },
-    ]);
-
     vi.mocked(getEventDefinitionByName).mockResolvedValue({
       id: "def-pass",
       sportId: "sport-1",
       name: "Pass",
       shortName: "PS",
       isPositive: true,
-      createdAt: new Date().toISOString(),
     });
 
     vi.mocked(createGameEventTx).mockResolvedValue({

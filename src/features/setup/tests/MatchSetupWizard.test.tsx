@@ -1,14 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { MatchSetupWizard } from "../components/MatchSetupWizard";
 import { sportService } from "../../../services/sportService";
 import { teamService } from "../../../services/teamService";
+import { eventDefinitionService } from "../../../services/eventDefinitionService";
 import { apiClient } from "../../../api/client";
 import { db } from "../../../db/ttaDatabase";
 import navigationReducer from "../../../store/slices/navigationSlice";
 import type { TeamLookup, MatchLookup } from "../../../db/ttaDatabase";
+import {
+  clearEventDefinitionsCache,
+  replaceSportEventDefinitionsInDb,
+} from "../../../db/eventService";
 
 let mockUser = { email: "tester@tta.com", sub: "auth0|user-tester" };
 
@@ -30,6 +41,15 @@ vi.mock("../../../services/sportService", () => ({
 vi.mock("../../../services/teamService", () => ({
   teamService: {
     getTeamById: vi.fn(),
+  },
+}));
+
+vi.mock("../../../services/eventDefinitionService", () => ({
+  eventDefinitionService: {
+    getAvailableForSport: vi.fn().mockResolvedValue([]),
+    savePreset: vi.fn().mockResolvedValue(undefined),
+    createCustom: vi.fn().mockResolvedValue({}),
+    softDeleteCustom: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -60,7 +80,22 @@ vi.mock("../../../db/ttaDatabase", () => ({
       put: vi.fn().mockResolvedValue(1),
       delete: vi.fn().mockResolvedValue(undefined),
     },
+    eventdefinitions: {
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+      bulkPut: vi.fn().mockResolvedValue([]),
+      bulkDelete: vi.fn().mockResolvedValue(undefined),
+    },
+    transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
+}));
+
+vi.mock("../../../db/eventService", () => ({
+  clearEventDefinitionsCache: vi.fn(),
+  replaceSportEventDefinitionsInDb: vi.fn().mockResolvedValue(undefined),
 }));
 
 const createTestStore = (
@@ -138,6 +173,16 @@ describe("MatchSetupWizard Component", () => {
     vi.mocked(sportService.getSports).mockReset();
     vi.mocked(sportService.getSportConfigurations).mockReset();
     vi.mocked(teamService.getTeamById).mockReset();
+    vi.mocked(eventDefinitionService.getAvailableForSport)
+      .mockReset()
+      .mockResolvedValue([]);
+    vi.mocked(eventDefinitionService.savePreset)
+      .mockReset()
+      .mockResolvedValue(undefined as never);
+    vi.mocked(clearEventDefinitionsCache).mockReset();
+    vi.mocked(replaceSportEventDefinitionsInDb)
+      .mockReset()
+      .mockResolvedValue(undefined as never);
     vi.mocked(apiClient.get).mockReset();
     vi.mocked(apiClient.post).mockReset();
     vi.mocked(apiClient.delete).mockReset();
@@ -219,7 +264,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -285,7 +330,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -340,7 +385,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -396,7 +441,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -436,7 +481,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -691,7 +736,7 @@ describe("MatchSetupWizard Component", () => {
     });
     fireEvent.click(quickStartBtn);
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
     expect(screen.getByText("Home Squad")).toBeDefined();
     expect(screen.getByText("Opponent Squad")).toBeDefined();
 
@@ -736,7 +781,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -789,7 +834,7 @@ describe("MatchSetupWizard Component", () => {
 
     fireEvent.click(quickStartBtn);
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     expect(apiClient.post).toHaveBeenCalledTimes(1);
   });
@@ -820,7 +865,7 @@ describe("MatchSetupWizard Component", () => {
 
     fireEvent.click(quickStartBtn);
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
     expect(apiClient.post).toHaveBeenCalledTimes(2);
   });
 
@@ -1011,7 +1056,7 @@ describe("MatchSetupWizard Component", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     const config2Btn = screen.getByText(/Periods: 2/i).closest("button");
     expect(config2Btn).toBeDisabled();
@@ -1148,7 +1193,7 @@ describe("MatchSetupWizard Component", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
     fireEvent.click(screen.getByText("Home Squad"));
 
     fireEvent.click(
@@ -1189,7 +1234,7 @@ describe("MatchSetupWizard Component", () => {
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
     fireEvent.click(screen.getByText("Home Squad"));
 
     const confirmBtn = await screen.findByRole("button", {
@@ -1249,7 +1294,7 @@ describe("MatchSetupWizard Component", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
     fireEvent.click(screen.getByText("Home Squad"));
 
     fireEvent.click(
@@ -1386,7 +1431,7 @@ describe("MatchSetupWizard Component", () => {
     });
     fireEvent.click(quickStartBtn);
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
     expect(apiClient.post).toHaveBeenCalledTimes(1);
 
     mockUser = { email: "newuser@tta.com", sub: "auth0|user-new" };
@@ -1397,7 +1442,7 @@ describe("MatchSetupWizard Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+      expect(screen.queryByText(/Select Team to Track/i)).toBeNull();
     });
 
     const quickStartBtn2 = screen.getByRole("button", {
@@ -1405,7 +1450,7 @@ describe("MatchSetupWizard Component", () => {
     });
     fireEvent.click(quickStartBtn2);
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
     expect(apiClient.post).toHaveBeenCalledTimes(2);
     expect(db.matches.put).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -1445,7 +1490,7 @@ describe("MatchSetupWizard Component", () => {
       await screen.findByText("Match session belongs to another user."),
     ).toBeDefined();
 
-    expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+    expect(screen.queryByText(/Select Team to Track/i)).toBeNull();
   });
 
   it("should delete persisted match record if user identity changes while db.matches.put is pending", async () => {
@@ -1490,7 +1535,7 @@ describe("MatchSetupWizard Component", () => {
 
     await waitFor(() => {
       expect(db.matches.delete).toHaveBeenCalledWith("match-123");
-      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+      expect(screen.queryByText(/Select Team to Track/i)).toBeNull();
     });
   });
 
@@ -1544,7 +1589,7 @@ describe("MatchSetupWizard Component", () => {
     await putPromise;
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+    expect(screen.queryByText(/Select Team to Track/i)).toBeNull();
 
     expect(db.matches.delete).not.toHaveBeenCalled();
     expect(db.matches.put).toHaveBeenLastCalledWith(existingMatchRecord);
@@ -1629,7 +1674,7 @@ describe("MatchSetupWizard Component", () => {
     resolvePost!({ id: "match-deferred-123" });
 
     await waitFor(() => {
-      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+      expect(screen.queryByText(/Select Team to Track/i)).toBeNull();
     });
 
     expect(db.matches.put).not.toHaveBeenCalled();
@@ -1717,7 +1762,7 @@ describe("MatchSetupWizard Component", () => {
 
     expect(db.sportconfigurations.delete).toHaveBeenCalledWith("config-1");
     expect(db.matches.put).not.toHaveBeenCalled();
-    expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+    expect(screen.queryByText(/Select Team to Track/i)).toBeNull();
   });
 
   it("should delete fetched tournament record if user identity changes while db.tournaments.put is pending in ensureTournamentPersisted", async () => {
@@ -1782,7 +1827,7 @@ describe("MatchSetupWizard Component", () => {
 
     await waitFor(() => {
       expect(db.tournaments.delete).toHaveBeenCalledWith("tourn-fetched-456");
-      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+      expect(screen.queryByText(/Select Team to Track/i)).toBeNull();
     });
   });
 
@@ -1845,7 +1890,7 @@ describe("MatchSetupWizard Component", () => {
 
     await waitFor(() => {
       expect(db.tournaments.delete).toHaveBeenCalledWith("tourn-fallback-789");
-      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+      expect(screen.queryByText(/Select Team to Track/i)).toBeNull();
     });
   });
 
@@ -1896,7 +1941,7 @@ describe("MatchSetupWizard Component", () => {
     resolveGetDetails!(mockMatch as MatchLookup);
 
     await waitFor(() => {
-      expect(screen.queryByText("3. Select Team to Track")).toBeNull();
+      expect(screen.queryByText(/Select Team to Track/i)).toBeNull();
     });
 
     const quickStartBtn2 = screen.getByRole("button", {
@@ -1929,7 +1974,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Opponent Squad"));
 
@@ -1993,7 +2038,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Opponent Squad"));
 
@@ -2024,7 +2069,6 @@ describe("MatchSetupWizard Component", () => {
 
   it("should enqueue compensating DELETE item into syncQueue if catch succeeds online but onQuickStart fails after network drops offline", async () => {
     const handleQuickStart = vi.fn().mockImplementation(async () => {
-      // Simulate network drop after online catch succeeded, right before onQuickStart fails
       vi.stubGlobal("navigator", { onLine: false });
       throw new Error("Post-catch error");
     });
@@ -2046,7 +2090,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -2083,7 +2127,7 @@ describe("MatchSetupWizard Component", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
 
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     const basketballBtn = screen.getByText("Basketball").closest("button");
     expect(basketballBtn).toBeDisabled();
@@ -2092,7 +2136,6 @@ describe("MatchSetupWizard Component", () => {
       fireEvent.click(basketballBtn);
     }
 
-    // Verify sport configuration was NOT reloaded for sport-2
     expect(sportService.getSportConfigurations).toHaveBeenCalledTimes(1);
   });
 
@@ -2133,7 +2176,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -2172,7 +2215,6 @@ describe("MatchSetupWizard Component", () => {
     };
     vi.mocked(db.matches.get).mockResolvedValue(existingMatchRecord as never);
 
-    // Simulate failure when adding item to syncQueue
     vi.mocked(db.syncQueue.put).mockRejectedValueOnce(
       new Error("syncQueue storage full"),
     );
@@ -2182,7 +2224,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -2218,11 +2260,10 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
-    // Simulate match not existing locally when persistTrackedTeamLocally runs
     vi.mocked(db.matches.get).mockResolvedValueOnce(null as never);
 
     fireEvent.click(
@@ -2262,7 +2303,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -2313,7 +2354,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -2367,9 +2408,6 @@ describe("MatchSetupWizard Component", () => {
     };
     vi.mocked(db.matches.get).mockResolvedValue(existingMatchRecord as never);
 
-    // Call 1: handleInitMatch (persistMatchLocally)
-    // Call 2: handleConfirmQuickStart (persistTrackedTeamLocally)
-    // Call 3: compensateAndRollbackIfNeeded (rollbackTrackedTeamLocally - throws error)
     vi.mocked(db.matches.put)
       .mockResolvedValueOnce(undefined as never)
       .mockResolvedValueOnce(undefined as never)
@@ -2380,7 +2418,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -2423,7 +2461,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -2487,7 +2525,7 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Quick Start Match/i }),
     );
-    expect(await screen.findByText("3. Select Team to Track")).toBeDefined();
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
 
     fireEvent.click(screen.getByText("Home Squad"));
 
@@ -2511,5 +2549,808 @@ describe("MatchSetupWizard Component", () => {
     });
 
     consoleWarnSpy.mockRestore();
+  });
+
+  it("should save active event definitions preset during confirm step before executing catch", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+    const mockDefinitions = [
+      { id: "def-WP-1", isPositive: true, isEnabled: true, sortOrder: 1 },
+      { id: "def-WP-2", isPositive: true, isEnabled: false, sortOrder: 2 },
+      { id: "def-WP-3", isPositive: true, isEnabled: true, sortOrder: 3 },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(
+      eventDefinitionService.getAvailableForSport,
+    ).mockResolvedValueOnce(mockDefinitions as never);
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(eventDefinitionService.savePreset).toHaveBeenCalledWith(
+        "sport-1",
+        {
+          eventDefinitionIds: ["def-WP-1", "def-WP-3"],
+        },
+      );
+      expect(handleQuickStart).toHaveBeenCalled();
+    });
+  });
+
+  it("should abort quick start process and show error if saving event definition preset fails", async () => {
+    const handleQuickStart = vi.fn();
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    vi.mocked(eventDefinitionService.savePreset).mockRejectedValueOnce(
+      new Error("Failed to persist preset settings"),
+    );
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Failed to persist preset settings",
+      );
+      expect(apiClient.post).not.toHaveBeenCalledWith(
+        "/Matches/match-123/teams/team-home/catch",
+        {},
+      );
+      expect(handleQuickStart).not.toHaveBeenCalled();
+    });
+  });
+
+  it("should allow toggling action definitions in UI and save updated active preset list on confirm", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+    const mockDefinitions = [
+      {
+        id: "def-WP-1",
+        name: "Goal",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+      {
+        id: "def-WP-2",
+        name: "Foul",
+        isPositive: true,
+        isEnabled: false,
+        sortOrder: 2,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(
+      eventDefinitionService.getAvailableForSport,
+    ).mockResolvedValueOnce(mockDefinitions as never);
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+
+    expect(await screen.findByText("Goal")).toBeDefined();
+    expect(screen.getByText("Foul")).toBeDefined();
+
+    const checkboxes = screen.getAllByRole("checkbox");
+    const foulCheckbox = checkboxes.find(
+      (cb) => (cb as HTMLInputElement).checked === false,
+    );
+    if (foulCheckbox) {
+      fireEvent.click(foulCheckbox);
+    }
+
+    fireEvent.click(screen.getByText("Home Squad"));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(eventDefinitionService.savePreset).toHaveBeenCalledWith(
+        "sport-1",
+        {
+          eventDefinitionIds: ["def-WP-1", "def-WP-2"],
+        },
+      );
+      expect(handleQuickStart).toHaveBeenCalled();
+    });
+  });
+
+  it("should clear active event definition IDs when changing selected sport discipline", async () => {
+    const mockWPDefinitions = [
+      {
+        id: "def-WP-1",
+        name: "WP Goal",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+    ];
+    const mockBBDefinitions = [
+      {
+        id: "def-BB-1",
+        name: "BB Basket",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValue(
+      mockConfigs,
+    );
+    vi.mocked(eventDefinitionService.getAvailableForSport)
+      .mockResolvedValueOnce(mockWPDefinitions as never)
+      .mockResolvedValueOnce(mockBBDefinitions as never);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={vi.fn()} />);
+
+    expect(await screen.findByText("WP Goal")).toBeDefined();
+
+    const bbBtn = screen.getByText("Basketball");
+    fireEvent.click(bbBtn);
+
+    await waitFor(() => {
+      expect(eventDefinitionService.getAvailableForSport).toHaveBeenCalledWith(
+        "sport-2",
+      );
+    });
+  });
+
+  it("should prevent handleConfirmQuickStart if action definitions have not finished loading", async () => {
+    const handleQuickStart = vi.fn();
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockReturnValueOnce(
+      new Promise(() => {}) as never,
+    );
+
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    const quickStartBtn = await screen.findByRole("button", {
+      name: /Quick Start Match/i,
+    });
+    fireEvent.click(quickStartBtn);
+
+    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    const confirmBtn = screen.getByRole("button", {
+      name: /Confirm & Start Tracking/i,
+    });
+
+    // Verify button is disabled in UI while event definitions are pending
+    expect(confirmBtn).toBeDisabled();
+
+    fireEvent.click(confirmBtn);
+
+    expect(eventDefinitionService.savePreset).not.toHaveBeenCalled();
+    expect(handleQuickStart).not.toHaveBeenCalled();
+  });
+
+  it("should remount EventDefinitionsConfigurator and clear active event definition IDs when currentUserId changes", async () => {
+    const mockDefinitionsUser1 = [
+      {
+        id: "def-1",
+        name: "Action User 1",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+    ];
+    const mockDefinitionsUser2 = [
+      {
+        id: "def-2",
+        name: "Action User 2",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(eventDefinitionService.getAvailableForSport)
+      .mockResolvedValueOnce(mockDefinitionsUser1 as never)
+      .mockResolvedValueOnce(mockDefinitionsUser2 as never);
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={vi.fn()} />,
+    );
+
+    expect(await screen.findByText("Action User 1")).toBeDefined();
+
+    mockUser = { email: "user2@tta.com", sub: "auth0|user-2" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={vi.fn()} />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(eventDefinitionService.getAvailableForSport).toHaveBeenCalledTimes(
+        2,
+      );
+    });
+  });
+
+  it("syncs active event definitions into Dexie DB upon confirming quick start", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+    const mockDefs = [
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        isPositive: true,
+        isEnabled: true,
+      },
+      {
+        id: "def-WP-2",
+        sportId: "sport-1",
+        name: "Foul",
+        isPositive: true,
+        isEnabled: true,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue(
+      mockDefs as never,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    vi.mocked(db.eventdefinitions.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockDefs),
+      }),
+    } as never);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(
+      await screen.findByText(/Select Team to Track/i),
+    ).toBeInTheDocument();
+
+    const checkboxes = screen.getAllByRole("checkbox");
+    fireEvent.click(checkboxes[1]);
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+        expect.objectContaining({ id: "def-WP-1", isEnabled: true }),
+        expect.objectContaining({ id: "def-WP-2", isEnabled: false }),
+      ]);
+    });
+  });
+
+  it("should restore original event definitions if user account changes while sync bulkPut is pending and DB was not mutated by another account", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+    const mockDefs = [
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        isPositive: true,
+        isEnabled: false,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue(
+      mockDefs as never,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    let currentStore = mockDefs;
+    vi.mocked(db.eventdefinitions.bulkPut).mockImplementation((defs) => {
+      currentStore = defs as unknown as typeof mockDefs;
+      return Promise.resolve([]) as never;
+    });
+    vi.mocked(db.eventdefinitions.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockImplementation(() => Promise.resolve(currentStore)),
+          }),
+        }) as never,
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={handleQuickStart} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(
+      await screen.findByText(/Select Team to Track/i),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    let resolveBulkPut: () => void;
+    const bulkPutPromise = new Promise<void>((resolve) => {
+      resolveBulkPut = resolve;
+    });
+
+    vi.mocked(db.eventdefinitions.bulkPut).mockImplementationOnce((defs) => {
+      currentStore = defs as unknown as typeof mockDefs;
+      return bulkPutPromise as never;
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    mockUser = { email: "newuser@tta.com", sub: "auth0|user-new" };
+    await act(async () => {
+      rerender(
+        <Provider store={store}>
+          <MatchSetupWizard onQuickStart={handleQuickStart} />
+        </Provider>,
+      );
+    });
+
+    await act(async () => {
+      resolveBulkPut!();
+      await bulkPutPromise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => {
+      expect(db.eventdefinitions.bulkPut).toHaveBeenLastCalledWith([
+        expect.objectContaining(mockDefs[0]),
+      ]);
+    });
+  });
+
+  it("should skip event definitions rollback if a new account persisted newer definitions before stale rollback continuation", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+    const mockDefs = [
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        isPositive: true,
+        isEnabled: false,
+      },
+    ];
+
+    const newerAccountDefs = [
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        isPositive: true,
+        isEnabled: true,
+      },
+      {
+        id: "def-WP-NEW",
+        sportId: "sport-1",
+        name: "New Action",
+        isPositive: true,
+        isEnabled: true,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue(
+      mockDefs as never,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    let currentStore = mockDefs;
+    vi.mocked(db.eventdefinitions.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockImplementation(() => Promise.resolve(currentStore)),
+          }),
+        }) as never,
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={handleQuickStart} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(
+      await screen.findByText(/Select Team to Track/i),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    let resolveBulkPut: () => void;
+    const bulkPutPromise = new Promise<void>((resolve) => {
+      resolveBulkPut = resolve;
+    });
+
+    vi.mocked(db.eventdefinitions.bulkPut).mockImplementationOnce((defs) => {
+      currentStore = defs as unknown as typeof mockDefs;
+      return bulkPutPromise as never;
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    // Account changes to User B while bulkPut is pending
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    await act(async () => {
+      rerender(
+        <Provider store={store}>
+          <MatchSetupWizard onQuickStart={handleQuickStart} />
+        </Provider>,
+      );
+    });
+
+    // User B persists newer definitions before User A's rollback executes
+    currentStore = newerAccountDefs;
+
+    // Clear background bulkPut calls from setup and initial confirm write
+    vi.mocked(db.eventdefinitions.bulkPut).mockClear();
+
+    await act(async () => {
+      resolveBulkPut!();
+      await bulkPutPromise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => {
+      // Ensure originalSportDefs were NOT restored over User B's newer definitions
+      expect(db.eventdefinitions.bulkPut).not.toHaveBeenCalled();
+    });
+  });
+
+  it("should skip event definitions rollback if a concurrent update modified sortOrder before stale rollback continuation", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+    const mockDefs = [
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        shortName: "G",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+    ];
+
+    const interleavedDefsWithDifferentSortOrder = [
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        shortName: "G",
+        isPositive: true,
+        isEnabled: false,
+        sortOrder: 99,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue(
+      mockDefs as never,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    let currentStore = mockDefs;
+    vi.mocked(db.eventdefinitions.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockImplementation(() => Promise.resolve(currentStore)),
+          }),
+        }) as never,
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={handleQuickStart} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(
+      await screen.findByText(/Select Team to Track/i),
+    ).toBeInTheDocument();
+
+    const checkbox = await screen.findByRole("checkbox", {
+      name: /Enable Goal/i,
+    });
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    let resolveBulkPut: () => void;
+    const bulkPutPromise = new Promise<void>((resolve) => {
+      resolveBulkPut = resolve;
+    });
+
+    vi.mocked(db.eventdefinitions.bulkPut).mockImplementationOnce((defs) => {
+      currentStore = defs as unknown as typeof mockDefs;
+      return bulkPutPromise as never;
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    // Switch account to User B
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender(
+      <Provider store={store}>
+        <MatchSetupWizard onQuickStart={handleQuickStart} />
+      </Provider>,
+    );
+
+    // Wait for User B remount and background effects to settle completely
+    await waitFor(() => {
+      expect(screen.queryByText(/Select Team to Track/i)).toBeNull();
+    });
+
+    // Interleaving write modifies sortOrder in database store
+    currentStore = interleavedDefsWithDifferentSortOrder;
+
+    // Clear background bulkPut calls from setup and component remounting
+    vi.mocked(db.eventdefinitions.bulkPut).mockClear();
+
+    await act(async () => {
+      resolveBulkPut!();
+      await bulkPutPromise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => {
+      expect(db.eventdefinitions.bulkPut).not.toHaveBeenCalled();
+    });
+  });
+
+  it("should invalidate event definitions cache after updating definitions during confirm step", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+    const mockDefs = [
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        isPositive: true,
+        isEnabled: true,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue(
+      mockDefs as never,
+    );
+    vi.mocked(apiClient.post)
+      .mockResolvedValueOnce({ id: "match-123" })
+      .mockResolvedValueOnce({});
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    vi.mocked(db.eventdefinitions.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockDefs),
+      }),
+    } as never);
+
+    renderWithRedux(<MatchSetupWizard onQuickStart={handleQuickStart} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(
+      await screen.findByText(/Select Team to Track/i),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    await waitFor(() => {
+      expect(db.eventdefinitions.bulkPut).toHaveBeenCalled();
+      expect(clearEventDefinitionsCache).toHaveBeenCalled();
+    });
+  });
+
+  it("should invalidate event definitions cache during rollback when account changes while bulkPut is pending", async () => {
+    const handleQuickStart = vi.fn().mockResolvedValue(undefined);
+    const mockDefs = [
+      {
+        id: "def-WP-1",
+        sportId: "sport-1",
+        name: "Goal",
+        isPositive: true,
+        isEnabled: false,
+      },
+    ];
+
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue(
+      mockDefs as never,
+    );
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "match-123" });
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
+    vi.mocked(teamService.getTeamById)
+      .mockResolvedValueOnce(mockHomeTeam)
+      .mockResolvedValueOnce(mockGuestTeam);
+
+    let currentStore = mockDefs;
+    vi.mocked(db.eventdefinitions.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockImplementation(() => Promise.resolve(currentStore)),
+          }),
+        }) as never,
+    );
+
+    const { rerender, store } = renderWithRedux(
+      <MatchSetupWizard onQuickStart={handleQuickStart} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Quick Start Match/i }),
+    );
+    expect(
+      await screen.findByText(/Select Team to Track/i),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Home Squad"));
+
+    let resolveBulkPut: () => void;
+    const bulkPutPromise = new Promise<void>((resolve) => {
+      resolveBulkPut = resolve;
+    });
+
+    vi.mocked(db.eventdefinitions.bulkPut).mockImplementationOnce((defs) => {
+      currentStore = defs as unknown as typeof mockDefs;
+      return bulkPutPromise as never;
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+    );
+
+    mockUser = { email: "newuser@tta.com", sub: "auth0|user-new" };
+    await act(async () => {
+      rerender(
+        <Provider store={store}>
+          <MatchSetupWizard onQuickStart={handleQuickStart} />
+        </Provider>,
+      );
+    });
+
+    await act(async () => {
+      resolveBulkPut!();
+      await bulkPutPromise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => {
+      // Expect clearEventDefinitionsCache to have been called both on initial write and during rollback restore
+      expect(clearEventDefinitionsCache).toHaveBeenCalledTimes(2);
+    });
   });
 });

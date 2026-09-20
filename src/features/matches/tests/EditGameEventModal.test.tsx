@@ -9,6 +9,18 @@ import { db } from "../../../db/ttaDatabase";
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
+    matches: {
+      get: vi.fn().mockResolvedValue({
+        id: "match-1",
+        tournamentId: "tour-1",
+      }),
+    },
+    tournaments: {
+      get: vi.fn().mockResolvedValue({
+        id: "tour-1",
+        sportId: "sport-1",
+      }),
+    },
     matchlineups: {
       get: vi.fn().mockImplementation((id: string) => {
         const lineups: Record<
@@ -57,6 +69,7 @@ const createStore = () =>
         isPeriodEnded: false,
         globalSequenceNumber: 1,
         recentActions: [],
+        hydrationVersion: 0,
       },
     },
   });
@@ -180,7 +193,9 @@ describe("EditGameEventModal Component", () => {
         eventId: "action-123",
         matchLineupId: "lineup-2",
         eventDefinitionId: "def-2",
-        isLeadToGoal: false, // forced to false for Goal actions
+        expectedSportId: "sport-1",
+        isLeadToGoal: false,
+        userId: undefined,
       });
       expect(mockOnClose).toHaveBeenCalled();
     });
@@ -226,7 +241,9 @@ describe("EditGameEventModal Component", () => {
         eventId: "action-123",
         matchLineupId: "lineup-2",
         eventDefinitionId: "def-1",
-        isLeadToGoal: true, // preserves existing isLeadToGoal: true
+        expectedSportId: "sport-1",
+        isLeadToGoal: true,
+        userId: undefined,
       });
       expect(mockOnClose).toHaveBeenCalled();
     });

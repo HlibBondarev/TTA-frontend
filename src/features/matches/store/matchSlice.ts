@@ -23,6 +23,7 @@ export interface MatchState {
   isPeriodEnded: boolean;
   globalSequenceNumber: number;
   recentActions: ActionEntry[];
+  hydrationVersion?: number;
 }
 
 export interface SetActiveMatchPayload {
@@ -47,6 +48,7 @@ const initialState: MatchState = {
   isPeriodEnded: false,
   globalSequenceNumber: 0,
   recentActions: [],
+  hydrationVersion: 0,
 };
 
 const matchSlice = createSlice({
@@ -69,6 +71,7 @@ const matchSlice = createSlice({
       state.isPeriodEnded = false;
       state.globalSequenceNumber = 0;
       state.recentActions = [];
+      state.hydrationVersion = 0;
     },
     updateScores(
       state,
@@ -139,6 +142,9 @@ const matchSlice = createSlice({
         (a) => a.id !== action.payload,
       );
     },
+    incrementHydrationVersion(state) {
+      state.hydrationVersion = (state.hydrationVersion || 0) + 1;
+    },
     resetMatchState() {
       return initialState;
     },
@@ -160,6 +166,7 @@ export const {
   addRecentAction,
   updateRecentAction,
   deleteRecentAction,
+  incrementHydrationVersion,
   resetMatchState,
 } = matchSlice.actions;
 

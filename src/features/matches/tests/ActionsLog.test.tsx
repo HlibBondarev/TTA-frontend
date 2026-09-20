@@ -11,10 +11,18 @@ import { configureStore } from "@reduxjs/toolkit";
 import { ActionsLog } from "../components/ActionsLog";
 import matchReducer, { type ActionEntry } from "../store/matchSlice";
 import * as eventService from "../../../db/eventService";
+import { db } from "../../../db/ttaDatabase";
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
+    matches: {
+      get: vi.fn(),
+    },
+    tournaments: {
+      get: vi.fn(),
+    },
     gameevents: {
+      get: vi.fn(),
       where: vi.fn().mockReturnValue({
         anyOf: vi.fn().mockReturnValue({
           toArray: vi.fn().mockResolvedValue([
@@ -74,6 +82,7 @@ const createStoreWithActions = (actions: ActionEntry[]) => {
         isPeriodEnded: false,
         globalSequenceNumber: 2,
         recentActions: actions,
+        hydrationVersion: 0,
       },
     },
   });
@@ -82,6 +91,30 @@ const createStoreWithActions = (actions: ActionEntry[]) => {
 describe("ActionsLog Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: "test-match",
+      tournamentId: "tour-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValue({
+      id: "tour-1",
+      sportId: "s1",
+    } as never);
+    vi.mocked(
+      db.gameevents.get as unknown as (id: string) => Promise<unknown>,
+    ).mockImplementation((id: string) =>
+      Promise.resolve({
+        id,
+        matchLineupId:
+          id === "action-fail" || id === "action-2" ? "lineup-2" : "lineup-1",
+        eventDefinitionId: "def-1",
+        periodNumber: 1,
+        eventTimestamp: new Date().toISOString(),
+        isLeadToGoal: false,
+        createdAt: new Date().toISOString(),
+        sequenceNumber: 1,
+        isSynced: 0,
+      }),
+    );
   });
 
   afterEach(() => {
@@ -150,7 +183,6 @@ describe("ActionsLog Component", () => {
       name: "Turnover",
       shortName: "TO",
       isPositive: false,
-      createdAt: "",
     });
 
     vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
@@ -195,7 +227,9 @@ describe("ActionsLog Component", () => {
         eventId: "action-2",
         matchLineupId: "lineup-2",
         eventDefinitionId: "def-2",
+        expectedSportId: "s1",
         isLeadToGoal: true,
+        userId: undefined,
       });
     });
   });
@@ -221,10 +255,8 @@ describe("ActionsLog Component", () => {
       </Provider>,
     );
 
-    // 1. Verify lock icon becomes visible after Dexie liveQuery resolves isSynced === 1
     expect(await screen.findByText("🔒")).toBeInTheDocument();
 
-    // 2. Click edit button -> Displays inline error and blocks modal
     const editBtn = screen.getByTitle("Cannot edit synced event");
     fireEvent.click(editBtn);
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -232,7 +264,6 @@ describe("ActionsLog Component", () => {
     );
     expect(screen.queryByText("Edit Action")).not.toBeInTheDocument();
 
-    // 3. Click delete button -> Displays inline error and blocks confirmation modal
     const deleteBtn = screen.getByTitle("Cannot delete synced event");
     fireEvent.click(deleteBtn);
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -264,7 +295,6 @@ describe("ActionsLog Component", () => {
       </Provider>,
     );
 
-    // 1. Click delete button -> Custom modal appears
     fireEvent.click(screen.getByTitle("Delete Action"));
 
     expect(
@@ -273,7 +303,6 @@ describe("ActionsLog Component", () => {
       ),
     ).toBeInTheDocument();
 
-    // 2. Click "Cancel" -> Modal closes without calling API
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(
       screen.queryByText(
@@ -282,7 +311,6 @@ describe("ActionsLog Component", () => {
     ).not.toBeInTheDocument();
     expect(eventService.deleteGameEventTx).not.toHaveBeenCalled();
 
-    // 3. Click delete button again and confirm -> API is invoked
     fireEvent.click(screen.getByTitle("Delete Action"));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
@@ -335,7 +363,6 @@ describe("ActionsLog Component", () => {
       name: "Turnover",
       shortName: "TO",
       isPositive: false,
-      createdAt: "",
     });
 
     vi.mocked(eventService.updateGameEventTx).mockRejectedValueOnce(
@@ -365,7 +392,6 @@ describe("ActionsLog Component", () => {
       </Provider>,
     );
 
-    // 1. Error on toggle
     const checkbox = screen.getByRole("checkbox");
     fireEvent.click(checkbox);
 
@@ -375,7 +401,6 @@ describe("ActionsLog Component", () => {
       );
     });
 
-    // 2. Error on delete
     fireEvent.click(screen.getByTitle("Delete Action"));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
@@ -416,5 +441,57 @@ describe("ActionsLog Component", () => {
     fireEvent.click(closeBtn);
 
     expect(screen.queryByText("Edit Action")).not.toBeInTheDocument();
+  });
+
+  it("uses stored eventDefinitionId during Goal Lead toggle when getEventDefinitionByName returns undefined", async () => {
+    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValue(
+      undefined,
+    );
+
+    vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
+      id: "action-2",
+      matchLineupId: "lineup-2",
+      eventDefinitionId: "def-2",
+      periodNumber: 1,
+      eventTimestamp: "",
+      isLeadToGoal: true,
+      createdAt: "",
+      sequenceNumber: 1,
+      isSynced: 0,
+    });
+
+    const store = createStoreWithActions([
+      {
+        id: "action-2",
+        playerNumber: 3,
+        actionName: "Custom Action",
+        isPositive: false,
+        timestamp: new Date().toISOString(),
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-2",
+        isLeadToGoal: false,
+        isSynced: 0,
+      },
+    ]);
+
+    render(
+      <Provider store={store}>
+        <ActionsLog />
+      </Provider>,
+    );
+
+    const checkbox = screen.getByRole("checkbox");
+    fireEvent.click(checkbox);
+
+    await waitFor(() => {
+      expect(eventService.updateGameEventTx).toHaveBeenCalledWith({
+        eventId: "action-2",
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-2",
+        expectedSportId: "s1",
+        isLeadToGoal: true,
+        userId: undefined,
+      });
+    });
   });
 });

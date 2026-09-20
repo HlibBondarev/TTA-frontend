@@ -226,6 +226,7 @@ const createTestStore = (preloadedMatchState: Partial<MatchState> = {}) => {
         isPeriodEnded: false,
         globalSequenceNumber: 0,
         recentActions: [],
+        hydrationVersion: 0,
         ...preloadedMatchState,
       },
     },

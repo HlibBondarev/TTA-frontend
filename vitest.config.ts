@@ -6,11 +6,11 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
-    setupFiles: ["./src/test/setup.ts"],
+    setupFiles: ["./src/tests/setup.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "lcov"], // lcov format is strictly required by SonarCloud
-      exclude: ["node_modules/", "src/test/"],
+      exclude: ["node_modules/", "src/tests/"],
     },
   },
 });

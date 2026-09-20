@@ -3,6 +3,38 @@ import { getAuthToken } from "../services/tokenService";
 const BASE_URL = import.meta.env.VITE_API_URL || "/api";
 const DEFAULT_TIMEOUT_MS = 15000;
 
+/**
+ * Standard RFC 7807 Problem Details payload structure returned by backend services.
+ */
+export interface ProblemDetails {
+  title?: string;
+  status?: number;
+  detail?: string;
+  instance?: string;
+  traceId?: string;
+  errors?: Record<string, string[]>;
+  [key: string]: unknown;
+}
+
+/**
+ * Custom API Error class wrapping HTTP status codes and structured Problem Details response.
+ */
+export class ApiError extends Error {
+  status: number;
+  problemDetails?: ProblemDetails;
+
+  constructor(
+    message: string,
+    status: number,
+    problemDetails?: ProblemDetails,
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.problemDetails = problemDetails;
+  }
+}
+
 export interface RequestOptions extends RequestInit {
   token?: string;
 }
@@ -30,6 +62,72 @@ function combineAbortSignals(
   return combinedController.signal;
 }
 
+/**
+ * Safely parses RFC 7807 Problem Details payload or constructs fallback error message from HTTP response.
+ */
+async function parseProblemDetails(
+  response: Response,
+): Promise<{ errorMessage: string; problemDetails?: ProblemDetails }> {
+  let problemDetails: ProblemDetails | undefined;
+  const statusPrefix = `API Request failed: ${response.status} ${response.statusText}`;
+  let errorMessage = statusPrefix;
+
+  try {
+    const rawText = await response.text();
+    const trimmedText = rawText?.trim();
+    if (!trimmedText) {
+      return { errorMessage, problemDetails };
+    }
+
+    try {
+      const parsed = JSON.parse(trimmedText) as ProblemDetails;
+      if (parsed && typeof parsed === "object") {
+        problemDetails = parsed;
+        const detailMsg = parsed.detail?.trim();
+        const titleMsg = parsed.title?.trim();
+
+        if (detailMsg) {
+          return { errorMessage: detailMsg, problemDetails };
+        }
+        if (titleMsg) {
+          return { errorMessage: titleMsg, problemDetails };
+        }
+      }
+    } catch {
+      // JSON parsing failed, handle as plain text fallback
+    }
+
+    const plainText = trimmedText
+      .replace(/<[^<>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (plainText) {
+      errorMessage = `${statusPrefix} - ${plainText}`;
+    }
+  } catch {
+    // Fallback to default HTTP status message if body reading fails
+  }
+
+  return { errorMessage, problemDetails };
+}
+
+/**
+ * Safely parses successful response body, handling 204 No Content and empty payload responses.
+ */
+async function parseResponseBody<T>(response: Response): Promise<T> {
+  if (response.status === 204) {
+    return {} as T;
+  }
+
+  const text = await response.text();
+  if (!text?.trim()) {
+    return {} as T;
+  }
+
+  return JSON.parse(text) as T;
+}
+
 export const apiClient = {
   async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { token, headers, signal: externalSignal, ...rest } = options;
@@ -39,7 +137,6 @@ export const apiClient = {
       ...(headers as Record<string, string>),
     };
 
-    // Use passed token or resolve dynamically via tokenService
     const authToken = token || (await getAuthToken());
     if (authToken) {
       requestHeaders["Authorization"] = `Bearer ${authToken}`;
@@ -68,24 +165,14 @@ export const apiClient = {
       });
 
       if (!response.ok) {
-        const error = new Error(
-          `API Request failed: ${response.status} ${response.statusText}`,
-        ) as Error & { status?: number };
-        error.status = response.status;
-        throw error;
+        const { errorMessage, problemDetails } =
+          await parseProblemDetails(response);
+        throw new ApiError(errorMessage, response.status, problemDetails);
       }
 
-      // Handle 204 No Content
-      if (response.status === 204) {
-        return {} as T;
-      }
-
-      // Safe JSON parsing for HTTP 200/201 responses with empty body
-      const text = await response.text();
-      return text?.trim() ? (JSON.parse(text) as T) : ({} as T);
+      return await parseResponseBody<T>(response);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
-        // Suppress or format user-friendly message for aborted signals
         console.warn(
           `[apiClient] Request aborted for ${normalizedEndpoint}:`,
           err.message,

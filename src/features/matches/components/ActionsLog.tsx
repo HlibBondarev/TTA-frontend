@@ -84,6 +84,7 @@ export const ActionsLog: React.FC = () => {
         eventId: action.id,
         selectedPlayerId: action.matchLineupId,
         actionName: action.actionName,
+        eventDefinitionId: action.eventDefinitionId,
         isPositive: action.isPositive,
         isLeadToGoal: !action.isLeadToGoal,
       });
