@@ -2,11 +2,18 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
+import { useAuth0 } from "@auth0/auth0-react";
 import { EventDefinitionsConfigurator } from "../components/EventDefinitionsConfigurator";
 import { eventDefinitionService } from "../../../services/eventDefinitionService";
 import * as eventService from "../../../db/eventService";
 import { db } from "../../../db/ttaDatabase";
 import { ApiError } from "../../../api/client";
+
+vi.mock("@auth0/auth0-react", () => ({
+  useAuth0: vi.fn(() => ({
+    user: undefined,
+  })),
+}));
 
 vi.mock("../../../services/eventDefinitionService", () => ({
   eventDefinitionService: {
@@ -1161,10 +1168,14 @@ describe("EventDefinitionsConfigurator Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("passes currentUserId to replaceSportEventDefinitionsInDb when syncing to Dexie", async () => {
+  it("passes Auth0 user.sub to replaceSportEventDefinitionsInDb as primary currentUserId", async () => {
+    vi.mocked(useAuth0).mockReturnValueOnce({
+      user: { sub: "auth0|123456", email: "user@example.com" },
+    } as never);
+
     renderWithProvider(
       <EventDefinitionsConfigurator sportId={SPORT_ID} />,
-      "user-xyz",
+      "redux-user-xyz",
     );
 
     await screen.findByText("Goal");
@@ -1172,7 +1183,26 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(eventService.replaceSportEventDefinitionsInDb).toHaveBeenCalledWith(
       SPORT_ID,
       expect.any(Array),
-      "user-xyz",
+      "auth0|123456",
+    );
+  });
+
+  it("falls back to Redux currentUserId when Auth0 user is undefined", async () => {
+    vi.mocked(useAuth0).mockReturnValueOnce({
+      user: undefined,
+    } as never);
+
+    renderWithProvider(
+      <EventDefinitionsConfigurator sportId={SPORT_ID} />,
+      "redux-user-xyz",
+    );
+
+    await screen.findByText("Goal");
+
+    expect(eventService.replaceSportEventDefinitionsInDb).toHaveBeenCalledWith(
+      SPORT_ID,
+      expect.any(Array),
+      "redux-user-xyz",
     );
   });
 

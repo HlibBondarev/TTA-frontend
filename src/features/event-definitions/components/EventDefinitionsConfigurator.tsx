@@ -6,6 +6,7 @@ import React, {
   useLayoutEffect,
 } from "react";
 import { useSelector } from "react-redux";
+import { useAuth0 } from "@auth0/auth0-react";
 import {
   eventDefinitionService,
   type EventDefinitionResponse,
@@ -62,7 +63,9 @@ export const EventDefinitionsConfigurator: React.FC<
   onChange,
   onLoadStateChange,
 }) => {
-  const currentUserId = useSelector(
+  const { user } = useAuth0();
+  const auth0UserId = user?.sub ?? user?.email;
+  const reduxUserId = useSelector(
     (state: RootState) =>
       (
         state as unknown as {
@@ -75,6 +78,7 @@ export const EventDefinitionsConfigurator: React.FC<
         }
       ).auth?.user?.id,
   );
+  const currentUserId = auth0UserId ?? reduxUserId;
 
   const [definitions, setDefinitions] = useState<EventDefinitionResponse[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>("POSITIVE");
