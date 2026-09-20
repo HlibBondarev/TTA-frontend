@@ -791,4 +791,48 @@ describe("Event Database Service (eventService)", () => {
     // After transaction completes, marker must be updated
     expect(isSportHydratedForUser(sportId, userId)).toBe(true);
   });
+
+  it("should allow updating event when eventDefinitionId is unchanged even if historical definition is missing from db", async () => {
+    const existingEvent = {
+      id: "event-1",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-removed",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: false,
+      createdAt: "2026-07-22T12:00:00.000Z",
+      sequenceNumber: 1,
+      isSynced: 0,
+    };
+
+    mockGameEventsGet.mockResolvedValueOnce(existingEvent);
+    mockMatchLineupsGet.mockImplementation((id: string) => {
+      if (id === "lineup-1") {
+        return Promise.resolve({ id, matchId: "match-123" });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    mockSyncQueueFilter.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 10,
+          endpoint: "/Matches/match-123/teams/team-456/events",
+          payload: JSON.stringify([
+            { id: "event-1", matchLineupId: "lineup-1" },
+          ]),
+        },
+      ]),
+    });
+
+    const updated = await updateGameEventTx({
+      eventId: "event-1",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-removed",
+      isLeadToGoal: true,
+    });
+
+    expect(updated.isLeadToGoal).toBe(true);
+    expect(mockEventDefinitionsGet).not.toHaveBeenCalled();
+  });
 });

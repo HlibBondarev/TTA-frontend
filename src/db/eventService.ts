@@ -271,7 +271,10 @@ const validateEventUpdateContext = async (
     }
   }
 
-  if (params.eventDefinitionId) {
+  if (
+    params.eventDefinitionId &&
+    params.eventDefinitionId !== existing.eventDefinitionId
+  ) {
     const eventDef = await db.eventdefinitions.get(params.eventDefinitionId);
     if (!eventDef) {
       throw new Error(
