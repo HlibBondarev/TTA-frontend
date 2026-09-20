@@ -1175,4 +1175,49 @@ describe("EventDefinitionsConfigurator Component", () => {
       "user-xyz",
     );
   });
+
+  it("aborts save preset continuations if sportId changes before savePreset resolves", async () => {
+    let resolveSave: (value: void) => void;
+    const savePromise = new Promise<void>((resolve) => {
+      resolveSave = resolve;
+    });
+
+    const onPresetSavedMock = vi.fn();
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue(
+      mockDefinitions,
+    );
+    vi.mocked(eventDefinitionService.savePreset).mockReturnValueOnce(
+      savePromise,
+    );
+
+    const store = createTestStore();
+    const { rerender } = render(
+      <Provider store={store}>
+        <EventDefinitionsConfigurator
+          sportId="sport-waterpolo"
+          onPresetSaved={onPresetSavedMock}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+
+    const saveBtn = screen.getByRole("button", { name: "Save Active Preset" });
+    fireEvent.click(saveBtn);
+
+    // Change sportId while savePreset is pending
+    rerender(
+      <Provider store={store}>
+        <EventDefinitionsConfigurator
+          sportId="sport-basketball"
+          onPresetSaved={onPresetSavedMock}
+        />
+      </Provider>,
+    );
+
+    resolveSave!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onPresetSavedMock).not.toHaveBeenCalled();
+  });
 });

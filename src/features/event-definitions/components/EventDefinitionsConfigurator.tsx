@@ -117,6 +117,7 @@ export const EventDefinitionsConfigurator: React.FC<
   const syncToDexie = useCallback(
     async (items: EventDefinitionResponse[]) => {
       if (!sportId || !db.eventdefinitions) return;
+      const requestId = requestCountRef.current;
       const recordsToPut: EventDefinitionLookup[] = items
         .filter((def): def is EventDefinitionResponse & { id: string } =>
           Boolean(def.id),
@@ -131,6 +132,7 @@ export const EventDefinitionsConfigurator: React.FC<
           isEnabled: def.isEnabled ?? true,
           sortOrder: def.sortOrder ?? idx + 1,
         }));
+      if (requestId !== requestCountRef.current) return;
       await replaceSportEventDefinitionsInDb(
         sportId,
         recordsToPut,
@@ -353,6 +355,7 @@ export const EventDefinitionsConfigurator: React.FC<
 
   const handleSavePreset = async () => {
     if (isLocked || !definitionsReady) return;
+    const requestId = requestCountRef.current;
     try {
       setSaving(true);
       setError(null);
@@ -365,12 +368,18 @@ export const EventDefinitionsConfigurator: React.FC<
         eventDefinitionIds: activeIds,
       });
 
+      if (requestId !== requestCountRef.current) return;
+
       await syncToDexie(definitions);
+
+      if (requestId !== requestCountRef.current) return;
 
       if (onPresetSaved) {
         onPresetSaved();
       }
     } catch (err) {
+      if (requestId !== requestCountRef.current) return;
+
       setError(
         err instanceof Error ? err.message : "Failed to save user preset.",
       );
