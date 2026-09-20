@@ -434,16 +434,21 @@ describe("TTDActionsPanel Component", () => {
       </Provider>,
     );
 
-    // Actions should not be rendered before hydration completes
+    // Wait for initial hydration check while isHydrated is false
     await waitFor(() => {
-      expect(screen.queryByText("Goal")).not.toBeInTheDocument();
+      expect(isSportHydratedForUser).toHaveBeenCalledWith("s1", "user-1");
     });
+    expect(screen.queryByText("Goal")).not.toBeInTheDocument();
+    vi.mocked(isSportHydratedForUser).mockClear();
 
     // Simulate successful hydration: update marker and dispatch production action
     isHydrated = true;
     store.dispatch(incrementHydrationVersion());
 
-    // Panel re-queries Dexie DB via hydrationVersion in useEffect and renders action buttons
+    // Wait for second hydration check triggered by hydrationVersion update
+    await waitFor(() => {
+      expect(isSportHydratedForUser).toHaveBeenCalledWith("s1", "user-1");
+    });
     expect(await screen.findByText("Goal")).toBeInTheDocument();
   });
 });
