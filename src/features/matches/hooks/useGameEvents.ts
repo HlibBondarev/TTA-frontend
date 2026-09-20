@@ -223,6 +223,31 @@ export const useGameEvents = (matchId: string, userId?: string) => {
    * Deletes an unsynchronized game event from Dexie DB and syncQueue, then removes it from Redux store.
    */
   const deleteGameEvent = async (eventId: string): Promise<boolean> => {
+    const normalizedMatchId = matchId?.trim();
+    if (!normalizedMatchId) {
+      throw new Error("Active match ID is missing or empty.");
+    }
+
+    const event = await db.gameevents.get(eventId);
+    if (!event) {
+      throw new Error(`Game event record not found for ID: ${eventId}`);
+    }
+
+    const lineup = await db.matchlineups.get(event.matchLineupId);
+    if (!lineup) {
+      throw new Error(
+        `Player lineup record not found for ID: ${event.matchLineupId}`,
+      );
+    }
+
+    if (lineup.matchId?.trim() !== normalizedMatchId) {
+      throw new Error(
+        `Game event ${eventId} does not belong to match: ${normalizedMatchId}`,
+      );
+    }
+
+    await resolveSportId(normalizedMatchId);
+
     await deleteGameEventTx(eventId);
     dispatch(deleteRecentAction(eventId));
     return true;

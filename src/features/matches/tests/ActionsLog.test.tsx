@@ -22,6 +22,7 @@ vi.mock("../../../db/ttaDatabase", () => ({
       get: vi.fn(),
     },
     gameevents: {
+      get: vi.fn(),
       where: vi.fn().mockReturnValue({
         anyOf: vi.fn().mockReturnValue({
           toArray: vi.fn().mockResolvedValue([
@@ -98,6 +99,22 @@ describe("ActionsLog Component", () => {
       id: "tour-1",
       sportId: "s1",
     } as never);
+    vi.mocked(
+      db.gameevents.get as unknown as (id: string) => Promise<unknown>,
+    ).mockImplementation((id: string) =>
+      Promise.resolve({
+        id,
+        matchLineupId:
+          id === "action-fail" || id === "action-2" ? "lineup-2" : "lineup-1",
+        eventDefinitionId: "def-1",
+        periodNumber: 1,
+        eventTimestamp: new Date().toISOString(),
+        isLeadToGoal: false,
+        createdAt: new Date().toISOString(),
+        sequenceNumber: 1,
+        isSynced: 0,
+      }),
+    );
   });
 
   afterEach(() => {
@@ -236,10 +253,8 @@ describe("ActionsLog Component", () => {
       </Provider>,
     );
 
-    // 1. Verify lock icon becomes visible after Dexie liveQuery resolves isSynced === 1
     expect(await screen.findByText("🔒")).toBeInTheDocument();
 
-    // 2. Click edit button -> Displays inline error and blocks modal
     const editBtn = screen.getByTitle("Cannot edit synced event");
     fireEvent.click(editBtn);
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -247,7 +262,6 @@ describe("ActionsLog Component", () => {
     );
     expect(screen.queryByText("Edit Action")).not.toBeInTheDocument();
 
-    // 3. Click delete button -> Displays inline error and blocks confirmation modal
     const deleteBtn = screen.getByTitle("Cannot delete synced event");
     fireEvent.click(deleteBtn);
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -279,7 +293,6 @@ describe("ActionsLog Component", () => {
       </Provider>,
     );
 
-    // 1. Click delete button -> Custom modal appears
     fireEvent.click(screen.getByTitle("Delete Action"));
 
     expect(
@@ -288,7 +301,6 @@ describe("ActionsLog Component", () => {
       ),
     ).toBeInTheDocument();
 
-    // 2. Click "Cancel" -> Modal closes without calling API
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(
       screen.queryByText(
@@ -297,7 +309,6 @@ describe("ActionsLog Component", () => {
     ).not.toBeInTheDocument();
     expect(eventService.deleteGameEventTx).not.toHaveBeenCalled();
 
-    // 3. Click delete button again and confirm -> API is invoked
     fireEvent.click(screen.getByTitle("Delete Action"));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
@@ -379,7 +390,6 @@ describe("ActionsLog Component", () => {
       </Provider>,
     );
 
-    // 1. Error on toggle
     const checkbox = screen.getByRole("checkbox");
     fireEvent.click(checkbox);
 
@@ -389,7 +399,6 @@ describe("ActionsLog Component", () => {
       );
     });
 
-    // 2. Error on delete
     fireEvent.click(screen.getByTitle("Delete Action"));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
