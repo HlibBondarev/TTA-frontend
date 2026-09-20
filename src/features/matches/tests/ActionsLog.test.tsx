@@ -227,7 +227,9 @@ describe("ActionsLog Component", () => {
         eventId: "action-2",
         matchLineupId: "lineup-2",
         eventDefinitionId: "def-2",
+        expectedSportId: "s1",
         isLeadToGoal: true,
+        userId: undefined,
       });
     });
   });
@@ -486,7 +488,9 @@ describe("ActionsLog Component", () => {
         eventId: "action-2",
         matchLineupId: "lineup-2",
         eventDefinitionId: "def-2",
+        expectedSportId: "s1",
         isLeadToGoal: true,
+        userId: undefined,
       });
     });
   });

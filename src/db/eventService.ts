@@ -170,6 +170,7 @@ export interface UpdateGameEventParams {
   eventId: string;
   matchLineupId: string;
   eventDefinitionId: string;
+  expectedSportId?: string;
   isLeadToGoal: boolean;
   userId?: string;
 }
@@ -236,6 +237,9 @@ const processQueueItemDelete = async (
 /**
  * Helper to validate lineups, match ownership, and event definition during game event update.
  */
+/**
+ * Helper to validate lineups, match ownership, and event definition during game event update.
+ */
 const validateEventUpdateContext = async (
   existing: GameEvent,
   params: UpdateGameEventParams,
@@ -271,15 +275,28 @@ const validateEventUpdateContext = async (
     }
   }
 
-  if (
-    params.eventDefinitionId &&
-    params.eventDefinitionId !== existing.eventDefinitionId
-  ) {
-    const eventDef = await db.eventdefinitions.get(params.eventDefinitionId);
-    if (!eventDef) {
-      throw new Error(
-        `Event definition not found: ${params.eventDefinitionId}`,
-      );
+  if (params.eventDefinitionId) {
+    const isNewDefinition =
+      params.eventDefinitionId !== existing.eventDefinitionId;
+
+    if (isNewDefinition || params.expectedSportId) {
+      const eventDef = await db.eventdefinitions.get(params.eventDefinitionId);
+
+      if (!eventDef && isNewDefinition) {
+        throw new Error(
+          `Event definition record not found for ID: ${params.eventDefinitionId}`,
+        );
+      }
+
+      if (
+        eventDef &&
+        params.expectedSportId &&
+        eventDef.sportId !== params.expectedSportId
+      ) {
+        throw new Error(
+          `Event definition ${params.eventDefinitionId} does not belong to sport: ${params.expectedSportId}`,
+        );
+      }
     }
   }
 };
@@ -343,7 +360,6 @@ export const createGameEventTx = async (
 
       await db.gameevents.add(createdEvent);
 
-      // Array batch payload containing client-generated event ID
       const payload = JSON.stringify([
         {
           id: createdEvent.id,

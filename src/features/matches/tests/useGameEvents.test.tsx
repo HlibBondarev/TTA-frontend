@@ -448,6 +448,7 @@ describe("useGameEvents Custom Hook", () => {
       eventId: "event-to-update",
       matchLineupId: "lineup-10",
       eventDefinitionId: "def-steal-direct",
+      expectedSportId: "waterpolo-sport-id",
       isLeadToGoal: true,
       userId: "user-123",
     });
@@ -461,6 +462,39 @@ describe("useGameEvents Custom Hook", () => {
         isLeadToGoal: true,
       }),
     );
+  });
+
+  it("should throw an error in updateGameEvent if match belongs to another user even when eventDefinitionId is provided", async () => {
+    const store = createTestStore({}, "user-B");
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-1",
+      matchId: "test-match-id",
+      number: 1,
+      playerRosterId: "r-1",
+      positionId: null,
+    });
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "test-match-id",
+      tournamentId: "tour-123",
+      userId: "user-A",
+    } as never);
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.updateGameEvent({
+          eventId: "event-1",
+          selectedPlayerId: "lineup-1",
+          actionName: "Pass",
+          eventDefinitionId: "def-direct-id",
+          isPositive: true,
+          isLeadToGoal: false,
+        });
+      }),
+    ).rejects.toThrow("Match test-match-id belongs to another user.");
   });
 
   it("should throw an error in updateGameEvent if player lineup record is not found", async () => {

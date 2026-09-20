@@ -21,7 +21,7 @@ export interface RecordGameEventParams {
   isLeadToGoal: boolean;
 }
 
-export interface UpdateGameEventParams {
+export interface UpdateGameEventHookParams {
   eventId: string;
   selectedPlayerId: string;
   actionName: string;
@@ -90,7 +90,6 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       throw new Error("Active team ID is missing or empty in Redux store.");
     }
 
-    // 1. Resolve Match Lineup record to get real jersey number and matchLineupId
     const lineup = await db.matchlineups.get(selectedPlayerId);
     if (!lineup) {
       throw new Error(
@@ -104,7 +103,6 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       );
     }
 
-    // 2. Resolve Event Definition by action name, sportId, and currentUserId
     const sportId = await resolveSportId(normalizedMatchId);
     const eventDef = await getEventDefinitionByName(
       actionName,
@@ -117,7 +115,6 @@ export const useGameEvents = (matchId: string, userId?: string) => {
 
     const timestamp = new Date().toISOString();
 
-    // 3. Atomically persist GameEvent entity with serialized sequence reservation and sync queue payload
     const createdEvent = await createGameEventTx({
       matchId: normalizedMatchId,
       teamId: normalizedTeamId,
@@ -128,7 +125,6 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       isLeadToGoal,
     });
 
-    // 4. Update Redux store with transactionally computed sequence and full event metadata
     dispatch(setGlobalSequenceNumber(createdEvent.sequenceNumber));
     dispatch(
       addRecentAction({
@@ -151,7 +147,7 @@ export const useGameEvents = (matchId: string, userId?: string) => {
    * Updates an existing unsynchronized game event in Dexie DB and syncQueue, then updates Redux store.
    */
   const updateGameEvent = async (
-    params: UpdateGameEventParams,
+    params: UpdateGameEventHookParams,
   ): Promise<boolean> => {
     const {
       eventId,
@@ -180,9 +176,10 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       );
     }
 
+    const sportId = await resolveSportId(normalizedMatchId);
+
     let resolvedEventDefId = eventDefinitionId;
     if (!resolvedEventDefId) {
-      const sportId = await resolveSportId(normalizedMatchId);
       const eventDef = await getEventDefinitionByName(
         actionName,
         sportId,
@@ -200,6 +197,7 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       eventId,
       matchLineupId: lineup.id,
       eventDefinitionId: resolvedEventDefId,
+      expectedSportId: sportId,
       isLeadToGoal,
       userId: currentUserId,
     });

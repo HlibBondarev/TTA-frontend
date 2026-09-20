@@ -105,6 +105,9 @@ describe("Event Database Service (eventService)", () => {
     clearEventDefinitionsCache();
     mockMatchLineupsGet.mockResolvedValue(undefined);
     mockMatchesGet.mockResolvedValue(undefined);
+    mockSyncQueueFilter.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([]),
+    });
     mockEventDefinitionsGet.mockImplementation((id: string) =>
       Promise.resolve({
         id,
@@ -834,5 +837,91 @@ describe("Event Database Service (eventService)", () => {
 
     expect(updated.isLeadToGoal).toBe(true);
     expect(mockEventDefinitionsGet).not.toHaveBeenCalled();
+  });
+
+  it("should successfully update event when expectedSportId matches definition sportId", async () => {
+    const existingEvent = {
+      id: "event-1",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: false,
+      createdAt: "2026-07-22T12:00:00.000Z",
+      sequenceNumber: 1,
+      isSynced: 0,
+    };
+
+    mockGameEventsGet.mockResolvedValueOnce(existingEvent);
+    mockMatchLineupsGet.mockImplementation((id: string) => {
+      if (id === "lineup-1") {
+        return Promise.resolve({ id, matchId: "match-123" });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    mockEventDefinitionsGet.mockResolvedValueOnce({
+      id: "def-1",
+      sportId: "sport-waterpolo",
+      name: "Goal",
+    });
+
+    mockSyncQueueFilter.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 10,
+          endpoint: "/Matches/match-123/teams/team-456/events",
+          payload: JSON.stringify([
+            { id: "event-1", matchLineupId: "lineup-1" },
+          ]),
+        },
+      ]),
+    });
+
+    const updated = await updateGameEventTx({
+      eventId: "event-1",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      expectedSportId: "sport-waterpolo",
+      isLeadToGoal: true,
+    });
+
+    expect(updated.isLeadToGoal).toBe(true);
+    expect(mockGameEventsPut).toHaveBeenCalledWith(updated);
+  });
+
+  it("should throw error in updateGameEventTx when expectedSportId does not match definition sportId", async () => {
+    const existingEvent = {
+      id: "event-1",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      isSynced: 0,
+    };
+
+    mockGameEventsGet.mockResolvedValueOnce(existingEvent);
+    mockMatchLineupsGet.mockImplementation((id: string) => {
+      if (id === "lineup-1") {
+        return Promise.resolve({ id, matchId: "match-123" });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    mockEventDefinitionsGet.mockResolvedValueOnce({
+      id: "def-basketball-pass",
+      sportId: "sport-basketball",
+      name: "Pass",
+    });
+
+    await expect(
+      updateGameEventTx({
+        eventId: "event-1",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-basketball-pass",
+        expectedSportId: "sport-waterpolo",
+        isLeadToGoal: false,
+      }),
+    ).rejects.toThrow(
+      "Event definition def-basketball-pass does not belong to sport: sport-waterpolo",
+    );
   });
 });
