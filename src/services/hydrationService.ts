@@ -627,7 +627,7 @@ export const deleteLocalMatchEntitiesForUser = async (
     ],
     async () => {
       const match = (await db.matches.get(matchId)) as TrackedMatch | undefined;
-      if (!match || match.userId !== normalizedUserId) return;
+      if (match?.userId !== normalizedUserId) return;
 
       await deleteLocalMatchEntities(matchId);
     },
