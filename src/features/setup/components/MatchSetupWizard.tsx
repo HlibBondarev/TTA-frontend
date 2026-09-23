@@ -31,6 +31,13 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = (props) => {
     handleBackToMenu,
   } = useMatchSetupWizard(props);
 
+  let submitButtonLabel = "Confirm & Start Tracking";
+  if (isSubmitting) {
+    submitButtonLabel = "Starting Quick Match...";
+  } else if (!isPresetSaved) {
+    submitButtonLabel = "Save Preset to Continue";
+  }
+
   const renderConfigurationsContent = () => {
     if (isLoadingConfigs) {
       return (
@@ -211,11 +218,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = (props) => {
         onClick={() => void handleConfirmQuickStart()}
         className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-black uppercase rounded-xl transition-colors tracking-wider text-xs shadow-lg"
       >
-        {isSubmitting
-          ? "Starting Quick Match..."
-          : !isPresetSaved
-            ? "Save Preset to Continue"
-            : "Confirm & Start Tracking"}
+        {submitButtonLabel}
       </button>
     </div>
   );
