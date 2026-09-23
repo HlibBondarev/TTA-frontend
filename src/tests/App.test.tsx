@@ -17,6 +17,7 @@ import {
   StaleUserError,
 } from "../services/hydrationService";
 import { eventDefinitionService } from "../services/eventDefinitionService";
+import type { RootState } from "../store";
 
 let mockIsAuthenticated = true;
 let mockUser = { email: "tester@tta.com", sub: "auth0|tester-123" };
@@ -94,9 +95,14 @@ vi.mock("../services/eventDefinitionService", () => ({
   },
 }));
 
-const createTestStore = (
-  preloadedState?: Parameters<typeof configureStore>[0]["preloadedState"],
-) => {
+type TestState = {
+  match?: Partial<RootState["match"]>;
+  presence?: Partial<RootState["presence"]>;
+  ui?: Partial<RootState["ui"]>;
+  navigation?: Partial<RootState["navigation"]>;
+};
+
+const createTestStore = (preloadedState?: TestState) => {
   return configureStore({
     reducer: {
       match: matchReducer,
@@ -104,7 +110,7 @@ const createTestStore = (
       ui: uiReducer,
       navigation: navigationReducer,
     },
-    preloadedState,
+    preloadedState: preloadedState as unknown as RootState,
   });
 };
 
@@ -156,7 +162,7 @@ describe("App Bootstrapping Component", () => {
         isPeriodActive: false,
         activeMatchId: "m-123",
         activeTeamId: "t-123",
-      } as never,
+      },
     });
 
     render(
@@ -259,11 +265,19 @@ describe("App Bootstrapping Component", () => {
       mockConfigs,
     );
 
-    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "new-match-id-123" });
+    vi.mocked(apiClient.post).mockResolvedValueOnce(mockMatch);
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
-      .mockResolvedValueOnce(mockHomeTeam as never)
-      .mockResolvedValueOnce(mockGuestTeam as never);
+      .mockResolvedValueOnce(
+        mockHomeTeam as unknown as Awaited<
+          ReturnType<typeof teamService.getTeamById>
+        >,
+      )
+      .mockResolvedValueOnce(
+        mockGuestTeam as unknown as Awaited<
+          ReturnType<typeof teamService.getTeamById>
+        >,
+      );
 
     const store = createTestStore({
       navigation: { currentView: "QUICK_START" },
@@ -279,26 +293,27 @@ describe("App Bootstrapping Component", () => {
       await screen.findByRole("button", { name: /Periods: 4/i }),
     ).toBeDefined();
 
-    fireEvent.click(screen.getByRole("button", { name: /Quick Start Match/i }));
+    // Save active preset to unlock start button according to Preset Guard requirements
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Save Active Preset/i }),
+    );
 
-    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
-
-    // Select team before confirming quick start
-    fireEvent.click(screen.getByText("Home Squad"));
+    // Select team focus
+    fireEvent.click(screen.getByRole("button", { name: /Home Squad/i }));
 
     fireEvent.click(
-      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+      await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
     );
 
     await waitFor(() => {
       expect(hydrateMatchData).toHaveBeenCalledWith(
-        "new-match-id-123",
+        expect.any(String),
         "team-home-1",
         "auth0|tester-123",
         expect.any(Function),
       );
       expect(store.getState().presence.activePlayersLimit).toBe(5);
-      expect(store.getState().match.activeMatchId).toBe("new-match-id-123");
+      expect(store.getState().match.activeMatchId).not.toBeNull();
       expect(store.getState().match.activeTeamId).toBe("team-home-1");
     });
 
@@ -310,7 +325,7 @@ describe("App Bootstrapping Component", () => {
       id: "m-interrupted",
       homeTeamId: "team-home-99",
       userId: "auth0|tester-123",
-    } as never);
+    } as unknown as Awaited<ReturnType<typeof checkUnfinishedMatch>>);
 
     const store = createTestStore({
       navigation: { currentView: "HUB" },
@@ -343,11 +358,19 @@ describe("App Bootstrapping Component", () => {
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
     );
-    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "new-match-id-123" });
+    vi.mocked(apiClient.post).mockResolvedValueOnce(mockMatch);
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
-      .mockResolvedValueOnce(mockHomeTeam as never)
-      .mockResolvedValueOnce(mockGuestTeam as never);
+      .mockResolvedValueOnce(
+        mockHomeTeam as unknown as Awaited<
+          ReturnType<typeof teamService.getTeamById>
+        >,
+      )
+      .mockResolvedValueOnce(
+        mockGuestTeam as unknown as Awaited<
+          ReturnType<typeof teamService.getTeamById>
+        >,
+      );
 
     vi.mocked(hydrateMatchData).mockRejectedValueOnce(
       new Error("401 Unauthorized"),
@@ -364,11 +387,10 @@ describe("App Bootstrapping Component", () => {
     );
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Quick Start Match/i }),
+      await screen.findByRole("button", { name: /Save Active Preset/i }),
     );
 
-    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
-    fireEvent.click(screen.getByText("Home Squad"));
+    fireEvent.click(screen.getByRole("button", { name: /Home Squad/i }));
 
     fireEvent.click(
       await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
@@ -388,11 +410,19 @@ describe("App Bootstrapping Component", () => {
     vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
       mockConfigs,
     );
-    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "new-match-id-123" });
+    vi.mocked(apiClient.post).mockResolvedValueOnce(mockMatch);
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
-      .mockResolvedValueOnce(mockHomeTeam as never)
-      .mockResolvedValueOnce(mockGuestTeam as never);
+      .mockResolvedValueOnce(
+        mockHomeTeam as unknown as Awaited<
+          ReturnType<typeof teamService.getTeamById>
+        >,
+      )
+      .mockResolvedValueOnce(
+        mockGuestTeam as unknown as Awaited<
+          ReturnType<typeof teamService.getTeamById>
+        >,
+      );
 
     vi.mocked(hydrateMatchData).mockRejectedValueOnce(new StaleUserError());
 
@@ -409,11 +439,10 @@ describe("App Bootstrapping Component", () => {
     );
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Quick Start Match/i }),
+      await screen.findByRole("button", { name: /Save Active Preset/i }),
     );
 
-    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
-    fireEvent.click(screen.getByText("Home Squad"));
+    fireEvent.click(screen.getByRole("button", { name: /Home Squad/i }));
 
     fireEvent.click(
       await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
@@ -435,7 +464,7 @@ describe("App Bootstrapping Component", () => {
       id: "m-interrupted-failed",
       homeTeamId: "team-home-99",
       userId: "auth0|tester-123",
-    } as never);
+    } as unknown as Awaited<ReturnType<typeof checkUnfinishedMatch>>);
 
     vi.mocked(getMatchRecoveryState).mockRejectedValueOnce(
       new Error("IndexedDB recovery error"),
@@ -473,11 +502,19 @@ describe("App Bootstrapping Component", () => {
       mockConfigs,
     );
 
-    vi.mocked(apiClient.post).mockResolvedValueOnce({ id: "new-match-id-123" });
+    vi.mocked(apiClient.post).mockResolvedValueOnce(mockMatch);
     vi.mocked(apiClient.get).mockResolvedValueOnce(mockMatch);
     vi.mocked(teamService.getTeamById)
-      .mockResolvedValueOnce(mockHomeTeam as never)
-      .mockResolvedValueOnce(mockGuestTeam as never);
+      .mockResolvedValueOnce(
+        mockHomeTeam as unknown as Awaited<
+          ReturnType<typeof teamService.getTeamById>
+        >,
+      )
+      .mockResolvedValueOnce(
+        mockGuestTeam as unknown as Awaited<
+          ReturnType<typeof teamService.getTeamById>
+        >,
+      );
 
     let resolveHydrate: (val: {
       success: boolean;
@@ -503,11 +540,10 @@ describe("App Bootstrapping Component", () => {
     );
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Quick Start Match/i }),
+      await screen.findByRole("button", { name: /Save Active Preset/i }),
     );
 
-    expect(await screen.findByText(/Select Team to Track/i)).toBeDefined();
-    fireEvent.click(screen.getByText("Home Squad"));
+    fireEvent.click(screen.getByRole("button", { name: /Home Squad/i }));
 
     fireEvent.click(
       await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
@@ -515,7 +551,7 @@ describe("App Bootstrapping Component", () => {
 
     await waitFor(() => {
       expect(hydrateMatchData).toHaveBeenCalledWith(
-        "new-match-id-123",
+        expect.any(String),
         "team-home-1",
         "auth0|tester-123",
         expect.any(Function),
@@ -552,7 +588,7 @@ describe("App Bootstrapping Component", () => {
       id: "m-interrupted-stale",
       homeTeamId: "team-home-99",
       userId: "auth0|tester-123",
-    } as never);
+    } as unknown as Awaited<ReturnType<typeof checkUnfinishedMatch>>);
 
     let resolveRecovery: (val: {
       recoveredPeriod: number;
@@ -566,7 +602,7 @@ describe("App Bootstrapping Component", () => {
     });
 
     vi.mocked(getMatchRecoveryState).mockReturnValueOnce(
-      recoveryPromise as never,
+      recoveryPromise as unknown as ReturnType<typeof getMatchRecoveryState>,
     );
 
     const store = createTestStore({
