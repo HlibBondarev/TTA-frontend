@@ -153,7 +153,7 @@ describe("useMatchSetupWizard", () => {
     );
   });
 
-  it("should execute compensating DELETE request if onQuickStart fails", async () => {
+  it("should execute compensating DELETE request for posted ID if onQuickStart fails", async () => {
     const onQuickStart = vi.fn().mockRejectedValue(new Error("Local DB error"));
     vi.mocked(apiClient.post).mockResolvedValue({
       id: "server-match-1",
@@ -177,9 +177,12 @@ describe("useMatchSetupWizard", () => {
       await result.current.handleConfirmQuickStart();
     });
 
-    expect(apiClient.delete).toHaveBeenCalledWith(
-      expect.stringMatching(/\/Matches\/.+/),
-    );
+    const postCallPayload = vi.mocked(apiClient.post).mock.calls[0][1] as {
+      id: string;
+    };
+    const postedMatchId = postCallPayload.id;
+
+    expect(apiClient.delete).toHaveBeenCalledWith(`/Matches/${postedMatchId}`);
     expect(result.current.errorMessage).toBe("Local DB error");
   });
 });
