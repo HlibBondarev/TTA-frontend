@@ -4,6 +4,7 @@ import { useMatchSetupWizard } from "../hooks/useMatchSetupWizard";
 import { sportService } from "../../../services/sportService";
 import { apiClient } from "../../../api/client";
 import { navigateToHub } from "../../../store/slices/navigationSlice";
+import { deleteLocalMatchEntitiesForUser } from "../../../services/hydrationService";
 
 const mockDispatch = vi.fn();
 
@@ -35,6 +36,10 @@ vi.mock("../../../api/client", () => ({
     post: vi.fn(),
     delete: vi.fn(),
   },
+}));
+
+vi.mock("../../../services/hydrationService", () => ({
+  deleteLocalMatchEntitiesForUser: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../../db/ttaDatabase", () => ({
@@ -236,7 +241,7 @@ describe("useMatchSetupWizard", () => {
     expect(result.current.configuratorKey).toContain("anonymous");
   });
 
-  it("should execute compensating DELETE request for exact client match ID if onQuickStart fails", async () => {
+  it("should execute compensating DELETE request and user-scoped local cleanup if onQuickStart fails", async () => {
     const expectedUuid = "mocked-client-match-uuid-12345";
     vi.spyOn(crypto, "randomUUID").mockReturnValue(
       expectedUuid as `${string}-${string}-${string}-${string}-${string}`,
@@ -276,6 +281,10 @@ describe("useMatchSetupWizard", () => {
     );
 
     expect(apiClient.delete).toHaveBeenCalledWith(`/Matches/${expectedUuid}`);
+    expect(deleteLocalMatchEntitiesForUser).toHaveBeenCalledWith(
+      expectedUuid,
+      "auth0|user-777",
+    );
     expect(result.current.errorMessage).toBe("Local DB error");
   });
 });

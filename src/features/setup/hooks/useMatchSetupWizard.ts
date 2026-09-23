@@ -11,6 +11,7 @@ import { sportService } from "../../../services/sportService";
 import { apiClient } from "../../../api/client";
 import { db } from "../../../db/ttaDatabase";
 import { navigateToHub } from "../../../store/slices/navigationSlice";
+import { deleteLocalMatchEntitiesForUser } from "../../../services/hydrationService";
 import type {
   SportLookup,
   SportConfigurationLookup,
@@ -262,6 +263,15 @@ export function useMatchSetupWizard({
         console.warn(
           `Compensating DELETE /Matches/${clientMatchId} failed:`,
           deleteErr,
+        );
+      }
+
+      try {
+        await deleteLocalMatchEntitiesForUser(clientMatchId, initiatedUserId);
+      } catch (cleanupErr) {
+        console.warn(
+          `Local cleanup for match ${clientMatchId} failed:`,
+          cleanupErr,
         );
       }
 

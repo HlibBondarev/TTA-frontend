@@ -608,3 +608,28 @@ export const hydrateMatchData = async (
 
   return { success: true };
 };
+
+export const deleteLocalMatchEntitiesForUser = async (
+  matchId: string,
+  userId?: string,
+): Promise<void> => {
+  const normalizedUserId = userId?.trim();
+  if (!normalizedUserId || !db?.matches) return;
+
+  await db.transaction(
+    "rw",
+    [
+      db.matches,
+      db.matchlineups,
+      db.playerpresences,
+      db.gameevents,
+      db.timeanchors,
+    ],
+    async () => {
+      const match = (await db.matches.get(matchId)) as TrackedMatch | undefined;
+      if (!match || match.userId !== normalizedUserId) return;
+
+      await deleteLocalMatchEntities(matchId);
+    },
+  );
+};
