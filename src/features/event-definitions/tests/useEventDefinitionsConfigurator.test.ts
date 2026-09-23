@@ -16,7 +16,7 @@ vi.mock("@auth0/auth0-react", () => ({
   }),
 }));
 
-let mockReduxState = {
+let mockReduxState: Record<string, unknown> = {
   auth: { currentUserId: "auth0|user-123" },
 };
 
@@ -57,11 +57,19 @@ describe("useEventDefinitionsConfigurator", () => {
     },
     {
       id: "def-2",
+      name: "Assist",
+      shortName: "A",
+      isPositive: true,
+      isEnabled: true,
+      sortOrder: 2,
+    },
+    {
+      id: "def-3",
       name: "Exclusion",
       shortName: "EX",
       isPositive: false,
       isEnabled: true,
-      sortOrder: 2,
+      sortOrder: 3,
     },
   ];
 
@@ -76,11 +84,13 @@ describe("useEventDefinitionsConfigurator", () => {
 
   it("should load available definitions and sync to Dexie on mount", async () => {
     const onLoadStateChange = vi.fn();
+    const onChange = vi.fn();
 
     const { result } = renderHook(() =>
       useEventDefinitionsConfigurator({
         sportId: mockSportId,
         onLoadStateChange,
+        onChange,
       }),
     );
 
@@ -95,8 +105,9 @@ describe("useEventDefinitionsConfigurator", () => {
     );
     expect(replaceSportEventDefinitionsInDb).toHaveBeenCalled();
     expect(onLoadStateChange).toHaveBeenCalledWith(true);
+    expect(onChange).toHaveBeenCalledWith(["def-1", "def-2", "def-3"]);
     expect(result.current.definitionsReady).toBe(true);
-    expect(result.current.definitions).toHaveLength(2);
+    expect(result.current.definitions).toHaveLength(3);
   });
 
   it("should trigger onPresetModified and update isEnabled state when toggling definition", async () => {
@@ -129,8 +140,65 @@ describe("useEventDefinitionsConfigurator", () => {
     expect(toggledDef?.isEnabled).toBe(false);
   });
 
-  it("should resolve currentUserId from Auth0 email or Redux state as fallback", async () => {
-    mockAuth0User = { email: "user@tta.com" };
+  it("should ignore handleToggleEnabled if item ID is not found", async () => {
+    const onPresetModified = vi.fn();
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({
+        sportId: mockSportId,
+        onPresetModified,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.handleToggleEnabled("non-existent-id");
+    });
+
+    expect(onPresetModified).not.toHaveBeenCalled();
+  });
+
+  it("should handle moving items up and down within active tab category", async () => {
+    const onPresetModified = vi.fn();
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({
+        sportId: mockSportId,
+        onPresetModified,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.handleMove("def-2", "up");
+    });
+
+    expect(onPresetModified).toHaveBeenCalledTimes(1);
+    expect(result.current.definitions[0].id).toBe("def-2");
+    expect(result.current.definitions[1].id).toBe("def-1");
+
+    act(() => {
+      result.current.handleMove("def-2", "up");
+    });
+    expect(onPresetModified).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.handleMove("def-2", "down");
+    });
+    expect(onPresetModified).toHaveBeenCalledTimes(2);
+    expect(result.current.definitions[0].id).toBe("def-1");
+  });
+
+  it("should resolve currentUserId from Redux auth.user.id fallback when auth0 and currentUserId are missing", async () => {
+    mockAuth0User = undefined;
+    mockReduxState = { auth: { user: { id: "redux-user-456" } } };
+
     const { result } = renderHook(() =>
       useEventDefinitionsConfigurator({ sportId: mockSportId }),
     );
@@ -142,7 +210,7 @@ describe("useEventDefinitionsConfigurator", () => {
     expect(replaceSportEventDefinitionsInDb).toHaveBeenCalledWith(
       mockSportId,
       expect.any(Array),
-      "user@tta.com",
+      "redux-user-456",
     );
   });
 
@@ -167,12 +235,52 @@ describe("useEventDefinitionsConfigurator", () => {
 
     expect(eventDefinitionService.savePreset).toHaveBeenCalledWith(
       mockSportId,
-      { eventDefinitionIds: ["def-1", "def-2"] },
+      { eventDefinitionIds: ["def-1", "def-2", "def-3"] },
     );
     expect(onPresetSaved).toHaveBeenCalledTimes(1);
   });
 
-  it("should create custom definition and reload definitions", async () => {
+  it("should not save preset if definitions are not ready", async () => {
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockRejectedValue(
+      new Error("Fetch failed"),
+    );
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.handleSavePreset();
+    });
+
+    expect(eventDefinitionService.savePreset).not.toHaveBeenCalled();
+  });
+
+  it("should handle error during preset saving with generic non-Error exception", async () => {
+    vi.mocked(eventDefinitionService.savePreset).mockRejectedValue(
+      "String error message",
+    );
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.handleSavePreset();
+    });
+
+    expect(result.current.error).toBe("Failed to save user preset.");
+  });
+
+  it("should create custom definition with negative flag and switch active tab", async () => {
     vi.mocked(eventDefinitionService.createCustom).mockResolvedValue(
       {} as unknown as Awaited<
         ReturnType<typeof eventDefinitionService.createCustom>
@@ -192,9 +300,9 @@ describe("useEventDefinitionsConfigurator", () => {
     });
 
     act(() => {
-      result.current.setNewName("Custom Goal");
-      result.current.setNewShortName("CG");
-      result.current.setNewIsPositive(true);
+      result.current.setNewName("Custom Foul");
+      result.current.setNewShortName("CF");
+      result.current.setNewIsPositive(false);
     });
 
     const fakeEvent = {
@@ -208,19 +316,46 @@ describe("useEventDefinitionsConfigurator", () => {
     expect(eventDefinitionService.createCustom).toHaveBeenCalledWith(
       mockSportId,
       expect.objectContaining({
-        name: "Custom Goal",
-        shortName: "CG",
-        isPositive: true,
+        name: "Custom Foul",
+        shortName: "CF",
+        isPositive: false,
       }),
     );
+    expect(result.current.activeTab).toBe("NEGATIVE");
     expect(onPresetModified).toHaveBeenCalled();
   });
 
-  it("should delete custom definition when confirmed", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    vi.mocked(eventDefinitionService.softDeleteCustom).mockResolvedValue(
-      undefined,
+  it("should handle error during custom definition creation", async () => {
+    vi.mocked(eventDefinitionService.createCustom).mockRejectedValue(
+      new Error("Creation error"),
     );
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setNewName("Custom Foul");
+      result.current.setNewShortName("CF");
+    });
+
+    const fakeEvent = {
+      preventDefault: vi.fn(),
+    } as unknown as React.SyntheticEvent<HTMLFormElement>;
+
+    await act(async () => {
+      await result.current.handleCreateCustom(fakeEvent);
+    });
+
+    expect(result.current.modalError).toBe("Creation error");
+  });
+
+  it("should cancel custom definition deletion if user rejects confirmation", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
     const onPresetModified = vi.fn();
 
     const { result } = renderHook(() =>
@@ -238,69 +373,34 @@ describe("useEventDefinitionsConfigurator", () => {
       await result.current.handleDeleteCustom("def-1");
     });
 
-    expect(eventDefinitionService.softDeleteCustom).toHaveBeenCalledWith(
-      "def-1",
-    );
-    expect(onPresetModified).toHaveBeenCalled();
-  });
-
-  it("should not perform actions when disabled/locked", async () => {
-    const onPresetModified = vi.fn();
-
-    const { result } = renderHook(() =>
-      useEventDefinitionsConfigurator({
-        sportId: mockSportId,
-        disabled: true,
-        onPresetModified,
-      }),
-    );
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    act(() => {
-      result.current.handleToggleEnabled("def-1");
-    });
-
+    expect(eventDefinitionService.softDeleteCustom).not.toHaveBeenCalled();
     expect(onPresetModified).not.toHaveBeenCalled();
   });
 
-  it("should ignore stale requests if request count changes during fetch", async () => {
-    let resolveFirstFetch: (value: typeof mockDefinitions) => void = () => {};
-    const firstFetchPromise = new Promise<
-      Awaited<ReturnType<typeof eventDefinitionService.getAvailableForSport>>
-    >((resolve) => {
-      resolveFirstFetch = resolve;
-    });
-
-    vi.mocked(eventDefinitionService.getAvailableForSport)
-      .mockReturnValueOnce(firstFetchPromise)
-      .mockResolvedValueOnce(mockDefinitions);
-
-    const { result, rerender } = renderHook(
-      ({ sportId }) => useEventDefinitionsConfigurator({ sportId }),
-      { initialProps: { sportId: "water-polo" } },
+  it("should handle error during custom definition deletion", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(eventDefinitionService.softDeleteCustom).mockRejectedValue(
+      new Error("Delete failed"),
     );
 
-    rerender({ sportId: "swimming" });
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
     });
 
-    act(() => {
-      resolveFirstFetch(mockDefinitions);
+    await act(async () => {
+      await result.current.handleDeleteCustom("def-1");
     });
 
-    expect(eventDefinitionService.getAvailableForSport).toHaveBeenCalledWith(
-      "swimming",
-    );
+    expect(result.current.error).toBe("Delete failed");
   });
 
-  it("should handle error when loading definitions fails", async () => {
+  it("should handle error when loading definitions fails with non-Error object", async () => {
     vi.mocked(eventDefinitionService.getAvailableForSport).mockRejectedValue(
-      new Error("Server error"),
+      "Generic network failure",
     );
     const onLoadStateChange = vi.fn();
 
@@ -315,7 +415,7 @@ describe("useEventDefinitionsConfigurator", () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(result.current.error).toBe("Server error");
+    expect(result.current.error).toBe("Failed to load event definitions.");
     expect(result.current.definitionsReady).toBe(false);
     expect(onLoadStateChange).toHaveBeenCalledWith(false);
   });

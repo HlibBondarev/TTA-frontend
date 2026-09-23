@@ -8,8 +8,34 @@ vi.mock("../hooks/useMatchSetupWizard");
 vi.mock(
   "../../event-definitions/components/EventDefinitionsConfigurator",
   () => ({
-    EventDefinitionsConfigurator: () => (
-      <div data-testid="mock-event-configurator">Event Configurator Mock</div>
+    EventDefinitionsConfigurator: (props: {
+      onPresetSaved: () => void;
+      onPresetModified: () => void;
+      onLoadStateChange: (loaded: boolean) => void;
+    }) => (
+      <div data-testid="mock-event-configurator">
+        <button
+          type="button"
+          data-testid="trigger-preset-saved"
+          onClick={props.onPresetSaved}
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          data-testid="trigger-preset-modified"
+          onClick={props.onPresetModified}
+        >
+          Modify
+        </button>
+        <button
+          type="button"
+          data-testid="trigger-load-state"
+          onClick={() => props.onLoadStateChange(true)}
+        >
+          Load
+        </button>
+      </div>
     ),
   }),
 );
@@ -78,6 +104,30 @@ describe("MatchSetupWizard Component", () => {
     ).toBeInTheDocument();
   });
 
+  it("should render loading state when configurations are loading", () => {
+    vi.mocked(useMatchSetupWizard).mockReturnValue({
+      ...defaultHookReturn,
+      isLoadingConfigs: true,
+    });
+
+    render(<MatchSetupWizard onQuickStart={mockOnQuickStart} />);
+
+    expect(screen.getByText("Loading configurations...")).toBeInTheDocument();
+  });
+
+  it("should render empty message when configurations list is empty", () => {
+    vi.mocked(useMatchSetupWizard).mockReturnValue({
+      ...defaultHookReturn,
+      configurations: [],
+    });
+
+    render(<MatchSetupWizard onQuickStart={mockOnQuickStart} />);
+
+    expect(
+      screen.getByText("No configurations available for this sport."),
+    ).toBeInTheDocument();
+  });
+
   it("should render sports and configuration options when loaded", () => {
     render(<MatchSetupWizard onQuickStart={mockOnQuickStart} />);
 
@@ -115,6 +165,62 @@ describe("MatchSetupWizard Component", () => {
       name: /Save Preset to Continue/i,
     });
     expect(button).toBeDisabled();
+  });
+
+  it("should display 'Starting Quick Match...' when submitting form", () => {
+    vi.mocked(useMatchSetupWizard).mockReturnValue({
+      ...defaultHookReturn,
+      isSubmitting: true,
+      isStartDisabled: true,
+    });
+
+    render(<MatchSetupWizard onQuickStart={mockOnQuickStart} />);
+
+    const button = screen.getByRole("button", {
+      name: /Starting Quick Match.../i,
+    });
+    expect(button).toBeDisabled();
+  });
+
+  it("should handle sport and config button selections", () => {
+    render(<MatchSetupWizard onQuickStart={mockOnQuickStart} />);
+
+    const sportButton = screen.getByRole("button", { name: /Water Polo/i });
+    fireEvent.click(sportButton);
+    expect(defaultHookReturn.handleSelectSport).toHaveBeenCalledWith("wp");
+
+    const configButton = screen.getByRole("button", { name: /Periods: 4/i });
+    fireEvent.click(configButton);
+    expect(defaultHookReturn.handleSelectConfig).toHaveBeenCalledWith("cfg-1");
+  });
+
+  it("should handle team focus selections (Home Squad / Opponent Squad)", () => {
+    render(<MatchSetupWizard onQuickStart={mockOnQuickStart} />);
+
+    const homeSquadButton = screen.getByRole("button", { name: /Home Squad/i });
+    fireEvent.click(homeSquadButton);
+    expect(defaultHookReturn.setIsGuestTeam).toHaveBeenCalledWith(false);
+
+    const opponentSquadButton = screen.getByRole("button", {
+      name: /Opponent Squad/i,
+    });
+    fireEvent.click(opponentSquadButton);
+    expect(defaultHookReturn.setIsGuestTeam).toHaveBeenCalledWith(true);
+  });
+
+  it("should trigger EventDefinitionsConfigurator callbacks correctly", () => {
+    render(<MatchSetupWizard onQuickStart={mockOnQuickStart} />);
+
+    fireEvent.click(screen.getByTestId("trigger-preset-saved"));
+    expect(defaultHookReturn.setIsPresetSaved).toHaveBeenCalledWith(true);
+
+    fireEvent.click(screen.getByTestId("trigger-preset-modified"));
+    expect(defaultHookReturn.setIsPresetSaved).toHaveBeenCalledWith(false);
+
+    fireEvent.click(screen.getByTestId("trigger-load-state"));
+    expect(defaultHookReturn.setAreDefinitionsLoaded).toHaveBeenCalledWith(
+      true,
+    );
   });
 
   it("should call handleConfirmQuickStart when clicking start button", () => {

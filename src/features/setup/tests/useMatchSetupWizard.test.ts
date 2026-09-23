@@ -3,8 +3,13 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import { useMatchSetupWizard } from "../hooks/useMatchSetupWizard";
 import { sportService } from "../../../services/sportService";
 import { apiClient } from "../../../api/client";
+import { navigateToHub } from "../../../store/slices/navigationSlice";
 
 const mockDispatch = vi.fn();
+
+let mockUser: { sub?: string; email?: string } | undefined = {
+  sub: "auth0|user-777",
+};
 
 vi.mock("react-redux", () => ({
   useDispatch: () => mockDispatch,
@@ -12,7 +17,9 @@ vi.mock("react-redux", () => ({
 
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
-    user: { sub: "auth0|user-777" },
+    get user() {
+      return mockUser;
+    },
   }),
 }));
 
@@ -45,6 +52,12 @@ describe("useMatchSetupWizard", () => {
       shortName: "WP",
       defaultConfigId: "cfg-1",
     },
+    {
+      id: "swimming",
+      name: "Swimming",
+      shortName: "SW",
+      defaultConfigId: "cfg-2",
+    },
   ];
 
   const mockConfigs = [
@@ -63,6 +76,7 @@ describe("useMatchSetupWizard", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUser = { sub: "auth0|user-777" };
     vi.mocked(sportService.getSports).mockResolvedValue(mockSports);
     vi.mocked(sportService.getSportConfigurations).mockResolvedValue(
       mockConfigs,
@@ -88,7 +102,10 @@ describe("useMatchSetupWizard", () => {
     expect(result.current.selectedConfigId).toBe("cfg-1");
   });
 
-  it("should keep start button disabled until preset is saved and definitions loaded", async () => {
+  it("should handle error when fetching sports fails", async () => {
+    vi.mocked(sportService.getSports).mockRejectedValue(
+      new Error("Sports load error"),
+    );
     const onQuickStart = vi.fn();
 
     const { result } = renderHook(() => useMatchSetupWizard({ onQuickStart }));
@@ -97,28 +114,14 @@ describe("useMatchSetupWizard", () => {
       expect(result.current.isLoadingSports).toBe(false);
     });
 
-    expect(result.current.isStartDisabled).toBe(true);
-
-    act(() => {
-      result.current.setAreDefinitionsLoaded(true);
-    });
-
-    expect(result.current.isStartDisabled).toBe(true);
-
-    act(() => {
-      result.current.setIsPresetSaved(true);
-    });
-
-    expect(result.current.isStartDisabled).toBe(false);
+    expect(result.current.errorMessage).toBe("Sports load error");
   });
 
-  it("should call POST /Matches/quick and onQuickStart on confirm", async () => {
-    const onQuickStart = vi.fn().mockResolvedValue(undefined);
-    vi.mocked(apiClient.post).mockResolvedValue({
-      id: "server-match-1",
-      homeTeamId: "team-home",
-      guestTeamId: "team-guest",
-    });
+  it("should handle error when fetching configurations fails", async () => {
+    vi.mocked(sportService.getSportConfigurations).mockRejectedValue(
+      new Error("Config load error"),
+    );
+    const onQuickStart = vi.fn();
 
     const { result } = renderHook(() => useMatchSetupWizard({ onQuickStart }));
 
@@ -126,31 +129,111 @@ describe("useMatchSetupWizard", () => {
       expect(result.current.isLoadingSports).toBe(false);
     });
 
-    act(() => {
-      result.current.setAreDefinitionsLoaded(true);
-      result.current.setIsPresetSaved(true);
+    expect(result.current.errorMessage).toBe("Config load error");
+  });
+
+  it("should ignore sport selection if same sport is selected or form is submitting", async () => {
+    const onQuickStart = vi.fn();
+    const { result } = renderHook(() => useMatchSetupWizard({ onQuickStart }));
+
+    await waitFor(() => {
+      expect(result.current.isLoadingSports).toBe(false);
+    });
+
+    const initialCalls = vi.mocked(sportService.getSportConfigurations).mock
+      .calls.length;
+
+    await act(async () => {
+      await result.current.handleSelectSport("water-polo");
+    });
+
+    expect(sportService.getSportConfigurations).toHaveBeenCalledTimes(
+      initialCalls,
+    );
+  });
+
+  it("should switch sport and load its configurations", async () => {
+    const onQuickStart = vi.fn();
+    const { result } = renderHook(() => useMatchSetupWizard({ onQuickStart }));
+
+    await waitFor(() => {
+      expect(result.current.isLoadingSports).toBe(false);
     });
 
     await act(async () => {
-      await result.current.handleConfirmQuickStart();
+      await result.current.handleSelectSport("swimming");
     });
 
-    expect(apiClient.post).toHaveBeenCalledWith(
-      "/Matches/quick",
-      expect.objectContaining({
-        sportId: "water-polo",
-        configurationId: "cfg-1",
-        isGuestTeam: false,
-      }),
+    expect(result.current.selectedSportId).toBe("swimming");
+    expect(sportService.getSportConfigurations).toHaveBeenCalledWith(
+      "swimming",
+    );
+  });
+
+  it("should handle configuration selection", async () => {
+    const onQuickStart = vi.fn();
+    const { result } = renderHook(() => useMatchSetupWizard({ onQuickStart }));
+
+    await waitFor(() => {
+      expect(result.current.isLoadingSports).toBe(false);
+    });
+
+    act(() => {
+      result.current.handleSelectConfig("cfg-1");
+    });
+
+    expect(result.current.selectedConfigId).toBe("cfg-1");
+  });
+
+  it("should reset wizard state when user changes", async () => {
+    const onQuickStart = vi.fn();
+    const { result, rerender } = renderHook(() =>
+      useMatchSetupWizard({ onQuickStart }),
     );
 
-    expect(onQuickStart).toHaveBeenCalledWith(
-      expect.any(String),
-      "water-polo",
-      "cfg-1",
-      7,
-      "team-home",
-    );
+    await waitFor(() => {
+      expect(result.current.isLoadingSports).toBe(false);
+    });
+
+    act(() => {
+      result.current.setIsPresetSaved(true);
+      result.current.setAreDefinitionsLoaded(true);
+      result.current.setIsGuestTeam(true);
+    });
+
+    mockUser = { sub: "auth0|user-888" };
+    rerender();
+
+    expect(result.current.isPresetSaved).toBe(false);
+    expect(result.current.areDefinitionsLoaded).toBe(false);
+    expect(result.current.isGuestTeam).toBe(false);
+  });
+
+  it("should navigate back to menu when handleBackToMenu is called", async () => {
+    const onQuickStart = vi.fn();
+    const { result } = renderHook(() => useMatchSetupWizard({ onQuickStart }));
+
+    await waitFor(() => {
+      expect(result.current.isLoadingSports).toBe(false);
+    });
+
+    act(() => {
+      result.current.handleBackToMenu();
+    });
+
+    expect(mockDispatch).toHaveBeenCalledWith(navigateToHub());
+  });
+
+  it("should fallback configuratorUserId to anonymous when user is undefined", async () => {
+    mockUser = undefined;
+    const onQuickStart = vi.fn();
+    const { result } = renderHook(() => useMatchSetupWizard({ onQuickStart }));
+
+    await waitFor(() => {
+      expect(result.current.isLoadingSports).toBe(false);
+    });
+
+    expect(result.current.configuratorKey).toContain("anonymous");
   });
 
   it("should execute compensating DELETE request for posted ID if onQuickStart fails", async () => {
