@@ -236,10 +236,15 @@ describe("useMatchSetupWizard", () => {
     expect(result.current.configuratorKey).toContain("anonymous");
   });
 
-  it("should execute compensating DELETE request for posted ID if onQuickStart fails", async () => {
+  it("should execute compensating DELETE request for exact client match ID if onQuickStart fails", async () => {
+    const expectedUuid = "mocked-client-match-uuid-12345";
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(
+      expectedUuid as `${string}-${string}-${string}-${string}-${string}`,
+    );
+
     const onQuickStart = vi.fn().mockRejectedValue(new Error("Local DB error"));
     vi.mocked(apiClient.post).mockResolvedValue({
-      id: "server-match-1",
+      id: expectedUuid,
       homeTeamId: "team-home",
       guestTeamId: "team-guest",
     });
@@ -260,12 +265,17 @@ describe("useMatchSetupWizard", () => {
       await result.current.handleConfirmQuickStart();
     });
 
-    const postCallPayload = vi.mocked(apiClient.post).mock.calls[0][1] as {
-      id: string;
-    };
-    const postedMatchId = postCallPayload.id;
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/quick",
+      expect.objectContaining({
+        id: expectedUuid,
+        sportId: "water-polo",
+        configurationId: "cfg-1",
+        isGuestTeam: false,
+      }),
+    );
 
-    expect(apiClient.delete).toHaveBeenCalledWith(`/Matches/${postedMatchId}`);
+    expect(apiClient.delete).toHaveBeenCalledWith(`/Matches/${expectedUuid}`);
     expect(result.current.errorMessage).toBe("Local DB error");
   });
 });
