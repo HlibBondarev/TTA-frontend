@@ -21,7 +21,7 @@ const mockMatchesGet = vi.fn();
 const mockSyncQueueUpdate = vi.fn();
 const mockSyncQueueDelete = vi.fn();
 const mockSyncQueueFilter = vi.fn();
-const mockWhereEqualsToArray = vi.fn();
+const mockWhereEquals = vi.fn();
 
 vi.mock("../db/ttaDatabase", () => ({
   db: {
@@ -31,7 +31,7 @@ vi.mock("../db/ttaDatabase", () => ({
       bulkPut: vi.fn(),
       bulkDelete: vi.fn(),
       where: vi.fn(() => ({
-        equals: mockWhereEqualsToArray,
+        equals: mockWhereEquals,
       })),
     },
     gameevents: {
@@ -78,6 +78,8 @@ describe("Event Database Service (eventService)", () => {
       shortName: "GL",
       isPositive: true,
       isEnabled: true,
+      ownerId: "user-1",
+      userId: "user-1",
       createdAt: "2026-07-22T10:00:00.000Z",
     },
     {
@@ -87,6 +89,8 @@ describe("Event Database Service (eventService)", () => {
       shortName: "PS",
       isPositive: true,
       isEnabled: true,
+      ownerId: "user-1",
+      userId: "user-1",
       createdAt: "2026-07-22T10:00:00.000Z",
     },
     {
@@ -96,6 +100,8 @@ describe("Event Database Service (eventService)", () => {
       shortName: "DA",
       isPositive: false,
       isEnabled: false,
+      ownerId: "user-1",
+      userId: "user-1",
       createdAt: "2026-07-22T10:00:00.000Z",
     },
   ];
@@ -116,10 +122,13 @@ describe("Event Database Service (eventService)", () => {
         shortName: "TA",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       }),
     );
-    mockWhereEqualsToArray.mockReturnValue({
+    mockWhereEquals.mockReturnValue({
       toArray: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
     });
   });
 
@@ -139,14 +148,15 @@ describe("Event Database Service (eventService)", () => {
 
   it("should filter definitions by sportId when sportId is passed to cache loader", async () => {
     const sport1Definitions = [mockDefinitions[0]];
-    mockWhereEqualsToArray.mockReturnValueOnce({
-      toArray: vi.fn().mockResolvedValueOnce(sport1Definitions),
+    mockWhereEquals.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(sport1Definitions),
+      count: vi.fn().mockResolvedValue(1),
     });
 
-    const cache = await loadEventDefinitionsCache("sport-1");
+    const cache = await loadEventDefinitionsCache("sport-1", "user-1");
 
     expect(db.eventdefinitions.where).toHaveBeenCalledWith("sportId");
-    expect(mockWhereEqualsToArray).toHaveBeenCalledWith("sport-1");
+    expect(mockWhereEquals).toHaveBeenCalledWith("sport-1");
     expect(cache.size).toBe(1);
     expect(cache.get("goal")).toBeDefined();
   });
@@ -189,6 +199,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "NG",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
     ];
 
@@ -223,6 +235,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "GL",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
       {
         id: "def-2",
@@ -231,6 +245,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "FL",
         isPositive: false,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
     ];
 
@@ -242,23 +258,32 @@ describe("Event Database Service (eventService)", () => {
         shortName: "GL",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
     ];
 
-    mockWhereEqualsToArray.mockReturnValueOnce({
+    mockWhereEquals.mockReturnValueOnce({
       toArray: vi.fn().mockResolvedValueOnce([]),
+      count: vi.fn().mockResolvedValueOnce(0),
     });
     await saveEventDefinitionsToDb(initialSet, "sport-1");
 
-    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(initialSet);
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+      { ...initialSet[0], ownerId: "user-1", userId: "user-1" },
+      { ...initialSet[1], ownerId: "user-1", userId: "user-1" },
+    ]);
 
-    mockWhereEqualsToArray.mockReturnValueOnce({
+    mockWhereEquals.mockReturnValueOnce({
       toArray: vi.fn().mockResolvedValueOnce(initialSet),
+      count: vi.fn().mockResolvedValueOnce(2),
     });
     await saveEventDefinitionsToDb(updatedSet, "sport-1");
 
     expect(db.eventdefinitions.bulkDelete).toHaveBeenCalledWith(["def-2"]);
-    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(updatedSet);
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+      { ...updatedSet[0], ownerId: "user-1", userId: "user-1" },
+    ]);
   });
 
   it("should replace sport event definitions atomically, purge missing IDs for sportId, and clear cache", async () => {
@@ -270,6 +295,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "GL",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
       {
         id: "def-obsolete",
@@ -278,11 +305,14 @@ describe("Event Database Service (eventService)", () => {
         shortName: "OBS",
         isPositive: false,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
     ];
 
-    mockWhereEqualsToArray.mockReturnValueOnce({
+    mockWhereEquals.mockReturnValueOnce({
       toArray: vi.fn().mockResolvedValueOnce(existingSport1Records),
+      count: vi.fn().mockResolvedValueOnce(2),
     });
 
     const updatedSport1Records = [
@@ -293,6 +323,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "GL",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
       {
         id: "def-new",
@@ -301,6 +333,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "NG",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
     ];
 
@@ -318,7 +352,7 @@ describe("Event Database Service (eventService)", () => {
       expect.any(Function),
     );
     expect(db.eventdefinitions.where).toHaveBeenCalledWith("sportId");
-    expect(mockWhereEqualsToArray).toHaveBeenCalledWith("sport-1");
+    expect(mockWhereEquals).toHaveBeenCalledWith("sport-1");
     expect(db.eventdefinitions.bulkDelete).toHaveBeenCalledWith([
       "def-obsolete",
     ]);
@@ -602,8 +636,9 @@ describe("Event Database Service (eventService)", () => {
   });
 
   it("should track hydrated user ID per sport and return empty cache if sport is hydrated for a different user", async () => {
-    mockWhereEqualsToArray.mockReturnValue({
+    mockWhereEquals.mockReturnValue({
       toArray: vi.fn().mockResolvedValue(mockDefinitions),
+      count: vi.fn().mockResolvedValue(mockDefinitions.length),
     });
 
     // Hydrate definitions for user-1
@@ -617,25 +652,82 @@ describe("Event Database Service (eventService)", () => {
     const user1Cache = await loadEventDefinitionsCache("sport-1", "user-1");
     expect(user1Cache.size).toBe(2);
 
-    // Cache lookup for user-2 (not yet hydrated for sport-1) should return empty Map (gated)
+    // For user-2, if IndexedDB has no records or mock returns 0
+    mockWhereEquals.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    });
     const user2Cache = await loadEventDefinitionsCache("sport-1", "user-2");
     expect(user2Cache.size).toBe(0);
   });
 
-  it("should return empty cache and false for isSportHydratedForUser on cold start when persisted records exist without an in-memory hydration marker", async () => {
+  it("should verify persistent records in IndexedDB on cold start when in-memory hydration marker is missing", async () => {
     const coldSportId = "sport-cold-start";
     const userId = "user-1";
 
-    mockWhereEqualsToArray.mockReturnValueOnce({
-      toArray: vi.fn().mockResolvedValueOnce(mockDefinitions),
+    mockWhereEquals.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockDefinitions),
+      count: vi.fn().mockResolvedValue(mockDefinitions.length),
     });
 
-    expect(isSportHydratedForUser(coldSportId, userId)).toBe(false);
+    expect(await isSportHydratedForUser(coldSportId, userId)).toBe(true);
 
     const cache = await loadEventDefinitionsCache(coldSportId, userId);
-    expect(cache.size).toBe(0);
+    expect(cache.size).toBe(2);
 
     const def = await getEventDefinitionByName("Goal", coldSportId, userId);
+    expect(def).toBeDefined();
+    expect(def?.id).toBe("def-1");
+  });
+
+  it("should return false for isSportHydratedForUser when IndexedDB contains no records for sport", async () => {
+    const unhydratedSportId = "sport-empty";
+    const userId = "user-1";
+
+    mockWhereEquals.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    });
+
+    expect(await isSportHydratedForUser(unhydratedSportId, userId)).toBe(false);
+
+    const cache = await loadEventDefinitionsCache(unhydratedSportId, userId);
+    expect(cache.size).toBe(0);
+
+    const def = await getEventDefinitionByName(
+      "Goal",
+      unhydratedSportId,
+      userId,
+    );
+    expect(def).toBeUndefined();
+  });
+
+  it("should return false for isSportHydratedForUser when IndexedDB contains definitions owned by another user", async () => {
+    const unhydratedSportId = "sport-owned-by-other";
+    const userId = "user-current";
+
+    mockWhereEquals.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: "def-1",
+          sportId: unhydratedSportId,
+          name: "Goal",
+          ownerId: "user-other",
+        },
+      ]),
+      count: vi.fn().mockResolvedValue(1),
+    });
+
+    expect(await isSportHydratedForUser(unhydratedSportId, userId)).toBe(false);
+
+    const cache = await loadEventDefinitionsCache(unhydratedSportId, userId);
+    expect(cache.size).toBe(0);
+
+    const def = await getEventDefinitionByName(
+      "Goal",
+      unhydratedSportId,
+      userId,
+    );
     expect(def).toBeUndefined();
   });
 
@@ -773,8 +865,9 @@ describe("Event Database Service (eventService)", () => {
       mockTx as unknown as import("dexie").Transaction,
     );
 
-    mockWhereEqualsToArray.mockReturnValueOnce({
+    mockWhereEquals.mockReturnValueOnce({
       toArray: vi.fn().mockResolvedValueOnce([]),
+      count: vi.fn().mockResolvedValueOnce(0),
     });
 
     const sportId = "sport-tx-test";
@@ -786,13 +879,13 @@ describe("Event Database Service (eventService)", () => {
     expect(mockTx.on).toHaveBeenCalledWith("complete", expect.any(Function));
 
     // Before transaction completion, marker must NOT be set yet
-    expect(isSportHydratedForUser(sportId, userId)).toBe(false);
+    expect(await isSportHydratedForUser(sportId, userId)).toBe(false);
 
     // Trigger transaction complete event
     completeListeners.forEach((listener) => listener());
 
     // After transaction completes, marker must be updated
-    expect(isSportHydratedForUser(sportId, userId)).toBe(true);
+    expect(await isSportHydratedForUser(sportId, userId)).toBe(true);
   });
 
   it("should allow updating event when eventDefinitionId is unchanged even if historical definition is missing from db", async () => {
@@ -864,6 +957,8 @@ describe("Event Database Service (eventService)", () => {
       id: "def-1",
       sportId: "sport-waterpolo",
       name: "Goal",
+      ownerId: "user-1",
+      userId: "user-1",
     });
 
     mockSyncQueueFilter.mockReturnValueOnce({
@@ -910,6 +1005,8 @@ describe("Event Database Service (eventService)", () => {
       id: "def-basketball-pass",
       sportId: "sport-basketball",
       name: "Pass",
+      ownerId: "user-1",
+      userId: "user-1",
     });
 
     await expect(
@@ -923,5 +1020,24 @@ describe("Event Database Service (eventService)", () => {
     ).rejects.toThrow(
       "Event definition def-basketball-pass does not belong to sport: sport-waterpolo",
     );
+  });
+
+  it("should return false for isSportHydratedForUser when IndexedDB contains definitions without ownerId", async () => {
+    const unhydratedSportId = "sport-no-owner";
+    const userId = "user-current";
+
+    mockWhereEquals.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: "def-1",
+          sportId: unhydratedSportId,
+          name: "Goal",
+          // ownerId and userId are intentionally omitted
+        },
+      ]),
+      count: vi.fn().mockResolvedValue(1),
+    });
+
+    expect(await isSportHydratedForUser(unhydratedSportId, userId)).toBe(false);
   });
 });

@@ -123,6 +123,9 @@ const matchSlice = createSlice({
         10,
       );
     },
+    setRecentActions(state, action: PayloadAction<ActionEntry[]>) {
+      state.recentActions = action.payload;
+    },
     updateRecentAction(
       state,
       action: PayloadAction<Partial<ActionEntry> & { id: string }>,
@@ -164,6 +167,7 @@ export const {
   incrementSequence,
   setGlobalSequenceNumber,
   addRecentAction,
+  setRecentActions,
   updateRecentAction,
   deleteRecentAction,
   incrementHydrationVersion,

@@ -12,6 +12,7 @@ import matchReducer, {
   setGlobalSequenceNumber,
   resetMatchState,
   addRecentAction,
+  setRecentActions,
   updateRecentAction,
   deleteRecentAction,
   type ActionEntry,
@@ -178,6 +179,14 @@ describe("matchSlice Reducers", () => {
     expect(
       currentState.recentActions.some((act) => act.id === "action-1"),
     ).toBe(false);
+  });
+
+  it("should handle setting recent actions array via setRecentActions reducer", () => {
+    const actions: ActionEntry[] = [sampleAction];
+    const nextState = matchReducer(initialState, setRecentActions(actions));
+
+    expect(nextState.recentActions).toHaveLength(1);
+    expect(nextState.recentActions[0].id).toBe("act-1");
   });
 
   it("should handle updating recent actions via updateRecentAction reducer", () => {

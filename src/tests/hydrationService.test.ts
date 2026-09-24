@@ -4,6 +4,7 @@ import {
   checkUnfinishedMatch,
   discardUnfinishedMatch,
   getMatchRecoveryState,
+  recoverRecentActions,
   deleteLocalMatchEntitiesForUser,
   StaleUserError,
 } from "../services/hydrationService";
@@ -62,6 +63,9 @@ vi.mock("../db/ttaDatabase", () => ({
       where: vi.fn().mockReturnValue({
         equals: vi.fn().mockReturnValue({
           delete: vi.fn().mockResolvedValue(0),
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+        anyOf: vi.fn().mockReturnValue({
           toArray: vi.fn().mockResolvedValue([]),
         }),
       }),
@@ -352,6 +356,106 @@ describe("Hydration Service", () => {
       "Failed to calculate match recovery state:",
       expect.any(Error),
     );
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("should return empty array for recoverRecentActions if matchId is missing or lineups are empty", async () => {
+    const result = await recoverRecentActions("");
+    expect(result).toEqual([]);
+
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    const resultNoLineups = await recoverRecentActions(matchId);
+    expect(resultNoLineups).toEqual([]);
+  });
+
+  it("should return empty array for recoverRecentActions if no events are found", async () => {
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ id: "l1", number: 7 }]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.gameevents.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([]),
+      }),
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    const result = await recoverRecentActions(matchId);
+    expect(result).toEqual([]);
+  });
+
+  it("should recover and map recent actions sorted by sequenceNumber and date, capped at 10 items", async () => {
+    const mockLineups = [
+      { id: "l1", number: 10 },
+      { id: "l2", number: 7 },
+    ];
+
+    const mockEvents = Array.from({ length: 12 }, (_, i) => ({
+      id: `e-${i}`,
+      matchLineupId: i % 2 === 0 ? "l1" : "l2",
+      eventDefinitionId: `def-${i % 2}`,
+      sequenceNumber: i + 1,
+      createdAt: `2026-09-01T10:0${i}:00Z`,
+      eventTimestamp: `2026-09-01T10:0${i}:00Z`,
+      isLeadToGoal: i === 0,
+      isSynced: 1,
+    }));
+
+    const mockDefinitions = [
+      { id: "def-0", name: "Goal", isPositive: true },
+      { id: "def-1", name: "Foul", ispositive: false },
+    ];
+
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce(mockLineups),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.gameevents.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce(mockEvents),
+      }),
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    vi.mocked(db.eventdefinitions.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce(mockDefinitions),
+      }),
+    } as unknown as ReturnType<typeof db.eventdefinitions.where>);
+
+    const result = await recoverRecentActions(matchId);
+
+    expect(result).toHaveLength(10);
+    expect(result[0].id).toBe("e-11");
+    expect(result[0].playerNumber).toBe(7);
+    expect(result[0].actionName).toBe("Foul");
+    expect(result[0].isPositive).toBe(false);
+  });
+
+  it("should catch and log error in recoverRecentActions if database operation fails", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    vi.mocked(db.matchlineups.where).mockImplementationOnce(() => {
+      throw new Error("IndexedDB error in recoverRecentActions");
+    });
+
+    const result = await recoverRecentActions(matchId);
+
+    expect(result).toEqual([]);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Failed to recover recent match actions:",
+      expect.any(Error),
+    );
+
     consoleErrorSpy.mockRestore();
   });
 

@@ -26,13 +26,120 @@ export const getHydratedUserIdForSport = (
   return hydratedUserIdBySport.get(sportId);
 };
 
-export const isSportHydratedForUser = (
+/**
+ * Verifies if sport definitions are already hydrated in IndexedDB for the given user.
+ * Inspects recorded items to ensure ALL items explicitly belong to normalizedUserId.
+ */
+export const isSportHydratedForUser = async (
   sportId: string,
   userId?: string,
-): boolean => {
+): Promise<boolean> => {
   const normalizedUserId = userId?.trim();
   if (!normalizedUserId) return false;
-  return hydratedUserIdBySport.get(sportId) === normalizedUserId;
+
+  if (hydratedUserIdBySport.get(sportId) === normalizedUserId) {
+    return true;
+  }
+
+  if (db?.eventdefinitions) {
+    try {
+      const rows = await db.eventdefinitions
+        .where("sportId")
+        .equals(sportId)
+        .toArray();
+
+      const allOwnedByCurrentUser =
+        rows.length > 0 &&
+        rows.every((def) => {
+          const item = def as unknown as {
+            ownerId?: string | null;
+            userId?: string | null;
+          };
+          const owner = item.ownerId || item.userId;
+          return owner === normalizedUserId;
+        });
+
+      if (allOwnedByCurrentUser) {
+        hydratedUserIdBySport.set(sportId, normalizedUserId);
+        return true;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+};
+
+/**
+ * Atomically replaces event definitions for a specific sportId in IndexedDB:
+ * removes existing records for sportId whose IDs are absent from incoming items,
+ * attaches normalizedUserId as owner to all records,
+ * performs bulkPut for updated records, and clears the in-memory cache.
+ */
+export const replaceSportEventDefinitionsInDb = async (
+  sportId: string,
+  definitions: EventDefinitionLookup[],
+  userId?: string,
+): Promise<void> => {
+  if (!db.eventdefinitions || !sportId) return;
+
+  const incomingIds = new Set(definitions.map((def) => def.id));
+  const normalizedUserId = userId?.trim();
+
+  const definitionsToSave = definitions.map((def) => ({
+    ...def,
+    ...(normalizedUserId
+      ? { ownerId: normalizedUserId, userId: normalizedUserId }
+      : {}),
+  }));
+
+  await db.transaction("rw", [db.eventdefinitions], async () => {
+    let existingForSport: EventDefinitionLookup[] = [];
+
+    if (typeof db.eventdefinitions.where === "function") {
+      existingForSport = await db.eventdefinitions
+        .where("sportId")
+        .equals(sportId)
+        .toArray();
+    } else if (typeof db.eventdefinitions.toArray === "function") {
+      const all = await db.eventdefinitions.toArray();
+      existingForSport = (all || []).filter((def) => def.sportId === sportId);
+    }
+
+    const idsToDelete = existingForSport
+      .filter((def) => !incomingIds.has(def.id))
+      .map((def) => def.id);
+
+    if (
+      idsToDelete.length > 0 &&
+      typeof db.eventdefinitions.bulkDelete === "function"
+    ) {
+      await db.eventdefinitions.bulkDelete(idsToDelete);
+    }
+
+    if (
+      definitionsToSave.length > 0 &&
+      typeof db.eventdefinitions.bulkPut === "function"
+    ) {
+      await db.eventdefinitions.bulkPut(definitionsToSave);
+    }
+
+    const currentTx = Dexie.currentTransaction;
+    if (currentTx && typeof currentTx.on === "function") {
+      currentTx.on("complete", () => {
+        if (normalizedUserId) {
+          hydratedUserIdBySport.set(sportId, normalizedUserId);
+        }
+        clearEventDefinitionsCache();
+      });
+    } else {
+      if (normalizedUserId) {
+        hydratedUserIdBySport.set(sportId, normalizedUserId);
+      }
+      clearEventDefinitionsCache();
+    }
+  });
 };
 
 /**
@@ -44,8 +151,8 @@ export const loadEventDefinitionsCache = async (
 ): Promise<Map<string, EventDefinitionLookup>> => {
   const normalizedUserId = userId?.trim();
   if (sportId && normalizedUserId) {
-    const hydratedUser = hydratedUserIdBySport.get(sportId);
-    if (hydratedUser !== normalizedUserId) {
+    const isHydrated = await isSportHydratedForUser(sportId, normalizedUserId);
+    if (!isHydrated) {
       return new Map();
     }
   }
@@ -491,69 +598,6 @@ export const deleteGameEventTx = async (eventId: string): Promise<void> => {
       throw new Error(
         `Matching sync queue payload not found for event ID: ${eventId}`,
       );
-    }
-  });
-};
-
-/**
- * Atomically replaces event definitions for a specific sportId in IndexedDB:
- * removes existing records for sportId whose IDs are absent from incoming items,
- * performs bulkPut for updated records, and clears the in-memory cache.
- */
-export const replaceSportEventDefinitionsInDb = async (
-  sportId: string,
-  definitions: EventDefinitionLookup[],
-  userId?: string,
-): Promise<void> => {
-  if (!db.eventdefinitions || !sportId) return;
-
-  const incomingIds = new Set(definitions.map((def) => def.id));
-  const normalizedUserId = userId?.trim();
-
-  await db.transaction("rw", [db.eventdefinitions], async () => {
-    let existingForSport: EventDefinitionLookup[] = [];
-
-    if (typeof db.eventdefinitions.where === "function") {
-      existingForSport = await db.eventdefinitions
-        .where("sportId")
-        .equals(sportId)
-        .toArray();
-    } else if (typeof db.eventdefinitions.toArray === "function") {
-      const all = await db.eventdefinitions.toArray();
-      existingForSport = (all || []).filter((def) => def.sportId === sportId);
-    }
-
-    const idsToDelete = existingForSport
-      .filter((def) => !incomingIds.has(def.id))
-      .map((def) => def.id);
-
-    if (
-      idsToDelete.length > 0 &&
-      typeof db.eventdefinitions.bulkDelete === "function"
-    ) {
-      await db.eventdefinitions.bulkDelete(idsToDelete);
-    }
-
-    if (
-      definitions.length > 0 &&
-      typeof db.eventdefinitions.bulkPut === "function"
-    ) {
-      await db.eventdefinitions.bulkPut(definitions);
-    }
-
-    const currentTx = Dexie.currentTransaction;
-    if (currentTx && typeof currentTx.on === "function") {
-      currentTx.on("complete", () => {
-        if (normalizedUserId) {
-          hydratedUserIdBySport.set(sportId, normalizedUserId);
-        }
-        clearEventDefinitionsCache();
-      });
-    } else {
-      if (normalizedUserId) {
-        hydratedUserIdBySport.set(sportId, normalizedUserId);
-      }
-      clearEventDefinitionsCache();
     }
   });
 };

@@ -1,135 +1,20 @@
-import React, { useEffect, useState } from "react";
-import { useSelector } from "react-redux";
-import { useAuth0 } from "@auth0/auth0-react";
-import { liveQuery } from "dexie";
-import { db, type EventDefinitionLookup } from "../../../db/ttaDatabase";
-import {
-  clearEventDefinitionsCache,
-  isSportHydratedForUser,
-} from "../../../db/eventService";
-import type { RootState } from "../../../store";
+import React from "react";
+import { useTTAPanel, type UseTTAPanelOptions } from "../hooks/useTTAPanel";
 
-interface TTDActionsPanelProps {
+export interface TTAPanelProps extends UseTTAPanelOptions {
   onActionSelect: (action: string, isPositive: boolean) => void;
   selectedAction: string | null;
   disabled: boolean;
-  userId?: string;
 }
 
-// Helper to safely evaluate isPositive supporting both camelCase and legacy keys
-const checkIsPositive = (def: EventDefinitionLookup): boolean => {
-  const value =
-    def.isPositive ?? (def as unknown as Record<string, unknown>).ispositive;
-  return !!value;
-};
-
-export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
+export const TTAPanel: React.FC<TTAPanelProps> = ({
   onActionSelect,
   selectedAction,
   disabled,
   userId,
 }) => {
-  const activeMatchId = useSelector(
-    (state: RootState) => state.match.activeMatchId,
-  );
-  const hydrationVersion = useSelector(
-    (state: RootState) => state.match.hydrationVersion,
-  );
-  const { user } = useAuth0();
-  const auth0UserId = user?.sub || user?.id;
-  const reduxUserId = useSelector(
-    (state: RootState) =>
-      (
-        state as unknown as {
-          auth?: { user?: { id?: string }; currentUserId?: string };
-        }
-      ).auth?.currentUserId ??
-      (
-        state as unknown as {
-          auth?: { user?: { id?: string }; currentUserId?: string };
-        }
-      ).auth?.user?.id,
-  );
-  const currentUserId = userId?.trim() || auth0UserId || reduxUserId;
-
-  const [activeTab, setActiveTab] = useState<"positive" | "negative">(
-    "positive",
-  );
-  const [eventDefinitions, setEventDefinitions] = useState<
-    EventDefinitionLookup[]
-  >([]);
-  const [prevActiveMatchId, setPrevActiveMatchId] = useState(activeMatchId);
-  const [prevUserId, setPrevUserId] = useState(currentUserId);
-
-  // Synchronously adjust state during render when activeMatchId or user account changes
-  if (prevActiveMatchId !== activeMatchId || prevUserId !== currentUserId) {
-    setPrevActiveMatchId(activeMatchId);
-    setPrevUserId(currentUserId);
-    setEventDefinitions([]);
-    clearEventDefinitionsCache();
-  }
-
-  // Reactive subscription to Dexie eventdefinitions table filtered by active sport and enabled state
-  useEffect(() => {
-    const subscription = liveQuery(async () => {
-      if (!activeMatchId) return [];
-
-      const normalizedUserId = currentUserId?.trim();
-      if (!normalizedUserId) return [];
-
-      const match = await db.matches.get(activeMatchId);
-      if (!match) return [];
-
-      if (match.userId && match.userId !== normalizedUserId) {
-        return [];
-      }
-
-      let targetSportId: string | null = null;
-      if (match.tournamentId) {
-        const tournament = await db.tournaments.get(match.tournamentId);
-        if (tournament?.sportId) {
-          targetSportId = tournament.sportId;
-        }
-      }
-
-      if (!targetSportId) return [];
-
-      if (!isSportHydratedForUser(targetSportId, normalizedUserId)) {
-        return [];
-      }
-
-      const definitions = await db.eventdefinitions
-        .where("sportId")
-        .equals(targetSportId)
-        .toArray();
-
-      return definitions
-        .filter((def) => def.isEnabled !== false)
-        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    }).subscribe({
-      next: (definitions) => {
-        setEventDefinitions(definitions || []);
-      },
-      error: (err) => {
-        console.error("Failed to load event definitions from Dexie:", err);
-        setEventDefinitions([]);
-      },
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [activeMatchId, currentUserId, hydrationVersion]);
-
-  const positiveActions = eventDefinitions.filter((def) =>
-    checkIsPositive(def),
-  );
-  const negativeActions = eventDefinitions.filter(
-    (def) => !checkIsPositive(def),
-  );
-
-  const displayedActions =
-    activeTab === "positive" ? positiveActions : negativeActions;
+  const { activeTab, setActiveTab, displayedActions, checkIsPositive } =
+    useTTAPanel({ userId });
 
   return (
     <div
@@ -164,7 +49,6 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
         </button>
       </div>
 
-      {/* Dynamic Actions Grid from IndexedDB */}
       <div className="grid grid-cols-3 gap-2">
         {displayedActions.map((def) => {
           const isPos = checkIsPositive(def);
@@ -183,7 +67,9 @@ export const TTDActionsPanel: React.FC<TTDActionsPanelProps> = ({
               key={def.id || def.name}
               onClick={() => onActionSelect(def.name, isPos)}
               disabled={disabled}
-              className={`p-2 min-h-11 rounded text-xs font-medium transition-all disabled:cursor-not-allowed ${buttonColorStyle}`}
+              className={`p-2 min-h-11 rounded text-xs font-medium transition-all disabled:cursor-not-allowed ${
+                buttonColorStyle
+              }`}
             >
               {def.name}
             </button>

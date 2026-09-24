@@ -14,6 +14,7 @@ import {
   hydrateMatchData,
   checkUnfinishedMatch,
   getMatchRecoveryState,
+  recoverRecentActions,
   StaleUserError,
 } from "../services/hydrationService";
 import { eventDefinitionService } from "../services/eventDefinitionService";
@@ -74,6 +75,7 @@ vi.mock("../services/hydrationService", () => ({
   getMatchRecoveryState: vi
     .fn()
     .mockResolvedValue({ recoveredPeriod: 2, activePlayersLimit: 5 }),
+  recoverRecentActions: vi.fn().mockResolvedValue([]),
   StaleUserError: class StaleUserError extends Error {
     constructor(message = "Operation aborted due to user account change.") {
       super(message);
@@ -320,12 +322,26 @@ describe("App Bootstrapping Component", () => {
     expect(await screen.findByText("TTA Match Recorder")).toBeDefined();
   });
 
-  it("should resume interrupted match session directly from IndexedDB without calling hydrateMatchData", async () => {
+  it("should resume interrupted match session directly from IndexedDB without calling hydrateMatchData and recover recent actions", async () => {
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-interrupted",
       homeTeamId: "team-home-99",
       userId: "auth0|tester-123",
     } as unknown as Awaited<ReturnType<typeof checkUnfinishedMatch>>);
+
+    vi.mocked(recoverRecentActions).mockResolvedValueOnce([
+      {
+        id: "evt-1",
+        playerNumber: 7,
+        actionName: "Goal",
+        isPositive: true,
+        timestamp: "2026-06-01T10:00:00Z",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-1",
+        isLeadToGoal: true,
+        isSynced: 1,
+      },
+    ]);
 
     const store = createTestStore({
       navigation: { currentView: "HUB" },
@@ -346,10 +362,13 @@ describe("App Bootstrapping Component", () => {
     await waitFor(() => {
       expect(hydrateMatchData).not.toHaveBeenCalled();
       expect(getMatchRecoveryState).toHaveBeenCalledWith("m-interrupted");
+      expect(recoverRecentActions).toHaveBeenCalledWith("m-interrupted");
       expect(store.getState().presence.currentPeriod).toBe(2);
       expect(store.getState().presence.activePlayersLimit).toBe(5);
       expect(store.getState().match.activeMatchId).toBe("m-interrupted");
       expect(store.getState().match.activeTeamId).toBe("team-home-99");
+      expect(store.getState().match.recentActions).toHaveLength(1);
+      expect(store.getState().match.recentActions[0].actionName).toBe("Goal");
     });
   });
 

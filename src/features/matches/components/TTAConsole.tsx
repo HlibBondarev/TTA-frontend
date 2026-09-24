@@ -1,83 +1,30 @@
-import React, { useState } from "react";
-import { useSelector, useDispatch } from "react-redux";
+import React from "react";
 import { MatchLifecyclePanel } from "./MatchLifecyclePanel";
 import { PlayerPresencePanel } from "../../../features/playerpresences/components/PlayerPresencePanel";
 import { ActionsLog } from "./ActionsLog";
-import { TTDActionsPanel } from "./TTAPanel";
+import { TTAPanel } from "./TTAPanel";
 import { SyncStatusBadge } from "./SyncStatusBadge";
-import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
-import { useGameEvents } from "../hooks/useGameEvents";
-import { resetMatchState } from "../store/matchSlice";
-import { resetPresenceState } from "../../playerpresences/store/presenceSlice";
-import type { RootState, AppDispatch } from "../../../store";
+import {
+  useTTAConsole,
+  type UseTTAConsoleOptions,
+} from "../hooks/useTTAConsole";
 
-interface TTAConsoleProps {
-  onCompleteMatch?: () => void;
-}
+export type TTAConsoleProps = UseTTAConsoleOptions;
 
 export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
-  const dispatch = useDispatch<AppDispatch>();
-  const activeMatchId = useSelector(
-    (state: RootState) => state.match.activeMatchId,
-  );
-  const { periodNumber, isPeriodActive, isInsideStoppage } =
-    useMatchLifecycle();
-
-  const { recordGameEvent } = useGameEvents(activeMatchId || "");
-
-  const [pendingAction, setPendingAction] = useState<{
-    name: string;
-    isPositive: boolean;
-  } | null>(null);
-  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
-  const [consoleError, setConsoleError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [prevPeriod, setPrevPeriod] = useState(periodNumber);
-
-  if (periodNumber !== prevPeriod) {
-    setPrevPeriod(periodNumber);
-    setPendingAction(null);
-    setSelectedPlayerId(null);
-    setConsoleError(null);
-  }
-
-  const isRecordingEnabled = isPeriodActive && !isInsideStoppage;
-
-  const handleFinalizeSuccess = () => {
-    dispatch(resetMatchState());
-    dispatch(resetPresenceState());
-    if (onCompleteMatch) {
-      onCompleteMatch();
-    }
-  };
-
-  const handleEnter = async () => {
-    if (pendingAction && selectedPlayerId && activeMatchId && !isSubmitting) {
-      setIsSubmitting(true);
-      setConsoleError(null);
-      try {
-        await recordGameEvent({
-          selectedPlayerId,
-          actionName: pendingAction.name,
-          isPositive: pendingAction.isPositive,
-          isLeadToGoal: false, // Default is false for all new actions
-        });
-
-        setPendingAction(null);
-        setSelectedPlayerId(null);
-      } catch (err: unknown) {
-        console.error("Failed to record game event:", err);
-        setConsoleError(
-          err instanceof Error
-            ? err.message
-            : "Failed to record action into database.",
-        );
-      } finally {
-        setIsSubmitting(false);
-      }
-    }
-  };
+  const {
+    activeMatchId,
+    periodNumber,
+    isRecordingEnabled,
+    pendingAction,
+    selectedPlayerId,
+    setSelectedPlayerId,
+    consoleError,
+    isSubmitting,
+    handleFinalizeSuccess,
+    handleEnter,
+    handleActionSelect,
+  } = useTTAConsole({ onCompleteMatch });
 
   return (
     <div className="w-full max-w-sm mx-auto flex flex-col h-screen pb-safe overflow-hidden">
@@ -109,13 +56,10 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
               setSelectedPlayerId={setSelectedPlayerId}
             />
 
-            <TTDActionsPanel
+            <TTAPanel
               disabled={!isRecordingEnabled}
               selectedAction={pendingAction?.name || null}
-              onActionSelect={(name, isPositive) => {
-                setConsoleError(null);
-                setPendingAction({ name, isPositive });
-              }}
+              onActionSelect={handleActionSelect}
             />
           </div>
           <button
