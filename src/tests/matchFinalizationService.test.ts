@@ -74,6 +74,7 @@ vi.mock("../db/ttaDatabase", () => {
         count: vi.fn().mockResolvedValue(0),
         filter: vi.fn().mockReturnValue({
           primaryKeys: vi.fn().mockResolvedValue([101]),
+          count: vi.fn().mockResolvedValue(0),
         }),
         bulkDelete: mockBulkDelete,
       },
@@ -443,8 +444,9 @@ describe("matchFinalizationService", () => {
       }),
     } as unknown as ReturnType<typeof db.matchlineups.where>);
 
-    vi.mocked(db.syncQueue.filter).mockReturnValueOnce({
-      primaryKeys: vi.fn().mockResolvedValueOnce([]),
+    vi.mocked(db.syncQueue.filter).mockReturnValue({
+      primaryKeys: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
     } as unknown as ReturnType<typeof db.syncQueue.filter>);
 
     await matchFinalizationService.finalizeMatch({
@@ -518,8 +520,10 @@ describe("matchFinalizationService", () => {
     expect(apiClient.put).not.toHaveBeenCalled();
   });
 
-  it("should ABORT finalization if sync queue still contains pending items after processSyncQueue", async () => {
-    vi.mocked(db.syncQueue.count).mockResolvedValueOnce(2);
+  it("should ABORT finalization if sync queue still contains pending items for the target match after processSyncQueue", async () => {
+    vi.mocked(db.syncQueue.filter).mockReturnValueOnce({
+      count: vi.fn().mockResolvedValueOnce(2),
+    } as unknown as ReturnType<typeof db.syncQueue.filter>);
 
     const params = {
       matchId: "match-123",

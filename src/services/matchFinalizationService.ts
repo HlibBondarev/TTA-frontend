@@ -166,7 +166,18 @@ export const matchFinalizationService = {
     // Step 1: Flush all pending offline sync queue items to backend
     await processSyncQueue();
 
-    const remainingQueueCount = await db.syncQueue.count();
+    const exactEndpoint = `/Matches/${matchId}`;
+    const endpointPrefix = `/Matches/${matchId}/`;
+
+    const remainingQueueCount = await db.syncQueue
+      .filter(
+        (item) =>
+          typeof item.endpoint === "string" &&
+          (item.endpoint === exactEndpoint ||
+            item.endpoint.startsWith(endpointPrefix)),
+      )
+      .count();
+
     if (remainingQueueCount > 0) {
       throw new Error(
         "Cannot finalize match: offline sync queue is not empty. Please ensure all pending actions are synchronized.",
@@ -214,9 +225,6 @@ export const matchFinalizationService = {
         await db.timeanchors.where("matchId").equals(matchId).delete();
         await db.matchlineups.where("matchId").equals(matchId).delete();
         await db.matches.delete(matchId);
-
-        const exactEndpoint = `/Matches/${matchId}`;
-        const endpointPrefix = `/Matches/${matchId}/`;
 
         const matchSyncKeys = await db.syncQueue
           .filter(
