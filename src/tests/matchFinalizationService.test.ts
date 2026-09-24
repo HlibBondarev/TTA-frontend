@@ -108,8 +108,10 @@ describe("matchFinalizationService", () => {
   });
 
   it("should execute sync, record result, normalize events, and purge scoped IndexedDB entities on success", async () => {
+    const matchId = "00000000-0000-4000-8000-000000000123";
+    const otherMatchId = "00000000-0000-4000-8000-000000000124";
     const params = {
-      matchId: "match-123",
+      matchId,
       activeTeamId: "team-456",
       homeScore: 12,
       guestScore: 9,
@@ -122,7 +124,7 @@ describe("matchFinalizationService", () => {
 
     expect(apiClient.put).toHaveBeenNthCalledWith(
       1,
-      "/Matches/match-123/result",
+      `/Matches/${matchId}/result`,
       {
         homeScore: 12,
         guestScore: 9,
@@ -132,11 +134,39 @@ describe("matchFinalizationService", () => {
 
     expect(apiClient.put).toHaveBeenNthCalledWith(
       2,
-      "/Matches/match-123/teams/team-456/events/normalize",
+      `/Matches/${matchId}/teams/team-456/events/normalize`,
     );
 
-    expect(db.matches.delete).toHaveBeenCalledWith("match-123");
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
     expect(mockBulkDelete).toHaveBeenCalledWith([101]);
+
+    const matchlineupsWhere = vi.mocked(db.matchlineups.where);
+    expect(matchlineupsWhere.mock.results[0].value.equals).toHaveBeenCalledWith(
+      matchId,
+    );
+    expect(matchlineupsWhere.mock.results[1].value.equals).toHaveBeenCalledWith(
+      matchId,
+    );
+
+    const eventsAnyOf = vi.mocked(db.gameevents.where).mock.results[0].value
+      .anyOf;
+    expect(eventsAnyOf).toHaveBeenCalledWith(["lineup-1"]);
+
+    const presencesAnyOf = vi.mocked(db.playerpresences.where).mock.results[0]
+      .value.anyOf;
+    expect(presencesAnyOf).toHaveBeenCalledWith(["lineup-1"]);
+
+    const anchorsEquals = vi.mocked(db.timeanchors.where).mock.results[0].value
+      .equals;
+    expect(anchorsEquals).toHaveBeenCalledWith(matchId);
+
+    const predicate = vi.mocked(db.syncQueue.filter).mock
+      .calls[0][0] as (item: { endpoint?: unknown }) => boolean;
+    expect(predicate({ endpoint: `/Matches/${matchId}/anchors` })).toBe(true);
+    expect(predicate({ endpoint: `/Matches/${otherMatchId}/anchors` })).toBe(
+      false,
+    );
+    expect(predicate({ endpoint: undefined })).toBe(false);
   });
 
   it("should auto-close open active period and active presences in IndexedDB prior to syncQueue flush", async () => {
