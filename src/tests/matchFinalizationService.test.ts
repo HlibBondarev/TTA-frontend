@@ -174,7 +174,9 @@ describe("matchFinalizationService", () => {
 
     const predicate = vi.mocked(db.syncQueue.filter).mock
       .calls[0][0] as (item: { endpoint?: unknown }) => boolean;
+    expect(predicate({ endpoint: `/Matches/${matchId}` })).toBe(true);
     expect(predicate({ endpoint: `/Matches/${matchId}/anchors` })).toBe(true);
+    expect(predicate({ endpoint: `/Matches/${matchId}0/anchors` })).toBe(false);
     expect(predicate({ endpoint: `/Matches/${otherMatchId}/anchors` })).toBe(
       false,
     );

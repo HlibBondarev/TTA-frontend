@@ -215,12 +215,15 @@ export const matchFinalizationService = {
         await db.matchlineups.where("matchId").equals(matchId).delete();
         await db.matches.delete(matchId);
 
-        const endpointPrefix = `/Matches/${matchId}`;
+        const exactEndpoint = `/Matches/${matchId}`;
+        const endpointPrefix = `/Matches/${matchId}/`;
+
         const matchSyncKeys = await db.syncQueue
           .filter(
             (item) =>
               typeof item.endpoint === "string" &&
-              item.endpoint.startsWith(endpointPrefix),
+              (item.endpoint === exactEndpoint ||
+                item.endpoint.startsWith(endpointPrefix)),
           )
           .primaryKeys();
 
