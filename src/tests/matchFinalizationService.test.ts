@@ -198,70 +198,74 @@ describe("matchFinalizationService", () => {
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
   });
 
-  it("should ABORT finalization if autoCloseOpenPeriodAndPresences transaction fails", async () => {
-    vi.mocked(db.transaction).mockImplementationOnce((() =>
-      Promise.reject(
-        new Error("IndexedDB write failed inside transaction"),
-      )) as unknown as typeof db.transaction);
+  it("should auto-close stoppage anchor (type 3) before PeriodEnd anchor when last anchor is StoppageStart (type 2)", async () => {
+    const matchId = "match-in-stoppage";
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([
+          {
+            id: "start-anchor-1",
+            matchId,
+            periodNumber: 1,
+            type: 0, // PeriodStart
+            sequenceNumber: 1,
+            timestamp: "2026-09-03T10:00:00.000Z",
+          },
+          {
+            id: "stoppage-start-1",
+            matchId,
+            periodNumber: 1,
+            type: 2, // StoppageStart
+            sequenceNumber: 2,
+            timestamp: "2026-09-03T10:05:00.000Z",
+          },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
 
-    const params = {
-      matchId: "match-123",
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ id: "lineup-1" }]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.playerpresences.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        filter: vi.fn().mockReturnValueOnce({
+          toArray: vi
+            .fn()
+            .mockResolvedValueOnce([
+              { id: "presence-1", matchLineupId: "lineup-1", timeOut: null },
+            ]),
+        }),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    await matchFinalizationService.finalizeMatch({
+      matchId,
       activeTeamId: "team-456",
       homeScore: 10,
       guestScore: 8,
       temperature: 25,
-    };
+    });
 
-    await expect(
-      matchFinalizationService.finalizeMatch(params),
-    ).rejects.toThrow("IndexedDB write failed inside transaction");
-
-    expect(processSyncQueue).not.toHaveBeenCalled();
-    expect(apiClient.put).not.toHaveBeenCalled();
-  });
-
-  it("should ABORT finalization if sync queue still contains pending items after processSyncQueue", async () => {
-    vi.mocked(db.syncQueue.count).mockResolvedValueOnce(2);
-
-    const params = {
-      matchId: "match-123",
-      activeTeamId: "team-456",
-      homeScore: 12,
-      guestScore: 9,
-      temperature: 26.5,
-    };
-
-    await expect(
-      matchFinalizationService.finalizeMatch(params),
-    ).rejects.toThrow(
-      "Cannot finalize match: offline sync queue is not empty. Please ensure all pending actions are synchronized.",
+    expect(db.timeanchors.add).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        matchId,
+        periodNumber: 1,
+        type: 3, // StoppageEnd
+      }),
     );
 
-    expect(processSyncQueue).toHaveBeenCalledTimes(1);
-    expect(apiClient.put).not.toHaveBeenCalled();
-    expect(db.matches.delete).not.toHaveBeenCalled();
-  });
-
-  it("should ABORT IndexedDB purge if record result API fails", async () => {
-    vi.mocked(apiClient.put).mockRejectedValueOnce(
-      new Error("API Error 500: Server error"),
+    expect(db.timeanchors.add).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        matchId,
+        periodNumber: 1,
+        type: 1, // PeriodEnd
+      }),
     );
-
-    const params = {
-      matchId: "match-123",
-      activeTeamId: "team-456",
-      homeScore: 5,
-      guestScore: 5,
-      temperature: null,
-    };
-
-    await expect(
-      matchFinalizationService.finalizeMatch(params),
-    ).rejects.toThrow("API Error 500: Server error");
-
-    expect(processSyncQueue).toHaveBeenCalledTimes(1);
-    expect(apiClient.put).toHaveBeenCalledTimes(1);
-    expect(db.matches.delete).not.toHaveBeenCalled();
   });
 
   it("should auto-close active period when latest anchor is StoppageEnd (type 3)", async () => {
@@ -336,5 +340,152 @@ describe("matchFinalizationService", () => {
         timeOut: expect.any(String),
       }),
     );
+  });
+
+  it("should skip line-item and syncQueue bulk deletes when no lineups or match sync keys exist in Step 4", async () => {
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([]),
+        delete: mockDelete,
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.syncQueue.filter).mockReturnValueOnce({
+      primaryKeys: vi.fn().mockResolvedValueOnce([]),
+    } as unknown as ReturnType<typeof db.syncQueue.filter>);
+
+    await matchFinalizationService.finalizeMatch({
+      matchId: "match-empty-lineups",
+      activeTeamId: "team-456",
+      homeScore: 5,
+      guestScore: 3,
+      temperature: null,
+    });
+
+    expect(db.gameevents.where).not.toHaveBeenCalled();
+    expect(mockBulkDelete).not.toHaveBeenCalled();
+    expect(db.matches.delete).toHaveBeenCalledWith("match-empty-lineups");
+  });
+
+  it("should return early in autoCloseOpenPeriodAndPresences if db.timeanchors or db.playerpresences is undefined", async () => {
+    const originalTimeanchors = db.timeanchors;
+    (db as unknown as Record<string, unknown>).timeanchors = undefined;
+
+    try {
+      await matchFinalizationService.finalizeMatch({
+        matchId: "match-no-db",
+        activeTeamId: "team-456",
+        homeScore: 10,
+        guestScore: 8,
+        temperature: 20,
+      });
+    } finally {
+      (db as unknown as Record<string, unknown>).timeanchors =
+        originalTimeanchors;
+    }
+
+    expect(processSyncQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("should correctly sort time anchors by timestamp when sequence numbers are identical during auto-close", async () => {
+    const matchId = "match-same-seq";
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([
+          {
+            id: "anchor-1",
+            matchId,
+            periodNumber: 1,
+            type: 0, // PeriodStart
+            sequenceNumber: 1,
+            timestamp: "2026-09-03T10:00:00.000Z",
+          },
+          {
+            id: "anchor-2",
+            matchId,
+            periodNumber: 1,
+            type: 1, // PeriodEnd
+            sequenceNumber: 1,
+            timestamp: "2026-09-03T10:15:00.000Z",
+          },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    await matchFinalizationService.finalizeMatch({
+      matchId,
+      activeTeamId: "team-456",
+      homeScore: 10,
+      guestScore: 8,
+      temperature: 25,
+    });
+
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  it("should ABORT finalization if autoCloseOpenPeriodAndPresences transaction fails", async () => {
+    vi.mocked(db.transaction).mockImplementationOnce((() =>
+      Promise.reject(
+        new Error("IndexedDB write failed inside transaction"),
+      )) as unknown as typeof db.transaction);
+
+    const params = {
+      matchId: "match-123",
+      activeTeamId: "team-456",
+      homeScore: 10,
+      guestScore: 8,
+      temperature: 25,
+    };
+
+    await expect(
+      matchFinalizationService.finalizeMatch(params),
+    ).rejects.toThrow("IndexedDB write failed inside transaction");
+
+    expect(processSyncQueue).not.toHaveBeenCalled();
+    expect(apiClient.put).not.toHaveBeenCalled();
+  });
+
+  it("should ABORT finalization if sync queue still contains pending items after processSyncQueue", async () => {
+    vi.mocked(db.syncQueue.count).mockResolvedValueOnce(2);
+
+    const params = {
+      matchId: "match-123",
+      activeTeamId: "team-456",
+      homeScore: 12,
+      guestScore: 9,
+      temperature: 26.5,
+    };
+
+    await expect(
+      matchFinalizationService.finalizeMatch(params),
+    ).rejects.toThrow(
+      "Cannot finalize match: offline sync queue is not empty. Please ensure all pending actions are synchronized.",
+    );
+
+    expect(processSyncQueue).toHaveBeenCalledTimes(1);
+    expect(apiClient.put).not.toHaveBeenCalled();
+    expect(db.matches.delete).not.toHaveBeenCalled();
+  });
+
+  it("should ABORT IndexedDB purge if record result API fails", async () => {
+    vi.mocked(apiClient.put).mockRejectedValueOnce(
+      new Error("API Error 500: Server error"),
+    );
+
+    const params = {
+      matchId: "match-123",
+      activeTeamId: "team-456",
+      homeScore: 5,
+      guestScore: 5,
+      temperature: null,
+    };
+
+    await expect(
+      matchFinalizationService.finalizeMatch(params),
+    ).rejects.toThrow("API Error 500: Server error");
+
+    expect(processSyncQueue).toHaveBeenCalledTimes(1);
+    expect(apiClient.put).toHaveBeenCalledTimes(1);
+    expect(db.matches.delete).not.toHaveBeenCalled();
   });
 });
