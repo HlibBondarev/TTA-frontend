@@ -141,10 +141,6 @@ describe("useEventDefinitionsConfigurator", () => {
   });
 
   it("should report error if syncToDexie fails during handleToggleEnabled", async () => {
-    vi.mocked(replaceSportEventDefinitionsInDb).mockRejectedValueOnce(
-      new Error("Dexie sync failed during toggle"),
-    );
-
     const { result } = renderHook(() =>
       useEventDefinitionsConfigurator({ sportId: mockSportId }),
     );
@@ -152,6 +148,13 @@ describe("useEventDefinitionsConfigurator", () => {
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
     });
+
+    expect(result.current.definitionsReady).toBe(true);
+    expect(result.current.error).toBeNull();
+
+    vi.mocked(replaceSportEventDefinitionsInDb).mockRejectedValueOnce(
+      new Error("Dexie sync failed during toggle"),
+    );
 
     act(() => {
       result.current.handleToggleEnabled("def-1");
@@ -218,10 +221,6 @@ describe("useEventDefinitionsConfigurator", () => {
   });
 
   it("should report error if syncToDexie fails during handleMove", async () => {
-    vi.mocked(replaceSportEventDefinitionsInDb).mockRejectedValueOnce(
-      new Error("Dexie sync failed during move"),
-    );
-
     const { result } = renderHook(() =>
       useEventDefinitionsConfigurator({ sportId: mockSportId }),
     );
@@ -229,6 +228,13 @@ describe("useEventDefinitionsConfigurator", () => {
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
     });
+
+    expect(result.current.definitionsReady).toBe(true);
+    expect(result.current.error).toBeNull();
+
+    vi.mocked(replaceSportEventDefinitionsInDb).mockRejectedValueOnce(
+      new Error("Dexie sync failed during move"),
+    );
 
     act(() => {
       result.current.handleMove("def-2", "up");
