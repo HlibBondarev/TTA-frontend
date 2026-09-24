@@ -4,6 +4,7 @@ import {
   checkUnfinishedMatch,
   discardUnfinishedMatch,
   getMatchRecoveryState,
+  deleteLocalMatchEntitiesForUser,
   StaleUserError,
 } from "../services/hydrationService";
 import { apiClient } from "../api/client";
@@ -808,7 +809,9 @@ describe("Hydration Service", () => {
       .mockResolvedValueOnce(null);
 
     await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
-      `Hydration Metadata Error: Tournament '${tournamentId}' returned null during hydration.`,
+      `Hydration Metadata Error: Tournament '${
+        tournamentId
+      }' returned null during hydration.`,
     );
     expect(store.dispatch).not.toHaveBeenCalled();
   });
@@ -836,7 +839,9 @@ describe("Hydration Service", () => {
     );
 
     await expect(hydrateMatchData(matchId, teamId)).rejects.toThrow(
-      `Hydration Metadata Error: Failed to fetch sport configurations for sport '${sportId}': Network error loading sport configurations`,
+      `Hydration Metadata Error: Failed to fetch sport configurations for sport '${
+        sportId
+      }': Network error loading sport configurations`,
     );
     expect(store.dispatch).not.toHaveBeenCalled();
   });
@@ -1795,5 +1800,178 @@ describe("Hydration Service", () => {
       }),
     ]);
     expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
+  });
+
+  it("should return early in deleteLocalMatchEntitiesForUser when userId is empty or missing", async () => {
+    await deleteLocalMatchEntitiesForUser("m-1", "");
+    await deleteLocalMatchEntitiesForUser("m-1", "   ");
+    await deleteLocalMatchEntitiesForUser("m-1", undefined);
+
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it("should not delete entities in deleteLocalMatchEntitiesForUser if match belongs to another user", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "m-1",
+      userId: "user-owner",
+    } as never);
+
+    await deleteLocalMatchEntitiesForUser("m-1", "user-other");
+
+    expect(db.matches.delete).not.toHaveBeenCalled();
+  });
+
+  it("should delete local match entities in deleteLocalMatchEntitiesForUser when userId matches", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "m-1",
+      userId: "user-owner",
+    } as never);
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([{ id: "l-1" }]),
+        delete: vi.fn().mockResolvedValue(1),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      anyOf: vi.fn().mockReturnValue({ delete: vi.fn().mockResolvedValue(1) }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    vi.mocked(db.gameevents.where).mockReturnValue({
+      anyOf: vi.fn().mockReturnValue({ delete: vi.fn().mockResolvedValue(1) }),
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({ delete: vi.fn().mockResolvedValue(1) }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    await deleteLocalMatchEntitiesForUser("m-1", "user-owner");
+
+    expect(db.matches.delete).toHaveBeenCalledWith("m-1");
+  });
+
+  it("should successfully hydrate match data when match has no tournamentId", async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const result = await hydrateMatchData(matchId, teamId);
+
+    expect(result).toEqual({ success: true });
+    expect(db.tournaments.put).not.toHaveBeenCalled();
+    expect(db.sportconfigurations.put).not.toHaveBeenCalled();
+  });
+
+  it("should catch and log error in resolveEffectiveTeamId if syncQueue read fails during discardUnfinishedMatch", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    vi.mocked(db.syncQueue.toArray).mockRejectedValueOnce(
+      new Error("syncQueue discard error"),
+    );
+
+    await discardUnfinishedMatch(matchId);
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Failed to recover correct teamId from syncQueue during discard:",
+      expect.any(Error),
+    );
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("should handle syncQueue catchItem without team segment in checkUnfinishedMatch", async () => {
+    vi.mocked(db.matches.toArray).mockResolvedValueOnce([
+      { id: "m-1", homeScore: null, guestScore: null, userId: "u-1" } as never,
+    ]);
+
+    vi.mocked(db.syncQueue.toArray).mockResolvedValueOnce([
+      {
+        actionType: "POST",
+        endpoint: "/Matches/m-1/teams//catch",
+      } as never,
+    ]);
+
+    const result = await checkUnfinishedMatch("u-1");
+    expect(result?.trackedTeamId).toBeUndefined();
+  });
+
+  it("should re-throw StaleUserError during dispatchUncatchPostCommit in discardUnfinishedMatch", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    vi.mocked(apiClient.delete).mockRejectedValueOnce(
+      new StaleUserError("Stale user during uncatch"),
+    );
+
+    await expect(discardUnfinishedMatch(matchId, teamId)).rejects.toThrow(
+      StaleUserError,
+    );
+  });
+
+  it("should execute timeanchors, presences, and gameevents Dexie filter lambdas during hydration", async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId })
+      .mockResolvedValueOnce([{ id: "l1", matchId }])
+      .mockResolvedValueOnce([{ id: "a1", matchId, isSynced: 1 }])
+      .mockResolvedValueOnce([{ id: "p1", matchLineupId: "l1", isSynced: 1 }])
+      .mockResolvedValueOnce([{ id: "e1", matchLineupId: "l1", isSynced: 1 }])
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        and: vi
+          .fn()
+          .mockImplementation(
+            (predicate: (a: { isSynced: number }) => boolean) => {
+              predicate({ isSynced: 1 });
+              predicate({ isSynced: -1 });
+              predicate({ isSynced: 0 });
+              return { delete: vi.fn().mockResolvedValue(1) };
+            },
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.playerpresences.filter).mockImplementation(((
+      predicate: (p: { matchLineupId: string; isSynced: number }) => boolean,
+    ) => {
+      predicate({ matchLineupId: "l1", isSynced: 1 });
+      predicate({ matchLineupId: "l1", isSynced: -1 });
+      predicate({ matchLineupId: "l1", isSynced: 0 });
+      predicate({ matchLineupId: "other", isSynced: 1 });
+      return {
+        primaryKeys: vi.fn().mockResolvedValue(["p1"]),
+      };
+    }) as unknown as typeof db.playerpresences.filter);
+
+    vi.mocked(db.gameevents.filter).mockImplementation(((
+      predicate: (e: { matchLineupId: string; isSynced: number }) => boolean,
+    ) => {
+      predicate({ matchLineupId: "l1", isSynced: 1 });
+      predicate({ matchLineupId: "l1", isSynced: -1 });
+      predicate({ matchLineupId: "l1", isSynced: 0 });
+      predicate({ matchLineupId: "other", isSynced: 1 });
+      return {
+        primaryKeys: vi.fn().mockResolvedValue(["e1"]),
+      };
+    }) as unknown as typeof db.gameevents.filter);
+
+    const result = await hydrateMatchData(matchId, teamId);
+    expect(result).toEqual({ success: true });
   });
 });
