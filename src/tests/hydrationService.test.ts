@@ -2089,4 +2089,16 @@ describe("Hydration Service", () => {
     const result = await hydrateMatchData(matchId, teamId);
     expect(result).toEqual({ success: true });
   });
+
+  it("should include usereventpresets in transaction tables array during match hydration", async () => {
+    const transactionSpy = vi.spyOn(db, "transaction");
+
+    await hydrateMatchData("match-123", "team-456", "user-1");
+
+    expect(transactionSpy).toHaveBeenCalledWith(
+      "rw",
+      expect.arrayContaining([db.usereventpresets]),
+      expect.any(Function),
+    );
+  });
 });
