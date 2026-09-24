@@ -1053,4 +1053,48 @@ describe("Event Database Service (eventService)", () => {
     expect(result?.id).toBe("def-sport-specific");
     expect(mockWhereEquals).toHaveBeenCalledWith("sport-waterpolo");
   });
+
+  it("should preserve null ownerId for system definitions and assign userId only for custom definitions", async () => {
+    const definitions = [
+      {
+        id: "def-system",
+        sportId: "sport-1",
+        name: "System Goal",
+        shortName: "SG",
+        isPositive: true,
+        isCustom: false,
+      },
+      {
+        id: "def-custom",
+        sportId: "sport-1",
+        name: "Custom Action",
+        shortName: "CA",
+        isPositive: true,
+        isCustom: true,
+      },
+    ];
+
+    await replaceSportEventDefinitionsInDb("sport-1", definitions, "user-1");
+
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+      {
+        id: "def-system",
+        sportId: "sport-1",
+        name: "System Goal",
+        shortName: "SG",
+        isPositive: true,
+        isCustom: false,
+        ownerId: null,
+      },
+      {
+        id: "def-custom",
+        sportId: "sport-1",
+        name: "Custom Action",
+        shortName: "CA",
+        isPositive: true,
+        isCustom: true,
+        ownerId: "user-1",
+      },
+    ]);
+  });
 });
