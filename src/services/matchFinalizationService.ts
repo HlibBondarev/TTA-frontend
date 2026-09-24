@@ -187,7 +187,7 @@ export const matchFinalizationService = {
       `/Matches/${matchId}/teams/${activeTeamId}/events/normalize`,
     );
 
-    // Step 4: Conditionally purge local IndexedDB tables ONLY after 100% success of steps 1-3
+    // Step 4: Conditionally purge local IndexedDB entities scoped STRICTLY to finalized matchId
     await db.transaction(
       "rw",
       [
@@ -197,30 +197,38 @@ export const matchFinalizationService = {
         db.matchlineups,
         db.syncQueue,
         db.matches,
-        db.teams,
-        db.players,
-        db.playerrosters,
-        db.tournaments,
-        db.sportconfigurations,
-        db.eventdefinitions,
-        db.sports,
       ],
       async () => {
-        await Promise.all([
-          db.gameevents.clear(),
-          db.timeanchors.clear(),
-          db.playerpresences.clear(),
-          db.matchlineups.clear(),
-          db.syncQueue.clear(),
-          db.matches.clear(),
-          db.teams.clear(),
-          db.players.clear(),
-          db.playerrosters.clear(),
-          db.tournaments.clear(),
-          db.sportconfigurations.clear(),
-          db.eventdefinitions.clear(),
-          db.sports.clear(),
-        ]);
+        const lineups = await db.matchlineups
+          .where("matchId")
+          .equals(matchId)
+          .toArray();
+        const lineupIds = lineups.map((l) => l.id);
+
+        if (lineupIds.length > 0) {
+          await db.gameevents.where("matchLineupId").anyOf(lineupIds).delete();
+          await db.playerpresences
+            .where("matchLineupId")
+            .anyOf(lineupIds)
+            .delete();
+        }
+
+        await db.timeanchors.where("matchId").equals(matchId).delete();
+        await db.matchlineups.where("matchId").equals(matchId).delete();
+        await db.matches.delete(matchId);
+
+        const endpointPrefix = `/Matches/${matchId}`;
+        const matchSyncKeys = await db.syncQueue
+          .filter(
+            (item) =>
+              typeof item.endpoint === "string" &&
+              item.endpoint.startsWith(endpointPrefix),
+          )
+          .primaryKeys();
+
+        if (matchSyncKeys.length > 0) {
+          await db.syncQueue.bulkDelete(matchSyncKeys as number[]);
+        }
       },
     );
   },

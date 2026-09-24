@@ -18,55 +18,68 @@ vi.mock("../db/eventService", () => ({
   getNextSequenceNumber: vi.fn().mockResolvedValue(10),
 }));
 
-vi.mock("../db/ttaDatabase", () => {
-  const clearMocks = {
-    gameevents: { clear: vi.fn().mockResolvedValue(undefined) },
-    timeanchors: {
-      clear: vi.fn().mockResolvedValue(undefined),
-      add: vi.fn().mockResolvedValue("anchor-id"),
-      where: vi.fn().mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          toArray: vi.fn().mockResolvedValue([]),
-        }),
-      }),
-    },
-    playerpresences: {
-      clear: vi.fn().mockResolvedValue(undefined),
-      update: vi.fn().mockResolvedValue(1),
-      where: vi.fn().mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          filter: vi.fn().mockReturnValue({
-            toArray: vi.fn().mockResolvedValue([]),
-          }),
-        }),
-      }),
-    },
-    matchlineups: {
-      clear: vi.fn().mockResolvedValue(undefined),
-      where: vi.fn().mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          toArray: vi.fn().mockResolvedValue([]),
-        }),
-      }),
-    },
-    syncQueue: {
-      add: vi.fn().mockResolvedValue(1),
-      clear: vi.fn().mockResolvedValue(undefined),
-      count: vi.fn().mockResolvedValue(0),
-    },
-    matches: { clear: vi.fn().mockResolvedValue(undefined) },
-    teams: { clear: vi.fn().mockResolvedValue(undefined) },
-    players: { clear: vi.fn().mockResolvedValue(undefined) },
-    playerrosters: { clear: vi.fn().mockResolvedValue(undefined) },
-    tournaments: { clear: vi.fn().mockResolvedValue(undefined) },
-    sportconfigurations: { clear: vi.fn().mockResolvedValue(undefined) },
-    eventdefinitions: { clear: vi.fn().mockResolvedValue(undefined) },
-    sports: { clear: vi.fn().mockResolvedValue(undefined) },
-  };
+const { mockDelete, mockBulkDelete } = vi.hoisted(() => ({
+  mockDelete: vi.fn().mockResolvedValue(1),
+  mockBulkDelete: vi.fn().mockResolvedValue(undefined),
+}));
 
+vi.mock("../db/ttaDatabase", () => {
   return {
     db: {
-      ...clearMocks,
+      gameevents: {
+        where: vi.fn().mockReturnValue({
+          anyOf: vi.fn().mockReturnValue({
+            delete: mockDelete,
+          }),
+        }),
+      },
+      playerpresences: {
+        update: vi.fn().mockResolvedValue(1),
+        where: vi.fn().mockImplementation((field: string) => {
+          if (field === "periodNumber") {
+            return {
+              equals: vi.fn().mockReturnValue({
+                filter: vi.fn().mockReturnValue({
+                  toArray: vi.fn().mockResolvedValue([]),
+                }),
+              }),
+            };
+          }
+          return {
+            anyOf: vi.fn().mockReturnValue({
+              delete: mockDelete,
+            }),
+          };
+        }),
+      },
+      timeanchors: {
+        add: vi.fn().mockResolvedValue("anchor-id"),
+        where: vi.fn().mockReturnValue({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+            delete: mockDelete,
+          }),
+        }),
+      },
+      matchlineups: {
+        where: vi.fn().mockReturnValue({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([{ id: "lineup-1" }]),
+            delete: mockDelete,
+          }),
+        }),
+      },
+      syncQueue: {
+        add: vi.fn().mockResolvedValue(1),
+        count: vi.fn().mockResolvedValue(0),
+        filter: vi.fn().mockReturnValue({
+          primaryKeys: vi.fn().mockResolvedValue([101]),
+        }),
+        bulkDelete: mockBulkDelete,
+      },
+      matches: {
+        delete: mockDelete,
+      },
       transaction: vi.fn((_mode, _tables, cb) => cb()),
     },
   };
@@ -94,7 +107,7 @@ describe("matchFinalizationService", () => {
     expect(apiClient.put).not.toHaveBeenCalled();
   });
 
-  it("should execute sync, record result, normalize events, and purge IndexedDB in sequence on success", async () => {
+  it("should execute sync, record result, normalize events, and purge scoped IndexedDB entities on success", async () => {
     const params = {
       matchId: "match-123",
       activeTeamId: "team-456",
@@ -122,9 +135,8 @@ describe("matchFinalizationService", () => {
       "/Matches/match-123/teams/team-456/events/normalize",
     );
 
-    expect(db.gameevents.clear).toHaveBeenCalled();
-    expect(db.timeanchors.clear).toHaveBeenCalled();
-    expect(db.syncQueue.clear).toHaveBeenCalled();
+    expect(db.matches.delete).toHaveBeenCalledWith("match-123");
+    expect(mockBulkDelete).toHaveBeenCalledWith([101]);
   });
 
   it("should auto-close open active period and active presences in IndexedDB prior to syncQueue flush", async () => {
@@ -227,7 +239,7 @@ describe("matchFinalizationService", () => {
 
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
     expect(apiClient.put).not.toHaveBeenCalled();
-    expect(db.gameevents.clear).not.toHaveBeenCalled();
+    expect(db.matches.delete).not.toHaveBeenCalled();
   });
 
   it("should ABORT IndexedDB purge if record result API fails", async () => {
@@ -249,7 +261,7 @@ describe("matchFinalizationService", () => {
 
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
     expect(apiClient.put).toHaveBeenCalledTimes(1);
-    expect(db.gameevents.clear).not.toHaveBeenCalled();
+    expect(db.matches.delete).not.toHaveBeenCalled();
   });
 
   it("should auto-close active period when latest anchor is StoppageEnd (type 3)", async () => {
