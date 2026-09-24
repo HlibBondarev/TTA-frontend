@@ -1,177 +1,22 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useDispatch, useSelector } from "react-redux";
-import { useAuth0 } from "@auth0/auth0-react";
+import React from "react";
 import { TTAConsole } from "./features/matches/components/TTAConsole";
 import { MatchSetupWizard } from "./features/setup/components/MatchSetupWizard";
 import { MainDashboard } from "./features/dashboard/components/MainDashboard";
 import { MyMatchesView } from "./features/matches/components/MyMatchesView";
 import { TournamentStubView } from "./features/tournaments/components/TournamentStubView";
-
-import { setPresenceLimits } from "./features/playerpresences/store/presenceSlice";
-import { setActiveMatch } from "./features/matches/store/matchSlice";
-import {
-  hydrateMatchData,
-  getMatchRecoveryState,
-  StaleUserError,
-} from "./services/hydrationService";
-import { setTokenGetter } from "./services/tokenService";
-import type { RootState } from "./store";
+import { useAppSession } from "./hooks/useAppSession";
 
 export const App: React.FC = () => {
-  const dispatch = useDispatch();
-  const initStarted = useRef(false);
-  const [isInitializing, setIsInitializing] = useState(true);
-
-  const activeMatchId = useSelector(
-    (state: RootState) => state.match.activeMatchId,
-  );
-  const isPeriodActive = useSelector(
-    (state: RootState) => state.match.isPeriodActive,
-  );
-  const currentView = useSelector(
-    (state: RootState) => state.navigation.currentView,
-  );
-
   const {
-    getAccessTokenSilently,
-    isAuthenticated,
+    isInitializing,
     isLoading,
+    isAuthenticated,
     loginWithRedirect,
-    user,
-  } = useAuth0();
-
-  const currentUserId = user?.sub ?? user?.email;
-  const currentUserIdRef = useRef(currentUserId);
-
-  useLayoutEffect(() => {
-    if (currentUserIdRef.current !== currentUserId) {
-      currentUserIdRef.current = currentUserId;
-    }
-  }, [currentUserId]);
-
-  // Tab protection during active match session (even during inter-period breaks)
-  useEffect(() => {
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (activeMatchId || isPeriodActive) {
-        event.preventDefault();
-      }
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, [activeMatchId, isPeriodActive]);
-
-  useEffect(() => {
-    if (isLoading) return;
-
-    setTokenGetter(async () => {
-      try {
-        return await getAccessTokenSilently();
-      } catch {
-        return null;
-      }
-    });
-  }, [isLoading, getAccessTokenSilently]);
-
-  useEffect(() => {
-    if (initStarted.current) return;
-    initStarted.current = true;
-
-    const initializeApp = async () => {
-      setIsInitializing(false);
-    };
-
-    initializeApp();
-  }, [dispatch]);
-
-  const handleQuickStart = async (
-    matchId: string,
-    _sportId: string,
-    _configurationId: string,
-    activePlayersLimit: number,
-    selectedTeamId: string,
-  ) => {
-    const initiatedUserId = currentUserId;
-
-    dispatch(
-      setPresenceLimits({
-        limit: activePlayersLimit,
-        period: 1,
-      }),
-    );
-
-    const verifyFreshness = () => {
-      if (currentUserIdRef.current !== initiatedUserId) {
-        throw new StaleUserError();
-      }
-    };
-
-    try {
-      await hydrateMatchData(
-        matchId,
-        selectedTeamId,
-        initiatedUserId,
-        verifyFreshness,
-      );
-    } catch (error) {
-      if (error instanceof StaleUserError) {
-        console.warn(
-          "Account changed during Quick Start hydration. Aborting session activation.",
-        );
-      } else {
-        console.error("Hydration failed:", error);
-      }
-      throw error;
-    }
-
-    if (currentUserIdRef.current !== initiatedUserId) {
-      console.warn(
-        "Account changed during Quick Start hydration. Aborting session activation.",
-      );
-      throw new StaleUserError();
-    }
-
-    dispatch(
-      setActiveMatch({
-        matchId,
-        teamId: selectedTeamId,
-      }),
-    );
-  };
-
-  const handleResumeMatch = async (matchId: string, teamId: string) => {
-    const initiatedUserId = currentUserId;
-    try {
-      const { recoveredPeriod, activePlayersLimit } =
-        await getMatchRecoveryState(matchId);
-
-      if (currentUserIdRef.current !== initiatedUserId) {
-        console.warn(
-          "Account changed during match recovery. Aborting session resumption.",
-        );
-        return;
-      }
-
-      dispatch(
-        setPresenceLimits({
-          limit: activePlayersLimit,
-          period: recoveredPeriod,
-        }),
-      );
-
-      // Fix: Pass the resolved teamId to ensure the correct team session is resumed
-      dispatch(
-        setActiveMatch({
-          matchId,
-          teamId,
-        }),
-      );
-    } catch (error) {
-      console.error("Session recovery failed (non-critical):", error);
-    }
-  };
+    currentView,
+    activeMatchId,
+    handleQuickStart,
+    handleResumeMatch,
+  } = useAppSession();
 
   if (isInitializing || isLoading) {
     return (

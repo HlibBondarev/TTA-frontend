@@ -3,7 +3,10 @@ import { sportService } from "./sportService";
 import { saveEventDefinitionsToDb } from "../db/eventService";
 import { db } from "../db/ttaDatabase";
 import { store } from "../store";
-import { incrementHydrationVersion } from "../features/matches/store/matchSlice";
+import {
+  incrementHydrationVersion,
+  type ActionEntry,
+} from "../features/matches/store/matchSlice";
 import type {
   MatchLookup,
   TrackedMatch,
@@ -249,6 +252,85 @@ export const getMatchRecoveryState = async (
   }
 
   return { recoveredPeriod, activePlayersLimit };
+};
+
+export const recoverRecentActions = async (
+  matchId: string,
+): Promise<ActionEntry[]> => {
+  if (!db?.gameevents || !db?.matchlineups || !matchId) return [];
+
+  try {
+    const lineups = await db.matchlineups
+      .where("matchId")
+      .equals(matchId)
+      .toArray();
+
+    if (lineups.length === 0) return [];
+
+    const lineupMap = new Map<string, number>();
+    for (const l of lineups) {
+      lineupMap.set(l.id, l.number);
+    }
+
+    const lineupIds = Array.from(lineupMap.keys());
+
+    const events = await db.gameevents
+      .where("matchLineupId")
+      .anyOf(lineupIds)
+      .toArray();
+
+    if (events.length === 0) return [];
+
+    events.sort((a, b) => {
+      if (b.sequenceNumber !== a.sequenceNumber) {
+        return b.sequenceNumber - a.sequenceNumber;
+      }
+      return (
+        new Date(b.createdAt || b.eventTimestamp).getTime() -
+        new Date(a.createdAt || a.eventTimestamp).getTime()
+      );
+    });
+
+    const recentEvents = events.slice(0, 10);
+
+    const eventDefIds = Array.from(
+      new Set(recentEvents.map((e) => e.eventDefinitionId)),
+    );
+
+    const definitions = await db.eventdefinitions
+      .where("id")
+      .anyOf(eventDefIds)
+      .toArray();
+
+    const defMap = new Map<string, { name: string; isPositive: boolean }>();
+    for (const def of definitions) {
+      const isPos =
+        def.isPositive ??
+        (def as unknown as Record<string, unknown>).ispositive;
+      defMap.set(def.id, {
+        name: def.name,
+        isPositive: Boolean(isPos),
+      });
+    }
+
+    return recentEvents.map((e) => {
+      const defInfo = defMap.get(e.eventDefinitionId);
+      return {
+        id: e.id,
+        playerNumber: lineupMap.get(e.matchLineupId) ?? 0,
+        actionName: defInfo?.name ?? "Unknown",
+        isPositive: defInfo?.isPositive ?? true,
+        timestamp: e.eventTimestamp || e.createdAt,
+        matchLineupId: e.matchLineupId,
+        eventDefinitionId: e.eventDefinitionId,
+        isLeadToGoal: Boolean(e.isLeadToGoal),
+        isSynced: e.isSynced,
+      };
+    });
+  } catch (err) {
+    console.error("Failed to recover recent match actions:", err);
+    return [];
+  }
 };
 
 const resolveEffectiveTeamId = async (

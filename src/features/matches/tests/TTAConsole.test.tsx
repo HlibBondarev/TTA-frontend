@@ -9,9 +9,11 @@ import {
 import { Provider } from "react-redux";
 import { configureStore, combineReducers } from "@reduxjs/toolkit";
 import { TTAConsole } from "../components/TTAConsole";
-import matchReducer from "../store/matchSlice";
+import matchReducer, { addRecentAction } from "../store/matchSlice";
 import presenceReducer from "../../playerpresences/store/presenceSlice";
-import { db, type GameEvent } from "../../../db/ttaDatabase";
+import uiReducer from "../../../store/slices/uiSlice";
+import navigationReducer from "../../../store/slices/navigationSlice";
+import { db } from "../../../db/ttaDatabase";
 import {
   getEventDefinitionByName,
   createGameEventTx,
@@ -45,6 +47,14 @@ vi.mock("../hooks/useMatchLifecycle", () => ({
     periodNumber: mockPeriodNumber,
     isPeriodActive: mockPeriodActive,
     isInsideStoppage: false,
+  }),
+}));
+
+const mockRecordGameEvent = vi.fn();
+
+vi.mock("../hooks/useGameEvents", () => ({
+  useGameEvents: () => ({
+    recordGameEvent: mockRecordGameEvent,
   }),
 }));
 
@@ -121,6 +131,8 @@ vi.mock("../../../db/eventService", () => ({
 const rootReducer = combineReducers({
   match: matchReducer,
   presence: presenceReducer,
+  ui: uiReducer,
+  navigation: navigationReducer,
 });
 
 type RootState = ReturnType<typeof rootReducer>;
@@ -242,6 +254,22 @@ describe("TTAConsole Component", () => {
       } as unknown as RootState,
     });
 
+    mockRecordGameEvent.mockImplementationOnce(async ({ actionName }) => {
+      store.dispatch(
+        addRecentAction({
+          id: "event-uuid-1",
+          playerNumber: 7,
+          actionName,
+          isPositive: true,
+          timestamp: new Date().toISOString(),
+          matchLineupId: "player-1",
+          eventDefinitionId: "def-pass",
+          isLeadToGoal: false,
+          isSynced: 0,
+        }),
+      );
+    });
+
     render(
       <Provider store={store}>
         <TTAConsole />
@@ -266,10 +294,10 @@ describe("TTAConsole Component", () => {
   });
 
   test("prevents rapid double submission when ENTER is clicked twice quickly", async () => {
-    let resolveEvent: (value: GameEvent) => void;
-    vi.mocked(createGameEventTx).mockImplementationOnce(
+    let resolveEvent: () => void;
+    mockRecordGameEvent.mockImplementationOnce(
       () =>
-        new Promise<GameEvent>((resolve) => {
+        new Promise<void>((resolve) => {
           resolveEvent = resolve;
         }),
     );
@@ -303,30 +331,19 @@ describe("TTAConsole Component", () => {
     // Rapid second click during in-flight submission
     fireEvent.click(enterBtn);
 
-    // Wait for the async lookup chain to reach createGameEventTx
     await waitFor(() => {
-      expect(createGameEventTx).toHaveBeenCalledTimes(1);
+      expect(mockRecordGameEvent).toHaveBeenCalledTimes(1);
     });
 
     await act(async () => {
-      resolveEvent!({
-        id: "event-uuid-1",
-        matchLineupId: "player-1",
-        eventDefinitionId: "def-pass",
-        periodNumber: 1,
-        eventTimestamp: new Date().toISOString(),
-        isLeadToGoal: false,
-        createdAt: new Date().toISOString(),
-        sequenceNumber: 1,
-        isSynced: 0,
-      });
+      resolveEvent!();
     });
 
-    expect(createGameEventTx).toHaveBeenCalledTimes(1);
+    expect(mockRecordGameEvent).toHaveBeenCalledTimes(1);
   });
 
   test("displays error alert if event recording fails", async () => {
-    vi.mocked(db.matchlineups.get).mockRejectedValueOnce(
+    mockRecordGameEvent.mockRejectedValueOnce(
       new Error("Database write error"),
     );
 
@@ -446,7 +463,7 @@ describe("TTAConsole Component", () => {
     fireEvent.click(enterBtn);
 
     await waitFor(() => {
-      expect(createGameEventTx).toHaveBeenCalledWith(
+      expect(mockRecordGameEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           isLeadToGoal: false,
         }),

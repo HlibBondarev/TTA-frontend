@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
-import { TTDActionsPanel } from "../components/TTAPanel";
+import { TTAPanel } from "../components/TTAPanel";
 import { db } from "../../../db/ttaDatabase";
 import {
   clearEventDefinitionsCache,
@@ -21,7 +21,7 @@ vi.mock("@auth0/auth0-react", () => ({
 
 vi.mock("../../../db/eventService", () => ({
   clearEventDefinitionsCache: vi.fn(),
-  isSportHydratedForUser: vi.fn().mockReturnValue(true),
+  isSportHydratedForUser: vi.fn().mockResolvedValue(true),
   setHydratedUserIdForSport: vi.fn(),
 }));
 
@@ -90,7 +90,7 @@ const createTestStore = (
     },
   });
 
-describe("TTDActionsPanel Component", () => {
+describe("TTAPanel Component", () => {
   const mockEventDefinitions = [
     {
       id: "1",
@@ -146,7 +146,7 @@ describe("TTDActionsPanel Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(isSportHydratedForUser).mockReturnValue(true);
+    vi.mocked(isSportHydratedForUser).mockResolvedValue(true);
     vi.mocked(db.matches.get).mockResolvedValue({
       id: "test-match-1",
       tournamentId: "tour-1",
@@ -170,7 +170,7 @@ describe("TTDActionsPanel Component", () => {
 
     render(
       <Provider store={store}>
-        <TTDActionsPanel
+        <TTAPanel
           onActionSelect={mockOnActionSelect}
           selectedAction={null}
           disabled={false}
@@ -195,7 +195,7 @@ describe("TTDActionsPanel Component", () => {
 
     render(
       <Provider store={store}>
-        <TTDActionsPanel
+        <TTAPanel
           onActionSelect={vi.fn()}
           selectedAction="Goal"
           disabled={false}
@@ -212,7 +212,7 @@ describe("TTDActionsPanel Component", () => {
 
     render(
       <Provider store={store}>
-        <TTDActionsPanel
+        <TTAPanel
           onActionSelect={vi.fn()}
           selectedAction={null}
           disabled={false}
@@ -229,7 +229,7 @@ describe("TTDActionsPanel Component", () => {
 
     const { container } = render(
       <Provider store={store}>
-        <TTDActionsPanel
+        <TTAPanel
           onActionSelect={vi.fn()}
           selectedAction={null}
           disabled={true}
@@ -263,7 +263,7 @@ describe("TTDActionsPanel Component", () => {
 
     render(
       <Provider store={store}>
-        <TTDActionsPanel
+        <TTAPanel
           onActionSelect={vi.fn()}
           selectedAction={null}
           disabled={false}
@@ -290,7 +290,7 @@ describe("TTDActionsPanel Component", () => {
 
     render(
       <Provider store={store}>
-        <TTDActionsPanel
+        <TTAPanel
           onActionSelect={vi.fn()}
           selectedAction={null}
           disabled={false}
@@ -314,7 +314,7 @@ describe("TTDActionsPanel Component", () => {
 
     const { rerender } = render(
       <Provider store={store}>
-        <TTDActionsPanel
+        <TTAPanel
           onActionSelect={vi.fn()}
           selectedAction={null}
           disabled={false}
@@ -327,7 +327,7 @@ describe("TTDActionsPanel Component", () => {
     const newUserStore = createTestStore("test-match-1", "user-2");
     rerender(
       <Provider store={newUserStore}>
-        <TTDActionsPanel
+        <TTAPanel
           onActionSelect={vi.fn()}
           selectedAction={null}
           disabled={false}
@@ -341,7 +341,7 @@ describe("TTDActionsPanel Component", () => {
   it("gates action rendering on account switch until new account sport snapshot replaces records", async () => {
     let hydratedUser = "user-A";
     vi.mocked(isSportHydratedForUser).mockImplementation(
-      (_sportId, userId) => !userId || userId === hydratedUser,
+      async (_sportId, userId) => !userId || userId === hydratedUser,
     );
     vi.mocked(setHydratedUserIdForSport).mockImplementation(
       (_sportId, userId) => {
@@ -354,7 +354,7 @@ describe("TTDActionsPanel Component", () => {
 
     const { rerender } = render(
       <Provider store={storeUserA}>
-        <TTDActionsPanel
+        <TTAPanel
           onActionSelect={vi.fn()}
           selectedAction={null}
           disabled={false}
@@ -369,7 +369,7 @@ describe("TTDActionsPanel Component", () => {
     const storeUserB = createTestStore("test-match-1", "user-B");
     rerender(
       <Provider store={storeUserB}>
-        <TTDActionsPanel
+        <TTAPanel
           onActionSelect={vi.fn()}
           selectedAction={null}
           disabled={false}
@@ -388,7 +388,7 @@ describe("TTDActionsPanel Component", () => {
     // Force re-render with key to re-mount component and trigger liveQuery effect with updated hydration state
     rerender(
       <Provider store={storeUserB}>
-        <TTDActionsPanel
+        <TTAPanel
           key="user-B-hydrated"
           onActionSelect={vi.fn()}
           selectedAction={null}
@@ -405,7 +405,7 @@ describe("TTDActionsPanel Component", () => {
 
     render(
       <Provider store={noUserStore}>
-        <TTDActionsPanel
+        <TTAPanel
           onActionSelect={vi.fn()}
           selectedAction={null}
           disabled={false}
@@ -420,13 +420,15 @@ describe("TTDActionsPanel Component", () => {
 
   it("re-queries Dexie DB and renders actions automatically when Redux hydration signal updates", async () => {
     let isHydrated = false;
-    vi.mocked(isSportHydratedForUser).mockImplementation(() => isHydrated);
+    vi.mocked(isSportHydratedForUser).mockImplementation(
+      async () => isHydrated,
+    );
 
     const store = createTestStore();
 
     render(
       <Provider store={store}>
-        <TTDActionsPanel
+        <TTAPanel
           onActionSelect={vi.fn()}
           selectedAction={null}
           disabled={false}

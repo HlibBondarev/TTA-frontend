@@ -26,13 +26,33 @@ export const getHydratedUserIdForSport = (
   return hydratedUserIdBySport.get(sportId);
 };
 
-export const isSportHydratedForUser = (
+export const isSportHydratedForUser = async (
   sportId: string,
   userId?: string,
-): boolean => {
+): Promise<boolean> => {
   const normalizedUserId = userId?.trim();
   if (!normalizedUserId) return false;
-  return hydratedUserIdBySport.get(sportId) === normalizedUserId;
+
+  if (hydratedUserIdBySport.get(sportId) === normalizedUserId) {
+    return true;
+  }
+
+  if (db?.eventdefinitions) {
+    try {
+      const count = await db.eventdefinitions
+        .where("sportId")
+        .equals(sportId)
+        .count();
+      if (count > 0) {
+        hydratedUserIdBySport.set(sportId, normalizedUserId);
+        return true;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
 };
 
 /**
@@ -44,8 +64,8 @@ export const loadEventDefinitionsCache = async (
 ): Promise<Map<string, EventDefinitionLookup>> => {
   const normalizedUserId = userId?.trim();
   if (sportId && normalizedUserId) {
-    const hydratedUser = hydratedUserIdBySport.get(sportId);
-    if (hydratedUser !== normalizedUserId) {
+    const isHydrated = await isSportHydratedForUser(sportId, normalizedUserId);
+    if (!isHydrated) {
       return new Map();
     }
   }
