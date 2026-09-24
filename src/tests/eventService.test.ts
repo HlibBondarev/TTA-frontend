@@ -78,6 +78,8 @@ describe("Event Database Service (eventService)", () => {
       shortName: "GL",
       isPositive: true,
       isEnabled: true,
+      ownerId: "user-1",
+      userId: "user-1",
       createdAt: "2026-07-22T10:00:00.000Z",
     },
     {
@@ -87,6 +89,8 @@ describe("Event Database Service (eventService)", () => {
       shortName: "PS",
       isPositive: true,
       isEnabled: true,
+      ownerId: "user-1",
+      userId: "user-1",
       createdAt: "2026-07-22T10:00:00.000Z",
     },
     {
@@ -96,6 +100,8 @@ describe("Event Database Service (eventService)", () => {
       shortName: "DA",
       isPositive: false,
       isEnabled: false,
+      ownerId: "user-1",
+      userId: "user-1",
       createdAt: "2026-07-22T10:00:00.000Z",
     },
   ];
@@ -116,6 +122,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "TA",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       }),
     );
     mockWhereEquals.mockReturnValue({
@@ -191,6 +199,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "NG",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
     ];
 
@@ -225,6 +235,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "GL",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
       {
         id: "def-2",
@@ -233,6 +245,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "FL",
         isPositive: false,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
     ];
 
@@ -244,6 +258,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "GL",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
     ];
 
@@ -253,7 +269,10 @@ describe("Event Database Service (eventService)", () => {
     });
     await saveEventDefinitionsToDb(initialSet, "sport-1");
 
-    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(initialSet);
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+      { ...initialSet[0], ownerId: "user-1", userId: "user-1" },
+      { ...initialSet[1], ownerId: "user-1", userId: "user-1" },
+    ]);
 
     mockWhereEquals.mockReturnValueOnce({
       toArray: vi.fn().mockResolvedValueOnce(initialSet),
@@ -262,7 +281,9 @@ describe("Event Database Service (eventService)", () => {
     await saveEventDefinitionsToDb(updatedSet, "sport-1");
 
     expect(db.eventdefinitions.bulkDelete).toHaveBeenCalledWith(["def-2"]);
-    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(updatedSet);
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+      { ...updatedSet[0], ownerId: "user-1", userId: "user-1" },
+    ]);
   });
 
   it("should replace sport event definitions atomically, purge missing IDs for sportId, and clear cache", async () => {
@@ -274,6 +295,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "GL",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
       {
         id: "def-obsolete",
@@ -282,6 +305,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "OBS",
         isPositive: false,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
     ];
 
@@ -298,6 +323,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "GL",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
       {
         id: "def-new",
@@ -306,6 +333,8 @@ describe("Event Database Service (eventService)", () => {
         shortName: "NG",
         isPositive: true,
         isEnabled: true,
+        ownerId: "user-1",
+        userId: "user-1",
       },
     ];
 
@@ -928,6 +957,8 @@ describe("Event Database Service (eventService)", () => {
       id: "def-1",
       sportId: "sport-waterpolo",
       name: "Goal",
+      ownerId: "user-1",
+      userId: "user-1",
     });
 
     mockSyncQueueFilter.mockReturnValueOnce({
@@ -974,6 +1005,8 @@ describe("Event Database Service (eventService)", () => {
       id: "def-basketball-pass",
       sportId: "sport-basketball",
       name: "Pass",
+      ownerId: "user-1",
+      userId: "user-1",
     });
 
     await expect(
@@ -987,5 +1020,24 @@ describe("Event Database Service (eventService)", () => {
     ).rejects.toThrow(
       "Event definition def-basketball-pass does not belong to sport: sport-waterpolo",
     );
+  });
+
+  it("should return false for isSportHydratedForUser when IndexedDB contains definitions without ownerId", async () => {
+    const unhydratedSportId = "sport-no-owner";
+    const userId = "user-current";
+
+    mockWhereEquals.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: "def-1",
+          sportId: unhydratedSportId,
+          name: "Goal",
+          // ownerId and userId are intentionally omitted
+        },
+      ]),
+      count: vi.fn().mockResolvedValue(1),
+    });
+
+    expect(await isSportHydratedForUser(unhydratedSportId, userId)).toBe(false);
   });
 });
