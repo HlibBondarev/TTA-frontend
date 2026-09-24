@@ -243,8 +243,11 @@ export const getEventDefinitionByName = async (
   const cachedDef = cache.get(normalizedName);
   if (cachedDef) return cachedDef;
 
-  const allDefs = await db.eventdefinitions.toArray();
-  return allDefs.find(
+  const candidates = sportId
+    ? await db.eventdefinitions.where("sportId").equals(sportId).toArray()
+    : await db.eventdefinitions.toArray();
+
+  return candidates.find(
     (def) => def.name.trim().toLowerCase() === normalizedName,
   );
 };

@@ -1005,4 +1005,36 @@ describe("Event Database Service (eventService)", () => {
 
     expect(await isSportHydratedForUser(unhydratedSportId, userId)).toBe(false);
   });
+
+  it("should query eventdefinitions by sportId on cache miss when sportId is provided", async () => {
+    clearEventDefinitionsCache();
+
+    mockUserPresetsWhere.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValueOnce([]),
+    });
+
+    const mockWhereEqualsResult = {
+      toArray: vi.fn().mockResolvedValueOnce([
+        {
+          id: "def-sport-specific",
+          sportId: "sport-waterpolo",
+          name: "Corner Throw",
+          shortName: "CT",
+          isPositive: true,
+        },
+      ]),
+    };
+
+    mockWhereEquals.mockReturnValueOnce(mockWhereEqualsResult);
+
+    const result = await getEventDefinitionByName(
+      "Corner Throw",
+      "sport-waterpolo",
+      "user-1",
+    );
+
+    expect(result).toBeDefined();
+    expect(result?.id).toBe("def-sport-specific");
+    expect(mockWhereEquals).toHaveBeenCalledWith("sport-waterpolo");
+  });
 });
