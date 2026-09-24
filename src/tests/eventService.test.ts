@@ -673,6 +673,35 @@ describe("Event Database Service (eventService)", () => {
     expect(def).toBeUndefined();
   });
 
+  it("should return false for isSportHydratedForUser when IndexedDB contains definitions owned by another user", async () => {
+    const unhydratedSportId = "sport-owned-by-other";
+    const userId = "user-current";
+
+    mockWhereEquals.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: "def-1",
+          sportId: unhydratedSportId,
+          name: "Goal",
+          ownerId: "user-other",
+        },
+      ]),
+      count: vi.fn().mockResolvedValue(1),
+    });
+
+    expect(await isSportHydratedForUser(unhydratedSportId, userId)).toBe(false);
+
+    const cache = await loadEventDefinitionsCache(unhydratedSportId, userId);
+    expect(cache.size).toBe(0);
+
+    const def = await getEventDefinitionByName(
+      "Goal",
+      unhydratedSportId,
+      userId,
+    );
+    expect(def).toBeUndefined();
+  });
+
   it("should throw error in updateGameEventTx if target event is not found", async () => {
     await expect(
       updateGameEventTx({

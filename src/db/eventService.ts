@@ -26,6 +26,10 @@ export const getHydratedUserIdForSport = (
   return hydratedUserIdBySport.get(sportId);
 };
 
+/**
+ * Verifies if sport definitions are already hydrated in IndexedDB for the given user.
+ * Inspects recorded items to ensure they belong to normalizedUserId before marking as hydrated.
+ */
 export const isSportHydratedForUser = async (
   sportId: string,
   userId?: string,
@@ -39,11 +43,21 @@ export const isSportHydratedForUser = async (
 
   if (db?.eventdefinitions) {
     try {
-      const count = await db.eventdefinitions
+      const rows = await db.eventdefinitions
         .where("sportId")
         .equals(sportId)
-        .count();
-      if (count > 0) {
+        .toArray();
+
+      const ownedByOther = rows.some((def) => {
+        const item = def as unknown as {
+          ownerId?: string | null;
+          userId?: string | null;
+        };
+        const owner = item.ownerId || item.userId;
+        return Boolean(owner && owner !== normalizedUserId);
+      });
+
+      if (rows.length > 0 && !ownedByOther) {
         hydratedUserIdBySport.set(sportId, normalizedUserId);
         return true;
       }
