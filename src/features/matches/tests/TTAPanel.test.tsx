@@ -12,6 +12,8 @@ import {
 import matchReducer, { incrementHydrationVersion } from "../store/matchSlice";
 
 const mockWhereEqualsToArray = vi.hoisted(() => vi.fn());
+const mockUserPresetsWhere = vi.hoisted(() => vi.fn());
+const mockEventDefinitionsBulkGet = vi.hoisted(() => vi.fn());
 
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
@@ -35,9 +37,13 @@ vi.mock("../../../db/ttaDatabase", () => ({
     },
     eventdefinitions: {
       toArray: vi.fn(),
+      bulkGet: (...args: unknown[]) => mockEventDefinitionsBulkGet(...args),
       where: vi.fn(() => ({
         equals: mockWhereEqualsToArray,
       })),
+    },
+    usereventpresets: {
+      where: (...args: unknown[]) => mockUserPresetsWhere(...args),
     },
   },
 }));
@@ -53,8 +59,8 @@ vi.mock("dexie", async (importOriginal) => {
         error?: (err: unknown) => void;
       }) => {
         fn()
-          .then((data) => observer.next(data))
-          .catch((err) => observer.error?.(err));
+          .then((data: unknown) => observer.next(data))
+          .catch((err: unknown) => observer.error?.(err));
         return { unsubscribe: vi.fn() };
       },
     }),
@@ -98,8 +104,6 @@ describe("TTAPanel Component", () => {
       name: "Goal",
       shortName: "GL",
       isPositive: true,
-      isEnabled: true,
-      sortOrder: 1,
       createdAt: "",
     },
     {
@@ -108,8 +112,6 @@ describe("TTAPanel Component", () => {
       name: "Pass",
       shortName: "PS",
       isPositive: true,
-      isEnabled: true,
-      sortOrder: 2,
       createdAt: "",
     },
     {
@@ -118,8 +120,6 @@ describe("TTAPanel Component", () => {
       name: "Turnover",
       shortName: "TO",
       isPositive: false,
-      isEnabled: true,
-      sortOrder: 3,
       createdAt: "",
     },
     {
@@ -128,8 +128,6 @@ describe("TTAPanel Component", () => {
       name: "Foul",
       shortName: "FL",
       isPositive: false,
-      isEnabled: true,
-      sortOrder: 4,
       createdAt: "",
     },
     {
@@ -138,9 +136,38 @@ describe("TTAPanel Component", () => {
       name: "Disabled Action",
       shortName: "DA",
       isPositive: true,
-      isEnabled: false,
-      sortOrder: 5,
       createdAt: "",
+    },
+  ];
+
+  const mockPresets = [
+    {
+      userId: "user-1",
+      eventDefinitionId: "1",
+      sportId: "s1",
+      sortOrder: 1,
+      isEnabled: true,
+    },
+    {
+      userId: "user-1",
+      eventDefinitionId: "2",
+      sportId: "s1",
+      sortOrder: 2,
+      isEnabled: true,
+    },
+    {
+      userId: "user-1",
+      eventDefinitionId: "3",
+      sportId: "s1",
+      sortOrder: 3,
+      isEnabled: true,
+    },
+    {
+      userId: "user-1",
+      eventDefinitionId: "4",
+      sportId: "s1",
+      sortOrder: 4,
+      isEnabled: true,
     },
   ];
 
@@ -155,6 +182,15 @@ describe("TTAPanel Component", () => {
       id: "tour-1",
       sportId: "s1",
     } as never);
+
+    mockUserPresetsWhere.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockPresets),
+    });
+    mockEventDefinitionsBulkGet.mockImplementation(async (ids: string[]) =>
+      ids
+        .map((id) => mockEventDefinitions.find((d) => d.id === id))
+        .filter(Boolean),
+    );
 
     mockWhereEqualsToArray.mockReturnValue({
       toArray: vi.fn().mockResolvedValue(mockEventDefinitions),
@@ -209,6 +245,21 @@ describe("TTAPanel Component", () => {
 
   it("filters out disabled event definitions from display", async () => {
     const store = createTestStore();
+
+    const presetsWithDisabled = [
+      ...mockPresets,
+      {
+        userId: "user-1",
+        eventDefinitionId: "5",
+        sportId: "s1",
+        sortOrder: 5,
+        isEnabled: false,
+      },
+    ];
+
+    mockUserPresetsWhere.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValueOnce(presetsWithDisabled),
+    });
 
     render(
       <Provider store={store}>
@@ -364,7 +415,6 @@ describe("TTAPanel Component", () => {
 
     expect(await screen.findByText("Goal")).toBeInTheDocument();
 
-    // Switch to user-B before user-B's hydration for s1 completes
     hydratedUser = "user-A";
     const storeUserB = createTestStore("test-match-1", "user-B");
     rerender(
@@ -377,15 +427,12 @@ describe("TTAPanel Component", () => {
       </Provider>,
     );
 
-    // Actions from user-A must NOT be rendered for user-B (gated)
     await waitFor(() => {
       expect(screen.queryByText("Goal")).not.toBeInTheDocument();
     });
 
-    // Simulate user-B snapshot hydration completing
     setHydratedUserIdForSport("s1", "user-B");
 
-    // Force re-render with key to re-mount component and trigger liveQuery effect with updated hydration state
     rerender(
       <Provider store={storeUserB}>
         <TTAPanel
@@ -436,18 +483,15 @@ describe("TTAPanel Component", () => {
       </Provider>,
     );
 
-    // Wait for initial hydration check while isHydrated is false
     await waitFor(() => {
       expect(isSportHydratedForUser).toHaveBeenCalledWith("s1", "user-1");
     });
     expect(screen.queryByText("Goal")).not.toBeInTheDocument();
     vi.mocked(isSportHydratedForUser).mockClear();
 
-    // Simulate successful hydration: update marker and dispatch production action
     isHydrated = true;
     store.dispatch(incrementHydrationVersion());
 
-    // Wait for second hydration check triggered by hydrationVersion update
     await waitFor(() => {
       expect(isSportHydratedForUser).toHaveBeenCalledWith("s1", "user-1");
     });

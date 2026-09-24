@@ -3,15 +3,14 @@ import {
   db,
   type GameEvent,
   type EventDefinitionLookup,
+  type UserEventPresetLookup,
   type SyncQueueItem,
 } from "./ttaDatabase";
 
-// In-memory cache for event definitions to avoid repeated IndexedDB reads during rapid recording
 let eventDefinitionsCache: Map<string, EventDefinitionLookup> | null = null;
 let cachedSportId: string | undefined = undefined;
 let cachedUserId: string | undefined = undefined;
 
-// In-memory map tracking which userId last hydrated event definitions for each sportId
 const hydratedUserIdBySport = new Map<string, string>();
 
 export const setHydratedUserIdForSport = (sportId: string, userId?: string) => {
@@ -27,39 +26,26 @@ export const getHydratedUserIdForSport = (
 };
 
 /**
- * Verifies if sport definitions are already hydrated in IndexedDB for the given user.
- * Inspects recorded items to ensure ALL items explicitly belong to normalizedUserId.
+ * Verifies if user event presets exist in IndexedDB for the given sportId and userId.
  */
 export const isSportHydratedForUser = async (
   sportId: string,
   userId?: string,
 ): Promise<boolean> => {
   const normalizedUserId = userId?.trim();
-  if (!normalizedUserId) return false;
+  if (!normalizedUserId || !sportId) return false;
 
   if (hydratedUserIdBySport.get(sportId) === normalizedUserId) {
     return true;
   }
 
-  if (db?.eventdefinitions) {
+  if (db?.usereventpresets) {
     try {
-      const rows = await db.eventdefinitions
-        .where("sportId")
-        .equals(sportId)
-        .toArray();
+      const presetsCount = await db.usereventpresets
+        .where({ userId: normalizedUserId, sportId })
+        .count();
 
-      const allOwnedByCurrentUser =
-        rows.length > 0 &&
-        rows.every((def) => {
-          const item = def as unknown as {
-            ownerId?: string | null;
-            userId?: string | null;
-          };
-          const owner = item.ownerId || item.userId;
-          return owner === normalizedUserId;
-        });
-
-      if (allOwnedByCurrentUser) {
+      if (presetsCount > 0) {
         hydratedUserIdBySport.set(sportId, normalizedUserId);
         return true;
       }
@@ -71,79 +57,88 @@ export const isSportHydratedForUser = async (
   return false;
 };
 
+export type DefinitionInput = EventDefinitionLookup & {
+  sortOrder?: number;
+  isEnabled?: boolean;
+};
+
 /**
- * Atomically replaces event definitions for a specific sportId in IndexedDB:
- * removes existing records for sportId whose IDs are absent from incoming items,
- * attaches normalizedUserId as owner to all records,
- * performs bulkPut for updated records, and clears the in-memory cache.
+ * Atomically upserts definitions into the global dictionary and replaces user-specific presets.
+ * Global definition records are preserved to prevent historical game events lookup failures.
  */
 export const replaceSportEventDefinitionsInDb = async (
   sportId: string,
-  definitions: EventDefinitionLookup[],
+  definitions: DefinitionInput[],
   userId?: string,
 ): Promise<void> => {
-  if (!db.eventdefinitions || !sportId) return;
+  if (!db.eventdefinitions || !db.usereventpresets || !sportId) return;
 
-  const incomingIds = new Set(definitions.map((def) => def.id));
   const normalizedUserId = userId?.trim();
 
-  const definitionsToSave = definitions.map((def) => ({
-    ...def,
-    ...(normalizedUserId
-      ? { ownerId: normalizedUserId, userId: normalizedUserId }
-      : {}),
+  const eventDefsToSave: EventDefinitionLookup[] = definitions.map((def) => ({
+    id: def.id,
+    sportId: def.sportId || sportId,
+    name: def.name,
+    shortName: def.shortName,
+    isPositive: def.isPositive,
+    isCustom: def.isCustom,
+    ownerId: def.ownerId ?? (def.isCustom ? (normalizedUserId ?? null) : null),
   }));
 
-  await db.transaction("rw", [db.eventdefinitions], async () => {
-    let existingForSport: EventDefinitionLookup[] = [];
+  await db.transaction(
+    "rw",
+    [db.eventdefinitions, db.usereventpresets],
+    async () => {
+      await db.eventdefinitions.bulkPut(eventDefsToSave);
 
-    if (typeof db.eventdefinitions.where === "function") {
-      existingForSport = await db.eventdefinitions
-        .where("sportId")
-        .equals(sportId)
-        .toArray();
-    } else if (typeof db.eventdefinitions.toArray === "function") {
-      const all = await db.eventdefinitions.toArray();
-      existingForSport = (all || []).filter((def) => def.sportId === sportId);
-    }
+      if (normalizedUserId) {
+        const existingPresets = await db.usereventpresets
+          .where({ userId: normalizedUserId, sportId })
+          .toArray();
 
-    const idsToDelete = existingForSport
-      .filter((def) => !incomingIds.has(def.id))
-      .map((def) => def.id);
+        const incomingDefIds = new Set(definitions.map((d) => d.id));
+        const presetsToDelete = existingPresets.filter(
+          (p) => !incomingDefIds.has(p.eventDefinitionId),
+        );
 
-    if (
-      idsToDelete.length > 0 &&
-      typeof db.eventdefinitions.bulkDelete === "function"
-    ) {
-      await db.eventdefinitions.bulkDelete(idsToDelete);
-    }
+        for (const p of presetsToDelete) {
+          await db.usereventpresets.delete([p.userId, p.eventDefinitionId]);
+        }
 
-    if (
-      definitionsToSave.length > 0 &&
-      typeof db.eventdefinitions.bulkPut === "function"
-    ) {
-      await db.eventdefinitions.bulkPut(definitionsToSave);
-    }
+        const presetsToSave: UserEventPresetLookup[] = definitions.map(
+          (def, index) => ({
+            userId: normalizedUserId,
+            eventDefinitionId: def.id,
+            sportId,
+            sortOrder:
+              typeof def.sortOrder === "number" ? def.sortOrder : index,
+            isEnabled: def.isEnabled !== false,
+          }),
+        );
 
-    const currentTx = Dexie.currentTransaction;
-    if (currentTx && typeof currentTx.on === "function") {
-      currentTx.on("complete", () => {
+        await db.usereventpresets.bulkPut(presetsToSave);
+      }
+
+      const currentTx = Dexie.currentTransaction;
+      if (currentTx && typeof currentTx.on === "function") {
+        currentTx.on("complete", () => {
+          if (normalizedUserId) {
+            hydratedUserIdBySport.set(sportId, normalizedUserId);
+          }
+          clearEventDefinitionsCache();
+        });
+      } else {
         if (normalizedUserId) {
           hydratedUserIdBySport.set(sportId, normalizedUserId);
         }
         clearEventDefinitionsCache();
-      });
-    } else {
-      if (normalizedUserId) {
-        hydratedUserIdBySport.set(sportId, normalizedUserId);
       }
-      clearEventDefinitionsCache();
-    }
-  });
+    },
+  );
 };
 
 /**
- * Loads event definitions from IndexedDB into memory map for fast lookup by name, filtered by sportId and userId if provided.
+ * Loads user-enabled event definitions ordered by preset sort order for the active console panel.
  */
 export const loadEventDefinitionsCache = async (
   sportId?: string,
@@ -166,18 +161,34 @@ export const loadEventDefinitionsCache = async (
     return eventDefinitionsCache;
   }
 
-  const definitions =
-    sportId && typeof db.eventdefinitions?.where === "function"
-      ? await db.eventdefinitions.where("sportId").equals(sportId).toArray()
-      : await db.eventdefinitions.toArray();
+  let activeDefinitions: EventDefinitionLookup[];
+
+  if (sportId && normalizedUserId && db.usereventpresets) {
+    const userPresets = await db.usereventpresets
+      .where({ userId: normalizedUserId, sportId })
+      .toArray();
+
+    const enabledPresets = userPresets
+      .filter((p) => p.isEnabled)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+
+    const defIds = enabledPresets.map((p) => p.eventDefinitionId);
+    const defs = await db.eventdefinitions.bulkGet(defIds);
+    activeDefinitions = defs.filter(
+      (d): d is EventDefinitionLookup => d !== undefined,
+    );
+  } else {
+    const rawDefs =
+      sportId && typeof db.eventdefinitions?.where === "function"
+        ? await db.eventdefinitions.where("sportId").equals(sportId).toArray()
+        : await db.eventdefinitions.toArray();
+    activeDefinitions = rawDefs;
+  }
 
   const map = new Map<string, EventDefinitionLookup>();
-
-  definitions
-    .filter((def) => def.isEnabled !== false)
-    .forEach((def) => {
-      map.set(def.name.toLowerCase(), def);
-    });
+  activeDefinitions.forEach((def) => {
+    map.set(def.name.toLowerCase(), def);
+  });
 
   eventDefinitionsCache = map;
   cachedSportId = sportId;
@@ -185,20 +196,14 @@ export const loadEventDefinitionsCache = async (
   return map;
 };
 
-/**
- * Clears the in-memory cache (useful for test resets, account switches, or dynamic configuration changes).
- */
 export const clearEventDefinitionsCache = () => {
   eventDefinitionsCache = null;
   cachedSportId = undefined;
   cachedUserId = undefined;
 };
 
-/**
- * Persists event definition records to IndexedDB for a sport, replacing obsolete definitions with the hydrated snapshot.
- */
 export const saveEventDefinitionsToDb = async (
-  definitions: EventDefinitionLookup[],
+  definitions: DefinitionInput[],
   sportId?: string,
   userId?: string,
 ): Promise<void> => {
@@ -211,20 +216,12 @@ export const saveEventDefinitionsToDb = async (
 
   if (definitions.length === 0) return;
 
-  const bySport = new Map<string, EventDefinitionLookup[]>();
+  const bySport = new Map<string, DefinitionInput[]>();
   for (const def of definitions) {
     if (!def.sportId) continue;
     const list = bySport.get(def.sportId) ?? [];
     list.push(def);
     bySport.set(def.sportId, list);
-  }
-
-  if (bySport.size === 0) {
-    if (typeof db.eventdefinitions.bulkPut === "function") {
-      await db.eventdefinitions.bulkPut(definitions);
-    }
-    clearEventDefinitionsCache();
-    return;
   }
 
   for (const [sId, defs] of bySport.entries()) {
@@ -233,20 +230,31 @@ export const saveEventDefinitionsToDb = async (
 };
 
 /**
- * Resolves event definition ID by name (case-insensitive) and optional sportId/userId.
+ * Resolves an event definition strictly within the specified sport context.
+ * Returns undefined if sportId is missing to prevent cross-sport definition collisions.
  */
 export const getEventDefinitionByName = async (
   actionName: string,
   sportId?: string,
   userId?: string,
 ): Promise<EventDefinitionLookup | undefined> => {
+  if (!sportId) return undefined;
+
+  const normalizedName = actionName.trim().toLowerCase();
   const cache = await loadEventDefinitionsCache(sportId, userId);
-  return cache.get(actionName.trim().toLowerCase());
+  const cachedDef = cache.get(normalizedName);
+  if (cachedDef) return cachedDef;
+
+  const candidates = await db.eventdefinitions
+    .where("sportId")
+    .equals(sportId)
+    .toArray();
+
+  return candidates.find(
+    (def) => def.name.trim().toLowerCase() === normalizedName,
+  );
 };
 
-/**
- * Calculates the next available global sequence number across events, anchors, and presences.
- */
 export const getNextSequenceNumber = async (): Promise<number> => {
   const lastEvent = await db.gameevents.orderBy("sequenceNumber").last();
   const lastAnchor = await db.timeanchors.orderBy("sequenceNumber").last();
@@ -282,9 +290,6 @@ export interface UpdateGameEventParams {
   userId?: string;
 }
 
-/**
- * Helper to update a matching event payload inside a syncQueue item.
- */
 const processQueueItemUpdate = async (
   item: SyncQueueItem,
   params: UpdateGameEventParams,
@@ -314,9 +319,6 @@ const processQueueItemUpdate = async (
   }
 };
 
-/**
- * Helper to remove a matching event payload inside a syncQueue item.
- */
 const processQueueItemDelete = async (
   item: SyncQueueItem,
   eventId: string,
@@ -341,9 +343,6 @@ const processQueueItemDelete = async (
   }
 };
 
-/**
- * Helper to validate lineups and match association during game event update.
- */
 const validateLineupAndMatchOwnership = async (
   existingLineupId: string,
   params: UpdateGameEventParams,
@@ -360,16 +359,15 @@ const validateLineupAndMatchOwnership = async (
 
   if (targetLineup.matchId?.trim() !== existingLineup.matchId?.trim()) {
     throw new Error(
-      `Lineup ${params.matchLineupId} does not belong to event match: ${existingLineup.matchId}`,
+      `Lineup ${params.matchLineupId} does not belong to event match: ${
+        existingLineup.matchId
+      }`,
     );
   }
 
   return targetLineup.matchId || existingLineup.matchId;
 };
 
-/**
- * Helper to validate user ownership over match entity.
- */
 const validateMatchUserOwnership = async (
   matchId: string | undefined,
   eventId: string,
@@ -386,9 +384,6 @@ const validateMatchUserOwnership = async (
   }
 };
 
-/**
- * Helper to validate event definition existence and sport matching.
- */
 const validateEventDefinitionContext = async (
   existingDefId: string,
   params: UpdateGameEventParams,
@@ -412,14 +407,13 @@ const validateEventDefinitionContext = async (
     eventDef.sportId !== params.expectedSportId
   ) {
     throw new Error(
-      `Event definition ${params.eventDefinitionId} does not belong to sport: ${params.expectedSportId}`,
+      `Event definition ${params.eventDefinitionId} does not belong to sport: ${
+        params.expectedSportId
+      }`,
     );
   }
 };
 
-/**
- * Helper to validate lineups, match ownership, and event definition during game event update.
- */
 const validateEventUpdateContext = async (
   existing: GameEvent,
   params: UpdateGameEventParams,
@@ -434,9 +428,6 @@ const validateEventUpdateContext = async (
   await validateEventDefinitionContext(existing.eventDefinitionId, params);
 };
 
-/**
- * Helper to update matching syncQueue item payload for a modified game event.
- */
 const updateSyncQueueForEvent = async (
   params: UpdateGameEventParams,
 ): Promise<void> => {
@@ -455,9 +446,6 @@ const updateSyncQueueForEvent = async (
   );
 };
 
-/**
- * Atomically persists a new GameEvent entity to IndexedDB and enqueues the team-scoped sync payload.
- */
 export const createGameEventTx = async (
   params: CreateGameEventParams,
 ): Promise<GameEvent> => {
@@ -506,7 +494,9 @@ export const createGameEventTx = async (
 
       const syncItem: SyncQueueItem = {
         actionType: "POST",
-        endpoint: `/Matches/${normalizedMatchId}/teams/${normalizedTeamId}/events`,
+        endpoint: `/Matches/${normalizedMatchId}/teams/${
+          normalizedTeamId
+        }/events`,
         payload,
         createdAt: params.eventTimestamp,
       };
@@ -518,11 +508,6 @@ export const createGameEventTx = async (
   return createdEvent!;
 };
 
-/**
- * Atomically updates an existing unsynchronized GameEvent entity in IndexedDB and syncQueue.
- * Validates lineup, match, user ownership, and definition existence inside the transaction.
- * Throws an error if the event is already synchronized (isSynced === 1) or matching syncQueue item is missing.
- */
 export const updateGameEventTx = async (
   params: UpdateGameEventParams,
 ): Promise<GameEvent> => {
@@ -565,10 +550,6 @@ export const updateGameEventTx = async (
   return updatedEvent!;
 };
 
-/**
- * Atomically removes an unsynchronized GameEvent entity from IndexedDB and syncQueue.
- * Throws an error if the event is already synchronized (isSynced === 1) or matching syncQueue item is missing.
- */
 export const deleteGameEventTx = async (eventId: string): Promise<void> => {
   await db.transaction("rw", [db.gameevents, db.syncQueue], async () => {
     const existing = await db.gameevents.get(eventId);

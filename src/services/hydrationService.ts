@@ -623,6 +623,7 @@ const executeMatchTransaction = async (
       db.playerpresences,
       db.gameevents,
       db.eventdefinitions,
+      db.usereventpresets,
     ],
     async () => {
       checkFreshness?.();

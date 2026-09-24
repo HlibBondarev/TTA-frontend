@@ -30,6 +30,8 @@ vi.mock("../../../db/eventService", () => ({
 }));
 
 const mockWhereEqualsToArray = vi.fn();
+const mockUserPresetsWhere = vi.fn();
+const mockEventDefinitionsBulkGet = vi.fn();
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
@@ -40,9 +42,13 @@ vi.mock("../../../db/ttaDatabase", () => ({
       get: vi.fn(),
     },
     eventdefinitions: {
+      bulkGet: (...args: unknown[]) => mockEventDefinitionsBulkGet(...args),
       where: vi.fn(() => ({
         equals: mockWhereEqualsToArray,
       })),
+    },
+    usereventpresets: {
+      where: (...args: unknown[]) => mockUserPresetsWhere(...args),
     },
   },
 }));
@@ -79,16 +85,29 @@ describe("useTTAPanel Custom Hook", () => {
       sportId: "sport-wp",
       name: "Goal",
       isPositive: true,
-      isEnabled: true,
-      sortOrder: 1,
     },
     {
       id: "def-2",
       sportId: "sport-wp",
       name: "Foul",
       isPositive: false,
+    },
+  ];
+
+  const mockPresets = [
+    {
+      userId: "auth0|user-123",
+      eventDefinitionId: "def-1",
+      sportId: "sport-wp",
+      sortOrder: 1,
       isEnabled: true,
+    },
+    {
+      userId: "auth0|user-123",
+      eventDefinitionId: "def-2",
+      sportId: "sport-wp",
       sortOrder: 2,
+      isEnabled: true,
     },
   ];
 
@@ -108,6 +127,10 @@ describe("useTTAPanel Custom Hook", () => {
     mockWhereEqualsToArray.mockReturnValue({
       toArray: vi.fn().mockResolvedValue(mockDefinitions),
     });
+    mockUserPresetsWhere.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockPresets),
+    });
+    mockEventDefinitionsBulkGet.mockResolvedValue(mockDefinitions);
   });
 
   it("should initialize with default positive tab and load action definitions from Dexie", async () => {
@@ -198,7 +221,6 @@ describe("useTTAPanel Custom Hook", () => {
       expect(result.current.displayedActions).toHaveLength(1);
     });
 
-    // Change active match
     store.dispatch({
       type: "match/setActiveMatch",
       payload: { matchId: "match-456", teamId: "team-1" },

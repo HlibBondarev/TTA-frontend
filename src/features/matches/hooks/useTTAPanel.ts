@@ -91,14 +91,26 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
         return [];
       }
 
-      const definitions = await db.eventdefinitions
+      if (db.usereventpresets) {
+        const presets = await db.usereventpresets
+          .where({ userId: normalizedUserId, sportId: targetSportId })
+          .toArray();
+
+        const enabledPresets = presets
+          .filter((p) => p.isEnabled)
+          .sort((a, b) => a.sortOrder - b.sortOrder);
+
+        const defIds = enabledPresets.map((p) => p.eventDefinitionId);
+        if (defIds.length === 0) return [];
+
+        const defs = await db.eventdefinitions.bulkGet(defIds);
+        return defs.filter((d): d is EventDefinitionLookup => d !== undefined);
+      }
+
+      return await db.eventdefinitions
         .where("sportId")
         .equals(targetSportId)
         .toArray();
-
-      return definitions
-        .filter((def) => def.isEnabled !== false)
-        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
     }).subscribe({
       next: (definitions) => {
         setEventDefinitions(definitions || []);
