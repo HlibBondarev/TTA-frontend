@@ -71,6 +71,14 @@ vi.mock("../db/ttaDatabase", () => ({
       }),
       bulkDelete: vi.fn().mockResolvedValue(undefined),
     },
+    usereventpresets: {
+      bulkPut: vi.fn(),
+      where: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
+      }),
+      delete: vi.fn().mockResolvedValue(undefined),
+    },
     syncQueue: {
       put: vi.fn().mockResolvedValue(1),
       toArray: vi.fn().mockResolvedValue([]),
@@ -143,6 +151,11 @@ describe("Hydration Service", () => {
       primaryKeys: vi.fn().mockResolvedValue([]),
     } as unknown as ReturnType<typeof db.gameevents.filter>);
 
+    vi.mocked(db.usereventpresets.where).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    } as unknown as ReturnType<typeof db.usereventpresets.where>);
+
     vi.mocked(db.syncQueue.put)
       .mockReset()
       .mockResolvedValue(1 as never);
@@ -202,8 +215,7 @@ describe("Hydration Service", () => {
         shortName: "",
         isPositive: true,
         isCustom: undefined,
-        isEnabled: true,
-        sortOrder: 1,
+        ownerId: null,
       },
       {
         id: "def-2",
@@ -212,8 +224,7 @@ describe("Hydration Service", () => {
         shortName: "",
         isPositive: false,
         isCustom: undefined,
-        isEnabled: true,
-        sortOrder: 2,
+        ownerId: null,
       },
     ]);
     expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
@@ -1356,7 +1367,7 @@ describe("Hydration Service", () => {
       {
         id: 1,
         actionType: "POST",
-        endpoint: `/Matches/m-active-legacy/teams/team-guest/catch`,
+        endpoint: `/Matches/${"m-active-legacy"}/teams/${"team-guest"}/catch`,
         payload: "{}",
       } as never,
     ]);
@@ -1403,7 +1414,7 @@ describe("Hydration Service", () => {
       {
         id: 1,
         actionType: "POST",
-        endpoint: `/Matches/${matchId}/teams/team-guest-999/catch`,
+        endpoint: `/Matches/${matchId}/teams/${"team-guest-999"}/catch`,
         payload: "{}",
       },
     ];
@@ -1426,12 +1437,12 @@ describe("Hydration Service", () => {
     await discardUnfinishedMatch(matchId);
 
     expect(apiClient.delete).toHaveBeenCalledWith(
-      `/Matches/${matchId}/teams/team-guest-999/catch`,
+      `/Matches/${matchId}/teams/${"team-guest-999"}/catch`,
     );
     expect(db.syncQueue.put).toHaveBeenCalledWith(
       expect.objectContaining({
         actionType: "DELETE",
-        endpoint: `/Matches/${matchId}/teams/team-guest-999/catch`,
+        endpoint: `/Matches/${matchId}/teams/${"team-guest-999"}/catch`,
       }),
     );
     expect(db.syncQueue.bulkDelete).toHaveBeenCalledWith([1]);
@@ -1452,7 +1463,7 @@ describe("Hydration Service", () => {
     await discardUnfinishedMatch(matchId, "team-home-111");
 
     expect(apiClient.delete).toHaveBeenCalledWith(
-      `/Matches/${matchId}/teams/team-home-111/catch`,
+      `/Matches/${matchId}/teams/${"team-home-111"}/catch`,
     );
     expect(db.syncQueue.toArray).not.toHaveBeenCalled();
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
@@ -1583,13 +1594,13 @@ describe("Hydration Service", () => {
       {
         id: 1,
         actionType: "DELETE",
-        endpoint: `/Matches/m-active-legacy/teams/team-home/catch`,
+        endpoint: `/Matches/${"m-active-legacy"}/teams/${"team-home"}/catch`,
         payload: "{}",
       } as never,
       {
         id: 2,
         actionType: "POST",
-        endpoint: `/Matches/m-active-legacy/teams/team-guest/catch`,
+        endpoint: `/Matches/${"m-active-legacy"}/teams/${"team-guest"}/catch`,
         payload: "{}",
       } as never,
     ]);
@@ -1863,7 +1874,7 @@ describe("Hydration Service", () => {
     const result = await hydrateMatchData(matchId, teamId);
 
     expect(result).toEqual({ success: true });
-    expect(db.eventdefinitions.where).toHaveBeenCalledWith("sportId");
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([]);
     expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 

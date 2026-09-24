@@ -1,7 +1,5 @@
 import Dexie, { type Table } from "dexie";
 
-// Interfaces strictly aligned with OpenAPI camelCase DTOs and PostgreSQL schema definitions
-
 export interface SportLookup {
   id: string;
   name: string;
@@ -15,7 +13,7 @@ export interface PlayerLookup {
   firstName: string;
   lastName: string;
   birthDate: string;
-  gender: number; // 0: Male, 1: Female
+  gender: number;
   createdAt: string;
 }
 
@@ -35,7 +33,7 @@ export interface TeamLookup {
   sportId: string;
   name: string;
   minBirthYear: number | null;
-  gender: number; // 0: Male, 1: Female
+  gender: number;
   createdAt: string;
 }
 
@@ -100,9 +98,16 @@ export interface EventDefinitionLookup {
   shortName: string;
   isPositive: boolean;
   isCustom?: boolean;
-  isEnabled?: boolean;
-  sortOrder?: number;
   ownerId?: string | null;
+}
+
+export interface UserEventPresetLookup {
+  userId: string;
+  eventDefinitionId: string;
+  sportId: string;
+  sortOrder: number;
+  isEnabled: boolean;
+  createdAt?: string;
 }
 
 export interface GameEvent {
@@ -113,22 +118,18 @@ export interface GameEvent {
   eventTimestamp: string;
   isLeadToGoal: boolean;
   createdAt: string;
-
-  // Frontend infrastructure tracking properties for offline syncing
   sequenceNumber: number;
-  isSynced: number; // 0 = False, 1 = True
+  isSynced: number;
 }
 
 export interface TimeAnchor {
   id: string;
   matchId: string;
   periodNumber: number;
-  type: number; // 0:PeriodStart, 1:PeriodEnd, 2:StoppageStart, 3:StoppageEnd
+  type: number;
   timestamp: string;
-
-  // Frontend infrastructure tracking properties for offline syncing
   sequenceNumber: number;
-  isSynced: number; // 0 = False, 1 = True
+  isSynced: number;
 }
 
 export interface PlayerPresence {
@@ -137,21 +138,18 @@ export interface PlayerPresence {
   periodNumber: number;
   timeIn: string;
   timeOut: string | null;
-
-  // Frontend infrastructure tracking properties for offline syncing
   sequenceNumber: number;
-  isSynced: number; // 0 = False, 1 = True
+  isSynced: number;
 }
 
 export interface SyncQueueItem {
-  id?: number; // Auto-incremented local primary key
+  id?: number;
   actionType: "POST" | "PUT" | "DELETE";
   endpoint: string;
-  payload: string; // JSON-serialized string of operational entity
+  payload: string;
   createdAt: string;
 }
 
-// Offline-First IndexedDB Controller using Dexie.js
 export class TTADatabase extends Dexie {
   sports!: Table<SportLookup, string>;
   players!: Table<PlayerLookup, string>;
@@ -160,6 +158,7 @@ export class TTADatabase extends Dexie {
   matches!: Table<MatchLookup, string>;
   matchlineups!: Table<MatchLineupLookup, string>;
   eventdefinitions!: Table<EventDefinitionLookup, string>;
+  usereventpresets!: Table<UserEventPresetLookup, [string, string]>;
   gameevents!: Table<GameEvent, string>;
   timeanchors!: Table<TimeAnchor, string>;
   playerpresences!: Table<PlayerPresence, string>;
@@ -170,7 +169,6 @@ export class TTADatabase extends Dexie {
   constructor() {
     super("TTADatabase");
 
-    // Schema configuration using camelCase index paths matching API DTOs and database constraints
     this.version(1).stores({
       sports: "id, name, shortName",
       players: "id, homeClubId, lastName",
@@ -178,7 +176,9 @@ export class TTADatabase extends Dexie {
       teams: "id, clubId, sportId",
       matches: "id, tournamentId, homeTeamId, guestTeamId, scheduledAt, userId",
       matchlineups: "id, matchId, playerRosterId, number",
-      eventdefinitions: "id, sportId, shortName",
+      eventdefinitions: "id, sportId, shortName, ownerId",
+      usereventpresets:
+        "[userId+eventDefinitionId], userId, eventDefinitionId, sportId, sortOrder",
       gameevents:
         "id, matchLineupId, eventDefinitionId, periodNumber, sequenceNumber, isSynced",
       timeanchors: "id, matchId, periodNumber, sequenceNumber, isSynced",
@@ -191,5 +191,4 @@ export class TTADatabase extends Dexie {
   }
 }
 
-// Export singleton database controller instance
 export const db = new TTADatabase();

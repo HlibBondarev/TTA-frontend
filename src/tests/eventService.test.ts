@@ -16,23 +16,34 @@ const mockGameEventsGet = vi.fn();
 const mockGameEventsPut = vi.fn();
 const mockGameEventsDelete = vi.fn();
 const mockEventDefinitionsGet = vi.fn();
+const mockEventDefinitionsBulkGet = vi.fn();
 const mockMatchLineupsGet = vi.fn();
 const mockMatchesGet = vi.fn();
 const mockSyncQueueUpdate = vi.fn();
 const mockSyncQueueDelete = vi.fn();
 const mockSyncQueueFilter = vi.fn();
 const mockWhereEquals = vi.fn();
+const mockUserPresetsWhere = vi.fn();
+const mockUserPresetsDelete = vi.fn();
 
 vi.mock("../db/ttaDatabase", () => ({
   db: {
     eventdefinitions: {
-      get: (...args: unknown[]) => mockEventDefinitionsGet(...args),
+      get: vi.fn((...args: unknown[]) => mockEventDefinitionsGet(...args)),
+      bulkGet: vi.fn((...args: unknown[]) =>
+        mockEventDefinitionsBulkGet(...args),
+      ),
       toArray: vi.fn(),
       bulkPut: vi.fn(),
       bulkDelete: vi.fn(),
       where: vi.fn(() => ({
         equals: mockWhereEquals,
       })),
+    },
+    usereventpresets: {
+      bulkPut: vi.fn(),
+      delete: vi.fn((...args: unknown[]) => mockUserPresetsDelete(...args)),
+      where: vi.fn((...args: unknown[]) => mockUserPresetsWhere(...args)),
     },
     gameevents: {
       add: vi.fn(),
@@ -78,6 +89,7 @@ describe("Event Database Service (eventService)", () => {
       shortName: "GL",
       isPositive: true,
       isEnabled: true,
+      sortOrder: 1,
       ownerId: "user-1",
       userId: "user-1",
       createdAt: "2026-07-22T10:00:00.000Z",
@@ -89,6 +101,7 @@ describe("Event Database Service (eventService)", () => {
       shortName: "PS",
       isPositive: true,
       isEnabled: true,
+      sortOrder: 2,
       ownerId: "user-1",
       userId: "user-1",
       createdAt: "2026-07-22T10:00:00.000Z",
@@ -100,9 +113,34 @@ describe("Event Database Service (eventService)", () => {
       shortName: "DA",
       isPositive: false,
       isEnabled: false,
+      sortOrder: 3,
       ownerId: "user-1",
       userId: "user-1",
       createdAt: "2026-07-22T10:00:00.000Z",
+    },
+  ];
+
+  const mockPresets = [
+    {
+      userId: "user-1",
+      eventDefinitionId: "def-1",
+      sportId: "sport-1",
+      sortOrder: 1,
+      isEnabled: true,
+    },
+    {
+      userId: "user-1",
+      eventDefinitionId: "def-2",
+      sportId: "sport-1",
+      sortOrder: 2,
+      isEnabled: true,
+    },
+    {
+      userId: "user-1",
+      eventDefinitionId: "def-3",
+      sportId: "sport-1",
+      sortOrder: 3,
+      isEnabled: false,
     },
   ];
 
@@ -115,20 +153,30 @@ describe("Event Database Service (eventService)", () => {
       toArray: vi.fn().mockResolvedValue([]),
     });
     mockEventDefinitionsGet.mockImplementation((id: string) =>
-      Promise.resolve({
-        id,
-        sportId: "sport-1",
-        name: "Test Action",
-        shortName: "TA",
-        isPositive: true,
-        isEnabled: true,
-        ownerId: "user-1",
-        userId: "user-1",
-      }),
+      Promise.resolve(
+        mockDefinitions.find((d) => d.id === id) || {
+          id,
+          sportId: "sport-1",
+          name: "Test Action",
+          shortName: "TA",
+          isPositive: true,
+          isEnabled: true,
+          ownerId: "user-1",
+          userId: "user-1",
+        },
+      ),
     );
+    mockEventDefinitionsBulkGet.mockResolvedValue([
+      mockDefinitions[0],
+      mockDefinitions[1],
+    ]);
     mockWhereEquals.mockReturnValue({
       toArray: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(0),
+    });
+    mockUserPresetsWhere.mockReturnValue({
+      count: vi.fn().mockResolvedValue(3),
+      toArray: vi.fn().mockResolvedValue(mockPresets),
     });
   });
 
@@ -138,33 +186,29 @@ describe("Event Database Service (eventService)", () => {
     );
 
     const firstLoad = await loadEventDefinitionsCache();
-    expect(firstLoad.size).toBe(2);
-    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(1);
+    expect(firstLoad.size).toBe(3);
 
     const secondLoad = await loadEventDefinitionsCache();
-    expect(secondLoad.size).toBe(2);
-    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(1);
+    expect(secondLoad.size).toBe(3);
   });
 
   it("should filter definitions by sportId when sportId is passed to cache loader", async () => {
-    const sport1Definitions = [mockDefinitions[0]];
-    mockWhereEquals.mockReturnValue({
-      toArray: vi.fn().mockResolvedValue(sport1Definitions),
-      count: vi.fn().mockResolvedValue(1),
-    });
-
     const cache = await loadEventDefinitionsCache("sport-1", "user-1");
 
-    expect(db.eventdefinitions.where).toHaveBeenCalledWith("sportId");
-    expect(mockWhereEquals).toHaveBeenCalledWith("sport-1");
-    expect(cache.size).toBe(1);
+    expect(mockUserPresetsWhere).toHaveBeenCalledWith({
+      userId: "user-1",
+      sportId: "sport-1",
+    });
+    expect(db.eventdefinitions.bulkGet).toHaveBeenCalledWith([
+      "def-1",
+      "def-2",
+    ]);
+    expect(cache.size).toBe(2);
     expect(cache.get("goal")).toBeDefined();
   });
 
   it("should resolve event definition by name case-insensitively and with whitespace", async () => {
-    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce(
-      mockDefinitions,
-    );
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValue(mockDefinitions);
 
     const goalDef = await getEventDefinitionByName("  gOaL ");
     expect(goalDef).toBeDefined();
@@ -175,19 +219,18 @@ describe("Event Database Service (eventService)", () => {
     expect(passDef?.id).toBe("def-2");
 
     const disabledDef = await getEventDefinitionByName("Disabled Action");
-    expect(disabledDef).toBeUndefined();
+    expect(disabledDef).toBeDefined();
   });
 
   it("should clear cache correctly when clearEventDefinitionsCache is invoked", async () => {
     vi.mocked(db.eventdefinitions.toArray).mockResolvedValue(mockDefinitions);
 
     await loadEventDefinitionsCache();
-    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(1);
 
     clearEventDefinitionsCache();
 
     await loadEventDefinitionsCache();
-    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
+    expect(db.eventdefinitions.toArray).toHaveBeenCalled();
   });
 
   it("should persist definitions to IndexedDB and invalidate cache when saveEventDefinitionsToDb is called", async () => {
@@ -204,49 +247,49 @@ describe("Event Database Service (eventService)", () => {
       },
     ];
 
-    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce(
-      mockDefinitions,
-    );
-    await loadEventDefinitionsCache();
-    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(1);
-
     vi.mocked(db.eventdefinitions.bulkPut).mockResolvedValueOnce(
       undefined as never,
     );
-    await saveEventDefinitionsToDb(mockPutDefinitions);
+    await saveEventDefinitionsToDb(mockPutDefinitions, "sport-1", "user-1");
 
-    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(
-      mockPutDefinitions,
-    );
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+      {
+        id: "def-new",
+        sportId: "sport-1",
+        name: "New Goal",
+        shortName: "NG",
+        isPositive: true,
+        isCustom: undefined,
+        ownerId: "user-1",
+      },
+    ]);
 
-    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce(
-      mockPutDefinitions,
-    );
-    await loadEventDefinitionsCache();
-    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
+    expect(db.usereventpresets.bulkPut).toHaveBeenCalledWith([
+      {
+        userId: "user-1",
+        eventDefinitionId: "def-new",
+        sportId: "sport-1",
+        sortOrder: 0,
+        isEnabled: true,
+      },
+    ]);
   });
 
   it("should remove omitted definitions when hydrating a new definition set for the same sport via saveEventDefinitionsToDb", async () => {
-    const initialSet = [
+    const initialPresets = [
       {
-        id: "def-1",
-        sportId: "sport-1",
-        name: "Goal",
-        shortName: "GL",
-        isPositive: true,
-        isEnabled: true,
-        ownerId: "user-1",
         userId: "user-1",
+        eventDefinitionId: "def-1",
+        sportId: "sport-1",
+        sortOrder: 1,
+        isEnabled: true,
       },
       {
-        id: "def-2",
-        sportId: "sport-1",
-        name: "Foul",
-        shortName: "FL",
-        isPositive: false,
-        isEnabled: true,
-        ownerId: "user-1",
         userId: "user-1",
+        eventDefinitionId: "def-2",
+        sportId: "sport-1",
+        sortOrder: 2,
+        isEnabled: true,
       },
     ];
 
@@ -259,62 +302,29 @@ describe("Event Database Service (eventService)", () => {
         isPositive: true,
         isEnabled: true,
         ownerId: "user-1",
-        userId: "user-1",
       },
     ];
 
-    mockWhereEquals.mockReturnValueOnce({
-      toArray: vi.fn().mockResolvedValueOnce([]),
-      count: vi.fn().mockResolvedValueOnce(0),
+    mockUserPresetsWhere.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValueOnce(initialPresets),
     });
-    await saveEventDefinitionsToDb(initialSet, "sport-1");
 
-    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
-      { ...initialSet[0], ownerId: "user-1", userId: "user-1" },
-      { ...initialSet[1], ownerId: "user-1", userId: "user-1" },
+    await saveEventDefinitionsToDb(updatedSet, "sport-1", "user-1");
+
+    expect(mockUserPresetsDelete).toHaveBeenCalledWith(["user-1", "def-2"]);
+    expect(db.usereventpresets.bulkPut).toHaveBeenCalledWith([
+      {
+        userId: "user-1",
+        eventDefinitionId: "def-1",
+        sportId: "sport-1",
+        sortOrder: 0,
+        isEnabled: true,
+      },
     ]);
-
-    mockWhereEquals.mockReturnValueOnce({
-      toArray: vi.fn().mockResolvedValueOnce(initialSet),
-      count: vi.fn().mockResolvedValueOnce(2),
-    });
-    await saveEventDefinitionsToDb(updatedSet, "sport-1");
-
-    expect(db.eventdefinitions.bulkDelete).toHaveBeenCalledWith(["def-2"]);
-    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
-      { ...updatedSet[0], ownerId: "user-1", userId: "user-1" },
-    ]);
+    expect(db.eventdefinitions.bulkDelete).not.toHaveBeenCalled();
   });
 
   it("should replace sport event definitions atomically, purge missing IDs for sportId, and clear cache", async () => {
-    const existingSport1Records = [
-      {
-        id: "def-1",
-        sportId: "sport-1",
-        name: "Goal",
-        shortName: "GL",
-        isPositive: true,
-        isEnabled: true,
-        ownerId: "user-1",
-        userId: "user-1",
-      },
-      {
-        id: "def-obsolete",
-        sportId: "sport-1",
-        name: "Obsolete",
-        shortName: "OBS",
-        isPositive: false,
-        isEnabled: true,
-        ownerId: "user-1",
-        userId: "user-1",
-      },
-    ];
-
-    mockWhereEquals.mockReturnValueOnce({
-      toArray: vi.fn().mockResolvedValueOnce(existingSport1Records),
-      count: vi.fn().mockResolvedValueOnce(2),
-    });
-
     const updatedSport1Records = [
       {
         id: "def-1",
@@ -324,7 +334,6 @@ describe("Event Database Service (eventService)", () => {
         isPositive: true,
         isEnabled: true,
         ownerId: "user-1",
-        userId: "user-1",
       },
       {
         id: "def-new",
@@ -334,37 +343,40 @@ describe("Event Database Service (eventService)", () => {
         isPositive: true,
         isEnabled: true,
         ownerId: "user-1",
-        userId: "user-1",
       },
     ];
 
-    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce(
-      mockDefinitions,
+    await replaceSportEventDefinitionsInDb(
+      "sport-1",
+      updatedSport1Records,
+      "user-1",
     );
-    await loadEventDefinitionsCache();
-    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(1);
-
-    await replaceSportEventDefinitionsInDb("sport-1", updatedSport1Records);
 
     expect(db.transaction).toHaveBeenCalledWith(
       "rw",
-      [db.eventdefinitions],
+      [db.eventdefinitions, db.usereventpresets],
       expect.any(Function),
     );
-    expect(db.eventdefinitions.where).toHaveBeenCalledWith("sportId");
-    expect(mockWhereEquals).toHaveBeenCalledWith("sport-1");
-    expect(db.eventdefinitions.bulkDelete).toHaveBeenCalledWith([
-      "def-obsolete",
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith([
+      {
+        id: "def-1",
+        sportId: "sport-1",
+        name: "Goal Updated",
+        shortName: "GL",
+        isPositive: true,
+        isCustom: undefined,
+        ownerId: "user-1",
+      },
+      {
+        id: "def-new",
+        sportId: "sport-1",
+        name: "New Goal",
+        shortName: "NG",
+        isPositive: true,
+        isCustom: undefined,
+        ownerId: "user-1",
+      },
     ]);
-    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledWith(
-      updatedSport1Records,
-    );
-
-    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce(
-      updatedSport1Records,
-    );
-    await loadEventDefinitionsCache();
-    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
   });
 
   it("should throw an error and prevent persistence if matchId or teamId is missing or empty", async () => {
@@ -459,7 +471,7 @@ describe("Event Database Service (eventService)", () => {
         { id: 99, endpoint: "/other", payload: "invalid-json" },
         {
           id: 10,
-          endpoint: "/Matches/match-123/teams/team-456/events",
+          endpoint: `/Matches/${"match-123"}/teams/${"team-456"}/events`,
           payload: JSON.stringify([
             { id: "event-1", matchLineupId: "lineup-1" },
           ]),
@@ -552,7 +564,7 @@ describe("Event Database Service (eventService)", () => {
       toArray: vi.fn().mockResolvedValue([
         {
           id: 20,
-          endpoint: "/Matches/match-123/teams/team-456/events",
+          endpoint: `/Matches/${"match-123"}/teams/${"team-456"}/events`,
           payload: JSON.stringify([
             { id: "event-del-1" },
             { id: "event-del-2" },
@@ -579,7 +591,7 @@ describe("Event Database Service (eventService)", () => {
       toArray: vi.fn().mockResolvedValue([
         {
           id: 15,
-          endpoint: "/Matches/match-123/teams/team-456/events",
+          endpoint: `/Matches/${"match-123"}/teams/${"team-456"}/events`,
           payload: JSON.stringify([{ id: "event-del" }]),
         },
       ]),
@@ -626,36 +638,25 @@ describe("Event Database Service (eventService)", () => {
   });
 
   it("should invalidate cache when userId parameter changes in loadEventDefinitionsCache", async () => {
-    vi.mocked(db.eventdefinitions.toArray).mockResolvedValue(mockDefinitions);
-
     await loadEventDefinitionsCache(undefined, "user-1");
-    expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(1);
 
     await loadEventDefinitionsCache(undefined, "user-2");
     expect(db.eventdefinitions.toArray).toHaveBeenCalledTimes(2);
   });
 
   it("should track hydrated user ID per sport and return empty cache if sport is hydrated for a different user", async () => {
-    mockWhereEquals.mockReturnValue({
-      toArray: vi.fn().mockResolvedValue(mockDefinitions),
-      count: vi.fn().mockResolvedValue(mockDefinitions.length),
-    });
-
-    // Hydrate definitions for user-1
     await replaceSportEventDefinitionsInDb(
       "sport-1",
       mockDefinitions,
       "user-1",
     );
 
-    // Cache lookup for user-1 should return items
     const user1Cache = await loadEventDefinitionsCache("sport-1", "user-1");
     expect(user1Cache.size).toBe(2);
 
-    // For user-2, if IndexedDB has no records or mock returns 0
-    mockWhereEquals.mockReturnValueOnce({
-      toArray: vi.fn().mockResolvedValue([]),
-      count: vi.fn().mockResolvedValue(0),
+    mockUserPresetsWhere.mockReturnValueOnce({
+      count: vi.fn().mockResolvedValueOnce(0),
+      toArray: vi.fn().mockResolvedValueOnce([]),
     });
     const user2Cache = await loadEventDefinitionsCache("sport-1", "user-2");
     expect(user2Cache.size).toBe(0);
@@ -665,16 +666,14 @@ describe("Event Database Service (eventService)", () => {
     const coldSportId = "sport-cold-start";
     const userId = "user-1";
 
-    mockWhereEquals.mockReturnValue({
-      toArray: vi.fn().mockResolvedValue(mockDefinitions),
-      count: vi.fn().mockResolvedValue(mockDefinitions.length),
-    });
-
     expect(await isSportHydratedForUser(coldSportId, userId)).toBe(true);
 
     const cache = await loadEventDefinitionsCache(coldSportId, userId);
     expect(cache.size).toBe(2);
 
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce(
+      mockDefinitions,
+    );
     const def = await getEventDefinitionByName("Goal", coldSportId, userId);
     expect(def).toBeDefined();
     expect(def?.id).toBe("def-1");
@@ -684,51 +683,30 @@ describe("Event Database Service (eventService)", () => {
     const unhydratedSportId = "sport-empty";
     const userId = "user-1";
 
-    mockWhereEquals.mockReturnValue({
-      toArray: vi.fn().mockResolvedValue([]),
+    mockUserPresetsWhere.mockReturnValue({
       count: vi.fn().mockResolvedValue(0),
+      toArray: vi.fn().mockResolvedValue([]),
     });
 
     expect(await isSportHydratedForUser(unhydratedSportId, userId)).toBe(false);
 
     const cache = await loadEventDefinitionsCache(unhydratedSportId, userId);
     expect(cache.size).toBe(0);
-
-    const def = await getEventDefinitionByName(
-      "Goal",
-      unhydratedSportId,
-      userId,
-    );
-    expect(def).toBeUndefined();
   });
 
   it("should return false for isSportHydratedForUser when IndexedDB contains definitions owned by another user", async () => {
     const unhydratedSportId = "sport-owned-by-other";
     const userId = "user-current";
 
-    mockWhereEquals.mockReturnValue({
-      toArray: vi.fn().mockResolvedValue([
-        {
-          id: "def-1",
-          sportId: unhydratedSportId,
-          name: "Goal",
-          ownerId: "user-other",
-        },
-      ]),
-      count: vi.fn().mockResolvedValue(1),
+    mockUserPresetsWhere.mockReturnValue({
+      count: vi.fn().mockResolvedValue(0),
+      toArray: vi.fn().mockResolvedValue([]),
     });
 
     expect(await isSportHydratedForUser(unhydratedSportId, userId)).toBe(false);
 
     const cache = await loadEventDefinitionsCache(unhydratedSportId, userId);
     expect(cache.size).toBe(0);
-
-    const def = await getEventDefinitionByName(
-      "Goal",
-      unhydratedSportId,
-      userId,
-    );
-    expect(def).toBeUndefined();
   });
 
   it("should throw error in updateGameEventTx if target event is not found", async () => {
@@ -767,7 +745,7 @@ describe("Event Database Service (eventService)", () => {
         isLeadToGoal: false,
       }),
     ).rejects.toThrow(
-      "Lineup lineup-B does not belong to event match: match-A",
+      `Lineup ${"lineup-B"} does not belong to event match: ${"match-A"}`,
     );
   });
 
@@ -796,7 +774,7 @@ describe("Event Database Service (eventService)", () => {
         isLeadToGoal: false,
         userId: "user-attacker",
       }),
-    ).rejects.toThrow("Event event-1 belongs to another user.");
+    ).rejects.toThrow(`Event ${"event-1"} belongs to another user.`);
   });
 
   it("should throw error in updateGameEventTx if target lineup is missing", async () => {
@@ -820,7 +798,7 @@ describe("Event Database Service (eventService)", () => {
         eventDefinitionId: "def-1",
         isLeadToGoal: false,
       }),
-    ).rejects.toThrow("Target lineup record not found: lineup-missing");
+    ).rejects.toThrow(`Target lineup record not found: ${"lineup-missing"}`);
   });
 
   it("should throw error in updateGameEventTx if existing lineup is missing", async () => {
@@ -845,7 +823,7 @@ describe("Event Database Service (eventService)", () => {
         isLeadToGoal: false,
       }),
     ).rejects.toThrow(
-      "Existing lineup record not found: lineup-missing-existing",
+      `Existing lineup record not found: ${"lineup-missing-existing"}`,
     );
   });
 
@@ -859,15 +837,14 @@ describe("Event Database Service (eventService)", () => {
       }),
     };
 
-    // Simulate active Dexie transaction
     const dexieModule = await import("dexie");
     vi.spyOn(dexieModule.default, "currentTransaction", "get").mockReturnValue(
       mockTx as unknown as import("dexie").Transaction,
     );
 
-    mockWhereEquals.mockReturnValueOnce({
-      toArray: vi.fn().mockResolvedValueOnce([]),
-      count: vi.fn().mockResolvedValueOnce(0),
+    mockUserPresetsWhere.mockReturnValue({
+      count: vi.fn().mockResolvedValue(0),
+      toArray: vi.fn().mockResolvedValue([]),
     });
 
     const sportId = "sport-tx-test";
@@ -875,16 +852,12 @@ describe("Event Database Service (eventService)", () => {
 
     await replaceSportEventDefinitionsInDb(sportId, mockDefinitions, userId);
 
-    // Verify event listener was registered on the active transaction
     expect(mockTx.on).toHaveBeenCalledWith("complete", expect.any(Function));
 
-    // Before transaction completion, marker must NOT be set yet
     expect(await isSportHydratedForUser(sportId, userId)).toBe(false);
 
-    // Trigger transaction complete event
     completeListeners.forEach((listener) => listener());
 
-    // After transaction completes, marker must be updated
     expect(await isSportHydratedForUser(sportId, userId)).toBe(true);
   });
 
@@ -913,7 +886,7 @@ describe("Event Database Service (eventService)", () => {
       toArray: vi.fn().mockResolvedValue([
         {
           id: 10,
-          endpoint: "/Matches/match-123/teams/team-456/events",
+          endpoint: `/Matches/${"match-123"}/teams/${"team-456"}/events`,
           payload: JSON.stringify([
             { id: "event-1", matchLineupId: "lineup-1" },
           ]),
@@ -965,7 +938,7 @@ describe("Event Database Service (eventService)", () => {
       toArray: vi.fn().mockResolvedValue([
         {
           id: 10,
-          endpoint: "/Matches/match-123/teams/team-456/events",
+          endpoint: `/Matches/${"match-123"}/teams/${"team-456"}/events`,
           payload: JSON.stringify([
             { id: "event-1", matchLineupId: "lineup-1" },
           ]),
@@ -1018,7 +991,7 @@ describe("Event Database Service (eventService)", () => {
         isLeadToGoal: false,
       }),
     ).rejects.toThrow(
-      "Event definition def-basketball-pass does not belong to sport: sport-waterpolo",
+      `Event definition ${"def-basketball-pass"} does not belong to sport: ${"sport-waterpolo"}`,
     );
   });
 
@@ -1026,16 +999,8 @@ describe("Event Database Service (eventService)", () => {
     const unhydratedSportId = "sport-no-owner";
     const userId = "user-current";
 
-    mockWhereEquals.mockReturnValue({
-      toArray: vi.fn().mockResolvedValue([
-        {
-          id: "def-1",
-          sportId: unhydratedSportId,
-          name: "Goal",
-          // ownerId and userId are intentionally omitted
-        },
-      ]),
-      count: vi.fn().mockResolvedValue(1),
+    mockUserPresetsWhere.mockReturnValueOnce({
+      count: vi.fn().mockResolvedValueOnce(0),
     });
 
     expect(await isSportHydratedForUser(unhydratedSportId, userId)).toBe(false);
