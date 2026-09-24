@@ -230,22 +230,25 @@ export const saveEventDefinitionsToDb = async (
 };
 
 /**
- * Resolves an event definition directly from the persistent global dictionary.
- * Guaranteed to resolve historical action names even if excluded from user presets.
+ * Resolves an event definition strictly within the specified sport context.
+ * Returns undefined if sportId is missing to prevent cross-sport definition collisions.
  */
 export const getEventDefinitionByName = async (
   actionName: string,
   sportId?: string,
   userId?: string,
 ): Promise<EventDefinitionLookup | undefined> => {
+  if (!sportId) return undefined;
+
   const normalizedName = actionName.trim().toLowerCase();
   const cache = await loadEventDefinitionsCache(sportId, userId);
   const cachedDef = cache.get(normalizedName);
   if (cachedDef) return cachedDef;
 
-  const candidates = sportId
-    ? await db.eventdefinitions.where("sportId").equals(sportId).toArray()
-    : await db.eventdefinitions.toArray();
+  const candidates = await db.eventdefinitions
+    .where("sportId")
+    .equals(sportId)
+    .toArray();
 
   return candidates.find(
     (def) => def.name.trim().toLowerCase() === normalizedName,

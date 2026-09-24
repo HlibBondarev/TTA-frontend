@@ -207,19 +207,35 @@ describe("Event Database Service (eventService)", () => {
     expect(cache.get("goal")).toBeDefined();
   });
 
-  it("should resolve event definition by name case-insensitively and with whitespace", async () => {
-    vi.mocked(db.eventdefinitions.toArray).mockResolvedValue(mockDefinitions);
+  it("should resolve event definition by name case-insensitively and with whitespace when sportId is provided", async () => {
+    mockWhereEquals.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockDefinitions),
+    });
 
-    const goalDef = await getEventDefinitionByName("  gOaL ");
+    const goalDef = await getEventDefinitionByName(
+      "  gOaL ",
+      "sport-1",
+      "user-1",
+    );
     expect(goalDef).toBeDefined();
     expect(goalDef?.id).toBe("def-1");
 
-    const passDef = await getEventDefinitionByName("pass");
+    const passDef = await getEventDefinitionByName("pass", "sport-1", "user-1");
     expect(passDef).toBeDefined();
     expect(passDef?.id).toBe("def-2");
 
-    const disabledDef = await getEventDefinitionByName("Disabled Action");
+    const disabledDef = await getEventDefinitionByName(
+      "Disabled Action",
+      "sport-1",
+      "user-1",
+    );
     expect(disabledDef).toBeDefined();
+    expect(disabledDef?.id).toBe("def-3");
+  });
+
+  it("should return undefined when sportId is missing or undefined to prevent cross-sport collisions", async () => {
+    const result = await getEventDefinitionByName("Goal");
+    expect(result).toBeUndefined();
   });
 
   it("should clear cache correctly when clearEventDefinitionsCache is invoked", async () => {
