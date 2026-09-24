@@ -302,7 +302,13 @@ export function useEventDefinitionsConfigurator({
 
     setDefinitions(finalDefinitions);
     notifyParent(finalDefinitions);
-    void syncToDexie(finalDefinitions);
+    syncToDexie(finalDefinitions).catch((err) => {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to sync action definitions.",
+      );
+    });
     onPresetModified?.();
   };
 
@@ -344,7 +350,13 @@ export function useEventDefinitionsConfigurator({
 
     setDefinitions(reordered);
     notifyParent(reordered);
-    void syncToDexie(reordered);
+    syncToDexie(reordered).catch((err) => {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to sync action definitions.",
+      );
+    });
     onPresetModified?.();
   };
 

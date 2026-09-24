@@ -140,6 +140,28 @@ describe("useEventDefinitionsConfigurator", () => {
     expect(toggledDef?.isEnabled).toBe(false);
   });
 
+  it("should report error if syncToDexie fails during handleToggleEnabled", async () => {
+    vi.mocked(replaceSportEventDefinitionsInDb).mockRejectedValueOnce(
+      new Error("Dexie sync failed during toggle"),
+    );
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.handleToggleEnabled("def-1");
+    });
+
+    await waitFor(() => {
+      expect(result.current.error).toBe("Dexie sync failed during toggle");
+    });
+  });
+
   it("should ignore handleToggleEnabled if item ID is not found", async () => {
     const onPresetModified = vi.fn();
 
@@ -193,6 +215,28 @@ describe("useEventDefinitionsConfigurator", () => {
     });
     expect(onPresetModified).toHaveBeenCalledTimes(2);
     expect(result.current.definitions[0].id).toBe("def-1");
+  });
+
+  it("should report error if syncToDexie fails during handleMove", async () => {
+    vi.mocked(replaceSportEventDefinitionsInDb).mockRejectedValueOnce(
+      new Error("Dexie sync failed during move"),
+    );
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.handleMove("def-2", "up");
+    });
+
+    await waitFor(() => {
+      expect(result.current.error).toBe("Dexie sync failed during move");
+    });
   });
 
   it("should resolve currentUserId from Redux auth.user.id fallback when auth0 and currentUserId are missing", async () => {
