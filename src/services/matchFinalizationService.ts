@@ -18,8 +18,6 @@ export interface FinalizeMatchParams {
 const autoCloseOpenPeriodAndPresences = async (
   matchId: string,
 ): Promise<void> => {
-  if (!db?.timeanchors || !db?.playerpresences) return;
-
   await db.transaction(
     "rw",
     [
@@ -168,7 +166,7 @@ export const matchFinalizationService = {
     // Step 1: Flush all pending offline sync queue items to backend
     await processSyncQueue();
 
-    const remainingQueueCount = db?.syncQueue ? await db.syncQueue.count() : 0;
+    const remainingQueueCount = await db.syncQueue.count();
     if (remainingQueueCount > 0) {
       throw new Error(
         "Cannot finalize match: offline sync queue is not empty. Please ensure all pending actions are synchronized.",
@@ -188,8 +186,6 @@ export const matchFinalizationService = {
     );
 
     // Step 4: Conditionally purge local IndexedDB entities scoped STRICTLY to finalized matchId
-    if (!db?.matches || !db?.matchlineups || !db?.timeanchors) return;
-
     await db.transaction(
       "rw",
       [
@@ -201,49 +197,35 @@ export const matchFinalizationService = {
         db.matches,
       ],
       async () => {
-        const lineups = db.matchlineups
-          ? await db.matchlineups.where("matchId").equals(matchId).toArray()
-          : [];
+        const lineups = await db.matchlineups
+          .where("matchId")
+          .equals(matchId)
+          .toArray();
         const lineupIds = lineups.map((l) => l.id);
 
         if (lineupIds.length > 0) {
-          if (db.gameevents) {
-            await db.gameevents
-              .where("matchLineupId")
-              .anyOf(lineupIds)
-              .delete();
-          }
-          if (db.playerpresences) {
-            await db.playerpresences
-              .where("matchLineupId")
-              .anyOf(lineupIds)
-              .delete();
-          }
+          await db.gameevents.where("matchLineupId").anyOf(lineupIds).delete();
+          await db.playerpresences
+            .where("matchLineupId")
+            .anyOf(lineupIds)
+            .delete();
         }
 
-        if (db.timeanchors) {
-          await db.timeanchors.where("matchId").equals(matchId).delete();
-        }
-        if (db.matchlineups) {
-          await db.matchlineups.where("matchId").equals(matchId).delete();
-        }
-        if (db.matches) {
-          await db.matches.delete(matchId);
-        }
+        await db.timeanchors.where("matchId").equals(matchId).delete();
+        await db.matchlineups.where("matchId").equals(matchId).delete();
+        await db.matches.delete(matchId);
 
-        if (db.syncQueue) {
-          const endpointPrefix = `/Matches/${matchId}`;
-          const matchSyncKeys = await db.syncQueue
-            .filter(
-              (item) =>
-                typeof item.endpoint === "string" &&
-                item.endpoint.startsWith(endpointPrefix),
-            )
-            .primaryKeys();
+        const endpointPrefix = `/Matches/${matchId}`;
+        const matchSyncKeys = await db.syncQueue
+          .filter(
+            (item) =>
+              typeof item.endpoint === "string" &&
+              item.endpoint.startsWith(endpointPrefix),
+          )
+          .primaryKeys();
 
-          if (matchSyncKeys.length > 0) {
-            await db.syncQueue.bulkDelete(matchSyncKeys as number[]);
-          }
+        if (matchSyncKeys.length > 0) {
+          await db.syncQueue.bulkDelete(matchSyncKeys as number[]);
         }
       },
     );
