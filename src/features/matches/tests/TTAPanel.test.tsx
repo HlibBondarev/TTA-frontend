@@ -130,6 +130,14 @@ describe("TTAPanel Component", () => {
       isPositive: false,
       createdAt: "",
     },
+    {
+      id: "5",
+      sportId: "s1",
+      name: "Disabled Action",
+      shortName: "DA",
+      isPositive: true,
+      createdAt: "",
+    },
   ];
 
   const mockPresets = [
@@ -178,7 +186,11 @@ describe("TTAPanel Component", () => {
     mockUserPresetsWhere.mockReturnValue({
       toArray: vi.fn().mockResolvedValue(mockPresets),
     });
-    mockEventDefinitionsBulkGet.mockResolvedValue(mockEventDefinitions);
+    mockEventDefinitionsBulkGet.mockImplementation(async (ids: string[]) =>
+      ids
+        .map((id) => mockEventDefinitions.find((d) => d.id === id))
+        .filter(Boolean),
+    );
 
     mockWhereEqualsToArray.mockReturnValue({
       toArray: vi.fn().mockResolvedValue(mockEventDefinitions),
