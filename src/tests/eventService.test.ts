@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { db } from "../db/ttaDatabase";
+import { matchLockService } from "../services/matchLockService";
 import {
   isSportHydratedForUser,
   loadEventDefinitionsCache,
@@ -147,6 +148,7 @@ describe("Event Database Service (eventService)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearEventDefinitionsCache();
+    matchLockService.clearAllMatchLocks();
     mockMatchLineupsGet.mockResolvedValue(undefined);
     mockMatchesGet.mockResolvedValue(undefined);
     mockSyncQueueFilter.mockReturnValue({
@@ -429,6 +431,26 @@ describe("Event Database Service (eventService)", () => {
     expect(db.syncQueue.add).not.toHaveBeenCalled();
   });
 
+  it("should throw error in createGameEventTx if target match is locked for finalization", async () => {
+    matchLockService.lockMatchForFinalization("match-123");
+
+    const params = {
+      matchId: "match-123",
+      teamId: "team-456",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: false,
+    };
+
+    await expect(createGameEventTx(params)).rejects.toThrow(
+      `Cannot create event: match ${"match-123"} is locked for finalization.`,
+    );
+
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
   it("should create and persist a GameEvent entity atomically with incremented sequence and sync queue item", async () => {
     const params = {
       matchId: "match-123",
@@ -509,6 +531,35 @@ describe("Event Database Service (eventService)", () => {
     expect(mockSyncQueueUpdate).toHaveBeenCalledWith(10, {
       payload: expect.stringContaining('"matchLineupId":"lineup-2"'),
     });
+  });
+
+  it("should throw error in updateGameEventTx if target match is locked for finalization", async () => {
+    mockGameEventsGet.mockResolvedValueOnce({
+      id: "event-1",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      isSynced: 0,
+    });
+
+    mockMatchLineupsGet.mockImplementation((id: string) => {
+      if (id === "lineup-1") {
+        return Promise.resolve({ id: "lineup-1", matchId: "match-123" });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    matchLockService.lockMatchForFinalization("match-123");
+
+    await expect(
+      updateGameEventTx({
+        eventId: "event-1",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        isLeadToGoal: false,
+      }),
+    ).rejects.toThrow(
+      `Cannot update event: match ${"match-123"} is locked for finalization.`,
+    );
   });
 
   it("should throw error when event to update is not found", async () => {
@@ -595,6 +646,27 @@ describe("Event Database Service (eventService)", () => {
     expect(mockSyncQueueUpdate).toHaveBeenCalledWith(20, {
       payload: JSON.stringify([{ id: "event-del-2" }]),
     });
+  });
+
+  it("should throw error in deleteGameEventTx if target match is locked for finalization", async () => {
+    mockGameEventsGet.mockResolvedValueOnce({
+      id: "event-1",
+      matchLineupId: "lineup-1",
+      isSynced: 0,
+    });
+
+    mockMatchLineupsGet.mockImplementation((id: string) => {
+      if (id === "lineup-1") {
+        return Promise.resolve({ id: "lineup-1", matchId: "match-123" });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    matchLockService.lockMatchForFinalization("match-123");
+
+    await expect(deleteGameEventTx("event-1")).rejects.toThrow(
+      `Cannot delete event: match ${"match-123"} is locked for finalization.`,
+    );
   });
 
   it("should delete syncQueue item entirely when last item in batch is deleted", async () => {

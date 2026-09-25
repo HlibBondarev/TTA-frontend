@@ -6,6 +6,7 @@ import {
   type UserEventPresetLookup,
   type SyncQueueItem,
 } from "./ttaDatabase";
+import { matchLockService } from "../services/matchLockService";
 
 let eventDefinitionsCache: Map<string, EventDefinitionLookup> | null = null;
 let cachedSportId: string | undefined = undefined;
@@ -454,6 +455,14 @@ export const createGameEventTx = async (
     throw new Error("Missing or empty matchId for creating game event.");
   }
 
+  if (matchLockService.isMatchLocked(normalizedMatchId)) {
+    throw new Error(
+      `Cannot create event: match ${
+        normalizedMatchId
+      } is locked for finalization.`,
+    );
+  }
+
   const normalizedTeamId = params.teamId?.trim();
   if (!normalizedTeamId) {
     throw new Error("Missing or empty teamId for creating game event.");
@@ -534,6 +543,15 @@ export const updateGameEventTx = async (
 
       await validateEventUpdateContext(existing, params);
 
+      const lineup = await db.matchlineups.get(existing.matchLineupId);
+      if (lineup?.matchId && matchLockService.isMatchLocked(lineup.matchId)) {
+        throw new Error(
+          `Cannot update event: match ${
+            lineup.matchId
+          } is locked for finalization.`,
+        );
+      }
+
       updatedEvent = {
         ...existing,
         matchLineupId: params.matchLineupId,
@@ -551,34 +569,47 @@ export const updateGameEventTx = async (
 };
 
 export const deleteGameEventTx = async (eventId: string): Promise<void> => {
-  await db.transaction("rw", [db.gameevents, db.syncQueue], async () => {
-    const existing = await db.gameevents.get(eventId);
-    if (!existing) {
-      throw new Error(`Game event not found for ID: ${eventId}`);
-    }
-
-    if (existing.isSynced === 1) {
-      throw new Error("Cannot delete a synchronized event.");
-    }
-
-    await db.gameevents.delete(eventId);
-
-    const queueItems = await db.syncQueue
-      .filter((item) => item.endpoint.includes("/events"))
-      .toArray();
-
-    let payloadRemoved = false;
-    for (const item of queueItems) {
-      if (await processQueueItemDelete(item, eventId)) {
-        payloadRemoved = true;
-        break;
+  await db.transaction(
+    "rw",
+    [db.gameevents, db.matchlineups, db.syncQueue],
+    async () => {
+      const existing = await db.gameevents.get(eventId);
+      if (!existing) {
+        throw new Error(`Game event not found for ID: ${eventId}`);
       }
-    }
 
-    if (!payloadRemoved) {
-      throw new Error(
-        `Matching sync queue payload not found for event ID: ${eventId}`,
-      );
-    }
-  });
+      if (existing.isSynced === 1) {
+        throw new Error("Cannot delete a synchronized event.");
+      }
+
+      const lineup = await db.matchlineups.get(existing.matchLineupId);
+      if (lineup?.matchId && matchLockService.isMatchLocked(lineup.matchId)) {
+        throw new Error(
+          `Cannot delete event: match ${
+            lineup.matchId
+          } is locked for finalization.`,
+        );
+      }
+
+      await db.gameevents.delete(eventId);
+
+      const queueItems = await db.syncQueue
+        .filter((item) => item.endpoint.includes("/events"))
+        .toArray();
+
+      let payloadRemoved = false;
+      for (const item of queueItems) {
+        if (await processQueueItemDelete(item, eventId)) {
+          payloadRemoved = true;
+          break;
+        }
+      }
+
+      if (!payloadRemoved) {
+        throw new Error(
+          `Matching sync queue payload not found for event ID: ${eventId}`,
+        );
+      }
+    },
+  );
 };

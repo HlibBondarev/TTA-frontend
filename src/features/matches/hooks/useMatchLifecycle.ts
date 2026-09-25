@@ -1,4 +1,10 @@
-import { useEffect, useCallback, useRef, useState } from "react";
+import {
+  useEffect,
+  useCallback,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { liveQuery } from "dexie";
 import {
   db,
@@ -7,6 +13,7 @@ import {
 } from "../../../db/ttaDatabase";
 import { getNextSequenceNumber } from "../../../db/eventService";
 import { apiClient } from "../../../api/client";
+import { matchLockService } from "../../../services/matchLockService";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import {
   startPeriodState,
@@ -56,7 +63,9 @@ const fetchSportConfigPeriodsCount = async (
       }
     } catch (err) {
       console.error(
-        `[useMatchLifecycle] Tournament fallback fetch failed for '${match.tournamentId}':`,
+        `[useMatchLifecycle] Tournament fallback fetch failed for '${
+          match.tournamentId
+        }':`,
         err,
       );
     }
@@ -64,7 +73,9 @@ const fetchSportConfigPeriodsCount = async (
 
   if (!tournament) {
     throw new Error(
-      `Tournament with ID '${match.tournamentId}' not found for match '${matchId}'.`,
+      `Tournament with ID '${match.tournamentId}' not found for match '${
+        matchId
+      }'.`,
     );
   }
 
@@ -79,7 +90,9 @@ const fetchSportConfigPeriodsCount = async (
     config.periodsCount <= 0
   ) {
     throw new Error(
-      `Invalid or missing periodsCount in SportConfiguration ('${tournament.configurationId}') for match '${matchId}'.`,
+      `Invalid or missing periodsCount in SportConfiguration ('${
+        tournament.configurationId
+      }') for match '${matchId}'.`,
     );
   }
 
@@ -158,6 +171,12 @@ const createAndSaveTimeAnchor = async (
   periodNumber: number,
   type: number,
 ): Promise<string> => {
+  if (matchLockService.isMatchLocked(matchId)) {
+    throw new Error(
+      `Cannot log time anchor: match ${matchId} is locked for finalization.`,
+    );
+  }
+
   const anchorId = crypto.randomUUID();
 
   await db.transaction(
@@ -222,6 +241,15 @@ const createAndSaveTimeAnchor = async (
  */
 const deleteTimeAnchorWithQueue = async (anchorId: string): Promise<void> => {
   await db.transaction("rw", [db.timeanchors, db.syncQueue], async () => {
+    const anchor = await db.timeanchors.get(anchorId);
+    if (anchor?.matchId && matchLockService.isMatchLocked(anchor.matchId)) {
+      throw new Error(
+        `Cannot remove time anchor: match ${
+          anchor.matchId
+        } is locked for finalization.`,
+      );
+    }
+
     await db.timeanchors.delete(anchorId);
     const matchingQueueItems = await db.syncQueue
       .filter((item) => item.payload.includes(anchorId))
@@ -242,7 +270,12 @@ const checkUnsyncedEndAnchorExists = async (
   matchId: string,
   periodNumber: number,
 ): Promise<boolean> => {
-  if (!matchId || !db?.syncQueue || !db?.timeanchors) {
+  if (
+    !matchId ||
+    !db?.syncQueue ||
+    !db?.timeanchors ||
+    matchLockService.isMatchLocked(matchId)
+  ) {
     return false;
   }
 
@@ -386,6 +419,22 @@ export const useMatchLifecycle = () => {
   const [configError, setConfigError] = useState<string | null>(null);
   const [isResultModalOpen, setIsResultModalOpen] = useState<boolean>(false);
 
+  const subscribeToMatchLock = useCallback((callback: () => void) => {
+    return matchLockService.subscribe(callback);
+  }, []);
+
+  const getMatchLockSnapshot = useCallback(() => {
+    return activeMatchId
+      ? matchLockService.isMatchLocked(activeMatchId.trim())
+      : false;
+  }, [activeMatchId]);
+
+  const isMatchLocked = useSyncExternalStore(
+    subscribeToMatchLock,
+    getMatchLockSnapshot,
+    () => false,
+  );
+
   const syncRequestIdRef = useRef(0);
   const activeMatchIdRef = useRef(activeMatchId);
   const periodNumberRef = useRef(periodNumber);
@@ -468,7 +517,7 @@ export const useMatchLifecycle = () => {
     });
 
     return () => subscription.unsubscribe();
-  }, [activeMatchId, periodNumber, isPeriodEnded]);
+  }, [activeMatchId, periodNumber, isPeriodEnded, isMatchLocked]);
 
   const isCurrentContext = useCallback(
     (targetMatchId?: string, targetPeriodNumber?: number) => {
@@ -487,7 +536,9 @@ export const useMatchLifecycle = () => {
       const checkPeriod = targetPeriod ?? periodNumberRef.current;
       if (periodsCount === null) {
         throw new Error(
-          `Cannot evaluate isFinalPeriod: periodsCount is not resolved for active match. ${configError ?? ""}`.trim(),
+          `Cannot evaluate isFinalPeriod: periodsCount is not resolved for active match. ${
+            configError ?? ""
+          }`.trim(),
         );
       }
       return checkPeriod === periodsCount;
@@ -557,6 +608,17 @@ export const useMatchLifecycle = () => {
 
   const revertStartPeriod = async (anchorId?: string | null) => {
     const normalizedMatchId = activeMatchIdRef.current?.trim();
+    if (
+      normalizedMatchId &&
+      matchLockService.isMatchLocked(normalizedMatchId)
+    ) {
+      throw new Error(
+        `Cannot revert period start: match ${
+          normalizedMatchId
+        } is locked for finalization.`,
+      );
+    }
+
     const currentPeriod = periodNumberRef.current;
     if (anchorId) {
       await removeTimeAnchor(anchorId);
@@ -579,6 +641,17 @@ export const useMatchLifecycle = () => {
 
   const revertEndPeriod = async (anchorId?: string | null) => {
     const normalizedMatchId = activeMatchIdRef.current?.trim();
+    if (
+      normalizedMatchId &&
+      matchLockService.isMatchLocked(normalizedMatchId)
+    ) {
+      throw new Error(
+        `Cannot revert period end: match ${
+          normalizedMatchId
+        } is locked for finalization.`,
+      );
+    }
+
     const currentPeriod = periodNumberRef.current;
 
     await db.transaction(
@@ -591,6 +664,16 @@ export const useMatchLifecycle = () => {
           currentPeriod,
           anchorId,
         );
+        if (
+          normalizedMatchId &&
+          matchLockService.isMatchLocked(normalizedMatchId)
+        ) {
+          throw new Error(
+            `Cannot complete period end revert: match ${
+              normalizedMatchId
+            } is locked for finalization.`,
+          );
+        }
         await purgeTerminateSyncQueueItems(normalizedMatchId, currentPeriod);
         await reopenClosedPlayerPresences(normalizedMatchId, currentPeriod);
       },
@@ -788,7 +871,7 @@ export const useMatchLifecycle = () => {
     isPeriodActive,
     isInsideStoppage,
     isPeriodEnded,
-    canUndoEndPeriod,
+    canUndoEndPeriod: canUndoEndPeriod && !isMatchLocked,
     globalSequenceNumber,
     periodsCount,
     isLoadingConfig,

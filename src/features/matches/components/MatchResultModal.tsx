@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import { resetMatchState } from "../store/matchSlice";
 import { navigateToMyMatches } from "../../../store/slices/navigationSlice";
@@ -17,6 +18,8 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   onSuccess,
 }) => {
   const dispatch = useAppDispatch();
+  const { user } = useAuth0();
+  const currentUserId = user?.sub ?? user?.email;
 
   const {
     activeMatchId,
@@ -115,6 +118,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
         homeScore: parsedHomeScore,
         guestScore: parsedGuestScore,
         temperature: parsedTemperature,
+        userId: currentUserId,
       });
 
       setCompletedMatchContext({

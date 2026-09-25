@@ -10,6 +10,13 @@ import navigationReducer, {
 import { matchFinalizationService } from "../../../services/matchFinalizationService";
 import { reportService } from "../../../services/reportService";
 
+vi.mock("@auth0/auth0-react", () => ({
+  useAuth0: () => ({
+    user: { sub: "test-user-id", email: "test@example.com" },
+    isAuthenticated: true,
+  }),
+}));
+
 vi.mock("../../../services/matchFinalizationService", () => ({
   matchFinalizationService: {
     finalizeMatch: vi.fn(),
@@ -200,6 +207,7 @@ describe("MatchResultModal Component", () => {
         homeScore: 10,
         guestScore: 8,
         temperature: 24.0,
+        userId: "test-user-id",
       });
     });
 
@@ -267,6 +275,30 @@ describe("MatchResultModal Component", () => {
     expect(store.getState().match.activeMatchId).toBe("test-match-123");
   });
 
+  test("should display error message alert when finalizeMatch rejects due to match lock", async () => {
+    vi.mocked(matchFinalizationService.finalizeMatch).mockRejectedValueOnce(
+      new Error(
+        "Cannot finalize match test-match-123: match is currently locked for finalization.",
+      ),
+    );
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
+    fireEvent.click(submitBtn);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Cannot finalize match test-match-123: match is currently locked for finalization.",
+    );
+    expect(store.getState().match.activeMatchId).toBe("test-match-123");
+  });
+
   test("should call onClose callback when Cancel button is clicked", () => {
     const store = createTestStore();
     render(
@@ -275,10 +307,20 @@ describe("MatchResultModal Component", () => {
       </Provider>,
     );
 
-    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
-    fireEvent.click(cancelBtn);
-
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockOnClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("should not render Cancel button when modal is closed", () => {
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={false} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    const cancelBtn = screen.queryByRole("button", { name: "Cancel" });
+    expect(cancelBtn).toBeNull();
   });
 
   test("should reject hexadecimal string as temperature input", () => {

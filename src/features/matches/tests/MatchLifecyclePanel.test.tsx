@@ -84,6 +84,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
       get: vi.fn((id: string) => Promise.resolve(mockSportConfigs[id])),
     },
     timeanchors: {
+      get: vi.fn((id: string) =>
+        Promise.resolve(mockTimeAnchors.find((a) => a.id === id)),
+      ),
       add: vi.fn((anchor: TimeAnchor) => {
         mockTimeAnchors.push(anchor);
         return Promise.resolve(anchor.id);
