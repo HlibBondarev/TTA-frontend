@@ -31,7 +31,7 @@ export const MatchSetupWizard: React.FC<MatchSetupWizardProps> = (props) => {
     handleBackToMenu,
   } = useMatchSetupWizard(props);
 
-  let submitButtonLabel = "Confirm & Start Tracking";
+  let submitButtonLabel = "Start Tracking Match";
   if (isSubmitting) {
     submitButtonLabel = "Starting Quick Match...";
   } else if (!isPresetSaved) {

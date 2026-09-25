@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { matchLockService } from "../services/matchLockService";
+import { matchLockService } from "../../services/matchLockService";
 
 describe("matchLockService", () => {
   beforeEach(() => {

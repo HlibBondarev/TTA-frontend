@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { setTokenGetter, getAuthToken } from "../services/tokenService";
+import { setTokenGetter, getAuthToken } from "../../services/tokenService";
 
 describe("Token Service", () => {
   beforeEach(() => {
@@ -8,7 +8,7 @@ describe("Token Service", () => {
 
   it("returns null before setTokenGetter is called (unset getter state)", async () => {
     vi.resetModules();
-    const freshTokenService = await import("../services/tokenService");
+    const freshTokenService = await import("../../services/tokenService");
     const token = await freshTokenService.getAuthToken();
     expect(token).toBeNull();
   });

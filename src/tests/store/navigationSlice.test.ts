@@ -4,7 +4,7 @@ import navigationReducer, {
   navigateToHub,
   navigateToMyMatches,
   type NavigationState,
-} from "../store/slices/navigationSlice";
+} from "../../store/slices/navigationSlice";
 
 describe("navigationSlice Reducer", () => {
   const initialState: NavigationState = {

@@ -267,7 +267,7 @@ export const EventDefinitionsConfigurator: React.FC<
         disabled={isLocked || !definitionsReady}
         className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 text-white font-bold rounded-lg text-xs uppercase tracking-wider transition-colors"
       >
-        {saving ? "Saving Preset..." : "Save Active Preset"}
+        {saving ? "Saving Preset..." : "Confirm Active Preset"}
       </button>
 
       {isModalOpen && (

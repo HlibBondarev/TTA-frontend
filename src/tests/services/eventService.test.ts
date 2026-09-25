@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { db } from "../db/ttaDatabase";
-import { matchLockService } from "../services/matchLockService";
+import { db } from "../../db/ttaDatabase";
+import { matchLockService } from "../../services/matchLockService";
 import {
   isSportHydratedForUser,
   loadEventDefinitionsCache,
@@ -11,7 +11,7 @@ import {
   createGameEventTx,
   updateGameEventTx,
   deleteGameEventTx,
-} from "../db/eventService";
+} from "../../db/eventService";
 
 const mockGameEventsGet = vi.fn();
 const mockGameEventsPut = vi.fn();
@@ -27,7 +27,7 @@ const mockWhereEquals = vi.fn();
 const mockUserPresetsWhere = vi.fn();
 const mockUserPresetsDelete = vi.fn();
 
-vi.mock("../db/ttaDatabase", () => ({
+vi.mock("../../db/ttaDatabase", () => ({
   db: {
     eventdefinitions: {
       get: vi.fn((...args: unknown[]) => mockEventDefinitionsGet(...args)),

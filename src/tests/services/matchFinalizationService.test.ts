@@ -1,21 +1,21 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { matchFinalizationService } from "../services/matchFinalizationService";
-import { apiClient } from "../api/client";
-import { db } from "../db/ttaDatabase";
-import { processSyncQueue } from "../services/syncService";
-import { matchLockService } from "../services/matchLockService";
+import { matchFinalizationService } from "../../services/matchFinalizationService";
+import { apiClient } from "../../api/client";
+import { db } from "../../db/ttaDatabase";
+import { processSyncQueue } from "../../services/syncService";
+import { matchLockService } from "../../services/matchLockService";
 
-vi.mock("../api/client", () => ({
+vi.mock("../../api/client", () => ({
   apiClient: {
     put: vi.fn().mockResolvedValue({}),
   },
 }));
 
-vi.mock("../services/syncService", () => ({
+vi.mock("../../services/syncService", () => ({
   processSyncQueue: vi.fn().mockResolvedValue(1),
 }));
 
-vi.mock("../db/eventService", () => ({
+vi.mock("../../db/eventService", () => ({
   getNextSequenceNumber: vi.fn().mockResolvedValue(10),
 }));
 
@@ -24,7 +24,7 @@ const { mockDelete, mockBulkDelete } = vi.hoisted(() => ({
   mockBulkDelete: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../db/ttaDatabase", () => {
+vi.mock("../../db/ttaDatabase", () => {
   return {
     db: {
       gameevents: {
