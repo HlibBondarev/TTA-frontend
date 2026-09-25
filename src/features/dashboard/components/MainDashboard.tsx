@@ -228,24 +228,26 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
       </h2>
 
       <div className="space-y-4 flex-1 flex flex-col justify-center">
-        <button
-          type="button"
-          onClick={() => dispatch(setCurrentView("QUICK_START"))}
-          className="p-4 bg-linear-to-r from-blue-900/40 to-indigo-900/40 hover:from-blue-900/60 hover:to-indigo-900/60 border border-blue-700/50 rounded-2xl text-left transition-all shadow-lg group cursor-pointer"
-        >
-          <div className="flex items-center justify-between mb-1">
-            <h3 className="text-sm font-black uppercase text-blue-400 group-hover:text-blue-300">
-              Quick Start Match
-            </h3>
-            <span className="text-xs text-blue-400 font-bold group-hover:translate-x-1 transition-transform">
-              →
-            </span>
-          </div>
-          <p className="text-[11px] text-gray-400 leading-tight">
-            Create an instant match, select sport and configuration, and record
-            player actions in real-time.
-          </p>
-        </button>
+        {!activeUnfinishedMatch && (
+          <button
+            type="button"
+            onClick={() => dispatch(setCurrentView("QUICK_START"))}
+            className="p-4 bg-linear-to-r from-blue-900/40 to-indigo-900/40 hover:from-blue-900/60 hover:to-indigo-900/60 border border-blue-700/50 rounded-2xl text-left transition-all shadow-lg group cursor-pointer"
+          >
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-black uppercase text-blue-400 group-hover:text-blue-300">
+                Quick Start Match
+              </h3>
+              <span className="text-xs text-blue-400 font-bold group-hover:translate-x-1 transition-transform">
+                →
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-400 leading-tight">
+              Create an instant match, select sport and configuration, and
+              record player actions in real-time.
+            </p>
+          </button>
+        )}
 
         <button
           type="button"

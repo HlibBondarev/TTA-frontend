@@ -64,7 +64,7 @@ describe("MyMatchesView Component", () => {
     vi.clearAllMocks();
   });
 
-  it("should fetch and render catched matches list", async () => {
+  it("should fetch and render catched matches list for finalized matches", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
@@ -82,6 +82,45 @@ describe("MyMatchesView Component", () => {
     expect(await screen.findByText("Dolphins")).toBeDefined();
     expect(screen.getByText("Sharks")).toBeDefined();
     expect(screen.getByText("8 : 6")).toBeDefined();
+  });
+
+  it("should filter out unfinalized matches and render only completed matches", async () => {
+    const mixedMatches = [
+      ...mockMatches,
+      {
+        id: "match-unfinalized-999",
+        tournamentId: "tourn-1",
+        tournamentName: "Training Cup",
+        homeTeamId: "home-team-1",
+        homeTeamName: "Falcons",
+        guestTeamId: "guest-team-2",
+        guestTeamName: "Eagles",
+        scheduledAt: "2026-09-25T10:00:00.000Z",
+        matchNumber: "2",
+        venue: "Pool 2",
+        temperature: 24,
+        homeScore: null,
+        guestScore: null,
+        createdAt: "2026-09-25T09:00:00.000Z",
+        trackedTeamId: "home-team-1",
+      },
+    ];
+
+    vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
+      mixedMatches,
+    );
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MyMatchesView />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Dolphins")).toBeDefined();
+    expect(screen.queryByText("Falcons")).toBeNull();
+    expect(screen.queryByText("Eagles")).toBeNull();
   });
 
   it("should render empty state message when no tracked matches exist on successful fetch", async () => {
@@ -254,7 +293,6 @@ describe("MyMatchesView Component", () => {
       </Provider>,
     );
 
-    // Expect fallback "Invalid Date" rendered by formatDate catch block[cite: 12]
     expect(await screen.findByText("Invalid Date")).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: /View Report/i }));

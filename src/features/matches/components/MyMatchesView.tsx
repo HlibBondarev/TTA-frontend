@@ -39,7 +39,10 @@ export const MyMatchesView: React.FC = () => {
         setErrorMessage(null);
         const data = await userMatchService.getCatchedMatches();
         if (isMounted) {
-          setMatches(data);
+          const finalizedMatches = data.filter(
+            (m) => m.homeScore !== null && m.guestScore !== null,
+          );
+          setMatches(finalizedMatches);
         }
       } catch (err) {
         if (isMounted) {

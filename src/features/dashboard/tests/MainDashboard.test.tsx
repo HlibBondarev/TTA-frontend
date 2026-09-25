@@ -55,7 +55,7 @@ describe("MainDashboard Component", () => {
     mockUser = { email: "coach@tta.com", sub: "auth0|user-coach" };
   });
 
-  it("should render user profile and navigation cards", () => {
+  it("should render user profile and navigation cards when no unfinished match exists", () => {
     const store = createTestStore();
 
     render(
@@ -69,6 +69,39 @@ describe("MainDashboard Component", () => {
     expect(screen.getByText("Quick Start Match")).toBeDefined();
     expect(screen.getByText("My Tracked Matches")).toBeDefined();
     expect(screen.getByText("Tournaments")).toBeDefined();
+  });
+
+  it("should hide Quick Start Match card when active unfinished match exists for current user", async () => {
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
+      id: "m-unfinished-123",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      tournamentId: "",
+      scheduledAt: "",
+      matchNumber: null,
+      venue: null,
+      temperature: null,
+      homeScore: null,
+      guestScore: null,
+      createdAt: "",
+      userId: "auth0|user-coach",
+    });
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("region", { name: "Session Recovery Prompt" }),
+      ).toBeDefined();
+    });
+
+    expect(screen.queryByText("Quick Start Match")).toBeNull();
   });
 
   it("should display user name when email is missing, or 'User' when both email and name are missing", () => {
@@ -406,7 +439,7 @@ describe("MainDashboard Component", () => {
     const store = createTestStore();
     render(
       <Provider store={store}>
-        <MainDashboard onResumeMatch={onResumeMatchMock} />
+        <MainDashboard />
       </Provider>,
     );
 
@@ -711,11 +744,14 @@ describe("MainDashboard Component", () => {
   });
 
   it.each<{ cardText: string; expectedView: AppCurrentView }>([
-    { cardText: "Quick Start Match", expectedView: "QUICK_START" },
     { cardText: "My Tracked Matches", expectedView: "MY_MATCHES" },
     { cardText: "Tournaments", expectedView: "TOURNAMENT_STUB" },
   ])(
-    "should dispatch setCurrentView('$expectedView') when clicking $cardText card",
+    `should dispatch setCurrentView('\${
+      expectedView
+    }') when clicking \${
+      cardText
+    } card`,
     ({ cardText, expectedView }) => {
       const store = createTestStore();
 
