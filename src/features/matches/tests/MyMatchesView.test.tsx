@@ -84,7 +84,7 @@ describe("MyMatchesView Component", () => {
     expect(screen.getByText("8 : 6")).toBeDefined();
   });
 
-  it("should filter out unfinalized matches and render only completed matches", async () => {
+  it("should filter out unfinalized, omitted, or non-numeric score matches and render only completed matches", async () => {
     const mixedMatches = [
       ...mockMatches,
       {
@@ -104,10 +104,27 @@ describe("MyMatchesView Component", () => {
         createdAt: "2026-09-25T09:00:00.000Z",
         trackedTeamId: "home-team-1",
       },
+      {
+        id: "match-invalid-score-888",
+        tournamentId: "tourn-1",
+        tournamentName: "Training Cup",
+        homeTeamId: "home-team-1",
+        homeTeamName: "Hawks",
+        guestTeamId: "guest-team-2",
+        guestTeamName: "Owls",
+        scheduledAt: "2026-09-25T11:00:00.000Z",
+        matchNumber: "3",
+        venue: "Pool 3",
+        temperature: 24,
+        homeScore: Number.NaN,
+        guestScore: "6" as unknown as number,
+        createdAt: "2026-09-25T09:00:00.000Z",
+        trackedTeamId: "home-team-1",
+      },
     ];
 
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
-      mixedMatches,
+      mixedMatches as never,
     );
 
     const store = createTestStore();
@@ -121,6 +138,8 @@ describe("MyMatchesView Component", () => {
     expect(await screen.findByText("Dolphins")).toBeDefined();
     expect(screen.queryByText("Falcons")).toBeNull();
     expect(screen.queryByText("Eagles")).toBeNull();
+    expect(screen.queryByText("Hawks")).toBeNull();
+    expect(screen.queryByText("Owls")).toBeNull();
   });
 
   it("should render empty state message when no tracked matches exist on successful fetch", async () => {

@@ -40,7 +40,11 @@ export const MyMatchesView: React.FC = () => {
         const data = await userMatchService.getCatchedMatches();
         if (isMounted) {
           const finalizedMatches = data.filter(
-            (m) => m.homeScore !== null && m.guestScore !== null,
+            (m) =>
+              typeof m.homeScore === "number" &&
+              typeof m.guestScore === "number" &&
+              Number.isFinite(m.homeScore) &&
+              Number.isFinite(m.guestScore),
           );
           setMatches(finalizedMatches);
         }
