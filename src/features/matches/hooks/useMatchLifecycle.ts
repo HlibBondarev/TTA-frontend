@@ -7,6 +7,7 @@ import {
 } from "../../../db/ttaDatabase";
 import { getNextSequenceNumber } from "../../../db/eventService";
 import { apiClient } from "../../../api/client";
+import { matchLockService } from "../../../services/matchLockService";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import {
   startPeriodState,
@@ -56,7 +57,9 @@ const fetchSportConfigPeriodsCount = async (
       }
     } catch (err) {
       console.error(
-        `[useMatchLifecycle] Tournament fallback fetch failed for '${match.tournamentId}':`,
+        `[useMatchLifecycle] Tournament fallback fetch failed for '${
+          match.tournamentId
+        }':`,
         err,
       );
     }
@@ -64,7 +67,9 @@ const fetchSportConfigPeriodsCount = async (
 
   if (!tournament) {
     throw new Error(
-      `Tournament with ID '${match.tournamentId}' not found for match '${matchId}'.`,
+      `Tournament with ID '${match.tournamentId}' not found for match '${
+        matchId
+      }'.`,
     );
   }
 
@@ -79,7 +84,9 @@ const fetchSportConfigPeriodsCount = async (
     config.periodsCount <= 0
   ) {
     throw new Error(
-      `Invalid or missing periodsCount in SportConfiguration ('${tournament.configurationId}') for match '${matchId}'.`,
+      `Invalid or missing periodsCount in SportConfiguration ('${
+        tournament.configurationId
+      }') for match '${matchId}'.`,
     );
   }
 
@@ -158,6 +165,12 @@ const createAndSaveTimeAnchor = async (
   periodNumber: number,
   type: number,
 ): Promise<string> => {
+  if (matchLockService.isMatchLocked(matchId)) {
+    throw new Error(
+      `Cannot log time anchor: match ${matchId} is locked for finalization.`,
+    );
+  }
+
   const anchorId = crypto.randomUUID();
 
   await db.transaction(
@@ -487,7 +500,9 @@ export const useMatchLifecycle = () => {
       const checkPeriod = targetPeriod ?? periodNumberRef.current;
       if (periodsCount === null) {
         throw new Error(
-          `Cannot evaluate isFinalPeriod: periodsCount is not resolved for active match. ${configError ?? ""}`.trim(),
+          `Cannot evaluate isFinalPeriod: periodsCount is not resolved for active match. ${
+            configError ?? ""
+          }`.trim(),
         );
       }
       return checkPeriod === periodsCount;

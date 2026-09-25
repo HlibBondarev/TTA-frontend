@@ -9,6 +9,7 @@ import navigationReducer, {
 } from "../../../store/slices/navigationSlice";
 import { matchFinalizationService } from "../../../services/matchFinalizationService";
 import { reportService } from "../../../services/reportService";
+import { matchLockService } from "../../../services/matchLockService";
 
 vi.mock("../../../services/matchFinalizationService", () => ({
   matchFinalizationService: {
@@ -20,6 +21,14 @@ vi.mock("../../../services/reportService", () => ({
   reportService: {
     getTeamSummaryReport: vi.fn(),
     getPlayerDetailedReport: vi.fn(),
+  },
+}));
+
+vi.mock("../../../services/matchLockService", () => ({
+  matchLockService: {
+    lockMatchForFinalization: vi.fn(),
+    unlockMatchForFinalization: vi.fn(),
+    isMatchLockedForFinalization: vi.fn().mockReturnValue(false),
   },
 }));
 
@@ -174,7 +183,7 @@ describe("MatchResultModal Component", () => {
     ).toBeNull();
   });
 
-  test("should trigger match finalization pipeline, keep match in Redux, and display report modal on successful submit", async () => {
+  test("should trigger match finalization pipeline, lock/unlock match, keep match in Redux, and display report modal on successful submit", async () => {
     vi.mocked(matchFinalizationService.finalizeMatch).mockResolvedValueOnce(
       undefined,
     );
@@ -194,6 +203,9 @@ describe("MatchResultModal Component", () => {
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
+      expect(matchLockService.lockMatchForFinalization).toHaveBeenCalledWith(
+        "test-match-123",
+      );
       expect(matchFinalizationService.finalizeMatch).toHaveBeenCalledWith({
         matchId: "test-match-123",
         activeTeamId: "test-team-456",
@@ -201,6 +213,9 @@ describe("MatchResultModal Component", () => {
         guestScore: 8,
         temperature: 24.0,
       });
+      expect(matchLockService.unlockMatchForFinalization).toHaveBeenCalledWith(
+        "test-match-123",
+      );
     });
 
     // Check Redux match state is STILL ACTIVE while report modal is open
@@ -245,7 +260,7 @@ describe("MatchResultModal Component", () => {
     expect(mockOnClose).toHaveBeenCalledTimes(1);
   });
 
-  test("should display error message alert when finalization service fails", async () => {
+  test("should unlock match and display error message alert when finalization service fails", async () => {
     vi.mocked(matchFinalizationService.finalizeMatch).mockRejectedValueOnce(
       new Error("Network timeout during sync"),
     );
@@ -262,6 +277,13 @@ describe("MatchResultModal Component", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Network timeout during sync");
+
+    expect(matchLockService.lockMatchForFinalization).toHaveBeenCalledWith(
+      "test-match-123",
+    );
+    expect(matchLockService.unlockMatchForFinalization).toHaveBeenCalledWith(
+      "test-match-123",
+    );
 
     // Ensure Redux state is preserved on failure
     expect(store.getState().match.activeMatchId).toBe("test-match-123");
@@ -322,6 +344,10 @@ describe("MatchResultModal Component", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
       "Request timed out or was cancelled. Please check backend sync and retry.",
+    );
+
+    expect(matchLockService.unlockMatchForFinalization).toHaveBeenCalledWith(
+      "test-match-123",
     );
   });
 

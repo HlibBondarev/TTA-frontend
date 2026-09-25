@@ -3,6 +3,7 @@ import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import { resetMatchState } from "../store/matchSlice";
 import { navigateToMyMatches } from "../../../store/slices/navigationSlice";
 import { matchFinalizationService } from "../../../services/matchFinalizationService";
+import { matchLockService } from "../../../services/matchLockService";
 import { MatchReportModal } from "./MatchReportModal";
 
 export interface MatchResultModalProps {
@@ -109,6 +110,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     const currentTeamId = activeTeamId;
 
     try {
+      matchLockService.lockMatchForFinalization(currentMatchId);
       await matchFinalizationService.finalizeMatch({
         matchId: currentMatchId,
         activeTeamId: currentTeamId,
@@ -138,6 +140,8 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
 
       setErrorMessage(errorText);
       setIsSubmitting(false);
+    } finally {
+      matchLockService.unlockMatchForFinalization(currentMatchId);
     }
   };
 

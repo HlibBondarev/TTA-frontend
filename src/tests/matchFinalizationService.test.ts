@@ -3,6 +3,7 @@ import { matchFinalizationService } from "../services/matchFinalizationService";
 import { apiClient } from "../api/client";
 import { db } from "../db/ttaDatabase";
 import { processSyncQueue } from "../services/syncService";
+import { matchLockService } from "../services/matchLockService";
 
 vi.mock("../api/client", () => ({
   apiClient: {
@@ -79,6 +80,7 @@ vi.mock("../db/ttaDatabase", () => {
         bulkDelete: mockBulkDelete,
       },
       matches: {
+        get: vi.fn().mockResolvedValue(undefined),
         delete: mockDelete,
       },
       transaction: vi.fn((_mode, _tables, cb) => cb()),
@@ -89,6 +91,7 @@ vi.mock("../db/ttaDatabase", () => {
 describe("matchFinalizationService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    matchLockService.clearAllMatchLocks();
   });
 
   it("should throw an error if matchId or activeTeamId is missing", async () => {
@@ -118,6 +121,45 @@ describe("matchFinalizationService", () => {
 
     expect(processSyncQueue).not.toHaveBeenCalled();
     expect(apiClient.put).not.toHaveBeenCalled();
+  });
+
+  it("should throw an error if match belongs to another user", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "match-123",
+      userId: "user-owner",
+    } as unknown as Awaited<ReturnType<typeof db.matches.get>>);
+
+    await expect(
+      matchFinalizationService.finalizeMatch({
+        matchId: "match-123",
+        activeTeamId: "team-123",
+        homeScore: 10,
+        guestScore: 8,
+        temperature: 24,
+        userId: "user-other",
+      }),
+    ).rejects.toThrow("Match match-123 belongs to another user.");
+
+    expect(processSyncQueue).not.toHaveBeenCalled();
+    expect(matchLockService.isMatchLocked("match-123")).toBe(false);
+  });
+
+  it("should throw an error if match is already locked for finalization", async () => {
+    matchLockService.lockMatchForFinalization("match-123");
+
+    await expect(
+      matchFinalizationService.finalizeMatch({
+        matchId: "match-123",
+        activeTeamId: "team-123",
+        homeScore: 10,
+        guestScore: 8,
+        temperature: 24,
+      }),
+    ).rejects.toThrow(
+      "Cannot finalize match match-123: match is currently locked for finalization.",
+    );
+
+    expect(processSyncQueue).not.toHaveBeenCalled();
   });
 
   it("should execute sync, record result, normalize events, and purge scoped IndexedDB entities on success", async () => {
@@ -189,6 +231,8 @@ describe("matchFinalizationService", () => {
       );
       expect(predicate({ endpoint: undefined })).toBe(false);
     }
+
+    expect(matchLockService.isMatchLocked(matchId)).toBe(false);
   });
 
   it("should auto-close open active period and active presences in IndexedDB prior to syncQueue flush", async () => {
@@ -571,5 +615,21 @@ describe("matchFinalizationService", () => {
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
     expect(apiClient.put).toHaveBeenCalledTimes(1);
     expect(db.matches.delete).not.toHaveBeenCalled();
+  });
+
+  it("should unlock match even if finalization fails with an error", async () => {
+    vi.mocked(apiClient.put).mockRejectedValueOnce(new Error("API Failure"));
+
+    await expect(
+      matchFinalizationService.finalizeMatch({
+        matchId: "match-123",
+        activeTeamId: "team-456",
+        homeScore: 10,
+        guestScore: 8,
+        temperature: 25,
+      }),
+    ).rejects.toThrow("API Failure");
+
+    expect(matchLockService.isMatchLocked("match-123")).toBe(false);
   });
 });

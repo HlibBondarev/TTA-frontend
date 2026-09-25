@@ -2,6 +2,7 @@ import { apiClient } from "../api/client";
 import { db, type TimeAnchor } from "../db/ttaDatabase";
 import { processSyncQueue } from "./syncService";
 import { getNextSequenceNumber } from "../db/eventService";
+import { matchLockService } from "./matchLockService";
 
 export interface FinalizeMatchParams {
   matchId: string;
@@ -9,6 +10,7 @@ export interface FinalizeMatchParams {
   homeScore: number;
   guestScore: number;
   temperature: number | null;
+  userId?: string;
 }
 
 /**
@@ -151,94 +153,133 @@ export const matchFinalizationService = {
    * sending match results, normalizing event times, and purging local DB.
    */
   async finalizeMatch(params: FinalizeMatchParams): Promise<void> {
-    const { matchId, activeTeamId, homeScore, guestScore, temperature } =
-      params;
+    const {
+      matchId,
+      activeTeamId,
+      homeScore,
+      guestScore,
+      temperature,
+      userId,
+    } = params;
 
-    if (!matchId || !activeTeamId) {
+    const normalizedMatchId = matchId?.trim();
+    const normalizedUserId = userId?.trim();
+
+    if (!normalizedMatchId || !activeTeamId?.trim()) {
       throw new Error(
         "Missing required matchId or activeTeamId for match finalization.",
       );
     }
 
-    // Step 0: Auto-close any active open period or player presence sessions in IndexedDB
-    await autoCloseOpenPeriodAndPresences(matchId);
-
-    // Step 1: Flush all pending offline sync queue items to backend
-    await processSyncQueue();
-
-    const exactEndpoint = `/Matches/${matchId}`;
-    const endpointPrefix = `/Matches/${matchId}/`;
-
-    const remainingQueueCount = await db.syncQueue
-      .filter(
-        (item) =>
-          typeof item.endpoint === "string" &&
-          (item.endpoint === exactEndpoint ||
-            item.endpoint.startsWith(endpointPrefix)),
-      )
-      .count();
-
-    if (remainingQueueCount > 0) {
+    if (matchLockService.isMatchLocked(normalizedMatchId)) {
       throw new Error(
-        "Cannot finalize match: offline sync queue is not empty. Please ensure all pending actions are synchronized.",
+        `Cannot finalize match ${
+          normalizedMatchId
+        }: match is currently locked for finalization.`,
       );
     }
 
-    // Step 2: Record match result scores and weather/water temperature
-    await apiClient.put(`/Matches/${matchId}/result`, {
-      homeScore,
-      guestScore,
-      temperature,
-    });
+    if (normalizedUserId) {
+      const match = await db.matches.get(normalizedMatchId);
+      if (match?.userId && match.userId !== normalizedUserId) {
+        throw new Error(`Match ${normalizedMatchId} belongs to another user.`);
+      }
+    }
 
-    // Step 3: Trigger event time normalization for the active tracking team
-    await apiClient.put(
-      `/Matches/${matchId}/teams/${activeTeamId}/events/normalize`,
-    );
+    matchLockService.lockMatchForFinalization(normalizedMatchId);
 
-    // Step 4: Conditionally purge local IndexedDB entities scoped STRICTLY to finalized matchId
-    await db.transaction(
-      "rw",
-      [
-        db.gameevents,
-        db.timeanchors,
-        db.playerpresences,
-        db.matchlineups,
-        db.syncQueue,
-        db.matches,
-      ],
-      async () => {
-        const lineups = await db.matchlineups
-          .where("matchId")
-          .equals(matchId)
-          .toArray();
-        const lineupIds = lineups.map((l) => l.id);
+    try {
+      // Step 0: Auto-close any active open period or player presence sessions in IndexedDB
+      await autoCloseOpenPeriodAndPresences(normalizedMatchId);
 
-        if (lineupIds.length > 0) {
-          await db.gameevents.where("matchLineupId").anyOf(lineupIds).delete();
-          await db.playerpresences
-            .where("matchLineupId")
-            .anyOf(lineupIds)
+      // Step 1: Flush all pending offline sync queue items to backend
+      await processSyncQueue();
+
+      const exactEndpoint = `/Matches/${normalizedMatchId}`;
+      const endpointPrefix = `/Matches/${normalizedMatchId}/`;
+
+      const remainingQueueCount = await db.syncQueue
+        .filter(
+          (item) =>
+            typeof item.endpoint === "string" &&
+            (item.endpoint === exactEndpoint ||
+              item.endpoint.startsWith(endpointPrefix)),
+        )
+        .count();
+
+      if (remainingQueueCount > 0) {
+        throw new Error(
+          "Cannot finalize match: offline sync queue is not empty. Please ensure all pending actions are synchronized.",
+        );
+      }
+
+      // Step 2: Record match result scores and weather/water temperature
+      await apiClient.put(`/Matches/${normalizedMatchId}/result`, {
+        homeScore,
+        guestScore,
+        temperature,
+      });
+
+      // Step 3: Trigger event time normalization for the active tracking team
+      await apiClient.put(
+        `/Matches/${normalizedMatchId}/teams/${activeTeamId}/events/normalize`,
+      );
+
+      // Step 4: Conditionally purge local IndexedDB entities scoped STRICTLY to finalized matchId
+      await db.transaction(
+        "rw",
+        [
+          db.gameevents,
+          db.timeanchors,
+          db.playerpresences,
+          db.matchlineups,
+          db.syncQueue,
+          db.matches,
+        ],
+        async () => {
+          const lineups = await db.matchlineups
+            .where("matchId")
+            .equals(normalizedMatchId)
+            .toArray();
+          const lineupIds = lineups.map((l) => l.id);
+
+          if (lineupIds.length > 0) {
+            await db.gameevents
+              .where("matchLineupId")
+              .anyOf(lineupIds)
+              .delete();
+            await db.playerpresences
+              .where("matchLineupId")
+              .anyOf(lineupIds)
+              .delete();
+          }
+
+          await db.timeanchors
+            .where("matchId")
+            .equals(normalizedMatchId)
             .delete();
-        }
+          await db.matchlineups
+            .where("matchId")
+            .equals(normalizedMatchId)
+            .delete();
+          await db.matches.delete(normalizedMatchId);
 
-        await db.timeanchors.where("matchId").equals(matchId).delete();
-        await db.matchlineups.where("matchId").equals(matchId).delete();
-        await db.matches.delete(matchId);
+          const matchSyncKeys = await db.syncQueue
+            .filter(
+              (item) =>
+                typeof item.endpoint === "string" &&
+                (item.endpoint === exactEndpoint ||
+                  item.endpoint.startsWith(endpointPrefix)),
+            )
+            .primaryKeys();
 
-        const matchSyncKeys = await db.syncQueue
-          .filter(
-            (item) =>
-              typeof item.endpoint === "string" &&
-              (item.endpoint === exactEndpoint ||
-                item.endpoint.startsWith(endpointPrefix)),
-          )
-          .primaryKeys();
-
-        if (matchSyncKeys.length > 0) {
-          await db.syncQueue.bulkDelete(matchSyncKeys as number[]);
-        }
-      },
-    );
+          if (matchSyncKeys.length > 0) {
+            await db.syncQueue.bulkDelete(matchSyncKeys as number[]);
+          }
+        },
+      );
+    } finally {
+      matchLockService.unlockMatchForFinalization(normalizedMatchId);
+    }
   },
 };

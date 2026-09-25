@@ -12,6 +12,7 @@ import matchReducer, {
 } from "../store/matchSlice";
 import { db, type TimeAnchor } from "../../../db/ttaDatabase";
 import { apiClient } from "../../../api/client";
+import { matchLockService } from "../../../services/matchLockService";
 import { vi, describe, beforeEach, test, expect } from "vitest";
 
 vi.mock("../../../api/client", () => ({
@@ -239,6 +240,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     mockTimeAnchors = [];
     mockSyncQueue = [];
     mockPlayerPresences = [];
+    matchLockService.clearAllMatchLocks();
 
     mockMatches = {
       "test-match-id": { id: "test-match-id", tournamentId: "test-tourn-id" },
@@ -638,6 +640,25 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     await waitFor(() => {
       expect(result.current.canUndoEndPeriod).toBe(true);
     });
+  });
+
+  test("should throw error and block logging time anchor if match is locked for finalization", async () => {
+    matchLockService.lockMatchForFinalization("test-match-id");
+
+    const store = createTestStore({ isPeriodActive: false });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.startPeriod();
+      }),
+    ).rejects.toThrow(
+      "Cannot log time anchor: match test-match-id is locked for finalization.",
+    );
+
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
   });
 
   test("should start a period, add a TimeAnchor and push item to syncQueue in IndexedDB", async () => {
