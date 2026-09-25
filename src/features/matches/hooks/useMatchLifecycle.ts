@@ -664,6 +664,16 @@ export const useMatchLifecycle = () => {
           currentPeriod,
           anchorId,
         );
+        if (
+          normalizedMatchId &&
+          matchLockService.isMatchLocked(normalizedMatchId)
+        ) {
+          throw new Error(
+            `Cannot complete period end revert: match ${
+              normalizedMatchId
+            } is locked for finalization.`,
+          );
+        }
         await purgeTerminateSyncQueueItems(normalizedMatchId, currentPeriod);
         await reopenClosedPlayerPresences(normalizedMatchId, currentPeriod);
       },

@@ -2116,4 +2116,33 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(store.getState().match.isPeriodActive).toBe(true);
     expect(store.getState().match.globalSequenceNumber).toBe(initialSeq + 1);
   });
+
+  test("should abort revertEndPeriod and throw error if match becomes locked for finalization after deleteEndAnchorAndSyncQueue resolves", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodEnded: true,
+    });
+
+    vi.mocked(db.timeanchors.delete).mockImplementationOnce((async (
+      id: string,
+    ) => {
+      matchLockService.lockMatchForFinalization("test-match-id");
+      mockTimeAnchors = mockTimeAnchors.filter((a) => a.id !== id);
+    }) as unknown as (id: string) => ReturnType<typeof db.timeanchors.delete>);
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.revertEndPeriod("seed-end-anchor");
+      }),
+    ).rejects.toThrow(
+      /Cannot complete period end revert: match test-match-id is locked for finalization/i,
+    );
+
+    expect(store.getState().match.isPeriodEnded).toBe(true);
+    expect(store.getState().match.isPeriodActive).toBe(false);
+  });
 });
