@@ -267,7 +267,13 @@ describe("MatchResultModal Component", () => {
     expect(store.getState().match.activeMatchId).toBe("test-match-123");
   });
 
-  test("should call onClose callback when Cancel button is clicked", () => {
+  test("should display error message alert when finalizeMatch rejects due to match lock", async () => {
+    vi.mocked(matchFinalizationService.finalizeMatch).mockRejectedValueOnce(
+      new Error(
+        "Cannot finalize match test-match-123: match is currently locked for finalization.",
+      ),
+    );
+
     const store = createTestStore();
     render(
       <Provider store={store}>
@@ -275,10 +281,26 @@ describe("MatchResultModal Component", () => {
       </Provider>,
     );
 
-    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
-    fireEvent.click(cancelBtn);
+    const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
+    fireEvent.click(submitBtn);
 
-    expect(mockOnClose).toHaveBeenCalledTimes(1);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Cannot finalize match test-match-123: match is currently locked for finalization.",
+    );
+    expect(store.getState().match.activeMatchId).toBe("test-match-123");
+  });
+
+  test("should call onClose callback when Cancel button is clicked", () => {
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={false} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    const cancelBtn = screen.queryByRole("button", { name: "Cancel" });
+    expect(cancelBtn).toBeNull();
   });
 
   test("should reject hexadecimal string as temperature input", () => {
