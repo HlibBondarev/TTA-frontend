@@ -179,6 +179,49 @@ describe("useAppSession Custom Hook", () => {
     consoleSpy.mockRestore();
   });
 
+  it("should abort Quick Start activation if user identity changes mid-hydration", async () => {
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    let resolveHydration: (val: { success: boolean }) => void = () => {};
+    const deferredHydration = new Promise<{ success: boolean }>((resolve) => {
+      resolveHydration = resolve;
+    });
+
+    vi.mocked(hydrateMatchData).mockImplementationOnce(
+      async (_mId, _tId, _uId, verifyFreshness) => {
+        const res = await deferredHydration;
+        verifyFreshness?.();
+        return res;
+      },
+    );
+
+    const store = createTestStore();
+    const { result, rerender } = renderHook(() => useAppSession(), {
+      wrapper: createWrapper(store),
+    });
+
+    let quickStartPromise: Promise<void>;
+    act(() => {
+      quickStartPromise = result.current.handleQuickStart(
+        "match-99",
+        "sport-1",
+        "config-1",
+        7,
+        "team-home-1",
+      );
+    });
+
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender();
+
+    resolveHydration({ success: true });
+
+    await expect(quickStartPromise!).rejects.toThrow(StaleUserError);
+
+    expect(store.getState().match.activeMatchId).toBeNull();
+    consoleSpy.mockRestore();
+  });
+
   it("should recover match session and restore recent actions into Redux", async () => {
     const mockActions = [
       {
@@ -213,5 +256,51 @@ describe("useAppSession Custom Hook", () => {
     expect(store.getState().match.activeMatchId).toBe("match-resumed");
     expect(store.getState().match.activeTeamId).toBe("team-guest-2");
     expect(store.getState().match.recentActions).toEqual(mockActions);
+  });
+
+  it("should abort handleResumeMatch without updating Redux state if user switches accounts during recovery", async () => {
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    let resolveRecovery: (val: {
+      recoveredPeriod: number;
+      activePlayersLimit: number;
+    }) => void = () => {};
+    const deferredRecovery = new Promise<{
+      recoveredPeriod: number;
+      activePlayersLimit: number;
+    }>((resolve) => {
+      resolveRecovery = resolve;
+    });
+
+    vi.mocked(getMatchRecoveryState).mockReturnValueOnce(deferredRecovery);
+
+    const store = createTestStore();
+    const { result, rerender } = renderHook(() => useAppSession(), {
+      wrapper: createWrapper(store),
+    });
+
+    let resumePromise: Promise<void>;
+    act(() => {
+      resumePromise = result.current.handleResumeMatch(
+        "match-resumed",
+        "team-guest-2",
+      );
+    });
+
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender();
+
+    resolveRecovery({ recoveredPeriod: 3, activePlayersLimit: 7 });
+
+    await act(async () => {
+      await resumePromise!;
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "Account changed during match recovery. Aborting session resumption.",
+    );
+    expect(store.getState().match.activeMatchId).toBeNull();
+
+    consoleSpy.mockRestore();
   });
 });
