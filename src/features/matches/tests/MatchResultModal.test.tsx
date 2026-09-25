@@ -295,6 +295,18 @@ describe("MatchResultModal Component", () => {
     const store = createTestStore();
     render(
       <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(mockOnClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("should not render Cancel button when modal is closed", () => {
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
         <MatchResultModal isOpen={false} onClose={mockOnClose} />
       </Provider>,
     );
