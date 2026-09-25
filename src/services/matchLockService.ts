@@ -1,8 +1,8 @@
 type LockListener = () => void;
 
 class MatchLockService {
-  private lockedMatches: Set<string> = new Set<string>();
-  private listeners: Set<LockListener> = new Set<LockListener>();
+  private readonly lockedMatches: Set<string> = new Set<string>();
+  private readonly listeners: Set<LockListener> = new Set<LockListener>();
 
   /**
    * Subscribes a listener to match lock state changes.
@@ -25,13 +25,13 @@ class MatchLockService {
   }
 
   lockMatchForFinalization(matchId: string): void {
-    if (!matchId || !matchId.trim()) return;
+    if (!matchId?.trim()) return;
     this.lockedMatches.add(matchId.trim());
     this.notify();
   }
 
   unlockMatchForFinalization(matchId: string): void {
-    if (!matchId || !matchId.trim()) return;
+    if (!matchId?.trim()) return;
     this.lockedMatches.delete(matchId.trim());
     this.notify();
   }
@@ -41,7 +41,7 @@ class MatchLockService {
   }
 
   isMatchLocked(matchId: string): boolean {
-    if (!matchId || !matchId.trim()) return false;
+    if (!matchId?.trim()) return false;
     return this.lockedMatches.has(matchId.trim());
   }
 
