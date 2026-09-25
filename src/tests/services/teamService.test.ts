@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { teamService } from "../services/teamService";
-import { apiClient } from "../api/client";
+import { teamService } from "../../services/teamService";
+import { apiClient } from "../../api/client";
 
-vi.mock("../api/client", () => ({
+vi.mock("../../api/client", () => ({
   apiClient: {
     get: vi.fn(),
   },

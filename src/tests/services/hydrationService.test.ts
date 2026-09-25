@@ -7,33 +7,33 @@ import {
   recoverRecentActions,
   deleteLocalMatchEntitiesForUser,
   StaleUserError,
-} from "../services/hydrationService";
-import { apiClient } from "../api/client";
-import { sportService } from "../services/sportService";
-import { db, type MatchLookup } from "../db/ttaDatabase";
-import { store } from "../store";
-import { incrementHydrationVersion } from "../features/matches/store/matchSlice";
+} from "../../services/hydrationService";
+import { apiClient } from "../../api/client";
+import { sportService } from "../../services/sportService";
+import { db, type MatchLookup } from "../../db/ttaDatabase";
+import { store } from "../../store";
+import { incrementHydrationVersion } from "../../features/matches/store/matchSlice";
 
-vi.mock("../store", () => ({
+vi.mock("../../store", () => ({
   store: {
     dispatch: vi.fn(),
   },
 }));
 
-vi.mock("../api/client", () => ({
+vi.mock("../../api/client", () => ({
   apiClient: {
     get: vi.fn(),
     delete: vi.fn(),
   },
 }));
 
-vi.mock("../services/sportService", () => ({
+vi.mock("../../services/sportService", () => ({
   sportService: {
     getSportConfigurations: vi.fn(),
   },
 }));
 
-vi.mock("../db/ttaDatabase", () => ({
+vi.mock("../../db/ttaDatabase", () => ({
   db: {
     transaction: vi.fn(),
     matches: {

@@ -69,7 +69,7 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(screen.getByText("Configure TTA Actions")).toBeInTheDocument();
     expect(screen.getByText("Goal")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Save Active Preset/i }),
+      screen.getByRole("button", { name: /Confirm Active Preset/i }),
     ).not.toBeDisabled();
   });
 
@@ -89,7 +89,7 @@ describe("EventDefinitionsConfigurator Component", () => {
     render(<EventDefinitionsConfigurator sportId="water-polo" />);
 
     const saveButton = screen.getByRole("button", {
-      name: /Save Active Preset/i,
+      name: /Confirm Active Preset/i,
     });
     fireEvent.click(saveButton);
 

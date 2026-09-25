@@ -135,7 +135,7 @@ describe("MatchSetupWizard Component", () => {
     expect(screen.getByText("Water Polo")).toBeInTheDocument();
     expect(screen.getByTestId("mock-event-configurator")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Confirm & Start Tracking/i }),
+      screen.getByRole("button", { name: /Start Tracking Match/i }),
     ).not.toBeDisabled();
   });
 
@@ -227,7 +227,7 @@ describe("MatchSetupWizard Component", () => {
     render(<MatchSetupWizard onQuickStart={mockOnQuickStart} />);
 
     const startButton = screen.getByRole("button", {
-      name: /Confirm & Start Tracking/i,
+      name: /Start Tracking Match/i,
     });
     fireEvent.click(startButton);
 

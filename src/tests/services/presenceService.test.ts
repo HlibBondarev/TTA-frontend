@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { db } from "../db/ttaDatabase";
+import { db } from "../../db/ttaDatabase";
 import {
   initializePeriodPresenceTx,
   terminatePeriodPresenceTx,
   substitutePlayerTx,
-} from "../db/presenceService";
+} from "../../db/presenceService";
 
-vi.mock("../db/ttaDatabase", () => ({
+vi.mock("../../db/ttaDatabase", () => ({
   db: {
     playerpresences: {
       bulkAdd: vi.fn(),

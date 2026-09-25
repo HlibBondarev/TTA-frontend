@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { processSyncQueue } from "../services/syncService";
-import { db } from "../db/ttaDatabase";
-import { apiClient } from "../api/client";
+import { processSyncQueue } from "../../services/syncService";
+import { db } from "../../db/ttaDatabase";
+import { apiClient } from "../../api/client";
 
-vi.mock("../api/client", () => ({
+vi.mock("../../api/client", () => ({
   apiClient: {
     post: vi.fn(),
     put: vi.fn(),
@@ -11,7 +11,7 @@ vi.mock("../api/client", () => ({
   },
 }));
 
-vi.mock("../db/ttaDatabase", () => ({
+vi.mock("../../db/ttaDatabase", () => ({
   db: {
     transaction: vi.fn((...args: unknown[]) => {
       const cb = args[args.length - 1] as () => Promise<unknown>;

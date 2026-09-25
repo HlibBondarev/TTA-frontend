@@ -297,14 +297,14 @@ describe("App Bootstrapping Component", () => {
 
     // Save active preset to unlock start button according to Preset Guard requirements
     fireEvent.click(
-      await screen.findByRole("button", { name: /Save Active Preset/i }),
+      await screen.findByRole("button", { name: /Confirm Active Preset/i }),
     );
 
     // Select team focus
     fireEvent.click(screen.getByRole("button", { name: /Home Squad/i }));
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
+      await screen.findByRole("button", { name: /Start Tracking Match/i }),
     );
 
     await waitFor(() => {
@@ -406,13 +406,13 @@ describe("App Bootstrapping Component", () => {
     );
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Save Active Preset/i }),
+      await screen.findByRole("button", { name: /Confirm Active Preset/i }),
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Home Squad/i }));
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
+      await screen.findByRole("button", { name: /Start Tracking Match/i }),
     );
 
     await waitFor(() => {
@@ -458,13 +458,13 @@ describe("App Bootstrapping Component", () => {
     );
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Save Active Preset/i }),
+      await screen.findByRole("button", { name: /Confirm Active Preset/i }),
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Home Squad/i }));
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
+      await screen.findByRole("button", { name: /Start Tracking Match/i }),
     );
 
     await waitFor(() => {
@@ -559,13 +559,13 @@ describe("App Bootstrapping Component", () => {
     );
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Save Active Preset/i }),
+      await screen.findByRole("button", { name: /Confirm Active Preset/i }),
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Home Squad/i }));
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Confirm & Start Tracking/i }),
+      await screen.findByRole("button", { name: /Start Tracking Match/i }),
     );
 
     await waitFor(() => {
