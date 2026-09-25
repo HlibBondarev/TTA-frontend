@@ -102,6 +102,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
       put: vi.fn(),
     },
     timeanchors: {
+      get: vi.fn((id: string) =>
+        Promise.resolve(mockTimeAnchors.find((a) => a.id === id)),
+      ),
       add: vi.fn((anchor: TimeAnchor) => {
         mockTimeAnchors.push(anchor);
         return Promise.resolve(anchor.id);
@@ -258,6 +261,14 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     mockSportConfigs = {
       "test-config-id": { id: "test-config-id", periodsCount: 4 },
     };
+
+    vi.mocked(
+      db.timeanchors.get as unknown as (
+        id: string,
+      ) => Promise<TimeAnchor | undefined>,
+    ).mockImplementation((id: string) =>
+      Promise.resolve(mockTimeAnchors.find((a) => a.id === id)),
+    );
 
     vi.mocked(db.timeanchors.where).mockImplementation(
       () =>
@@ -659,6 +670,54 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     );
 
     expect(db.timeanchors.add).not.toHaveBeenCalled();
+  });
+
+  test("should throw error and block revertStartPeriod or revertEndPeriod if match is locked for finalization", async () => {
+    const store = createTestStore({ isPeriodActive: true });
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    matchLockService.lockMatchForFinalization("test-match-id");
+
+    await expect(
+      act(async () => {
+        await result.current.revertStartPeriod("seed-start-anchor");
+      }),
+    ).rejects.toThrow(
+      "Cannot revert period start: match test-match-id is locked for finalization.",
+    );
+
+    await expect(
+      act(async () => {
+        await result.current.revertEndPeriod("seed-end-anchor");
+      }),
+    ).rejects.toThrow(
+      "Cannot revert period end: match test-match-id is locked for finalization.",
+    );
+  });
+
+  test("should return canUndoEndPeriod as false when match is locked for finalization", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodEnded: true,
+    });
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.canUndoEndPeriod).toBe(true);
+    });
+
+    act(() => {
+      matchLockService.lockMatchForFinalization("test-match-id");
+    });
+
+    await waitFor(() => {
+      expect(result.current.canUndoEndPeriod).toBe(false);
+    });
   });
 
   test("should start a period, add a TimeAnchor and push item to syncQueue in IndexedDB", async () => {

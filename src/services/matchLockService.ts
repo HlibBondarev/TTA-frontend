@@ -1,39 +1,54 @@
-const lockedMatches = new Set<string>();
+type LockListener = () => void;
 
-export const matchLockService = {
+class MatchLockService {
+  private lockedMatches: Set<string> = new Set<string>();
+  private listeners: Set<LockListener> = new Set<LockListener>();
+
   /**
-   * Locks the specified matchId to prevent concurrent writes during finalization.
+   * Subscribes a listener to match lock state changes.
    */
+  subscribe(listener: LockListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify(): void {
+    this.listeners.forEach((listener: LockListener) => {
+      try {
+        listener();
+      } catch (err) {
+        console.error("[MatchLockService] Listener error:", err);
+      }
+    });
+  }
+
   lockMatchForFinalization(matchId: string): void {
-    const normalized = matchId?.trim();
-    if (normalized) {
-      lockedMatches.add(normalized);
-    }
-  },
+    if (!matchId || !matchId.trim()) return;
+    this.lockedMatches.add(matchId.trim());
+    this.notify();
+  }
 
-  /**
-   * Releases the finalization write lock for the specified matchId.
-   */
   unlockMatchForFinalization(matchId: string): void {
-    const normalized = matchId?.trim();
-    if (normalized) {
-      lockedMatches.delete(normalized);
-    }
-  },
+    if (!matchId || !matchId.trim()) return;
+    this.lockedMatches.delete(matchId.trim());
+    this.notify();
+  }
 
-  /**
-   * Checks whether the specified matchId is currently locked for finalization.
-   */
+  unlockMatch(matchId: string): void {
+    this.unlockMatchForFinalization(matchId);
+  }
+
   isMatchLocked(matchId: string): boolean {
-    const normalized = matchId?.trim();
-    if (!normalized) return false;
-    return lockedMatches.has(normalized);
-  },
+    if (!matchId || !matchId.trim()) return false;
+    return this.lockedMatches.has(matchId.trim());
+  }
 
-  /**
-   * Clears all active match locks (primarily used for test teardown).
-   */
   clearAllMatchLocks(): void {
-    lockedMatches.clear();
-  },
-};
+    this.lockedMatches.clear();
+    this.notify();
+  }
+}
+
+export const matchLockService = new MatchLockService();

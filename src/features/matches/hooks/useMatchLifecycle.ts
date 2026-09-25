@@ -1,4 +1,10 @@
-import { useEffect, useCallback, useRef, useState } from "react";
+import {
+  useEffect,
+  useCallback,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { liveQuery } from "dexie";
 import {
   db,
@@ -235,6 +241,15 @@ const createAndSaveTimeAnchor = async (
  */
 const deleteTimeAnchorWithQueue = async (anchorId: string): Promise<void> => {
   await db.transaction("rw", [db.timeanchors, db.syncQueue], async () => {
+    const anchor = await db.timeanchors.get(anchorId);
+    if (anchor?.matchId && matchLockService.isMatchLocked(anchor.matchId)) {
+      throw new Error(
+        `Cannot remove time anchor: match ${
+          anchor.matchId
+        } is locked for finalization.`,
+      );
+    }
+
     await db.timeanchors.delete(anchorId);
     const matchingQueueItems = await db.syncQueue
       .filter((item) => item.payload.includes(anchorId))
@@ -255,7 +270,12 @@ const checkUnsyncedEndAnchorExists = async (
   matchId: string,
   periodNumber: number,
 ): Promise<boolean> => {
-  if (!matchId || !db?.syncQueue || !db?.timeanchors) {
+  if (
+    !matchId ||
+    !db?.syncQueue ||
+    !db?.timeanchors ||
+    matchLockService.isMatchLocked(matchId)
+  ) {
     return false;
   }
 
@@ -399,6 +419,22 @@ export const useMatchLifecycle = () => {
   const [configError, setConfigError] = useState<string | null>(null);
   const [isResultModalOpen, setIsResultModalOpen] = useState<boolean>(false);
 
+  const subscribeToMatchLock = useCallback((callback: () => void) => {
+    return matchLockService.subscribe(callback);
+  }, []);
+
+  const getMatchLockSnapshot = useCallback(() => {
+    return activeMatchId
+      ? matchLockService.isMatchLocked(activeMatchId.trim())
+      : false;
+  }, [activeMatchId]);
+
+  const isMatchLocked = useSyncExternalStore(
+    subscribeToMatchLock,
+    getMatchLockSnapshot,
+    () => false,
+  );
+
   const syncRequestIdRef = useRef(0);
   const activeMatchIdRef = useRef(activeMatchId);
   const periodNumberRef = useRef(periodNumber);
@@ -481,7 +517,7 @@ export const useMatchLifecycle = () => {
     });
 
     return () => subscription.unsubscribe();
-  }, [activeMatchId, periodNumber, isPeriodEnded]);
+  }, [activeMatchId, periodNumber, isPeriodEnded, isMatchLocked]);
 
   const isCurrentContext = useCallback(
     (targetMatchId?: string, targetPeriodNumber?: number) => {
@@ -572,6 +608,17 @@ export const useMatchLifecycle = () => {
 
   const revertStartPeriod = async (anchorId?: string | null) => {
     const normalizedMatchId = activeMatchIdRef.current?.trim();
+    if (
+      normalizedMatchId &&
+      matchLockService.isMatchLocked(normalizedMatchId)
+    ) {
+      throw new Error(
+        `Cannot revert period start: match ${
+          normalizedMatchId
+        } is locked for finalization.`,
+      );
+    }
+
     const currentPeriod = periodNumberRef.current;
     if (anchorId) {
       await removeTimeAnchor(anchorId);
@@ -594,6 +641,17 @@ export const useMatchLifecycle = () => {
 
   const revertEndPeriod = async (anchorId?: string | null) => {
     const normalizedMatchId = activeMatchIdRef.current?.trim();
+    if (
+      normalizedMatchId &&
+      matchLockService.isMatchLocked(normalizedMatchId)
+    ) {
+      throw new Error(
+        `Cannot revert period end: match ${
+          normalizedMatchId
+        } is locked for finalization.`,
+      );
+    }
+
     const currentPeriod = periodNumberRef.current;
 
     await db.transaction(
@@ -803,7 +861,7 @@ export const useMatchLifecycle = () => {
     isPeriodActive,
     isInsideStoppage,
     isPeriodEnded,
-    canUndoEndPeriod,
+    canUndoEndPeriod: canUndoEndPeriod && !isMatchLocked,
     globalSequenceNumber,
     periodsCount,
     isLoadingConfig,
