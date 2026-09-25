@@ -179,16 +179,18 @@ export const matchFinalizationService = {
       );
     }
 
-    if (normalizedUserId) {
-      const match = await db.matches.get(normalizedMatchId);
-      if (match?.userId && match.userId !== normalizedUserId) {
-        throw new Error(`Match ${normalizedMatchId} belongs to another user.`);
-      }
-    }
-
     matchLockService.lockMatchForFinalization(normalizedMatchId);
 
     try {
+      if (normalizedUserId) {
+        const match = await db.matches.get(normalizedMatchId);
+        if (match?.userId && match.userId !== normalizedUserId) {
+          throw new Error(
+            `Match ${normalizedMatchId} belongs to another user.`,
+          );
+        }
+      }
+
       // Step 0: Auto-close any active open period or player presence sessions in IndexedDB
       await autoCloseOpenPeriodAndPresences(normalizedMatchId);
 
