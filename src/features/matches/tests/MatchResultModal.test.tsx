@@ -10,6 +10,13 @@ import navigationReducer, {
 import { matchFinalizationService } from "../../../services/matchFinalizationService";
 import { reportService } from "../../../services/reportService";
 
+vi.mock("@auth0/auth0-react", () => ({
+  useAuth0: () => ({
+    user: { sub: "test-user-id", email: "test@example.com" },
+    isAuthenticated: true,
+  }),
+}));
+
 vi.mock("../../../services/matchFinalizationService", () => ({
   matchFinalizationService: {
     finalizeMatch: vi.fn(),
@@ -200,6 +207,7 @@ describe("MatchResultModal Component", () => {
         homeScore: 10,
         guestScore: 8,
         temperature: 24.0,
+        userId: "test-user-id",
       });
     });
 
