@@ -55,7 +55,7 @@ describe("MainDashboard Component", () => {
     mockUser = { email: "coach@tta.com", sub: "auth0|user-coach" };
   });
 
-  it("should render user profile and navigation cards when no unfinished match exists", () => {
+  it("should render user profile and navigation cards when no unfinished match exists", async () => {
     const store = createTestStore();
 
     render(
@@ -66,7 +66,7 @@ describe("MainDashboard Component", () => {
 
     expect(screen.getByText("coach@tta.com")).toBeDefined();
     expect(screen.getByText("TTA Hub Navigation")).toBeDefined();
-    expect(screen.getByText("Quick Start Match")).toBeDefined();
+    expect(await screen.findByText("Quick Start Match")).toBeDefined();
     expect(screen.getByText("My Tracked Matches")).toBeDefined();
     expect(screen.getByText("Tournaments")).toBeDefined();
   });

@@ -47,6 +47,11 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   const [unfinishedMatch, setUnfinishedMatch] = useState<TrackedMatch | null>(
     null,
   );
+  const [checkedUserId, setCheckedUserId] = useState<string | undefined>(
+    undefined,
+  );
+
+  const isCheckingMatch = checkedUserId !== currentUserId;
 
   const [activeOp, setActiveOp] = useState<ActiveOperation | null>(null);
 
@@ -73,6 +78,10 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         }
       } catch (err) {
         console.error("Failed to check unfinished match:", err);
+      } finally {
+        if (isMounted) {
+          setCheckedUserId(currentUserId);
+        }
       }
     };
 
@@ -228,7 +237,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
       </h2>
 
       <div className="space-y-4 flex-1 flex flex-col justify-center">
-        {!activeUnfinishedMatch && (
+        {!isCheckingMatch && !activeUnfinishedMatch && (
           <button
             type="button"
             onClick={() => dispatch(setCurrentView("QUICK_START"))}
