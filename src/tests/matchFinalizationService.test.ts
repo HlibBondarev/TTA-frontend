@@ -161,6 +161,7 @@ describe("matchFinalizationService", () => {
       matchId,
     );
 
+    expect(db.gameevents.where).toHaveBeenCalledWith("matchLineupId");
     const eventsAnyOf = vi.mocked(db.gameevents.where).mock.results[0].value
       .anyOf;
     expect(eventsAnyOf).toHaveBeenCalledWith(["lineup-1"]);
@@ -169,19 +170,25 @@ describe("matchFinalizationService", () => {
       .value.anyOf;
     expect(presencesAnyOf).toHaveBeenCalledWith(["lineup-1"]);
 
-    const anchorsEquals = vi.mocked(db.timeanchors.where).mock.results[0].value
-      .equals;
-    expect(anchorsEquals).toHaveBeenCalledWith(matchId);
+    expect(db.timeanchors.where).toHaveBeenLastCalledWith("matchId");
+    const anchorsEquals = vi.mocked(db.timeanchors.where).mock.results.at(-1)!
+      .value.equals;
+    expect(anchorsEquals).toHaveBeenLastCalledWith(matchId);
 
-    const predicate = vi.mocked(db.syncQueue.filter).mock
-      .calls[0][0] as (item: { endpoint?: unknown }) => boolean;
-    expect(predicate({ endpoint: `/Matches/${matchId}` })).toBe(true);
-    expect(predicate({ endpoint: `/Matches/${matchId}/anchors` })).toBe(true);
-    expect(predicate({ endpoint: `/Matches/${matchId}0/anchors` })).toBe(false);
-    expect(predicate({ endpoint: `/Matches/${otherMatchId}/anchors` })).toBe(
-      false,
-    );
-    expect(predicate({ endpoint: undefined })).toBe(false);
+    const filterCalls = vi.mocked(db.syncQueue.filter).mock.calls;
+    expect(filterCalls).toHaveLength(2);
+    for (const [fn] of filterCalls) {
+      const predicate = fn as (item: { endpoint?: unknown }) => boolean;
+      expect(predicate({ endpoint: `/Matches/${matchId}` })).toBe(true);
+      expect(predicate({ endpoint: `/Matches/${matchId}/anchors` })).toBe(true);
+      expect(predicate({ endpoint: `/Matches/${matchId}0/anchors` })).toBe(
+        false,
+      );
+      expect(predicate({ endpoint: `/Matches/${otherMatchId}/anchors` })).toBe(
+        false,
+      );
+      expect(predicate({ endpoint: undefined })).toBe(false);
+    }
   });
 
   it("should auto-close open active period and active presences in IndexedDB prior to syncQueue flush", async () => {
