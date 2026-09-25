@@ -75,13 +75,10 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         const match = await checkUnfinishedMatch(currentUserId);
         if (isMounted) {
           setUnfinishedMatch(match);
+          setCheckedUserId(currentUserId);
         }
       } catch (err) {
         console.error("Failed to check unfinished match:", err);
-      } finally {
-        if (isMounted) {
-          setCheckedUserId(currentUserId);
-        }
       }
     };
 

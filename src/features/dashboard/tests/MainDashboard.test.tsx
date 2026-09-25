@@ -147,7 +147,7 @@ describe("MainDashboard Component", () => {
     ).toBeDefined();
   });
 
-  it("should handle error when checkUnfinishedMatch rejects", async () => {
+  it("should handle error when checkUnfinishedMatch rejects and keep Quick Start Match hidden", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(checkUnfinishedMatch).mockRejectedValueOnce(
       new Error("DB read error"),
@@ -166,6 +166,8 @@ describe("MainDashboard Component", () => {
         expect.any(Error),
       );
     });
+
+    expect(screen.queryByText("Quick Start Match")).toBeNull();
     consoleSpy.mockRestore();
   });
 
