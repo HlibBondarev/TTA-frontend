@@ -95,20 +95,29 @@ vi.mock("../../../db/ttaDatabase", () => ({
         mockTimeAnchors = mockTimeAnchors.filter((a) => a.id !== id);
         return Promise.resolve();
       }),
-      where: vi.fn().mockReturnValue({
-        equals: vi.fn().mockImplementation((matchIdVal: string) => ({
-          filter: vi
-            .fn()
-            .mockImplementation((predicate: (a: TimeAnchor) => boolean) => ({
-              toArray: vi.fn().mockImplementation(() => {
-                const res = mockTimeAnchors.filter(
-                  (a) => a.matchId === matchIdVal && predicate(a),
-                );
-                return Promise.resolve(res);
-              }),
-            })),
-        })),
-      }),
+      where: vi.fn().mockImplementation(() => ({
+        equals: vi.fn().mockImplementation((matchIdVal: string) => {
+          const cleanId =
+            typeof matchIdVal === "string" ? matchIdVal.trim() : matchIdVal;
+          const matchAnchors = mockTimeAnchors.filter(
+            (a) => a.matchId === cleanId,
+          );
+          return {
+            toArray: vi
+              .fn()
+              .mockImplementation(() => Promise.resolve([...matchAnchors])),
+            filter: vi
+              .fn()
+              .mockImplementation((predicate: (a: TimeAnchor) => boolean) => ({
+                toArray: vi
+                  .fn()
+                  .mockImplementation(() =>
+                    Promise.resolve([...matchAnchors.filter(predicate)]),
+                  ),
+              })),
+          };
+        }),
+      })),
       orderBy: vi.fn().mockReturnValue({
         last: vi.fn().mockResolvedValue(undefined),
       }),
@@ -345,6 +354,40 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
         expect.any(String),
         1,
       );
+    });
+  });
+
+  test("should disable lifecycle action buttons while an async operation is processing (isProcessing)", async () => {
+    let resolveStartWithRoster: () => void = () => {};
+    const pendingPromise = new Promise<void>((resolve) => {
+      resolveStartWithRoster = resolve;
+    });
+
+    vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
+      ...defaultPresenceMock,
+      startPeriodWithRoster: vi.fn().mockImplementation(() => pendingPromise),
+    });
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const startBtn = screen.getByRole("button", { name: "START PERIOD" });
+    await waitFor(() => expect(startBtn).not.toBeDisabled());
+
+    fireEvent.click(startBtn);
+
+    expect(startBtn).toBeDisabled();
+
+    await act(async () => {
+      resolveStartWithRoster();
+    });
+
+    await waitFor(() => {
+      expect(store.getState().match.isPeriodActive).toBe(true);
     });
   });
 
@@ -875,7 +918,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
   });
 
   test("should disable lifecycle buttons when configuration resolution fails with configError", async () => {
-    mockMatches = {}; // Induce lookup error
+    mockMatches = {};
 
     const store = createTestStore();
     render(

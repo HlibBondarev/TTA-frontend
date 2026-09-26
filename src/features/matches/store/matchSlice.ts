@@ -35,6 +35,7 @@ export interface SetPeriodStatePayload {
   isPeriodActive: boolean;
   isInsideStoppage: boolean;
   isPeriodEnded: boolean;
+  periodNumber?: number;
 }
 
 const initialState: MatchState = {
@@ -94,6 +95,12 @@ const matchSlice = createSlice({
       state.isPeriodActive = action.payload.isPeriodActive;
       state.isInsideStoppage = action.payload.isInsideStoppage;
       state.isPeriodEnded = action.payload.isPeriodEnded;
+      if (
+        typeof action.payload.periodNumber === "number" &&
+        action.payload.periodNumber > 0
+      ) {
+        state.periodNumber = action.payload.periodNumber;
+      }
     },
     incrementPeriodNumber(state) {
       if (!state.isPeriodActive) {
