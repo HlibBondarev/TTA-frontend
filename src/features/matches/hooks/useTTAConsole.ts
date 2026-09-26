@@ -23,6 +23,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   const [pendingAction, setPendingAction] = useState<{
     name: string;
     isPositive: boolean;
+    eventDefinitionId?: string;
   } | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [consoleError, setConsoleError] = useState<string | null>(null);
@@ -56,6 +57,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
           selectedPlayerId,
           actionName: pendingAction.name,
           isPositive: pendingAction.isPositive,
+          eventDefinitionId: pendingAction.eventDefinitionId,
           isLeadToGoal: false,
         });
 
@@ -74,9 +76,13 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     }
   };
 
-  const handleActionSelect = (name: string, isPositive: boolean) => {
+  const handleActionSelect = (
+    name: string,
+    isPositive: boolean,
+    eventDefinitionId?: string,
+  ) => {
     setConsoleError(null);
-    setPendingAction({ name, isPositive });
+    setPendingAction({ name, isPositive, eventDefinitionId });
   };
 
   return {

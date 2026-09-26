@@ -19,6 +19,7 @@ export interface RecordGameEventParams {
   actionName: string;
   isPositive: boolean;
   isLeadToGoal: boolean;
+  eventDefinitionId?: string;
 }
 
 export interface UpdateGameEventHookParams {
@@ -78,7 +79,13 @@ export const useGameEvents = (matchId: string, userId?: string) => {
   const recordGameEvent = async (
     params: RecordGameEventParams,
   ): Promise<boolean> => {
-    const { selectedPlayerId, actionName, isPositive, isLeadToGoal } = params;
+    const {
+      selectedPlayerId,
+      actionName,
+      isPositive,
+      isLeadToGoal,
+      eventDefinitionId,
+    } = params;
 
     const normalizedMatchId = matchId?.trim();
     if (!normalizedMatchId) {
@@ -99,18 +106,26 @@ export const useGameEvents = (matchId: string, userId?: string) => {
 
     if (lineup.matchId?.trim() !== normalizedMatchId) {
       throw new Error(
-        `Player lineup ${selectedPlayerId} does not belong to match: ${matchId}`,
+        `Player lineup ${selectedPlayerId} does not belong to match: ${
+          matchId
+        }`,
       );
     }
 
-    const sportId = await resolveSportId(normalizedMatchId);
-    const eventDef = await getEventDefinitionByName(
-      actionName,
-      sportId,
-      currentUserId,
-    );
-    if (!eventDef) {
-      throw new Error(`Event definition not found for action: "${actionName}"`);
+    let resolvedEventDefId = eventDefinitionId;
+    if (!resolvedEventDefId) {
+      const sportId = await resolveSportId(normalizedMatchId);
+      const eventDef = await getEventDefinitionByName(
+        actionName,
+        sportId,
+        currentUserId,
+      );
+      if (!eventDef) {
+        throw new Error(
+          `Event definition not found for action: "${actionName}"`,
+        );
+      }
+      resolvedEventDefId = eventDef.id;
     }
 
     const timestamp = new Date().toISOString();
@@ -119,7 +134,7 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       matchId: normalizedMatchId,
       teamId: normalizedTeamId,
       matchLineupId: lineup.id,
-      eventDefinitionId: eventDef.id,
+      eventDefinitionId: resolvedEventDefId,
       periodNumber,
       eventTimestamp: timestamp,
       isLeadToGoal,
@@ -134,7 +149,7 @@ export const useGameEvents = (matchId: string, userId?: string) => {
         isPositive,
         timestamp,
         matchLineupId: lineup.id,
-        eventDefinitionId: eventDef.id,
+        eventDefinitionId: resolvedEventDefId,
         isLeadToGoal: createdEvent.isLeadToGoal,
         isSynced: createdEvent.isSynced,
       }),
@@ -172,7 +187,9 @@ export const useGameEvents = (matchId: string, userId?: string) => {
 
     if (lineup.matchId?.trim() !== normalizedMatchId) {
       throw new Error(
-        `Player lineup ${selectedPlayerId} does not belong to match: ${matchId}`,
+        `Player lineup ${selectedPlayerId} does not belong to match: ${
+          matchId
+        }`,
       );
     }
 

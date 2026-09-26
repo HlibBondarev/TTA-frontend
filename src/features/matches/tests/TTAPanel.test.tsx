@@ -48,7 +48,6 @@ vi.mock("../../../db/ttaDatabase", () => ({
   },
 }));
 
-// Mock dexie's liveQuery to asynchronously notify observers during unit test execution
 vi.mock("dexie", async (importOriginal) => {
   const actual = await importOriginal<typeof import("dexie")>();
   return {
@@ -217,13 +216,13 @@ describe("TTAPanel Component", () => {
     expect(await screen.findByText("Goal")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Pass"));
-    expect(mockOnActionSelect).toHaveBeenCalledWith("Pass", true);
+    expect(mockOnActionSelect).toHaveBeenCalledWith("Pass", true, "2");
 
     fireEvent.click(screen.getByText("Negative"));
     expect(await screen.findByText("Turnover")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Foul"));
-    expect(mockOnActionSelect).toHaveBeenCalledWith("Foul", false);
+    expect(mockOnActionSelect).toHaveBeenCalledWith("Foul", false, "4");
   });
 
   it("applies selected styling to the active action button", async () => {
