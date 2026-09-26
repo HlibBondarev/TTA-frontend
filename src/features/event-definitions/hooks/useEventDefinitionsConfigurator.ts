@@ -481,9 +481,7 @@ export function useEventDefinitionsConfigurator({
           : "Failed to create custom definition.",
       );
     } finally {
-      if (requestId === requestCountRef.current) {
-        setCreating(false);
-      }
+      setCreating(false);
     }
   };
 
