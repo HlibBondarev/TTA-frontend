@@ -107,12 +107,13 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     act(() => {
-      result.current.handleActionSelect("Shot", true);
+      result.current.handleActionSelect("Shot", true, "def-shot-1");
     });
 
     expect(result.current.pendingAction).toEqual({
       name: "Shot",
       isPositive: true,
+      eventDefinitionId: "def-shot-1",
     });
   });
 
@@ -126,7 +127,7 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     act(() => {
-      result.current.handleActionSelect("Goal", true);
+      result.current.handleActionSelect("Goal", true, "def-goal-1");
       result.current.setSelectedPlayerId("player-7");
     });
 
@@ -138,6 +139,7 @@ describe("useTTAConsole Custom Hook", () => {
       selectedPlayerId: "player-7",
       actionName: "Goal",
       isPositive: true,
+      eventDefinitionId: "def-goal-1",
       isLeadToGoal: false,
     });
 
@@ -159,7 +161,7 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     act(() => {
-      result.current.handleActionSelect("Foul", false);
+      result.current.handleActionSelect("Foul", false, "def-foul-1");
       result.current.setSelectedPlayerId("player-4");
     });
 
@@ -180,13 +182,12 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     act(() => {
-      result.current.handleActionSelect("Goal", true);
+      result.current.handleActionSelect("Goal", true, "def-goal-1");
       result.current.setSelectedPlayerId("player-7");
     });
 
     expect(result.current.pendingAction).not.toBeNull();
 
-    // Simulate period transition
     mockUseMatchLifecycle.mockReturnValue({
       periodNumber: 2,
       isPeriodActive: true,

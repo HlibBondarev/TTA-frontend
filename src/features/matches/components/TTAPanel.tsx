@@ -2,7 +2,11 @@ import React from "react";
 import { useTTAPanel, type UseTTAPanelOptions } from "../hooks/useTTAPanel";
 
 export interface TTAPanelProps extends UseTTAPanelOptions {
-  onActionSelect: (action: string, isPositive: boolean) => void;
+  onActionSelect: (
+    action: string,
+    isPositive: boolean,
+    eventDefinitionId?: string,
+  ) => void;
   selectedAction: string | null;
   disabled: boolean;
 }
@@ -65,7 +69,7 @@ export const TTAPanel: React.FC<TTAPanelProps> = ({
             <button
               type="button"
               key={def.id || def.name}
-              onClick={() => onActionSelect(def.name, isPos)}
+              onClick={() => onActionSelect(def.name, isPos, def.id)}
               disabled={disabled}
               className={`p-2 min-h-11 rounded text-xs font-medium transition-all disabled:cursor-not-allowed ${
                 buttonColorStyle
