@@ -397,8 +397,8 @@ describe("useEventDefinitionsConfigurator", () => {
       }),
     );
     expect(
-      vi.mocked(eventDefinitionService.getAvailableForSport).mock.calls.length,
-    ).toBe(getAvailableCallsBefore);
+      vi.mocked(eventDefinitionService.getAvailableForSport).mock.calls,
+    ).toHaveLength(getAvailableCallsBefore);
 
     expect(result.current.activeTab).toBe("NEGATIVE");
     expect(onPresetModified).toHaveBeenCalled();
