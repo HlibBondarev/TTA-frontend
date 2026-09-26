@@ -420,16 +420,23 @@ export function useEventDefinitionsConfigurator({
       if (requestId !== requestCountRef.current) return;
 
       if (createdResponse?.id && db.eventdefinitions) {
-        const dictionaryRecord: EventDefinitionLookup = {
-          id: createdResponse.id,
-          sportId,
-          name: createdResponse.name ?? newName.trim(),
-          shortName: createdResponse.shortName ?? newShortName.trim(),
-          isPositive: Boolean(createdResponse.isPositive ?? newIsPositive),
-          isCustom: true,
-          ownerId: currentUserId ?? null,
-        };
-        await db.eventdefinitions.put(dictionaryRecord);
+        try {
+          const dictionaryRecord: EventDefinitionLookup = {
+            id: createdResponse.id,
+            sportId,
+            name: createdResponse.name ?? newName.trim(),
+            shortName: createdResponse.shortName ?? newShortName.trim(),
+            isPositive: Boolean(createdResponse.isPositive ?? newIsPositive),
+            isCustom: true,
+            ownerId: currentUserId ?? null,
+          };
+          await db.eventdefinitions.put(dictionaryRecord);
+        } catch (dexieErr) {
+          console.warn(
+            "Failed to persist custom event definition to Dexie:",
+            dexieErr,
+          );
+        }
       }
 
       if (requestId !== requestCountRef.current) return;

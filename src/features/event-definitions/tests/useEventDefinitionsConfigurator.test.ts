@@ -410,6 +410,61 @@ describe("useEventDefinitionsConfigurator", () => {
     expect(addedDef?.isEnabled).toBe(true);
   });
 
+  it("should preserve draft state and call onPresetModified even if Dexie put rejects during creation", async () => {
+    const createdCustomDef = {
+      id: "custom-def-100",
+      sportId: mockSportId,
+      name: "Custom Timeout",
+      shortName: "CTO",
+      isPositive: true,
+      isCustom: true,
+      isEnabled: false,
+      sortOrder: 0,
+    };
+
+    vi.mocked(eventDefinitionService.createCustom).mockResolvedValue(
+      createdCustomDef,
+    );
+    vi.mocked(db.eventdefinitions.put).mockRejectedValueOnce(
+      new Error("Dexie put failed"),
+    );
+    const onPresetModified = vi.fn();
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({
+        sportId: mockSportId,
+        onPresetModified,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setNewName("Custom Timeout");
+      result.current.setNewShortName("CTO");
+      result.current.setNewIsPositive(true);
+    });
+
+    const fakeEvent = {
+      preventDefault: vi.fn(),
+    } as unknown as React.SyntheticEvent<HTMLFormElement>;
+
+    await act(async () => {
+      await result.current.handleCreateCustom(fakeEvent);
+    });
+
+    expect(result.current.modalError).toBeNull();
+    expect(onPresetModified).toHaveBeenCalled();
+
+    const addedDef = result.current.definitions.find(
+      (d) => d.id === "custom-def-100",
+    );
+    expect(addedDef).toBeDefined();
+    expect(addedDef?.isEnabled).toBe(true);
+  });
+
   it("should handle error during custom definition creation", async () => {
     vi.mocked(eventDefinitionService.createCustom).mockRejectedValue(
       new Error("Creation error"),
