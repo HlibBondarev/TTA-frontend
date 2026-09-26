@@ -145,7 +145,7 @@ export function useEventDefinitionsConfigurator({
       const data = await eventDefinitionService.getAvailableForSport(sportId);
       if (requestId !== requestCountRef.current) return;
 
-      const serverMap = new Map(
+      const serverMap = new Map<string, EventDefinitionResponse>(
         data.filter((def) => def.id).map((def) => [def.id as string, def]),
       );
 
@@ -407,14 +407,49 @@ export function useEventDefinitionsConfigurator({
       setCreating(true);
       setModalError(null);
 
-      await eventDefinitionService.createCustom(sportId, {
-        id: crypto.randomUUID(),
-        name: newName.trim(),
-        shortName: newShortName.trim(),
-        isPositive: newIsPositive,
-      });
+      const createdResponse = await eventDefinitionService.createCustom(
+        sportId,
+        {
+          id: crypto.randomUUID(),
+          name: newName.trim(),
+          shortName: newShortName.trim(),
+          isPositive: newIsPositive,
+        },
+      );
 
       if (requestId !== requestCountRef.current) return;
+
+      if (createdResponse?.id && db.eventdefinitions) {
+        const dictionaryRecord: EventDefinitionLookup = {
+          id: createdResponse.id,
+          sportId,
+          name: createdResponse.name ?? newName.trim(),
+          shortName: createdResponse.shortName ?? newShortName.trim(),
+          isPositive: Boolean(createdResponse.isPositive ?? newIsPositive),
+          isCustom: true,
+          ownerId: currentUserId ?? null,
+        };
+        await db.eventdefinitions.put(dictionaryRecord);
+      }
+
+      if (requestId !== requestCountRef.current) return;
+
+      const draftItem: EventDefinitionResponse = {
+        id: createdResponse.id,
+        sportId: createdResponse.sportId ?? sportId,
+        name: createdResponse.name ?? newName.trim(),
+        shortName: createdResponse.shortName ?? newShortName.trim(),
+        isPositive: Boolean(createdResponse.isPositive ?? newIsPositive),
+        isCustom: true,
+        isEnabled: true,
+        sortOrder: 0,
+      };
+
+      const combined = [...definitionsRef.current, draftItem];
+      const reordered = groupDefinitionsByEnabled(combined);
+
+      setDefinitions(reordered);
+      notifyParent(reordered);
 
       setActiveTab(newIsPositive ? "POSITIVE" : "NEGATIVE");
       setNewName("");
@@ -423,7 +458,6 @@ export function useEventDefinitionsConfigurator({
       setModalError(null);
       setIsModalOpen(false);
 
-      await reloadDefinitions();
       onPresetModified?.();
     } catch (err) {
       if (requestId !== requestCountRef.current) return;
@@ -434,7 +468,9 @@ export function useEventDefinitionsConfigurator({
           : "Failed to create custom definition.",
       );
     } finally {
-      setCreating(false);
+      if (requestId === requestCountRef.current) {
+        setCreating(false);
+      }
     }
   };
 

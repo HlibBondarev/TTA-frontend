@@ -3,6 +3,7 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import { useEventDefinitionsConfigurator } from "../hooks/useEventDefinitionsConfigurator";
 import { eventDefinitionService } from "../../../services/eventDefinitionService";
 import { replaceSportEventDefinitionsInDb } from "../../../db/eventService";
+import { db } from "../../../db/ttaDatabase";
 
 let mockAuth0User: { sub?: string; email?: string } | undefined = {
   sub: "auth0|user-123",
@@ -39,7 +40,9 @@ vi.mock("../../../db/eventService", () => ({
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
-    eventdefinitions: {},
+    eventdefinitions: {
+      put: vi.fn().mockResolvedValue("def-custom"),
+    },
   },
 }));
 
@@ -330,11 +333,20 @@ describe("useEventDefinitionsConfigurator", () => {
     expect(result.current.error).toBe("Failed to save user preset.");
   });
 
-  it("should create custom definition with negative flag and switch active tab", async () => {
+  it("should create custom definition with negative flag, persist to Dexie dict, update draft state, and switch active tab without refetching available definitions", async () => {
+    const createdCustomDef = {
+      id: "custom-def-99",
+      sportId: mockSportId,
+      name: "Custom Foul",
+      shortName: "CF",
+      isPositive: false,
+      isCustom: true,
+      isEnabled: false,
+      sortOrder: 0,
+    };
+
     vi.mocked(eventDefinitionService.createCustom).mockResolvedValue(
-      {} as unknown as Awaited<
-        ReturnType<typeof eventDefinitionService.createCustom>
-      >,
+      createdCustomDef,
     );
     const onPresetModified = vi.fn();
 
@@ -348,6 +360,10 @@ describe("useEventDefinitionsConfigurator", () => {
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
     });
+
+    const getAvailableCallsBefore = vi.mocked(
+      eventDefinitionService.getAvailableForSport,
+    ).mock.calls.length;
 
     act(() => {
       result.current.setNewName("Custom Foul");
@@ -371,8 +387,27 @@ describe("useEventDefinitionsConfigurator", () => {
         isPositive: false,
       }),
     );
+
+    expect(db.eventdefinitions.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "custom-def-99",
+        name: "Custom Foul",
+        isPositive: false,
+        isCustom: true,
+      }),
+    );
+    expect(
+      vi.mocked(eventDefinitionService.getAvailableForSport).mock.calls.length,
+    ).toBe(getAvailableCallsBefore);
+
     expect(result.current.activeTab).toBe("NEGATIVE");
     expect(onPresetModified).toHaveBeenCalled();
+
+    const addedDef = result.current.definitions.find(
+      (d) => d.id === "custom-def-99",
+    );
+    expect(addedDef).toBeDefined();
+    expect(addedDef?.isEnabled).toBe(true);
   });
 
   it("should handle error during custom definition creation", async () => {
