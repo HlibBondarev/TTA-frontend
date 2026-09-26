@@ -196,7 +196,10 @@ export function useEventDefinitionsConfigurator({
     const requestId = ++requestCountRef.current;
 
     async function fetchDefinitions() {
-      if (!sportId) return;
+      if (!sportId) {
+        setLoading(false);
+        return;
+      }
       try {
         setLoading(true);
         setDefinitionsReady(false);
