@@ -410,6 +410,47 @@ describe("useEventDefinitionsConfigurator", () => {
     expect(addedDef?.isEnabled).toBe(true);
   });
 
+  it("should fallback to client-generated UUID when server response ID is missing", async () => {
+    vi.mocked(eventDefinitionService.createCustom).mockResolvedValue({
+      id: undefined,
+      sportId: mockSportId,
+      name: "Custom Block",
+      shortName: "CB",
+      isPositive: true,
+      isCustom: true,
+    } as unknown as Awaited<
+      ReturnType<typeof eventDefinitionService.createCustom>
+    >);
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setNewName("Custom Block");
+      result.current.setNewShortName("CB");
+    });
+
+    const fakeEvent = {
+      preventDefault: vi.fn(),
+    } as unknown as React.SyntheticEvent<HTMLFormElement>;
+
+    await act(async () => {
+      await result.current.handleCreateCustom(fakeEvent);
+    });
+
+    const addedDef = result.current.definitions.find(
+      (d) => d.name === "Custom Block",
+    );
+    expect(addedDef).toBeDefined();
+    expect(typeof addedDef?.id).toBe("string");
+    expect(addedDef?.id).not.toBeUndefined();
+  });
+
   it("should preserve draft state and call onPresetModified even if Dexie put rejects during creation", async () => {
     const createdCustomDef = {
       id: "custom-def-100",

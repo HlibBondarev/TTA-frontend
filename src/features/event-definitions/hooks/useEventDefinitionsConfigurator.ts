@@ -407,10 +407,11 @@ export function useEventDefinitionsConfigurator({
       setCreating(true);
       setModalError(null);
 
+      const clientGeneratedId = crypto.randomUUID();
       const createdResponse = await eventDefinitionService.createCustom(
         sportId,
         {
-          id: crypto.randomUUID(),
+          id: clientGeneratedId,
           name: newName.trim(),
           shortName: newShortName.trim(),
           isPositive: newIsPositive,
@@ -419,14 +420,16 @@ export function useEventDefinitionsConfigurator({
 
       if (requestId !== requestCountRef.current) return;
 
-      if (createdResponse?.id && db.eventdefinitions) {
+      const effectiveId = createdResponse?.id ?? clientGeneratedId;
+
+      if (db.eventdefinitions) {
         try {
           const dictionaryRecord: EventDefinitionLookup = {
-            id: createdResponse.id,
+            id: effectiveId,
             sportId,
-            name: createdResponse.name ?? newName.trim(),
-            shortName: createdResponse.shortName ?? newShortName.trim(),
-            isPositive: Boolean(createdResponse.isPositive ?? newIsPositive),
+            name: createdResponse?.name ?? newName.trim(),
+            shortName: createdResponse?.shortName ?? newShortName.trim(),
+            isPositive: Boolean(createdResponse?.isPositive ?? newIsPositive),
             isCustom: true,
             ownerId: currentUserId ?? null,
           };
@@ -442,11 +445,11 @@ export function useEventDefinitionsConfigurator({
       if (requestId !== requestCountRef.current) return;
 
       const draftItem: EventDefinitionResponse = {
-        id: createdResponse.id,
-        sportId: createdResponse.sportId ?? sportId,
-        name: createdResponse.name ?? newName.trim(),
-        shortName: createdResponse.shortName ?? newShortName.trim(),
-        isPositive: Boolean(createdResponse.isPositive ?? newIsPositive),
+        id: effectiveId,
+        sportId: createdResponse?.sportId ?? sportId,
+        name: createdResponse?.name ?? newName.trim(),
+        shortName: createdResponse?.shortName ?? newShortName.trim(),
+        isPositive: Boolean(createdResponse?.isPositive ?? newIsPositive),
         isCustom: true,
         isEnabled: true,
         sortOrder: 0,
