@@ -444,11 +444,6 @@ export const useMatchLifecycle = () => {
     globalSequenceNumber,
   ]);
 
-  const syncRefsWithCurrentState = useCallback(() => {
-    activeMatchIdRef.current = activeMatchId;
-    periodNumberRef.current = periodNumber;
-  }, [activeMatchId, periodNumber]);
-
   const subscribeToMatchLock = useCallback((callback: () => void) => {
     return matchLockService.subscribe(callback);
   }, []);
@@ -490,7 +485,7 @@ export const useMatchLifecycle = () => {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(
-          "[useMatchLifecycle] Configuration Resolution Error:",
+          `[useMatchLifecycle] Configuration Resolution Error:`,
           msg,
         );
         if (isMounted) {
@@ -651,7 +646,6 @@ export const useMatchLifecycle = () => {
   };
 
   const revertStartPeriod = async (anchorId?: string | null) => {
-    syncRefsWithCurrentState();
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (
       normalizedMatchId &&
@@ -685,7 +679,6 @@ export const useMatchLifecycle = () => {
   };
 
   const revertEndPeriod = async (anchorId?: string | null) => {
-    syncRefsWithCurrentState();
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (
       normalizedMatchId &&
@@ -738,7 +731,6 @@ export const useMatchLifecycle = () => {
   const startPeriod = async (
     targetPeriodNumber?: number,
   ): Promise<string | undefined> => {
-    syncRefsWithCurrentState();
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
@@ -800,7 +792,6 @@ export const useMatchLifecycle = () => {
   };
 
   const endPeriod = async (): Promise<EndPeriodResult | undefined> => {
-    syncRefsWithCurrentState();
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
@@ -837,7 +828,6 @@ export const useMatchLifecycle = () => {
   };
 
   const stopTime = async () => {
-    syncRefsWithCurrentState();
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
@@ -869,7 +859,6 @@ export const useMatchLifecycle = () => {
   };
 
   const startTime = async () => {
-    syncRefsWithCurrentState();
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
@@ -901,7 +890,6 @@ export const useMatchLifecycle = () => {
   };
 
   const autoCloseActivePeriod = async (): Promise<string | undefined> => {
-    syncRefsWithCurrentState();
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId || !isPeriodActiveRef.current) return;
 
