@@ -108,19 +108,44 @@ describe("matchSlice Reducers", () => {
     expect(stateEnded.isPeriodEnded).toBe(true);
   });
 
-  it("should handle setPeriodStatePayload to explicitly sync period flags", () => {
+  it("should handle setPeriodStatePayload to explicitly sync period flags and period number", () => {
     const nextState = matchReducer(
       initialState,
       setPeriodStatePayload({
         isPeriodActive: false,
         isInsideStoppage: false,
         isPeriodEnded: true,
+        periodNumber: 2,
       }),
     );
 
     expect(nextState.isPeriodActive).toBe(false);
     expect(nextState.isInsideStoppage).toBe(false);
     expect(nextState.isPeriodEnded).toBe(true);
+    expect(nextState.periodNumber).toBe(2);
+  });
+
+  it("should ignore invalid or undefined periodNumber in setPeriodStatePayload", () => {
+    const nextStateWithoutNumber = matchReducer(
+      { ...initialState, periodNumber: 2 },
+      setPeriodStatePayload({
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        isPeriodEnded: false,
+      }),
+    );
+    expect(nextStateWithoutNumber.periodNumber).toBe(2);
+
+    const nextStateWithInvalidNumber = matchReducer(
+      { ...initialState, periodNumber: 2 },
+      setPeriodStatePayload({
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        isPeriodEnded: false,
+        periodNumber: 0,
+      }),
+    );
+    expect(nextStateWithInvalidNumber.periodNumber).toBe(2);
   });
 
   it("should handle period number navigation safely", () => {

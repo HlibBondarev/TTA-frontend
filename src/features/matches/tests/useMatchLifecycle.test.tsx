@@ -87,6 +87,27 @@ const seedAnchorsFromState = (matchState: Partial<MatchState> = {}) => {
   }
 };
 
+const createWhereEqualsMock = () =>
+  vi.fn().mockImplementation((matchIdVal: string) => {
+    const cleanId =
+      typeof matchIdVal === "string" ? matchIdVal.trim() : matchIdVal;
+    const matchAnchors = mockTimeAnchors.filter((a) => a.matchId === cleanId);
+    return {
+      toArray: vi
+        .fn()
+        .mockImplementation(() => Promise.resolve([...matchAnchors])),
+      filter: vi
+        .fn()
+        .mockImplementation((predicate: (a: TimeAnchor) => boolean) => ({
+          toArray: vi
+            .fn()
+            .mockImplementation(() =>
+              Promise.resolve([...matchAnchors.filter(predicate)]),
+            ),
+        })),
+    };
+  });
+
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
     matches: {
@@ -113,20 +134,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
         mockTimeAnchors = mockTimeAnchors.filter((a) => a.id !== id);
         return Promise.resolve();
       }),
-      where: vi.fn().mockReturnValue({
-        equals: vi.fn().mockImplementation((matchIdVal: string) => ({
-          filter: vi
-            .fn()
-            .mockImplementation((predicate: (a: TimeAnchor) => boolean) => ({
-              toArray: vi.fn().mockImplementation(() => {
-                const res = mockTimeAnchors.filter(
-                  (a) => a.matchId === matchIdVal && predicate(a),
-                );
-                return Promise.resolve(res);
-              }),
-            })),
-        })),
-      }),
+      where: vi.fn().mockImplementation(() => ({
+        equals: createWhereEqualsMock(),
+      })),
       orderBy: vi.fn().mockImplementation((field: string) => ({
         last: vi.fn().mockImplementation(() => {
           if (field === "sequenceNumber" && mockTimeAnchors.length > 0) {
@@ -273,18 +283,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     vi.mocked(db.timeanchors.where).mockImplementation(
       () =>
         ({
-          equals: vi.fn().mockImplementation((matchIdVal: string) => ({
-            filter: vi
-              .fn()
-              .mockImplementation((predicate: (a: TimeAnchor) => boolean) => ({
-                toArray: vi.fn().mockImplementation(() => {
-                  const res = mockTimeAnchors.filter(
-                    (a) => a.matchId === matchIdVal && predicate(a),
-                  );
-                  return Promise.resolve(res);
-                }),
-              })),
-          })),
+          equals: createWhereEqualsMock(),
         }) as unknown as ReturnType<typeof db.timeanchors.where>,
     );
 
@@ -458,6 +457,176 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     });
   });
 
+  describe("Automatic Period State Hydration", () => {
+    test("should automatically resolve and hydrate the maximum period and its active state from timeanchors on mount", async () => {
+      const store = createTestStore({
+        periodNumber: 1,
+        isPeriodActive: false,
+        isPeriodEnded: false,
+      });
+
+      mockTimeAnchors = [
+        {
+          id: "p1-start",
+          matchId: "test-match-id",
+          periodNumber: 1,
+          type: 0,
+          timestamp: "2020-01-01T10:00:00Z",
+          sequenceNumber: 1,
+          isSynced: 1,
+        },
+        {
+          id: "p1-end",
+          matchId: "test-match-id",
+          periodNumber: 1,
+          type: 1,
+          timestamp: "2020-01-01T10:10:00Z",
+          sequenceNumber: 2,
+          isSynced: 1,
+        },
+        {
+          id: "p2-start",
+          matchId: "test-match-id",
+          periodNumber: 2,
+          type: 0,
+          timestamp: "2020-01-01T10:15:00Z",
+          sequenceNumber: 3,
+          isSynced: 0,
+        },
+      ];
+
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.periodNumber).toBe(2);
+        expect(result.current.isPeriodActive).toBe(true);
+        expect(result.current.isPeriodEnded).toBe(false);
+      });
+
+      expect(store.getState().match.periodNumber).toBe(2);
+      expect(store.getState().match.isPeriodActive).toBe(true);
+    });
+
+    test("should synchronize period state flags when periodNumber changes during navigation", async () => {
+      mockTimeAnchors = [
+        {
+          id: "p1-start",
+          matchId: "test-match-id",
+          periodNumber: 1,
+          type: 0,
+          timestamp: "2020-01-01T10:00:00Z",
+          sequenceNumber: 1,
+          isSynced: 1,
+        },
+        {
+          id: "p1-end",
+          matchId: "test-match-id",
+          periodNumber: 1,
+          type: 1,
+          timestamp: "2020-01-01T10:10:00Z",
+          sequenceNumber: 2,
+          isSynced: 1,
+        },
+      ];
+
+      const store = createTestStore({
+        periodNumber: 1,
+        isPeriodActive: false,
+        isPeriodEnded: true,
+      });
+
+      const { result, rerender } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }: { children: React.ReactNode }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.periodNumber).toBe(1);
+        expect(result.current.isPeriodEnded).toBe(true);
+      });
+
+      mockTimeAnchors.push({
+        id: "p2-start",
+        matchId: "test-match-id",
+        periodNumber: 2,
+        type: 0,
+        timestamp: "2020-01-01T10:15:00Z",
+        sequenceNumber: 3,
+        isSynced: 0,
+      });
+
+      act(() => {
+        result.current.nextPeriod();
+      });
+      rerender();
+
+      await waitFor(() => {
+        expect(result.current.periodNumber).toBe(2);
+        expect(result.current.isPeriodActive).toBe(true);
+        expect(result.current.isPeriodEnded).toBe(false);
+      });
+    });
+
+    test("should defer marking match as synced until initial max period resolution completes across consecutive sync calls", async () => {
+      const store = createTestStore({
+        periodNumber: 1,
+        isPeriodActive: false,
+        isPeriodEnded: false,
+      });
+
+      mockTimeAnchors = [
+        {
+          id: "p1-start",
+          matchId: "test-match-id",
+          periodNumber: 1,
+          type: 0,
+          timestamp: "2020-01-01T10:00:00Z",
+          sequenceNumber: 1,
+          isSynced: 1,
+        },
+        {
+          id: "p1-end",
+          matchId: "test-match-id",
+          periodNumber: 1,
+          type: 1,
+          timestamp: "2020-01-01T10:10:00Z",
+          sequenceNumber: 2,
+          isSynced: 1,
+        },
+        {
+          id: "p2-start",
+          matchId: "test-match-id",
+          periodNumber: 2,
+          type: 0,
+          timestamp: "2020-01-01T10:15:00Z",
+          sequenceNumber: 3,
+          isSynced: 0,
+        },
+      ];
+
+      const { result, rerender } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }: { children: React.ReactNode }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      // Trigger immediate re-render to simulate React 18 duplicate effect execution
+      rerender();
+
+      await waitFor(() => {
+        expect(result.current.periodNumber).toBe(2);
+        expect(result.current.isPeriodActive).toBe(true);
+      });
+
+      expect(store.getState().match.periodNumber).toBe(2);
+    });
+  });
+
   describe("Dynamic SportConfiguration Periods Count Resolution", () => {
     test("should dynamically resolve periodsCount from IndexedDB for active match", async () => {
       const store = createTestStore();
@@ -531,7 +700,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
 
       expect(result.current.periodsCount).toBeNull();
       expect(result.current.configError).toContain(
-        "Match with ID 'missing-match-id' not found",
+        `Match with ID '${"missing-match-id"}' not found`,
       );
 
       expect(() => result.current.isFinalPeriod(1)).toThrow(
@@ -758,6 +927,10 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
     let anchorId: string | undefined;
     await act(async () => {
       anchorId = await result.current.startPeriod(2);
@@ -817,9 +990,23 @@ describe("useMatchLifecycle Hook & State Machine", () => {
         }),
       }));
 
-    vi.mocked(db.timeanchors.where).mockReturnValue({
-      equals: vi.fn().mockReturnValue({ filter: filterMock }),
-    } as unknown as ReturnType<typeof db.timeanchors.where>);
+    vi.mocked(db.timeanchors.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockImplementation((matchIdVal: string) => ({
+            toArray: vi.fn().mockImplementation(() => {
+              callCount++;
+              if (callCount === 1) {
+                return syncQueryPromise;
+              }
+              return Promise.resolve(
+                mockTimeAnchors.filter((a) => a.matchId === matchIdVal),
+              );
+            }),
+            filter: filterMock,
+          })),
+        }) as unknown as ReturnType<typeof db.timeanchors.where>,
+    );
 
     const store = createTestStore({
       periodNumber: 1,
@@ -852,20 +1039,16 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
-    await expect(
-      act(async () => {
-        await result.current.startPeriod();
-      }),
-    ).rejects.toThrow(
+    const startPromise = result.current.startPeriod();
+
+    resolveSyncQuery(mockTimeAnchors);
+
+    await expect(startPromise).rejects.toThrow(
       "Cannot start period: period is already active or ended.",
     );
 
     expect(mockTimeAnchors.filter((a) => a.type === 0)).toHaveLength(1);
     expect(store.getState().match.isPeriodActive).toBe(false);
-
-    await act(async () => {
-      resolveSyncQuery(mockTimeAnchors);
-    });
   });
 
   test("should end a period, set isPeriodEnded=true and push item to syncQueue", async () => {
@@ -1119,7 +1302,6 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       expect(result.current.isLoadingConfig).toBe(false);
     });
 
-    // 1. startPeriod failure
     await expect(
       act(async () => {
         await result.current.startPeriod();
@@ -1129,7 +1311,6 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(store.getState().match.isPeriodEnded).toBe(false);
     expect(store.getState().match.globalSequenceNumber).toBe(initialSeq);
 
-    // Set state & anchor for endPeriod and stopTime tests
     act(() => {
       store.dispatch({ type: "match/startPeriodState" });
     });
@@ -1145,7 +1326,6 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       },
     ];
 
-    // 2. endPeriod failure
     await expect(
       act(async () => {
         await result.current.endPeriod();
@@ -1154,7 +1334,6 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(store.getState().match.isPeriodActive).toBe(true);
     expect(store.getState().match.globalSequenceNumber).toBe(initialSeq);
 
-    // 3. stopTime failure
     await expect(
       act(async () => {
         await result.current.stopTime();
@@ -1163,7 +1342,6 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(store.getState().match.isInsideStoppage).toBe(false);
     expect(store.getState().match.globalSequenceNumber).toBe(initialSeq);
 
-    // Set stoppage state and anchors for startTime test
     act(() => {
       store.dispatch({ type: "match/startStoppageState" });
     });
@@ -1177,7 +1355,6 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       isSynced: 0,
     });
 
-    // 4. startTime failure
     await expect(
       act(async () => {
         await result.current.startTime();
@@ -1230,12 +1407,12 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     act(() => {
       store.dispatch(
         setPeriodStatePayload({
-          isPeriodActive: false,
+          periodNumber: 2,
+          isPeriodActive: true,
           isInsideStoppage: false,
           isPeriodEnded: false,
         }),
       );
-      result.current.nextPeriod();
     });
     rerender();
 
@@ -1287,12 +1464,12 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     act(() => {
       store.dispatch(
         setPeriodStatePayload({
-          isPeriodActive: false,
+          periodNumber: 2,
+          isPeriodActive: true,
           isInsideStoppage: false,
           isPeriodEnded: false,
         }),
       );
-      result.current.nextPeriod();
     });
     rerender();
 
@@ -1342,8 +1519,25 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       endPromise = result.current.endPeriod();
     });
 
+    mockTimeAnchors.push({
+      id: "p2-start-anchor-ignore-test",
+      matchId: "test-match-id",
+      periodNumber: 2,
+      type: 0,
+      timestamp: "2020-01-01T10:20:00Z",
+      sequenceNumber: 10,
+      isSynced: 0,
+    });
+
     act(() => {
-      result.current.nextPeriod();
+      store.dispatch(
+        setPeriodStatePayload({
+          periodNumber: 2,
+          isPeriodActive: true,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+        }),
+      );
     });
     rerender();
 
@@ -1355,7 +1549,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     });
 
     expect(store.getState().match.periodNumber).toBe(2);
-    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.isPeriodActive).toBe(true);
   });
 
   test("should stop the timer (stoppage start) and start the timer (stoppage end) properly", async () => {
@@ -1581,36 +1775,54 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       resolveFirstQuery = resolve;
     });
 
-    const filterMock = vi
-      .fn()
-      .mockImplementation((predicate: (a: TimeAnchor) => boolean) => {
-        const isPeriod1Query = mockTimeAnchors.some(
-          (a) => a.periodNumber === 1 && predicate(a),
-        );
-        if (isPeriod1Query) {
-          return { toArray: () => firstQueryPromise };
-        }
-        return {
-          toArray: () =>
-            Promise.resolve(
-              mockTimeAnchors.filter(
-                (a) => a.matchId === "test-match-id" && predicate(a),
-              ),
-            ),
-        };
-      });
-
-    vi.mocked(db.timeanchors.where).mockReturnValue({
-      equals: vi.fn().mockReturnValue({ filter: filterMock }),
-    } as unknown as ReturnType<typeof db.timeanchors.where>);
+    let callCount = 0;
+    vi.mocked(db.timeanchors.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockImplementation(() => {
+            callCount++;
+            if (callCount === 1) {
+              return {
+                toArray: vi.fn().mockImplementation(() => firstQueryPromise),
+                filter: vi
+                  .fn()
+                  .mockImplementation(
+                    (predicate?: (a: TimeAnchor) => boolean) => ({
+                      toArray: vi
+                        .fn()
+                        .mockImplementation(() =>
+                          firstQueryPromise.then((anchors) =>
+                            predicate ? anchors.filter(predicate) : anchors,
+                          ),
+                        ),
+                    }),
+                  ),
+              };
+            }
+            return {
+              toArray: vi.fn().mockResolvedValue([]),
+              filter: vi.fn().mockReturnValue({
+                toArray: vi.fn().mockResolvedValue([]),
+              }),
+            };
+          }),
+        }) as unknown as ReturnType<typeof db.timeanchors.where>,
+    );
 
     const store = createTestStore({ periodNumber: 1, isPeriodActive: false });
-    const { result, rerender } = renderHook(() => useMatchLifecycle(), {
+    const { rerender } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
     act(() => {
-      result.current.nextPeriod();
+      store.dispatch(
+        setPeriodStatePayload({
+          periodNumber: 2,
+          isPeriodActive: false,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+        }),
+      );
     });
     rerender();
 
@@ -1668,8 +1880,25 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       endPromise = result.current.endPeriod();
     });
 
+    mockTimeAnchors.push({
+      id: "p2-start-anchor-delayed-test",
+      matchId: "test-match-id",
+      periodNumber: 2,
+      type: 0,
+      timestamp: "2020-01-01T10:20:00Z",
+      sequenceNumber: 10,
+      isSynced: 0,
+    });
+
     act(() => {
-      result.current.nextPeriod();
+      store.dispatch(
+        setPeriodStatePayload({
+          periodNumber: 2,
+          isPeriodActive: true,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+        }),
+      );
     });
     rerender();
 
@@ -1681,7 +1910,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     });
 
     expect(store.getState().match.periodNumber).toBe(2);
-    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.isPeriodActive).toBe(true);
   });
 
   test("should roll back transaction and preserve ended state when playerpresences update fails inside revertEndPeriod", async () => {
@@ -1978,6 +2207,10 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
     await expect(
       act(async () => {
         await result.current.startPeriod(2);
@@ -2015,7 +2248,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     });
 
     expect(consoleSpy).toHaveBeenCalledWith(
-      "[useMatchLifecycle] Tournament fallback fetch failed for 'failed-tourn-id':",
+      `[useMatchLifecycle] Tournament fallback fetch failed for '${"failed-tourn-id"}':`,
       expect.any(Error),
     );
 
@@ -2071,13 +2304,11 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(store.getState().match.isPeriodActive).toBe(false);
     expect(store.getState().match.isInsideStoppage).toBe(false);
     expect(store.getState().match.isPeriodEnded).toBe(true);
-    // Sequence should increment twice: +1 for startTime (StoppageEnd) and +1 for endPeriod (PeriodEnd)
     expect(store.getState().match.globalSequenceNumber).toBe(initialSeq + 2);
   });
 
   test("should preserve post-stoppage-end globalSequenceNumber if endPeriod fails during autoCloseActivePeriod", async () => {
     let callCount = 0;
-    // Fail only on second transaction call (endPeriod)
     vi.mocked(db.transaction).mockImplementation(((...args: unknown[]) => {
       callCount++;
       if (callCount === 2) {
@@ -2110,8 +2341,6 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       }),
     ).rejects.toThrow("IndexedDB failure on PeriodEnd anchor");
 
-    // startTime succeeded (isInsideStoppage: false, sequence: initialSeq + 1)
-    // endPeriod failed and rolled back sequence to post-startTime state (initialSeq + 1)
     expect(store.getState().match.isInsideStoppage).toBe(false);
     expect(store.getState().match.isPeriodActive).toBe(true);
     expect(store.getState().match.globalSequenceNumber).toBe(initialSeq + 1);
@@ -2144,5 +2373,75 @@ describe("useMatchLifecycle Hook & State Machine", () => {
 
     expect(store.getState().match.isPeriodEnded).toBe(true);
     expect(store.getState().match.isPeriodActive).toBe(false);
+  });
+
+  test("should abort autoCloseActivePeriod without calling endPeriod if match context changes during startTime", async () => {
+    let resolveStartTime: () => void = () => {};
+    const startTimePromise = new Promise<void>((resolve) => {
+      resolveStartTime = resolve;
+    });
+
+    vi.mocked(db.transaction).mockImplementation(((...args: unknown[]) => {
+      const cb = args[args.length - 1];
+      if (typeof cb === "function") {
+        return startTimePromise.then(() => cb()) as ReturnType<
+          typeof db.transaction
+        >;
+      }
+      return Promise.resolve() as ReturnType<typeof db.transaction>;
+    }) as unknown as typeof db.transaction);
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: true,
+      isInsideStoppage: true,
+    });
+
+    const { result, rerender } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
+    let autoClosePromise!: Promise<string | undefined>;
+    act(() => {
+      autoClosePromise = result.current.autoCloseActivePeriod();
+    });
+
+    // Seed Period 2 start anchor so background auto-sync evaluates period 2 as active
+    mockTimeAnchors.push({
+      id: "p2-start-anchor",
+      matchId: "test-match-id",
+      periodNumber: 2,
+      type: 0,
+      timestamp: "2020-01-01T10:20:00Z",
+      sequenceNumber: 10,
+      isSynced: 0,
+    });
+
+    // Simulate period change in Redux while startTime is still in-flight
+    act(() => {
+      store.dispatch(
+        setPeriodStatePayload({
+          periodNumber: 2,
+          isPeriodActive: true,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+        }),
+      );
+    });
+    rerender();
+
+    await act(async () => {
+      resolveStartTime();
+      const endAnchorId = await autoClosePromise;
+      expect(endAnchorId).toBeUndefined();
+    });
+
+    // Ensure endPeriod was not called for the new period
+    expect(store.getState().match.periodNumber).toBe(2);
+    expect(store.getState().match.isPeriodActive).toBe(true);
   });
 });

@@ -29,7 +29,6 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
     revertEndPeriod,
     stopTime,
     startTime,
-    prevPeriod,
     syncPeriodStateWithDB,
   } = useMatchLifecycle();
 
@@ -46,9 +45,12 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
   } = usePlayerPresence(activeMatchId);
 
   const [panelError, setPanelError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
 
   const handleStartPeriod = async (targetPeriod?: number) => {
+    if (isProcessing) return;
     setPanelError(null);
+
     if (selectedStartingIds.length !== activePlayersLimit) {
       setPanelError(`Select exactly ${activePlayersLimit} players.`);
       return;
@@ -58,6 +60,7 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
     let anchorId: string | null | undefined = null;
 
     try {
+      setIsProcessing(true);
       anchorId = await startPeriod(targetPeriod);
       await startPeriodWithRoster(new Date().toISOString(), effectivePeriod);
     } catch (err) {
@@ -66,25 +69,26 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
         if (anchorId) {
           await revertStartPeriod(anchorId);
         }
-        if (targetPeriod && targetPeriod > 1) {
-          prevPeriod();
-          if (activeMatchId) {
-            await syncPeriodStateWithDB(activeMatchId, targetPeriod - 1);
-          }
+        if (activeMatchId) {
+          await syncPeriodStateWithDB(activeMatchId);
         }
-        await refreshPresenceFromDB(effectivePeriod);
+        await refreshPresenceFromDB();
         setPanelError("Failed to start period. Transaction fully reverted.");
       } catch (compensationErr) {
         console.error("Compensation failed:", compensationErr);
         setPanelError("Failed to start period. Compensation incomplete.");
       }
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handleEndPeriod = async () => {
+    if (isProcessing) return;
     setPanelError(null);
     let anchorId: string | null | undefined = null;
     try {
+      setIsProcessing(true);
       const endResult = await endPeriod();
       anchorId = endResult?.anchorId;
 
@@ -105,23 +109,32 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
         console.error("Compensation failed:", compensationErr);
         setPanelError("Failed to end period. Compensation incomplete.");
       }
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handleUndoEndPeriod = async () => {
+    if (isProcessing) return;
     setPanelError(null);
     try {
+      setIsProcessing(true);
       await revertEndPeriod();
       await refreshPresenceFromDB(periodNumber);
     } catch (err) {
       console.error("Failed to undo end period:", err);
       setPanelError("Failed to undo end period.");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const displayError = panelError || configError;
   const isConfigDisabled =
-    isLoadingConfig || periodsCount === null || Boolean(configError);
+    isLoadingConfig ||
+    periodsCount === null ||
+    Boolean(configError) ||
+    isProcessing;
   const hasReachedMaxPeriods =
     periodsCount !== null && periodNumber >= periodsCount;
   const hasMatchStarted = periodNumber > 1 || isPeriodActive || isPeriodEnded;

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useCallback,
   useRef,
   useState,
@@ -419,6 +420,31 @@ export const useMatchLifecycle = () => {
   const [configError, setConfigError] = useState<string | null>(null);
   const [isResultModalOpen, setIsResultModalOpen] = useState<boolean>(false);
 
+  const syncRequestIdRef = useRef(0);
+  const lastSyncedMatchIdRef = useRef<string | null>(null);
+  const activeMatchIdRef = useRef(activeMatchId);
+  const periodNumberRef = useRef(periodNumber);
+  const isPeriodActiveRef = useRef(isPeriodActive);
+  const isInsideStoppageRef = useRef(isInsideStoppage);
+  const isPeriodEndedRef = useRef(isPeriodEnded);
+  const globalSequenceNumberRef = useRef(globalSequenceNumber);
+
+  useLayoutEffect(() => {
+    activeMatchIdRef.current = activeMatchId;
+    periodNumberRef.current = periodNumber;
+    isPeriodActiveRef.current = isPeriodActive;
+    isInsideStoppageRef.current = isInsideStoppage;
+    isPeriodEndedRef.current = isPeriodEnded;
+    globalSequenceNumberRef.current = globalSequenceNumber;
+  }, [
+    activeMatchId,
+    periodNumber,
+    isPeriodActive,
+    isInsideStoppage,
+    isPeriodEnded,
+    globalSequenceNumber,
+  ]);
+
   const subscribeToMatchLock = useCallback((callback: () => void) => {
     return matchLockService.subscribe(callback);
   }, []);
@@ -435,31 +461,6 @@ export const useMatchLifecycle = () => {
     () => false,
   );
 
-  const syncRequestIdRef = useRef(0);
-  const activeMatchIdRef = useRef(activeMatchId);
-  const periodNumberRef = useRef(periodNumber);
-  const isPeriodActiveRef = useRef(isPeriodActive);
-  const isInsideStoppageRef = useRef(isInsideStoppage);
-  const isPeriodEndedRef = useRef(isPeriodEnded);
-  const globalSequenceNumberRef = useRef(globalSequenceNumber);
-
-  useEffect(() => {
-    activeMatchIdRef.current = activeMatchId;
-    periodNumberRef.current = periodNumber;
-    isPeriodActiveRef.current = isPeriodActive;
-    isInsideStoppageRef.current = isInsideStoppage;
-    isPeriodEndedRef.current = isPeriodEnded;
-    globalSequenceNumberRef.current = globalSequenceNumber;
-  }, [
-    activeMatchId,
-    periodNumber,
-    isPeriodActive,
-    isInsideStoppage,
-    isPeriodEnded,
-    globalSequenceNumber,
-  ]);
-
-  // Strict Dynamic Period Resolution from Dexie IndexedDB
   useEffect(() => {
     let isMounted = true;
 
@@ -485,7 +486,7 @@ export const useMatchLifecycle = () => {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(
-          "[useMatchLifecycle] Configuration Resolution Error:",
+          `[useMatchLifecycle] Configuration Resolution Error:`,
           msg,
         );
         if (isMounted) {
@@ -525,7 +526,8 @@ export const useMatchLifecycle = () => {
       return (
         !!norm &&
         norm === activeMatchIdRef.current?.trim() &&
-        targetPeriodNumber === periodNumberRef.current
+        (targetPeriodNumber === undefined ||
+          targetPeriodNumber === periodNumberRef.current)
       );
     },
     [],
@@ -552,29 +554,79 @@ export const useMatchLifecycle = () => {
       const targetMatchId = (
         overrideMatchId ?? activeMatchIdRef.current
       )?.trim();
-      const targetPeriodNumber =
-        overridePeriodNumber ?? periodNumberRef.current;
+      const requestPeriodNumber = periodNumberRef.current;
 
       if (!targetMatchId || !db?.timeanchors) return;
 
       try {
-        const anchors = await db.timeanchors
+        const allAnchors = await db.timeanchors
           .where("matchId")
           .equals(targetMatchId)
-          .filter((a) => a.periodNumber === targetPeriodNumber)
           .toArray();
 
         if (
-          currentRequestId === syncRequestIdRef.current &&
-          targetMatchId === activeMatchIdRef.current?.trim() &&
-          targetPeriodNumber === periodNumberRef.current
+          currentRequestId !== syncRequestIdRef.current ||
+          targetMatchId !== activeMatchIdRef.current?.trim() ||
+          (overridePeriodNumber !== undefined &&
+            overridePeriodNumber !== periodNumberRef.current) ||
+          (overridePeriodNumber === undefined &&
+            requestPeriodNumber !== periodNumberRef.current)
         ) {
-          const computedState = calculatePeriodState(anchors);
-          isPeriodActiveRef.current = computedState.isPeriodActive;
-          isInsideStoppageRef.current = computedState.isInsideStoppage;
-          isPeriodEndedRef.current = computedState.isPeriodEnded;
-          dispatch(setPeriodStatePayload(computedState));
+          return;
         }
+
+        let resolvedPeriodNumber = 1;
+        let periodAnchors: TimeAnchor[] = [];
+
+        const isMatchSwitch = lastSyncedMatchIdRef.current !== targetMatchId;
+
+        if (overridePeriodNumber !== undefined) {
+          resolvedPeriodNumber = overridePeriodNumber;
+          periodAnchors = allAnchors.filter(
+            (a) => a.periodNumber === resolvedPeriodNumber,
+          );
+        } else if (allAnchors.length > 0) {
+          const maxPeriod = Math.max(...allAnchors.map((a) => a.periodNumber));
+          resolvedPeriodNumber = isMatchSwitch
+            ? maxPeriod
+            : Math.max(requestPeriodNumber, maxPeriod);
+
+          periodAnchors = allAnchors.filter(
+            (a) => a.periodNumber === resolvedPeriodNumber,
+          );
+        } else {
+          resolvedPeriodNumber = isMatchSwitch
+            ? 1
+            : Math.max(1, requestPeriodNumber);
+          periodAnchors = [];
+        }
+
+        const computedState = calculatePeriodState(periodAnchors);
+
+        if (
+          currentRequestId !== syncRequestIdRef.current ||
+          targetMatchId !== activeMatchIdRef.current?.trim() ||
+          (overridePeriodNumber !== undefined &&
+            overridePeriodNumber !== periodNumberRef.current) ||
+          (overridePeriodNumber === undefined &&
+            requestPeriodNumber !== periodNumberRef.current)
+        ) {
+          return;
+        }
+
+        periodNumberRef.current = resolvedPeriodNumber;
+        isPeriodActiveRef.current = computedState.isPeriodActive;
+        isInsideStoppageRef.current = computedState.isInsideStoppage;
+        isPeriodEndedRef.current = computedState.isPeriodEnded;
+
+        lastSyncedMatchIdRef.current = targetMatchId;
+
+        dispatch(
+          setPeriodStatePayload({
+            ...computedState,
+            periodNumber: resolvedPeriodNumber,
+          }),
+        );
       } catch (err) {
         console.error(
           "Failed to sync period state with IndexedDB timeanchors:",
@@ -586,7 +638,17 @@ export const useMatchLifecycle = () => {
   );
 
   useEffect(() => {
-    void syncPeriodStateWithDB();
+    const normalizedMatchId = activeMatchId?.trim() || null;
+    const isMatchChange = lastSyncedMatchIdRef.current !== normalizedMatchId;
+
+    if (isMatchChange) {
+      if (!normalizedMatchId) {
+        lastSyncedMatchIdRef.current = null;
+      }
+      void syncPeriodStateWithDB();
+    } else {
+      void syncPeriodStateWithDB(normalizedMatchId ?? undefined, periodNumber);
+    }
   }, [activeMatchId, periodNumber, syncPeriodStateWithDB]);
 
   const logTimeAnchor = async (
@@ -607,6 +669,7 @@ export const useMatchLifecycle = () => {
   };
 
   const revertStartPeriod = async (anchorId?: string | null) => {
+    ++syncRequestIdRef.current;
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (
       normalizedMatchId &&
@@ -640,6 +703,7 @@ export const useMatchLifecycle = () => {
   };
 
   const revertEndPeriod = async (anchorId?: string | null) => {
+    ++syncRequestIdRef.current;
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (
       normalizedMatchId &&
@@ -692,6 +756,7 @@ export const useMatchLifecycle = () => {
   const startPeriod = async (
     targetPeriodNumber?: number,
   ): Promise<string | undefined> => {
+    ++syncRequestIdRef.current;
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
@@ -714,6 +779,7 @@ export const useMatchLifecycle = () => {
     const currentPeriod = targetPeriodNumber ?? periodNumberRef.current;
     if (targetPeriodNumber && targetPeriodNumber !== periodNumberRef.current) {
       dispatch(incrementPeriodNumber());
+      periodNumberRef.current = targetPeriodNumber;
     }
 
     isPeriodActiveRef.current = true;
@@ -731,6 +797,7 @@ export const useMatchLifecycle = () => {
       if (isCurrentContext(normalizedMatchId, currentPeriod)) {
         if (targetPeriodNumber && targetPeriodNumber !== priorPeriod) {
           dispatch(decrementPeriodNumber());
+          periodNumberRef.current = priorPeriod;
         }
         isPeriodActiveRef.current = false;
         isPeriodEndedRef.current = priorIsPeriodEnded;
@@ -739,6 +806,7 @@ export const useMatchLifecycle = () => {
             isPeriodActive: false,
             isInsideStoppage: false,
             isPeriodEnded: priorIsPeriodEnded,
+            periodNumber: priorPeriod,
           }),
         );
         dispatch(setGlobalSequenceNumber(priorSequence));
@@ -750,6 +818,7 @@ export const useMatchLifecycle = () => {
   };
 
   const endPeriod = async (): Promise<EndPeriodResult | undefined> => {
+    ++syncRequestIdRef.current;
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
@@ -786,6 +855,7 @@ export const useMatchLifecycle = () => {
   };
 
   const stopTime = async () => {
+    ++syncRequestIdRef.current;
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
@@ -817,6 +887,7 @@ export const useMatchLifecycle = () => {
   };
 
   const startTime = async () => {
+    ++syncRequestIdRef.current;
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (!normalizedMatchId) {
       throw new Error("No active match ID found for logging time anchor.");
@@ -849,10 +920,14 @@ export const useMatchLifecycle = () => {
 
   const autoCloseActivePeriod = async (): Promise<string | undefined> => {
     const normalizedMatchId = activeMatchIdRef.current?.trim();
+    const currentPeriod = periodNumberRef.current;
     if (!normalizedMatchId || !isPeriodActiveRef.current) return;
 
     if (isInsideStoppageRef.current) {
       await startTime();
+      if (!isCurrentContext(normalizedMatchId, currentPeriod)) {
+        return;
+      }
     }
     const endRes = await endPeriod();
     return endRes?.anchorId;
