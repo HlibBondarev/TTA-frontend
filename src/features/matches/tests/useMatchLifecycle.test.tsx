@@ -576,6 +576,60 @@ describe("useMatchLifecycle Hook & State Machine", () => {
         expect(result.current.isPeriodEnded).toBe(false);
       });
     });
+
+    test("should defer marking match as synced until initial max period resolution completes across consecutive sync calls", async () => {
+      const store = createTestStore({
+        periodNumber: 1,
+        isPeriodActive: false,
+        isPeriodEnded: false,
+      });
+
+      mockTimeAnchors = [
+        {
+          id: "p1-start",
+          matchId: "test-match-id",
+          periodNumber: 1,
+          type: 0,
+          timestamp: "2020-01-01T10:00:00Z",
+          sequenceNumber: 1,
+          isSynced: 1,
+        },
+        {
+          id: "p1-end",
+          matchId: "test-match-id",
+          periodNumber: 1,
+          type: 1,
+          timestamp: "2020-01-01T10:10:00Z",
+          sequenceNumber: 2,
+          isSynced: 1,
+        },
+        {
+          id: "p2-start",
+          matchId: "test-match-id",
+          periodNumber: 2,
+          type: 0,
+          timestamp: "2020-01-01T10:15:00Z",
+          sequenceNumber: 3,
+          isSynced: 0,
+        },
+      ];
+
+      const { result, rerender } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }: { children: React.ReactNode }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      // Trigger immediate re-render to simulate React 18 duplicate effect execution
+      rerender();
+
+      await waitFor(() => {
+        expect(result.current.periodNumber).toBe(2);
+        expect(result.current.isPeriodActive).toBe(true);
+      });
+
+      expect(store.getState().match.periodNumber).toBe(2);
+    });
   });
 
   describe("Dynamic SportConfiguration Periods Count Resolution", () => {
@@ -876,6 +930,10 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     const store = createTestStore({ periodNumber: 1, isPeriodEnded: true });
     const { result } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
     });
 
     let anchorId: string | undefined;
@@ -2152,6 +2210,10 @@ describe("useMatchLifecycle Hook & State Machine", () => {
 
     const { result } = renderHook(() => useMatchLifecycle(), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
     });
 
     await expect(
