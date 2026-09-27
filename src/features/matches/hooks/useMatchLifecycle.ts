@@ -421,6 +421,7 @@ export const useMatchLifecycle = () => {
   const [isResultModalOpen, setIsResultModalOpen] = useState<boolean>(false);
 
   const syncRequestIdRef = useRef(0);
+  const lastSyncedMatchIdRef = useRef<string | null>(null);
   const activeMatchIdRef = useRef(activeMatchId);
   const periodNumberRef = useRef(periodNumber);
   const isPeriodActiveRef = useRef(isPeriodActive);
@@ -625,8 +626,16 @@ export const useMatchLifecycle = () => {
   );
 
   useEffect(() => {
-    void syncPeriodStateWithDB();
-  }, [activeMatchId, syncPeriodStateWithDB]);
+    const normalizedMatchId = activeMatchId?.trim() || null;
+    const isMatchChange = lastSyncedMatchIdRef.current !== normalizedMatchId;
+
+    if (isMatchChange) {
+      lastSyncedMatchIdRef.current = normalizedMatchId;
+      void syncPeriodStateWithDB();
+    } else {
+      void syncPeriodStateWithDB(normalizedMatchId ?? undefined, periodNumber);
+    }
+  }, [activeMatchId, periodNumber, syncPeriodStateWithDB]);
 
   const logTimeAnchor = async (
     type: number,

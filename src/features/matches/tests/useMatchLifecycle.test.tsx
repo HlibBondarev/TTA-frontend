@@ -510,6 +510,72 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       expect(store.getState().match.periodNumber).toBe(2);
       expect(store.getState().match.isPeriodActive).toBe(true);
     });
+
+    test("should synchronize period state flags when periodNumber changes during navigation", async () => {
+      mockTimeAnchors = [
+        {
+          id: "p1-start",
+          matchId: "test-match-id",
+          periodNumber: 1,
+          type: 0,
+          timestamp: "2020-01-01T10:00:00Z",
+          sequenceNumber: 1,
+          isSynced: 1,
+        },
+        {
+          id: "p1-end",
+          matchId: "test-match-id",
+          periodNumber: 1,
+          type: 1,
+          timestamp: "2020-01-01T10:10:00Z",
+          sequenceNumber: 2,
+          isSynced: 1,
+        },
+        {
+          id: "p2-start",
+          matchId: "test-match-id",
+          periodNumber: 2,
+          type: 0,
+          timestamp: "2020-01-01T10:15:00Z",
+          sequenceNumber: 3,
+          isSynced: 0,
+        },
+      ];
+
+      const store = createTestStore({
+        periodNumber: 1,
+        isPeriodActive: false,
+        isPeriodEnded: true,
+      });
+
+      const { result, rerender } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isPeriodEnded).toBe(true);
+      });
+
+      act(() => {
+        store.dispatch(
+          setPeriodStatePayload({
+            periodNumber: 2,
+            isPeriodActive: true,
+            isInsideStoppage: false,
+            isPeriodEnded: false,
+          }),
+        );
+      });
+      rerender();
+
+      await waitFor(() => {
+        expect(result.current.periodNumber).toBe(2);
+        expect(result.current.isPeriodActive).toBe(true);
+        expect(result.current.isPeriodEnded).toBe(false);
+      });
+    });
   });
 
   describe("Dynamic SportConfiguration Periods Count Resolution", () => {
@@ -1414,7 +1480,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       store.dispatch(
         setPeriodStatePayload({
           periodNumber: 2,
-          isPeriodActive: false,
+          isPeriodActive: true,
           isInsideStoppage: false,
           isPeriodEnded: false,
         }),
@@ -1430,7 +1496,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     });
 
     expect(store.getState().match.periodNumber).toBe(2);
-    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.isPeriodActive).toBe(true);
   });
 
   test("should stop the timer (stoppage start) and start the timer (stoppage end) properly", async () => {
@@ -1775,7 +1841,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       store.dispatch(
         setPeriodStatePayload({
           periodNumber: 2,
-          isPeriodActive: false,
+          isPeriodActive: true,
           isInsideStoppage: false,
           isPeriodEnded: false,
         }),
@@ -1791,7 +1857,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     });
 
     expect(store.getState().match.periodNumber).toBe(2);
-    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.isPeriodActive).toBe(true);
   });
 
   test("should roll back transaction and preserve ended state when playerpresences update fails inside revertEndPeriod", async () => {
