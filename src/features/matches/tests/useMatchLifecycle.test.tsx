@@ -531,15 +531,6 @@ describe("useMatchLifecycle Hook & State Machine", () => {
           sequenceNumber: 2,
           isSynced: 1,
         },
-        {
-          id: "p2-start",
-          matchId: "test-match-id",
-          periodNumber: 2,
-          type: 0,
-          timestamp: "2020-01-01T10:15:00Z",
-          sequenceNumber: 3,
-          isSynced: 0,
-        },
       ];
 
       const store = createTestStore({
@@ -549,24 +540,28 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       });
 
       const { result, rerender } = renderHook(() => useMatchLifecycle(), {
-        wrapper: ({ children }) => (
+        wrapper: ({ children }: { children: React.ReactNode }) => (
           <Provider store={store}>{children}</Provider>
         ),
       });
 
       await waitFor(() => {
+        expect(result.current.periodNumber).toBe(1);
         expect(result.current.isPeriodEnded).toBe(true);
       });
 
+      mockTimeAnchors.push({
+        id: "p2-start",
+        matchId: "test-match-id",
+        periodNumber: 2,
+        type: 0,
+        timestamp: "2020-01-01T10:15:00Z",
+        sequenceNumber: 3,
+        isSynced: 0,
+      });
+
       act(() => {
-        store.dispatch(
-          setPeriodStatePayload({
-            periodNumber: 2,
-            isPeriodActive: true,
-            isInsideStoppage: false,
-            isPeriodEnded: false,
-          }),
-        );
+        result.current.nextPeriod();
       });
       rerender();
 
