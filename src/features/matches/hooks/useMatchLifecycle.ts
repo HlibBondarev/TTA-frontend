@@ -900,11 +900,14 @@ export const useMatchLifecycle = () => {
 
   const autoCloseActivePeriod = async (): Promise<string | undefined> => {
     const normalizedMatchId = activeMatchIdRef.current?.trim();
+    const currentPeriod = periodNumberRef.current;
     if (!normalizedMatchId || !isPeriodActiveRef.current) return;
 
     if (isInsideStoppageRef.current) {
       await startTime();
-      isInsideStoppageRef.current = false;
+      if (!isCurrentContext(normalizedMatchId, currentPeriod)) {
+        return;
+      }
     }
     const endRes = await endPeriod();
     return endRes?.anchorId;

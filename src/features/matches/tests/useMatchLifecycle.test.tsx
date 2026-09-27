@@ -2317,4 +2317,74 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(store.getState().match.isPeriodEnded).toBe(true);
     expect(store.getState().match.isPeriodActive).toBe(false);
   });
+
+  test("should abort autoCloseActivePeriod without calling endPeriod if match context changes during startTime", async () => {
+    let resolveStartTime: () => void = () => {};
+    const startTimePromise = new Promise<void>((resolve) => {
+      resolveStartTime = resolve;
+    });
+
+    vi.mocked(db.transaction).mockImplementation(((...args: unknown[]) => {
+      const cb = args[args.length - 1];
+      if (typeof cb === "function") {
+        return startTimePromise.then(() => cb()) as ReturnType<
+          typeof db.transaction
+        >;
+      }
+      return Promise.resolve() as ReturnType<typeof db.transaction>;
+    }) as unknown as typeof db.transaction);
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: true,
+      isInsideStoppage: true,
+    });
+
+    const { result, rerender } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
+    });
+
+    let autoClosePromise!: Promise<string | undefined>;
+    act(() => {
+      autoClosePromise = result.current.autoCloseActivePeriod();
+    });
+
+    // Seed Period 2 start anchor so background auto-sync evaluates period 2 as active
+    mockTimeAnchors.push({
+      id: "p2-start-anchor",
+      matchId: "test-match-id",
+      periodNumber: 2,
+      type: 0,
+      timestamp: "2020-01-01T10:20:00Z",
+      sequenceNumber: 10,
+      isSynced: 0,
+    });
+
+    // Simulate period change in Redux while startTime is still in-flight
+    act(() => {
+      store.dispatch(
+        setPeriodStatePayload({
+          periodNumber: 2,
+          isPeriodActive: true,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+        }),
+      );
+    });
+    rerender();
+
+    await act(async () => {
+      resolveStartTime();
+      const endAnchorId = await autoClosePromise;
+      expect(endAnchorId).toBeUndefined();
+    });
+
+    // Ensure endPeriod was not called for the new period
+    expect(store.getState().match.periodNumber).toBe(2);
+    expect(store.getState().match.isPeriodActive).toBe(true);
+  });
 });
