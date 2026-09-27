@@ -578,6 +578,8 @@ export const useMatchLifecycle = () => {
         let resolvedPeriodNumber = 1;
         let periodAnchors: TimeAnchor[] = [];
 
+        const isMatchSwitch = lastSyncedMatchIdRef.current !== targetMatchId;
+
         if (overridePeriodNumber !== undefined) {
           resolvedPeriodNumber = overridePeriodNumber;
           periodAnchors = allAnchors.filter(
@@ -585,10 +587,18 @@ export const useMatchLifecycle = () => {
           );
         } else if (allAnchors.length > 0) {
           const maxPeriod = Math.max(...allAnchors.map((a) => a.periodNumber));
-          resolvedPeriodNumber = Math.max(1, maxPeriod);
+          resolvedPeriodNumber = isMatchSwitch
+            ? maxPeriod
+            : Math.max(requestPeriodNumber, maxPeriod);
+
           periodAnchors = allAnchors.filter(
             (a) => a.periodNumber === resolvedPeriodNumber,
           );
+        } else {
+          resolvedPeriodNumber = isMatchSwitch
+            ? 1
+            : Math.max(1, requestPeriodNumber);
+          periodAnchors = [];
         }
 
         const computedState = calculatePeriodState(periodAnchors);
