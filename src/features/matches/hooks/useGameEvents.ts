@@ -7,7 +7,6 @@ import {
   deleteRecentAction,
 } from "../store/matchSlice";
 import {
-  getEventDefinitionByName,
   createGameEventTx,
   updateGameEventTx,
   deleteGameEventTx,
@@ -19,7 +18,7 @@ export interface RecordGameEventParams {
   actionName: string;
   isPositive: boolean;
   isLeadToGoal: boolean;
-  eventDefinitionId?: string;
+  eventDefinitionId: string;
 }
 
 export interface UpdateGameEventHookParams {
@@ -28,7 +27,7 @@ export interface UpdateGameEventHookParams {
   actionName: string;
   isPositive: boolean;
   isLeadToGoal: boolean;
-  eventDefinitionId?: string;
+  eventDefinitionId: string;
 }
 
 export const useGameEvents = (matchId: string, userId?: string) => {
@@ -112,22 +111,9 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       );
     }
 
-    let resolvedEventDefId = eventDefinitionId;
-    if (!resolvedEventDefId) {
-      const sportId = await resolveSportId(normalizedMatchId);
-      const eventDef = await getEventDefinitionByName(
-        actionName,
-        sportId,
-        currentUserId,
-      );
-      if (!eventDef) {
-        throw new Error(
-          `Event definition not found for action: "${actionName}"`,
-        );
-      }
-      resolvedEventDefId = eventDef.id;
-    }
+    await resolveSportId(normalizedMatchId);
 
+    const resolvedEventDefId = eventDefinitionId;
     const timestamp = new Date().toISOString();
 
     const createdEvent = await createGameEventTx({
@@ -194,21 +180,7 @@ export const useGameEvents = (matchId: string, userId?: string) => {
     }
 
     const sportId = await resolveSportId(normalizedMatchId);
-
-    let resolvedEventDefId = eventDefinitionId;
-    if (!resolvedEventDefId) {
-      const eventDef = await getEventDefinitionByName(
-        actionName,
-        sportId,
-        currentUserId,
-      );
-      if (!eventDef) {
-        throw new Error(
-          `Event definition not found for action: "${actionName}"`,
-        );
-      }
-      resolvedEventDefId = eventDef.id;
-    }
+    const resolvedEventDefId = eventDefinitionId;
 
     const updatedEvent = await updateGameEventTx({
       eventId,

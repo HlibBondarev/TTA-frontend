@@ -14,10 +14,7 @@ import presenceReducer from "../../playerpresences/store/presenceSlice";
 import uiReducer from "../../../store/slices/uiSlice";
 import navigationReducer from "../../../store/slices/navigationSlice";
 import { db } from "../../../db/ttaDatabase";
-import {
-  getEventDefinitionByName,
-  createGameEventTx,
-} from "../../../db/eventService";
+import { createGameEventTx } from "../../../db/eventService";
 
 interface MockPresenceProps {
   setSelectedPlayerId: (id: string | null) => void;
@@ -122,7 +119,6 @@ vi.mock("dexie", async (importOriginal) => {
 });
 
 vi.mock("../../../db/eventService", () => ({
-  getEventDefinitionByName: vi.fn(),
   createGameEventTx: vi.fn(),
   clearEventDefinitionsCache: vi.fn(),
   isSportHydratedForUser: vi.fn().mockReturnValue(true),
@@ -197,14 +193,6 @@ describe("TTAConsole Component", () => {
       tournamentId: "t-1",
       createdAt: "",
       positionId: "",
-    });
-
-    vi.mocked(getEventDefinitionByName).mockResolvedValue({
-      id: "def-pass",
-      sportId: "sport-1",
-      name: "Pass",
-      shortName: "PS",
-      isPositive: true,
     });
 
     vi.mocked(createGameEventTx).mockResolvedValue({

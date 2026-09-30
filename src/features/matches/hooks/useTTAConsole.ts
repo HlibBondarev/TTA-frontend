@@ -23,7 +23,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   const [pendingAction, setPendingAction] = useState<{
     name: string;
     isPositive: boolean;
-    eventDefinitionId?: string;
+    eventDefinitionId: string;
   } | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [consoleError, setConsoleError] = useState<string | null>(null);
@@ -49,7 +49,13 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   };
 
   const handleEnter = async () => {
-    if (pendingAction && selectedPlayerId && activeMatchId && !isSubmitting) {
+    if (
+      pendingAction &&
+      pendingAction.eventDefinitionId &&
+      selectedPlayerId &&
+      activeMatchId &&
+      !isSubmitting
+    ) {
       setIsSubmitting(true);
       setConsoleError(null);
       try {
@@ -82,6 +88,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     eventDefinitionId?: string,
   ) => {
     setConsoleError(null);
+    if (!eventDefinitionId) return;
     setPendingAction({ name, isPositive, eventDefinitionId });
   };
 

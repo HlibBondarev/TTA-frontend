@@ -234,32 +234,6 @@ export const saveEventDefinitionsToDb = async (
   );
 };
 
-/**
- * Resolves an event definition strictly within the specified sport context.
- * Returns undefined if sportId is missing to prevent cross-sport definition collisions.
- */
-export const getEventDefinitionByName = async (
-  actionName: string,
-  sportId?: string,
-  userId?: string,
-): Promise<EventDefinitionLookup | undefined> => {
-  if (!sportId) return undefined;
-
-  const normalizedName = actionName.trim().toLowerCase();
-  const cache = await loadEventDefinitionsCache(sportId, userId);
-  const cachedDef = cache.get(normalizedName);
-  if (cachedDef) return cachedDef;
-
-  const candidates = await db.eventdefinitions
-    .where("sportId")
-    .equals(sportId)
-    .toArray();
-
-  return candidates.find(
-    (def) => def.name.trim().toLowerCase() === normalizedName,
-  );
-};
-
 export const getNextSequenceNumber = async (): Promise<number> => {
   const lastEvent = await db.gameevents.orderBy("sequenceNumber").last();
   const lastAnchor = await db.timeanchors.orderBy("sequenceNumber").last();

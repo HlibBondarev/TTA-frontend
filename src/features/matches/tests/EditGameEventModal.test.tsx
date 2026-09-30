@@ -53,7 +53,6 @@ vi.mock("../../../db/ttaDatabase", () => ({
 
 vi.mock("../../../db/eventService", () => ({
   updateGameEventTx: vi.fn(),
-  getEventDefinitionByName: vi.fn(),
 }));
 
 const createStore = () =>
@@ -168,7 +167,7 @@ describe("EditGameEventModal Component", () => {
       <Provider store={store}>
         <EditGameEventModal
           isOpen={true}
-          action={sampleAction} // action with isLeadToGoal: true
+          action={sampleAction}
           matchId="match-1"
           onClose={mockOnClose}
         />
@@ -188,7 +187,6 @@ describe("EditGameEventModal Component", () => {
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
-      expect(eventService.getEventDefinitionByName).not.toHaveBeenCalled();
       expect(eventService.updateGameEventTx).toHaveBeenCalledWith({
         eventId: "action-123",
         matchLineupId: "lineup-2",
@@ -221,7 +219,7 @@ describe("EditGameEventModal Component", () => {
       <Provider store={store}>
         <EditGameEventModal
           isOpen={true}
-          action={sampleAction} // action with isLeadToGoal: true and actionName: "Pass"
+          action={sampleAction}
           matchId="match-1"
           onClose={mockOnClose}
         />
