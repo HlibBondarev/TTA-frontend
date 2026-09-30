@@ -143,7 +143,7 @@ export const EventDefinitionsConfigurator: React.FC<
       <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
         {activeCategoryDefs.length === 0 ? (
           <p className="text-xs text-gray-500 italic text-center py-4">
-            No ${activeTab.toLowerCase()} definitions available.
+            No {activeTab.toLowerCase()} definitions available.
           </p>
         ) : (
           activeCategoryDefs.map((def, catIndex) => {
