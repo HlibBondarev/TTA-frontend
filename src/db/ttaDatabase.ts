@@ -1,0 +1,194 @@
+import Dexie, { type Table } from "dexie";
+
+export interface SportLookup {
+  id: string;
+  name: string;
+  shortName: string;
+  defaultConfigId: string;
+}
+
+export interface PlayerLookup {
+  id: string;
+  homeClubId: string;
+  firstName: string;
+  lastName: string;
+  birthDate: string;
+  gender: number;
+  createdAt: string;
+}
+
+export interface PlayerRosterLookup {
+  id: string;
+  playerId: string;
+  tournamentId: string;
+  teamId: string;
+  number: number;
+  positionId: string;
+  createdAt: string;
+}
+
+export interface TeamLookup {
+  id: string;
+  clubId: string;
+  sportId: string;
+  name: string;
+  minBirthYear: number | null;
+  gender: number;
+  createdAt: string;
+}
+
+export interface TournamentLookup {
+  id: string;
+  sportId: string;
+  configurationId: string;
+  cityId: string;
+  ownerId: string;
+  name: string;
+  startDate: string;
+  endDate: string | null;
+  createdAt: string;
+}
+
+export interface SportConfigurationLookup {
+  id: string;
+  sportId: string;
+  usesCleanTime: boolean;
+  periodsCount: number;
+  periodDurationMinutes: number;
+  fieldSize: string;
+  rosterLimit: number;
+  lineupLimit: number;
+  activePlayersLimit: number;
+}
+
+export interface MatchLookup {
+  id: string;
+  tournamentId: string;
+  homeTeamId: string;
+  guestTeamId: string;
+  scheduledAt: string;
+  matchNumber: string | null;
+  venue: string | null;
+  temperature: number | null;
+  homeScore: number | null;
+  guestScore: number | null;
+  createdAt: string;
+  userId?: string;
+  trackedTeamId?: string;
+  selectedTeamId?: string;
+}
+
+export interface TrackedMatch extends MatchLookup {
+  trackedTeamId?: string;
+  selectedTeamId?: string;
+}
+
+export interface MatchLineupLookup {
+  id: string;
+  matchId: string;
+  playerRosterId: string | null;
+  number: number;
+  positionId: string | null;
+}
+
+export interface EventDefinitionLookup {
+  id: string;
+  sportId: string;
+  name: string;
+  shortName: string;
+  isPositive: boolean;
+  isCustom?: boolean;
+  ownerId?: string | null;
+}
+
+export interface UserEventPresetLookup {
+  userId: string;
+  eventDefinitionId: string;
+  sportId: string;
+  sortOrder: number;
+  isEnabled: boolean;
+  createdAt?: string;
+}
+
+export interface GameEvent {
+  id: string;
+  matchLineupId: string;
+  eventDefinitionId: string;
+  periodNumber: number;
+  eventTimestamp: string;
+  isLeadToGoal: boolean;
+  createdAt: string;
+  sequenceNumber: number;
+  isSynced: number;
+}
+
+export interface TimeAnchor {
+  id: string;
+  matchId: string;
+  periodNumber: number;
+  type: number;
+  timestamp: string;
+  sequenceNumber: number;
+  isSynced: number;
+}
+
+export interface PlayerPresence {
+  id: string;
+  matchLineupId: string;
+  periodNumber: number;
+  timeIn: string;
+  timeOut: string | null;
+  sequenceNumber: number;
+  isSynced: number;
+}
+
+export interface SyncQueueItem {
+  id?: number;
+  actionType: "POST" | "PUT" | "DELETE";
+  endpoint: string;
+  payload: string;
+  createdAt: string;
+}
+
+export class TTADatabase extends Dexie {
+  sports!: Table<SportLookup, string>;
+  players!: Table<PlayerLookup, string>;
+  playerrosters!: Table<PlayerRosterLookup, string>;
+  teams!: Table<TeamLookup, string>;
+  matches!: Table<MatchLookup, string>;
+  matchlineups!: Table<MatchLineupLookup, string>;
+  eventdefinitions!: Table<EventDefinitionLookup, string>;
+  usereventpresets!: Table<UserEventPresetLookup, [string, string]>;
+  gameevents!: Table<GameEvent, string>;
+  timeanchors!: Table<TimeAnchor, string>;
+  playerpresences!: Table<PlayerPresence, string>;
+  syncQueue!: Table<SyncQueueItem, number>;
+  tournaments!: Table<TournamentLookup, string>;
+  sportconfigurations!: Table<SportConfigurationLookup, string>;
+
+  constructor() {
+    super("TTADatabase");
+
+    this.version(1).stores({
+      sports: "id, name, shortName",
+      players: "id, homeClubId, lastName",
+      playerrosters: "id, playerId, tournamentId, teamId, number",
+      teams: "id, clubId, sportId",
+      matches: "id, tournamentId, homeTeamId, guestTeamId, scheduledAt, userId",
+      matchlineups: "id, matchId, playerRosterId, number",
+      eventdefinitions: "id, sportId, shortName, ownerId",
+      usereventpresets:
+        "[userId+eventDefinitionId], userId, sportId, eventDefinitionId, [userId+sportId]",
+      gameevents:
+        "id, matchLineupId, eventDefinitionId, periodNumber, sequenceNumber, isSynced",
+      timeanchors: "id, matchId, periodNumber, sequenceNumber, isSynced",
+      playerpresences:
+        "id, matchLineupId, periodNumber, [matchLineupId+periodNumber], sequenceNumber, isSynced",
+      syncQueue: "++id, actionType, createdAt",
+      tournaments: "id, sportId, configurationId",
+      sportconfigurations: "id, sportId",
+    });
+  }
+}
+
+export const db = new TTADatabase();

@@ -1,0 +1,251 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { apiClient, ApiError } from "../api/client";
+import * as tokenService from "../services/tokenService";
+
+describe("API Client", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("adds Authorization header when token is resolved via tokenService", async () => {
+    vi.spyOn(tokenService, "getAuthToken").mockResolvedValue("service-token");
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ success: true }),
+    } as Response);
+
+    await apiClient.get("test-endpoint");
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/test-endpoint",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer service-token",
+          "Content-Type": "application/json",
+        }),
+      }),
+    );
+  });
+
+  it("uses custom explicit token if provided in options", async () => {
+    const getAuthTokenSpy = vi
+      .spyOn(tokenService, "getAuthToken")
+      .mockResolvedValue("service-token");
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ success: true }),
+    } as Response);
+
+    await apiClient.get("/test-endpoint", { token: "explicit-token" });
+
+    expect(getAuthTokenSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/test-endpoint",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer explicit-token",
+        }),
+      }),
+    );
+  });
+
+  it("returns empty object on 204 No Content response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 204,
+    } as Response);
+
+    const res = await apiClient.delete("/resource/1");
+    expect(res).toEqual({});
+  });
+
+  it("returns empty object on 200 OK response with empty body text", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => "",
+    } as Response);
+
+    const res = await apiClient.get("/empty-200");
+    expect(res).toEqual({});
+  });
+
+  it("throws error with status property on non-ok HTTP response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+    } as Response);
+
+    await expect(apiClient.get("/not-found")).rejects.toMatchObject({
+      message: "API Request failed: 404 Not Found",
+      status: 404,
+    });
+  });
+
+  it("executes post, put, and delete convenience methods with correct HTTP methods and bodies", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ success: true }),
+    } as Response);
+
+    await apiClient.post("events", { name: "goal" });
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      "/api/events",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ name: "goal" }),
+      }),
+    );
+
+    await apiClient.put("events/1", { name: "foul" });
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      "/api/events/1",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ name: "foul" }),
+      }),
+    );
+
+    await apiClient.delete("events/1");
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      "/api/events/1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("combines external AbortSignal with timeout signal properly", async () => {
+    const externalController = new AbortController();
+    const abortError = new Error("Caller cancelled request");
+    abortError.name = "AbortError";
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url, options) => {
+      const signal = options?.signal as AbortSignal;
+      expect(signal).toBeDefined();
+
+      // If signal is already aborted prior to fetch execution, reject immediately
+      if (signal?.aborted) {
+        return Promise.reject(signal.reason);
+      }
+
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      });
+    });
+
+    const request = apiClient.get("test-signal", {
+      signal: externalController.signal,
+    });
+
+    externalController.abort(abortError);
+
+    await expect(request).rejects.toBe(abortError);
+  });
+
+  it("handles aborted request errors gracefully and throws AbortError", async () => {
+    const abortError = new Error("The operation was aborted");
+    abortError.name = "AbortError";
+
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(abortError);
+
+    await expect(apiClient.get("aborted-endpoint")).rejects.toThrow(
+      "The operation was aborted",
+    );
+  });
+
+  it("throws ApiError containing problemDetails and detail message on RFC 7807 Problem Details response", async () => {
+    const problemPayload = {
+      title: "Status 409",
+      status: 409,
+      detail:
+        "An active custom event definition with this name already exists for the sport.",
+      instance: "POST /api/Sports/123/event-definitions/custom",
+      traceId: "0HNOLORBPJ827:00000001",
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 409,
+      statusText: "Conflict",
+      text: async () => JSON.stringify(problemPayload),
+    } as Response);
+
+    const promise = apiClient.get("/test-conflict");
+
+    await expect(promise).rejects.toThrow(
+      "An active custom event definition with this name already exists for the sport.",
+    );
+    await expect(promise).rejects.toBeInstanceOf(ApiError);
+    await expect(promise).rejects.toMatchObject({
+      status: 409,
+      problemDetails: problemPayload,
+    });
+  });
+
+  it("uses title as error message if detail field is missing in Problem Details payload", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      text: async () => JSON.stringify({ title: "Validation failed" }),
+    } as Response);
+
+    await expect(apiClient.get("/test-bad-request")).rejects.toThrow(
+      "Validation failed",
+    );
+  });
+
+  it("uses trimmed plain text with HTTP status when response is non-JSON text", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 409,
+      statusText: "Conflict",
+      text: async () => "  Match has already been finalized  ",
+    } as Response);
+
+    await expect(apiClient.post("/matches/1/finalize")).rejects.toMatchObject({
+      message:
+        "API Request failed: 409 Conflict - Match has already been finalized",
+      status: 409,
+    });
+  });
+
+  it("strips HTML tags and includes HTTP status when response is HTML", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      text: async () => "<html><body><h1>Server Error</h1></body></html>",
+    } as Response);
+
+    await expect(apiClient.get("/server-error")).rejects.toMatchObject({
+      message: "API Request failed: 500 Internal Server Error - Server Error",
+      status: 500,
+    });
+  });
+
+  it("uses JSON text with HTTP status when JSON yields no title or detail", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 409,
+      statusText: "Conflict",
+      text: async () => JSON.stringify({ code: "ALREADY_EXISTS" }),
+    } as Response);
+
+    await expect(apiClient.post("/matches/1/finalize")).rejects.toMatchObject({
+      message: 'API Request failed: 409 Conflict - {"code":"ALREADY_EXISTS"}',
+      status: 409,
+    });
+  });
+});

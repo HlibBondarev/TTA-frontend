@@ -1,0 +1,55 @@
+name: Frontend CI Pipeline
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  validate:
+    name: Build, Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Clone the repository onto the runner
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required for SonarCloud analysis accuracy
+
+      # Step 2: Enable PNPM package manager (must be placed before setup-node for caching)
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      # Step 3: Install Node.js environment & enable native PNPM cache
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      # Step 4: Install locked production & development packages
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Step 5: Check code compliance using ESLint rules
+      - name: Run Linter
+        run: pnpm lint
+
+      # Step 6: Compile TypeScript to verify types are correct
+      - name: Compile TypeScript
+        run: pnpm build
+
+      # Step 7: Run Vitest with coverage report output
+      - name: Run Unit Tests & Generate Coverage
+        run: pnpm test:coverage
+
+      # Step 8: Trigger static code analysis via SonarCloud
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
