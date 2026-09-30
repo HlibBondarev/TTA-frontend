@@ -158,4 +158,19 @@ describe("EventDefinitionsConfigurator Component", () => {
       1,
     );
   });
+
+  it("should trigger handleCancelDefaultPreset when pressing Escape in zero-action modal", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isConfirmZeroModalOpen: true,
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
+
+    expect(defaultHookReturn.handleCancelDefaultPreset).toHaveBeenCalledTimes(
+      1,
+    );
+  });
 });
