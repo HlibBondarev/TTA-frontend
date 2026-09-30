@@ -80,6 +80,7 @@ export function useEventDefinitionsConfigurator({
   const [error, setError] = useState<string | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isConfirmZeroModalOpen, setIsConfirmZeroModalOpen] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newShortName, setNewShortName] = useState("");
@@ -365,14 +366,20 @@ export function useEventDefinitionsConfigurator({
 
   const handleSavePreset = async () => {
     if (isLocked || !definitionsReady) return;
+
+    const activeIds = definitions
+      .filter((def) => def.isEnabled && def.id)
+      .map((def) => def.id as string);
+
+    if (activeIds.length === 0) {
+      setIsConfirmZeroModalOpen(true);
+      return;
+    }
+
     const requestId = requestCountRef.current;
     try {
       setSaving(true);
       setError(null);
-
-      const activeIds = definitions
-        .filter((def) => def.isEnabled && def.id)
-        .map((def) => def.id as string);
 
       await eventDefinitionService.savePreset(sportId, {
         eventDefinitionIds: activeIds,
@@ -396,6 +403,15 @@ export function useEventDefinitionsConfigurator({
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleConfirmDefaultPreset = () => {
+    setIsConfirmZeroModalOpen(false);
+    onPresetSaved?.();
+  };
+
+  const handleCancelDefaultPreset = () => {
+    setIsConfirmZeroModalOpen(false);
   };
 
   const handleCreateCustom = async (
@@ -539,6 +555,7 @@ export function useEventDefinitionsConfigurator({
     definitionsReady,
     error,
     isModalOpen,
+    isConfirmZeroModalOpen,
     modalError,
     newName,
     newShortName,
@@ -549,6 +566,7 @@ export function useEventDefinitionsConfigurator({
     activeNegativeCount,
     setActiveTab,
     setIsModalOpen,
+    setIsConfirmZeroModalOpen,
     setModalError,
     setNewName,
     setNewShortName,
@@ -557,6 +575,8 @@ export function useEventDefinitionsConfigurator({
     handleToggleEnabled,
     handleMove,
     handleSavePreset,
+    handleConfirmDefaultPreset,
+    handleCancelDefaultPreset,
     handleCreateCustom,
     handleDeleteCustom,
   };

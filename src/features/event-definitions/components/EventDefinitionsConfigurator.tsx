@@ -1,4 +1,5 @@
 import React from "react";
+import { ModalDialog } from "../../matches/components/ModalDialog";
 import {
   useEventDefinitionsConfigurator,
   type UseEventDefinitionsConfiguratorOptions,
@@ -28,6 +29,7 @@ export const EventDefinitionsConfigurator: React.FC<
     definitionsReady,
     error,
     isModalOpen,
+    isConfirmZeroModalOpen,
     modalError,
     newName,
     newShortName,
@@ -46,6 +48,8 @@ export const EventDefinitionsConfigurator: React.FC<
     handleToggleEnabled,
     handleMove,
     handleSavePreset,
+    handleConfirmDefaultPreset,
+    handleCancelDefaultPreset,
     handleCreateCustom,
     handleDeleteCustom,
   } = useEventDefinitionsConfigurator(props);
@@ -359,6 +363,37 @@ export const EventDefinitionsConfigurator: React.FC<
             </form>
           </div>
         </div>
+      )}
+
+      {isConfirmZeroModalOpen && (
+        <ModalDialog
+          isOpen={isConfirmZeroModalOpen}
+          onClose={handleCancelDefaultPreset}
+          titleId="zero-action-confirmation-title"
+          title="No Actions Selected"
+        >
+          <p className="text-xs text-gray-300">
+            You haven't selected any TTA actions, so your current preset was not
+            modified. Your previously saved preset will be used, or standard
+            default actions if no preset exists.
+          </p>
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={handleCancelDefaultPreset}
+              className="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDefaultPreset}
+              className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold"
+            >
+              Confirm
+            </button>
+          </div>
+        </ModalDialog>
       )}
     </div>
   );

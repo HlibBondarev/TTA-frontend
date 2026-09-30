@@ -140,6 +140,17 @@ describe("App Bootstrapping Component", () => {
     },
   ];
 
+  const mockDefinitions = [
+    {
+      id: "def-1",
+      name: "Goal",
+      shortName: "G",
+      isPositive: true,
+      isEnabled: true,
+      sortOrder: 1,
+    },
+  ];
+
   const mockMatch = {
     id: "new-match-id-123",
     homeTeamId: "team-home-1",
@@ -153,7 +164,7 @@ describe("App Bootstrapping Component", () => {
     vi.clearAllMocks();
     vi.mocked(eventDefinitionService.getAvailableForSport)
       .mockReset()
-      .mockResolvedValue([]);
+      .mockResolvedValue(mockDefinitions);
     mockIsAuthenticated = true;
     mockUser = { email: "tester@tta.com", sub: "auth0|tester-123" };
   });
@@ -669,5 +680,79 @@ describe("App Bootstrapping Component", () => {
     expect(store.getState().match.activeTeamId).toBeNull();
 
     consoleSpy.mockRestore();
+  });
+
+  it("confirms zero actions without saving preset and unlocks Quick Start match button", async () => {
+    vi.mocked(eventDefinitionService.getAvailableForSport)
+      .mockReset()
+      .mockResolvedValue([]);
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    const store = createTestStore({
+      navigation: { currentView: "QUICK_START" },
+    });
+
+    render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /Periods: 4/i }),
+    ).toBeDefined();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Confirm Active Preset/i }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Confirm$/i }));
+
+    expect(eventDefinitionService.savePreset).not.toHaveBeenCalled();
+
+    // Select team focus
+    fireEvent.click(screen.getByRole("button", { name: /Home Squad/i }));
+
+    expect(
+      await screen.findByRole("button", { name: /Start Tracking Match/i }),
+    ).toBeDefined();
+  });
+
+  it("keeps Step 3 unconfirmed when zero-action confirmation is cancelled in Quick Start", async () => {
+    vi.mocked(eventDefinitionService.getAvailableForSport)
+      .mockReset()
+      .mockResolvedValue([]);
+    vi.mocked(sportService.getSports).mockResolvedValueOnce(mockSports);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce(
+      mockConfigs,
+    );
+
+    const store = createTestStore({
+      navigation: { currentView: "QUICK_START" },
+    });
+
+    render(
+      <Provider store={store}>
+        <App />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /Periods: 4/i }),
+    ).toBeDefined();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Confirm Active Preset/i }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Cancel/i }));
+
+    expect(eventDefinitionService.savePreset).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: /Save Preset to Continue/i }),
+    ).toBeDefined();
   });
 });

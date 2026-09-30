@@ -25,6 +25,7 @@ describe("EventDefinitionsConfigurator Component", () => {
     definitionsReady: true,
     error: null,
     isModalOpen: false,
+    isConfirmZeroModalOpen: false,
     modalError: null,
     newName: "",
     newShortName: "",
@@ -44,6 +45,7 @@ describe("EventDefinitionsConfigurator Component", () => {
     activeNegativeCount: 0,
     setActiveTab: vi.fn(),
     setIsModalOpen: vi.fn(),
+    setIsConfirmZeroModalOpen: vi.fn(),
     setModalError: vi.fn(),
     setNewName: vi.fn(),
     setNewShortName: vi.fn(),
@@ -52,6 +54,8 @@ describe("EventDefinitionsConfigurator Component", () => {
     handleToggleEnabled: vi.fn(),
     handleMove: vi.fn(),
     handleSavePreset: vi.fn(),
+    handleConfirmDefaultPreset: vi.fn(),
+    handleCancelDefaultPreset: vi.fn(),
     handleCreateCustom: vi.fn(),
     handleDeleteCustom: vi.fn(),
   };
@@ -103,5 +107,70 @@ describe("EventDefinitionsConfigurator Component", () => {
     fireEvent.click(checkbox);
 
     expect(defaultHookReturn.handleToggleEnabled).toHaveBeenCalledWith("def-1");
+  });
+
+  it("should show zero-action confirmation modal when isConfirmZeroModalOpen is true", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isConfirmZeroModalOpen: true,
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    expect(screen.getByText("No Actions Selected")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "You haven't selected any TTA actions, so your current preset was not modified. Your previously saved preset will be used, or standard default actions if no preset exists.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("should trigger handleConfirmDefaultPreset when clicking Confirm button in zero-action modal", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isConfirmZeroModalOpen: true,
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    const confirmButton = screen.getByRole("button", {
+      name: /^Confirm$/i,
+    });
+    fireEvent.click(confirmButton);
+
+    expect(defaultHookReturn.handleConfirmDefaultPreset).toHaveBeenCalledTimes(
+      1,
+    );
+  });
+
+  it("should trigger handleCancelDefaultPreset when clicking Cancel button in zero-action modal", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isConfirmZeroModalOpen: true,
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    const cancelButton = screen.getByRole("button", { name: /Cancel/i });
+    fireEvent.click(cancelButton);
+
+    expect(defaultHookReturn.handleCancelDefaultPreset).toHaveBeenCalledTimes(
+      1,
+    );
+  });
+
+  it("should trigger handleCancelDefaultPreset when pressing Escape in zero-action modal", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isConfirmZeroModalOpen: true,
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
+
+    expect(defaultHookReturn.handleCancelDefaultPreset).toHaveBeenCalledTimes(
+      1,
+    );
   });
 });
