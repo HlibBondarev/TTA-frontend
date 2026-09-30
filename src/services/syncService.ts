@@ -453,24 +453,13 @@ const isUnrecoverableStatus = (status?: number): boolean => {
 
 const purgeBatchFromSyncQueue = async (
   batchItems: SyncQueueItem[],
-  endpoint?: string,
-  payload?: unknown,
+  endpoint: string,
+  payload: unknown,
 ): Promise<void> => {
   if (!db) return;
 
   const performPurge = async (): Promise<void> => {
-    if (endpoint && payload) {
-      await markEntitiesSynced(endpoint, payload, -1);
-    } else {
-      await Promise.all(
-        batchItems.map(async (item) => {
-          const itemPayload = parsePayload(item.payload);
-          if (item.endpoint && itemPayload) {
-            await markEntitiesSynced(item.endpoint, itemPayload, -1);
-          }
-        }),
-      );
-    }
+    await markEntitiesSynced(endpoint, payload, -1);
 
     await Promise.all(
       batchItems.map(async (item) => {

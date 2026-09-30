@@ -1169,4 +1169,32 @@ describe("Event Database Service (eventService)", () => {
       },
     ]);
   });
+
+  it("should return early when saveEventDefinitionsToDb is called with an empty array and omitted sportId", async () => {
+    await saveEventDefinitionsToDb([], undefined, "user-1");
+    expect(db.eventdefinitions.bulkPut).not.toHaveBeenCalled();
+  });
+
+  it("should group definitions by sportId and persist them via Promise.all when sportId argument is omitted", async () => {
+    const multiSportDefs = [
+      {
+        id: "def-s1",
+        sportId: "sport-1",
+        name: "Goal",
+        shortName: "GL",
+        isPositive: true,
+      },
+      {
+        id: "def-s2",
+        sportId: "sport-2",
+        name: "Point",
+        shortName: "PT",
+        isPositive: true,
+      },
+    ];
+
+    await saveEventDefinitionsToDb(multiSportDefs, undefined, "user-1");
+
+    expect(db.eventdefinitions.bulkPut).toHaveBeenCalledTimes(2);
+  });
 });
