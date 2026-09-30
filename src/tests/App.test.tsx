@@ -140,6 +140,17 @@ describe("App Bootstrapping Component", () => {
     },
   ];
 
+  const mockDefinitions = [
+    {
+      id: "def-1",
+      name: "Goal",
+      shortName: "G",
+      isPositive: true,
+      isEnabled: true,
+      sortOrder: 1,
+    },
+  ];
+
   const mockMatch = {
     id: "new-match-id-123",
     homeTeamId: "team-home-1",
@@ -153,7 +164,7 @@ describe("App Bootstrapping Component", () => {
     vi.clearAllMocks();
     vi.mocked(eventDefinitionService.getAvailableForSport)
       .mockReset()
-      .mockResolvedValue([]);
+      .mockResolvedValue(mockDefinitions);
     mockIsAuthenticated = true;
     mockUser = { email: "tester@tta.com", sub: "auth0|tester-123" };
   });

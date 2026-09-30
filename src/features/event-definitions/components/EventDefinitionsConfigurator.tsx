@@ -28,6 +28,7 @@ export const EventDefinitionsConfigurator: React.FC<
     definitionsReady,
     error,
     isModalOpen,
+    isConfirmZeroModalOpen,
     modalError,
     newName,
     newShortName,
@@ -46,6 +47,8 @@ export const EventDefinitionsConfigurator: React.FC<
     handleToggleEnabled,
     handleMove,
     handleSavePreset,
+    handleConfirmDefaultPreset,
+    handleCancelDefaultPreset,
     handleCreateCustom,
     handleDeleteCustom,
   } = useEventDefinitionsConfigurator(props);
@@ -140,7 +143,7 @@ export const EventDefinitionsConfigurator: React.FC<
       <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
         {activeCategoryDefs.length === 0 ? (
           <p className="text-xs text-gray-500 italic text-center py-4">
-            No {activeTab.toLowerCase()} definitions available.
+            No ${activeTab.toLowerCase()} definitions available.
           </p>
         ) : (
           activeCategoryDefs.map((def, catIndex) => {
@@ -357,6 +360,37 @@ export const EventDefinitionsConfigurator: React.FC<
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isConfirmZeroModalOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 w-full max-w-sm space-y-3">
+            <h4 className="text-sm font-bold text-gray-200">
+              No Actions Selected
+            </h4>
+            <p className="text-xs text-gray-300">
+              You haven't selected any TTA actions, so your current preset was
+              not modified. Your previously saved preset will be used, or
+              standard default actions if no preset exists.
+            </p>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={handleCancelDefaultPreset}
+                className="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDefaultPreset}
+                className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold"
+              >
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -267,7 +267,7 @@ describe("useEventDefinitionsConfigurator", () => {
     );
   });
 
-  it("should save preset successfully and trigger onPresetSaved", async () => {
+  it("should save preset successfully and trigger onPresetSaved when active actions exist", async () => {
     vi.mocked(eventDefinitionService.savePreset).mockResolvedValue(undefined);
     const onPresetSaved = vi.fn();
 
@@ -291,6 +291,117 @@ describe("useEventDefinitionsConfigurator", () => {
       { eventDefinitionIds: ["def-1", "def-2", "def-3"] },
     );
     expect(onPresetSaved).toHaveBeenCalledTimes(1);
+    expect(result.current.isConfirmZeroModalOpen).toBe(false);
+  });
+
+  it("should open zero-action confirmation modal when attempting to save with 0 active actions", async () => {
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue([
+      {
+        id: "def-1",
+        name: "Goal",
+        shortName: "G",
+        isPositive: true,
+        isEnabled: false,
+        sortOrder: 1,
+      },
+    ]);
+
+    const onPresetSaved = vi.fn();
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({
+        sportId: mockSportId,
+        onPresetSaved,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.handleSavePreset();
+    });
+
+    expect(result.current.isConfirmZeroModalOpen).toBe(true);
+    expect(eventDefinitionService.savePreset).not.toHaveBeenCalled();
+    expect(onPresetSaved).not.toHaveBeenCalled();
+  });
+
+  it("should confirm default preset, close modal, and invoke onPresetSaved", async () => {
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue([
+      {
+        id: "def-1",
+        name: "Goal",
+        shortName: "G",
+        isPositive: true,
+        isEnabled: false,
+        sortOrder: 1,
+      },
+    ]);
+
+    const onPresetSaved = vi.fn();
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({
+        sportId: mockSportId,
+        onPresetSaved,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.handleSavePreset();
+    });
+
+    expect(result.current.isConfirmZeroModalOpen).toBe(true);
+
+    act(() => {
+      result.current.handleConfirmDefaultPreset();
+    });
+
+    expect(result.current.isConfirmZeroModalOpen).toBe(false);
+    expect(onPresetSaved).toHaveBeenCalledTimes(1);
+    expect(eventDefinitionService.savePreset).not.toHaveBeenCalled();
+  });
+
+  it("should cancel default preset confirmation and keep modal closed without calling onPresetSaved", async () => {
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue([
+      {
+        id: "def-1",
+        name: "Goal",
+        shortName: "G",
+        isPositive: true,
+        isEnabled: false,
+        sortOrder: 1,
+      },
+    ]);
+
+    const onPresetSaved = vi.fn();
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({
+        sportId: mockSportId,
+        onPresetSaved,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.handleSavePreset();
+    });
+
+    expect(result.current.isConfirmZeroModalOpen).toBe(true);
+
+    act(() => {
+      result.current.handleCancelDefaultPreset();
+    });
+
+    expect(result.current.isConfirmZeroModalOpen).toBe(false);
+    expect(onPresetSaved).not.toHaveBeenCalled();
   });
 
   it("should not save preset if definitions are not ready", async () => {
