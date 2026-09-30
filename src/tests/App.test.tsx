@@ -184,12 +184,13 @@ describe("App Bootstrapping Component", () => {
       </Provider>,
     );
 
-    const event = new Event("beforeunload", {
-      cancelable: true,
-    }) as BeforeUnloadEvent;
-    window.dispatchEvent(event);
-
-    expect(event.defaultPrevented).toBe(true);
+    await waitFor(() => {
+      const event = new Event("beforeunload", {
+        cancelable: true,
+      }) as BeforeUnloadEvent;
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    });
   });
 
   it("should render Auth Gate Login screen when user is unauthenticated", async () => {
@@ -306,12 +307,10 @@ describe("App Bootstrapping Component", () => {
       await screen.findByRole("button", { name: /Periods: 4/i }),
     ).toBeDefined();
 
-    // Save active preset to unlock start button according to Preset Guard requirements
     fireEvent.click(
       await screen.findByRole("button", { name: /Confirm Active Preset/i }),
     );
 
-    // Select team focus
     fireEvent.click(screen.getByRole("button", { name: /Home Squad/i }));
 
     fireEvent.click(
@@ -590,7 +589,6 @@ describe("App Bootstrapping Component", () => {
 
     const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    // Simulate user identity change while hydration is pending
     mockIsAuthenticated = true;
     mockUser = { email: "otheruser@tta.com", sub: "auth0|other-user" };
     rerender(
@@ -599,7 +597,6 @@ describe("App Bootstrapping Component", () => {
       </Provider>,
     );
 
-    // Resolve hydration promise after user change
     resolveHydrate!({ success: true, isOfflineFallback: false });
 
     await waitFor(() => {
@@ -655,7 +652,6 @@ describe("App Bootstrapping Component", () => {
       expect(getMatchRecoveryState).toHaveBeenCalledWith("m-interrupted-stale");
     });
 
-    // Simulate user identity change while recovery state fetch is in-flight
     mockIsAuthenticated = true;
     mockUser = { email: "otheruser@tta.com", sub: "auth0|other-user" };
     rerender(
@@ -666,7 +662,6 @@ describe("App Bootstrapping Component", () => {
 
     const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    // Resolve recovery promise after user account switch
     resolveRecovery!({ recoveredPeriod: 2, activePlayersLimit: 5 });
 
     await waitFor(() => {
@@ -675,7 +670,6 @@ describe("App Bootstrapping Component", () => {
       );
     });
 
-    // Verify Redux state remained unaffected for the new account context
     expect(store.getState().match.activeMatchId).toBeNull();
     expect(store.getState().match.activeTeamId).toBeNull();
 
@@ -712,9 +706,6 @@ describe("App Bootstrapping Component", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Confirm$/i }));
 
     expect(eventDefinitionService.savePreset).not.toHaveBeenCalled();
-
-    // Select team focus
-    fireEvent.click(screen.getByRole("button", { name: /Home Squad/i }));
 
     expect(
       await screen.findByRole("button", { name: /Start Tracking Match/i }),
