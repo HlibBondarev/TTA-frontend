@@ -117,6 +117,22 @@ describe("useTTAConsole Custom Hook", () => {
     });
   });
 
+  it("should ignore action selection if eventDefinitionId is missing", () => {
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+    });
+
+    const { result } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.handleActionSelect("Shot", true, undefined);
+    });
+
+    expect(result.current.pendingAction).toBeNull();
+  });
+
   it("should record game event and reset selections on handleEnter", async () => {
     const store = createTestStore({
       match: { activeMatchId: "m-123" },

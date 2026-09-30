@@ -256,11 +256,13 @@ const deleteTimeAnchorWithQueue = async (anchorId: string): Promise<void> => {
       .filter((item) => item.payload.includes(anchorId))
       .toArray();
 
-    for (const item of matchingQueueItems) {
-      if (item.id !== undefined) {
-        await db.syncQueue.delete(item.id);
-      }
-    }
+    await Promise.all(
+      matchingQueueItems.map(async (item) => {
+        if (item.id !== undefined) {
+          await db.syncQueue.delete(item.id);
+        }
+      }),
+    );
   });
 };
 
@@ -352,11 +354,13 @@ const purgeTerminateSyncQueueItems = async (
     })
     .toArray();
 
-  for (const item of pendingTerminateItems) {
-    if (item.id !== undefined) {
-      await db.syncQueue.delete(item.id);
-    }
-  }
+  await Promise.all(
+    pendingTerminateItems.map(async (item) => {
+      if (item.id !== undefined) {
+        await db.syncQueue.delete(item.id);
+      }
+    }),
+  );
 };
 
 /**
@@ -394,12 +398,14 @@ const reopenClosedPlayerPresences = async (
 
   const presencesToReopen = presences.filter((p) => p.timeOut === maxTimeOut);
 
-  for (const p of presencesToReopen) {
-    await db.playerpresences.update(p.id, {
-      timeOut: null,
-      isSynced: 0,
-    });
-  }
+  await Promise.all(
+    presencesToReopen.map((p) =>
+      db.playerpresences.update(p.id, {
+        timeOut: null,
+        isSynced: 0,
+      }),
+    ),
+  );
 };
 
 export const useMatchLifecycle = () => {

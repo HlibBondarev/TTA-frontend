@@ -64,7 +64,6 @@ vi.mock("../../../db/ttaDatabase", () => ({
 vi.mock("../../../db/eventService", () => ({
   updateGameEventTx: vi.fn(),
   deleteGameEventTx: vi.fn(),
-  getEventDefinitionByName: vi.fn(),
 }));
 
 const createStoreWithActions = (actions: ActionEntry[]) => {
@@ -177,14 +176,6 @@ describe("ActionsLog Component", () => {
   });
 
   it("allows toggling Goal Lead checkbox for unsynced non-goal actions", async () => {
-    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValue({
-      id: "def-2",
-      sportId: "s1",
-      name: "Turnover",
-      shortName: "TO",
-      isPositive: false,
-    });
-
     vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
       id: "action-2",
       matchLineupId: "lineup-2",
@@ -357,14 +348,6 @@ describe("ActionsLog Component", () => {
   });
 
   it("handles errors thrown during updateGameEvent and deleteGameEvent", async () => {
-    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValue({
-      id: "def-2",
-      sportId: "s1",
-      name: "Turnover",
-      shortName: "TO",
-      isPositive: false,
-    });
-
     vi.mocked(eventService.updateGameEventTx).mockRejectedValueOnce(
       new Error("Failed to update event"),
     );
@@ -441,57 +424,5 @@ describe("ActionsLog Component", () => {
     fireEvent.click(closeBtn);
 
     expect(screen.queryByText("Edit Action")).not.toBeInTheDocument();
-  });
-
-  it("uses stored eventDefinitionId during Goal Lead toggle when getEventDefinitionByName returns undefined", async () => {
-    vi.mocked(eventService.getEventDefinitionByName).mockResolvedValue(
-      undefined,
-    );
-
-    vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
-      id: "action-2",
-      matchLineupId: "lineup-2",
-      eventDefinitionId: "def-2",
-      periodNumber: 1,
-      eventTimestamp: "",
-      isLeadToGoal: true,
-      createdAt: "",
-      sequenceNumber: 1,
-      isSynced: 0,
-    });
-
-    const store = createStoreWithActions([
-      {
-        id: "action-2",
-        playerNumber: 3,
-        actionName: "Custom Action",
-        isPositive: false,
-        timestamp: new Date().toISOString(),
-        matchLineupId: "lineup-2",
-        eventDefinitionId: "def-2",
-        isLeadToGoal: false,
-        isSynced: 0,
-      },
-    ]);
-
-    render(
-      <Provider store={store}>
-        <ActionsLog />
-      </Provider>,
-    );
-
-    const checkbox = screen.getByRole("checkbox");
-    fireEvent.click(checkbox);
-
-    await waitFor(() => {
-      expect(eventService.updateGameEventTx).toHaveBeenCalledWith({
-        eventId: "action-2",
-        matchLineupId: "lineup-2",
-        eventDefinitionId: "def-2",
-        expectedSportId: "s1",
-        isLeadToGoal: true,
-        userId: undefined,
-      });
-    });
   });
 });

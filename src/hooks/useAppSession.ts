@@ -78,12 +78,8 @@ export function useAppSession() {
     if (initStarted.current) return;
     initStarted.current = true;
 
-    const initializeApp = async () => {
-      setIsInitializing(false);
-    };
-
-    initializeApp();
-  }, [dispatch]);
+    setIsInitializing(false);
+  }, []);
 
   const handleQuickStart = async (
     matchId: string,

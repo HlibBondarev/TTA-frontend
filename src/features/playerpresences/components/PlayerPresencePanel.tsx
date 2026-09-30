@@ -84,7 +84,7 @@ export const PlayerPresencePanel: React.FC<{
       }
     };
 
-    initLoad();
+    void initLoad();
 
     return () => {
       ignore = true;

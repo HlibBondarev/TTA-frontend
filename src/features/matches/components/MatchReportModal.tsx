@@ -185,7 +185,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
       }
     };
 
-    fetchSummaryReport();
+    void fetchSummaryReport();
 
     return () => {
       isMounted = false;
@@ -224,7 +224,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
       }
     };
 
-    fetchPlayerReport();
+    void fetchPlayerReport();
 
     return () => {
       isMounted = false;

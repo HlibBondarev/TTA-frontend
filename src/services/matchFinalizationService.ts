@@ -124,12 +124,15 @@ const autoCloseOpenPeriodAndPresences = async (
 
         if (activePresences.length > 0) {
           const activeLineupIds = activePresences.map((p) => p.matchLineupId);
-          for (const p of activePresences) {
-            await db.playerpresences.update(p.id, {
-              timeOut: timestamp,
-              isSynced: 0,
-            });
-          }
+
+          await Promise.all(
+            activePresences.map((p) =>
+              db.playerpresences.update(p.id, {
+                timeOut: timestamp,
+                isSynced: 0,
+              }),
+            ),
+          );
 
           await db.syncQueue.add({
             actionType: "PUT",

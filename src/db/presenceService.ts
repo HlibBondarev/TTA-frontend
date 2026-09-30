@@ -74,13 +74,15 @@ export async function terminatePeriodPresenceTx(
       )
       .toArray();
 
-    // 2. Update each active player session with the end timestamp
-    for (const presence of activePresences) {
-      await db.playerpresences.update(presence.id, {
-        timeOut: endTimestamp,
-        isSynced: 0,
-      });
-    }
+    // 2. Update each active player session with the end timestamp in parallel
+    await Promise.all(
+      activePresences.map((presence) =>
+        db.playerpresences.update(presence.id, {
+          timeOut: endTimestamp,
+          isSynced: 0,
+        }),
+      ),
+    );
 
     // 3. Enqueue the period-end synchronization payload matching TerminatePresenceRequest DTO
     const payload = JSON.stringify({

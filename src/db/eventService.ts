@@ -102,9 +102,11 @@ export const replaceSportEventDefinitionsInDb = async (
           (p) => !incomingDefIds.has(p.eventDefinitionId),
         );
 
-        for (const p of presetsToDelete) {
-          await db.usereventpresets.delete([p.userId, p.eventDefinitionId]);
-        }
+        await Promise.all(
+          presetsToDelete.map((p) =>
+            db.usereventpresets.delete([p.userId, p.eventDefinitionId]),
+          ),
+        );
 
         const presetsToSave: UserEventPresetLookup[] = definitions.map(
           (def, index) => ({
@@ -225,34 +227,10 @@ export const saveEventDefinitionsToDb = async (
     bySport.set(def.sportId, list);
   }
 
-  for (const [sId, defs] of bySport.entries()) {
-    await replaceSportEventDefinitionsInDb(sId, defs, userId);
-  }
-};
-
-/**
- * Resolves an event definition strictly within the specified sport context.
- * Returns undefined if sportId is missing to prevent cross-sport definition collisions.
- */
-export const getEventDefinitionByName = async (
-  actionName: string,
-  sportId?: string,
-  userId?: string,
-): Promise<EventDefinitionLookup | undefined> => {
-  if (!sportId) return undefined;
-
-  const normalizedName = actionName.trim().toLowerCase();
-  const cache = await loadEventDefinitionsCache(sportId, userId);
-  const cachedDef = cache.get(normalizedName);
-  if (cachedDef) return cachedDef;
-
-  const candidates = await db.eventdefinitions
-    .where("sportId")
-    .equals(sportId)
-    .toArray();
-
-  return candidates.find(
-    (def) => def.name.trim().toLowerCase() === normalizedName,
+  await Promise.all(
+    Array.from(bySport.entries()).map(([sId, defs]) =>
+      replaceSportEventDefinitionsInDb(sId, defs, userId),
+    ),
   );
 };
 

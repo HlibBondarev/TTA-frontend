@@ -453,28 +453,21 @@ const isUnrecoverableStatus = (status?: number): boolean => {
 
 const purgeBatchFromSyncQueue = async (
   batchItems: SyncQueueItem[],
-  endpoint?: string,
-  payload?: unknown,
+  endpoint: string,
+  payload: unknown,
 ): Promise<void> => {
   if (!db) return;
 
   const performPurge = async (): Promise<void> => {
-    if (endpoint && payload) {
-      await markEntitiesSynced(endpoint, payload, -1);
-    } else {
-      for (const item of batchItems) {
-        const itemPayload = parsePayload(item.payload);
-        if (item.endpoint && itemPayload) {
-          await markEntitiesSynced(item.endpoint, itemPayload, -1);
-        }
-      }
-    }
+    await markEntitiesSynced(endpoint, payload, -1);
 
-    for (const item of batchItems) {
-      if (item.id !== undefined && db.syncQueue) {
-        await db.syncQueue.delete(item.id);
-      }
-    }
+    await Promise.all(
+      batchItems.map(async (item) => {
+        if (item.id !== undefined && db.syncQueue) {
+          await db.syncQueue.delete(item.id);
+        }
+      }),
+    );
   };
 
   if (typeof db.transaction === "function") {
@@ -500,12 +493,16 @@ const finalizeBatchSync = async (
   const performFinalization = async (): Promise<number> => {
     await markEntitiesSynced(endpoint, payload, 1);
     let count = 0;
-    for (const item of batchItems) {
-      if (item.id !== undefined && db.syncQueue) {
-        await db.syncQueue.delete(item.id);
-        count++;
-      }
-    }
+
+    await Promise.all(
+      batchItems.map(async (item) => {
+        if (item.id !== undefined && db.syncQueue) {
+          await db.syncQueue.delete(item.id);
+          count++;
+        }
+      }),
+    );
+
     return count;
   };
 
