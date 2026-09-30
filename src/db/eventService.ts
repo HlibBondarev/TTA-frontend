@@ -102,9 +102,11 @@ export const replaceSportEventDefinitionsInDb = async (
           (p) => !incomingDefIds.has(p.eventDefinitionId),
         );
 
-        for (const p of presetsToDelete) {
-          await db.usereventpresets.delete([p.userId, p.eventDefinitionId]);
-        }
+        await Promise.all(
+          presetsToDelete.map((p) =>
+            db.usereventpresets.delete([p.userId, p.eventDefinitionId]),
+          ),
+        );
 
         const presetsToSave: UserEventPresetLookup[] = definitions.map(
           (def, index) => ({
@@ -225,9 +227,11 @@ export const saveEventDefinitionsToDb = async (
     bySport.set(def.sportId, list);
   }
 
-  for (const [sId, defs] of bySport.entries()) {
-    await replaceSportEventDefinitionsInDb(sId, defs, userId);
-  }
+  await Promise.all(
+    Array.from(bySport.entries()).map(([sId, defs]) =>
+      replaceSportEventDefinitionsInDb(sId, defs, userId),
+    ),
+  );
 };
 
 /**
