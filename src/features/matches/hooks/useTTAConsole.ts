@@ -50,8 +50,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
 
   const handleEnter = async () => {
     if (
-      pendingAction &&
-      pendingAction.eventDefinitionId &&
+      pendingAction?.eventDefinitionId &&
       selectedPlayerId &&
       activeMatchId &&
       !isSubmitting
