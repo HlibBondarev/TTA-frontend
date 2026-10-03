@@ -6270,14 +6270,20 @@
       "CreateQuickMatchRequest": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
           "sportId": {
             "type": "string",
             "format": "uuid"
           },
           "configurationId": {
             "type": "string",
-            "format": "uuid",
-            "nullable": true
+            "format": "uuid"
+          },
+          "isGuestTeam": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false

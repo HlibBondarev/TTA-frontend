@@ -4005,9 +4005,12 @@ export interface components {
         };
         CreateQuickMatchRequest: {
             /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
             sportId?: string;
             /** Format: uuid */
-            configurationId?: string | null;
+            configurationId?: string;
+            isGuestTeam?: boolean;
         };
         CreateTeamRequest: {
             name?: string | null;
