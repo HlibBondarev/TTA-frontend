@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { processSyncQueue } from "../../services/syncService";
+import { processSyncQueue, syncMatchBatch } from "../../services/syncService";
 import { db } from "../../db/ttaDatabase";
 import { apiClient } from "../../api/client";
 
@@ -22,6 +22,11 @@ vi.mock("../../db/ttaDatabase", () => ({
     },
     matchlineups: {
       get: vi.fn().mockResolvedValue(undefined),
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      }),
     },
     playerrosters: {
       get: vi.fn().mockResolvedValue(undefined),
@@ -29,18 +34,34 @@ vi.mock("../../db/ttaDatabase", () => ({
     syncQueue: {
       orderBy: vi.fn(),
       delete: vi.fn(),
+      toArray: vi.fn().mockResolvedValue([]),
     },
     playerpresences: {
+      filter: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
       where: vi.fn().mockReturnValue({
         equals: vi.fn().mockReturnValue({
           filter: vi.fn().mockReturnValue({
             modify: vi.fn(),
           }),
         }),
+        anyOf: vi.fn().mockReturnValue({
+          modify: vi.fn(),
+        }),
       }),
     },
     gameevents: {
+      filter: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
       where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockReturnValue({
+            modify: vi.fn(),
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        }),
         anyOf: vi.fn().mockReturnValue({
           modify: vi.fn(),
         }),
@@ -48,6 +69,12 @@ vi.mock("../../db/ttaDatabase", () => ({
     },
     timeanchors: {
       where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockReturnValue({
+            modify: vi.fn(),
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        }),
         anyOf: vi.fn().mockReturnValue({
           modify: vi.fn(),
         }),
@@ -441,7 +468,6 @@ describe("Sync Engine Service", () => {
 
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    // Attempt 1: Dexie finalization write fails inside transaction callback
     const processedRun1 = await processSyncQueue();
 
     expect(processedRun1).toBe(0);
@@ -457,7 +483,6 @@ describe("Sync Engine Service", () => {
       { headers: { "X-Idempotency-Key": "sync-batch-101" } },
     );
 
-    // Attempt 2: Re-run sync (Simulating retry)
     vi.mocked(db.syncQueue.delete).mockResolvedValueOnce(undefined);
     const processedRun2 = await processSyncQueue();
 
@@ -1321,7 +1346,6 @@ describe("Sync Engine Service", () => {
     expect(processed).toBe(5);
     expect(db.matchlineups.get).toHaveBeenCalledTimes(1);
     expect(db.matchlineups.get).toHaveBeenCalledWith("lineup-1");
-    // Verify that despite two separate fallback requests (id: 3 and id: 5), DB is queried only once thanks to matchRecordCache
     expect(matchGetSpy).toHaveBeenCalledTimes(1);
     expect(matchGetSpy).toHaveBeenCalledWith("m-100");
 
@@ -1358,7 +1382,6 @@ describe("Sync Engine Service", () => {
     const processed = await processSyncQueue();
 
     expect(processed).toBe(2);
-    // Two separate requests (POST and PUT) - DB is queried only once for the first request, and the null result is cached
     expect(matchGetSpy).toHaveBeenCalledTimes(1);
     expect(apiClient.post).toHaveBeenCalledWith(
       "/Matches/m-missing/teams/original-team/anchors",
@@ -1443,5 +1466,136 @@ describe("Sync Engine Service", () => {
       [{ id: "a1" }],
       expect.any(Object),
     );
+  });
+});
+
+describe("Batch Sync Service (syncMatchBatch)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("throws an error if matchId is empty or whitespace", async () => {
+    await expect(syncMatchBatch("")).rejects.toThrow(
+      "Match ID is required for batch synchronization.",
+    );
+    await expect(syncMatchBatch("   ")).rejects.toThrow(
+      "Match ID is required for batch synchronization.",
+    );
+  });
+
+  it("collects un-synced events, anchors, and presences, formats UTC ISO timestamps, and posts batch request", async () => {
+    const mockLineups = [{ id: "l1", matchId: "m123" }];
+    const mockEvents = [
+      {
+        id: "e1",
+        matchLineupId: "l1",
+        isSynced: 0,
+        eventTimestamp: "2026-10-05T12:00:00Z",
+      },
+    ];
+    const mockAnchors = [
+      {
+        id: "a1",
+        matchId: "m123",
+        isSynced: 0,
+        timestamp: "2026-10-05T12:00:00Z",
+      },
+    ];
+    const mockPresences = [
+      {
+        id: "p1",
+        matchLineupId: "l1",
+        periodNumber: 1,
+        timeIn: "2026-10-05T12:00:00Z",
+        timeOut: "2026-10-05T12:10:00Z",
+        isSynced: 0,
+      },
+    ];
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockLineups),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    const mockFilterEvents = vi.fn().mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockEvents),
+    });
+    vi.mocked(db.gameevents.filter).mockImplementation(
+      mockFilterEvents as never,
+    );
+
+    const mockFilterAnchors = vi.fn().mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockAnchors),
+    });
+
+    const mockModify = vi.fn();
+    const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: mockFilterAnchors,
+      }),
+      anyOf: mockAnyOf,
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.playerpresences.filter).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockPresences),
+    } as unknown as ReturnType<typeof db.playerpresences.filter>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({
+      syncedEventIds: ["e1"],
+      syncedAnchorIds: ["a1"],
+      syncedPresenceIds: ["p1"],
+    });
+
+    vi.mocked(db.gameevents.where).mockReturnValue({
+      anyOf: mockAnyOf,
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      anyOf: mockAnyOf,
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    vi.mocked(db.syncQueue.toArray).mockResolvedValue([
+      { id: 10, endpoint: "/Matches/m123/events" },
+    ] as never);
+
+    const result = await syncMatchBatch("m123");
+
+    expect(apiClient.post).toHaveBeenCalledWith("/Matches/m123/sync-batch", {
+      events: [
+        {
+          id: "e1",
+          matchLineupId: "l1",
+          isSynced: 0,
+          eventTimestamp: "2026-10-05T12:00:00.000Z",
+        },
+      ],
+      anchors: [
+        {
+          id: "a1",
+          matchId: "m123",
+          isSynced: 0,
+          timestamp: "2026-10-05T12:00:00.000Z",
+        },
+      ],
+      presences: [
+        {
+          id: "p1",
+          matchLineupId: "l1",
+          periodNumber: 1,
+          timeIn: "2026-10-05T12:00:00.000Z",
+          timeOut: "2026-10-05T12:10:00.000Z",
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      syncedEventIds: ["e1"],
+      syncedAnchorIds: ["a1"],
+      syncedPresenceIds: ["p1"],
+    });
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(10);
   });
 });

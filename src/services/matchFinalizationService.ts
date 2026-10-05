@@ -1,8 +1,9 @@
 import { apiClient } from "../api/client";
 import { db, type TimeAnchor } from "../db/ttaDatabase";
-import { processSyncQueue } from "./syncService";
+import { processSyncQueue, syncMatchBatch } from "./syncService";
 import { getNextSequenceNumber } from "../db/eventService";
 import { matchLockService } from "./matchLockService";
+import { deleteMatchLocally } from "./matchCleanupService";
 
 export interface FinalizeMatchParams {
   matchId: string;
@@ -197,7 +198,8 @@ export const matchFinalizationService = {
       // Step 0: Auto-close any active open period or player presence sessions in IndexedDB
       await autoCloseOpenPeriodAndPresences(normalizedMatchId);
 
-      // Step 1: Flush all pending offline sync queue items to backend
+      // Step 1: Batch sync match entities and flush pending offline sync queue items to backend
+      await syncMatchBatch(normalizedMatchId);
       await processSyncQueue();
 
       const exactEndpoint = `/Matches/${normalizedMatchId}`;
@@ -231,58 +233,7 @@ export const matchFinalizationService = {
       );
 
       // Step 4: Conditionally purge local IndexedDB entities scoped STRICTLY to finalized matchId
-      await db.transaction(
-        "rw",
-        [
-          db.gameevents,
-          db.timeanchors,
-          db.playerpresences,
-          db.matchlineups,
-          db.syncQueue,
-          db.matches,
-        ],
-        async () => {
-          const lineups = await db.matchlineups
-            .where("matchId")
-            .equals(normalizedMatchId)
-            .toArray();
-          const lineupIds = lineups.map((l) => l.id);
-
-          if (lineupIds.length > 0) {
-            await db.gameevents
-              .where("matchLineupId")
-              .anyOf(lineupIds)
-              .delete();
-            await db.playerpresences
-              .where("matchLineupId")
-              .anyOf(lineupIds)
-              .delete();
-          }
-
-          await db.timeanchors
-            .where("matchId")
-            .equals(normalizedMatchId)
-            .delete();
-          await db.matchlineups
-            .where("matchId")
-            .equals(normalizedMatchId)
-            .delete();
-          await db.matches.delete(normalizedMatchId);
-
-          const matchSyncKeys = await db.syncQueue
-            .filter(
-              (item) =>
-                typeof item.endpoint === "string" &&
-                (item.endpoint === exactEndpoint ||
-                  item.endpoint.startsWith(endpointPrefix)),
-            )
-            .primaryKeys();
-
-          if (matchSyncKeys.length > 0) {
-            await db.syncQueue.bulkDelete(matchSyncKeys as number[]);
-          }
-        },
-      );
+      await deleteMatchLocally(normalizedMatchId);
     } finally {
       matchLockService.unlockMatchForFinalization(normalizedMatchId);
     }

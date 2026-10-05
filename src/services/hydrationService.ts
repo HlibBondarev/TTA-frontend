@@ -22,6 +22,7 @@ import {
   UNRECOVERABLE_STATUS_CODES,
   extractErrorStatus,
 } from "../utils/syncErrorUtils";
+import { deleteMatchLocally } from "./matchCleanupService";
 
 export class StaleUserError extends Error {
   constructor(message = "Operation aborted due to user account change.") {
@@ -386,20 +387,7 @@ const purgePendingMatchMutations = async (matchId: string): Promise<void> => {
 };
 
 const deleteLocalMatchEntities = async (matchId: string): Promise<void> => {
-  const lineups = await db.matchlineups
-    .where("matchId")
-    .equals(matchId)
-    .toArray();
-  const lineupIds = lineups.map((l) => l.id);
-
-  if (lineupIds.length > 0) {
-    await db.playerpresences.where("matchLineupId").anyOf(lineupIds).delete();
-    await db.gameevents.where("matchLineupId").anyOf(lineupIds).delete();
-  }
-
-  await db.matches.delete(matchId);
-  await db.matchlineups.where("matchId").equals(matchId).delete();
-  await db.timeanchors.where("matchId").equals(matchId).delete();
+  await deleteMatchLocally(matchId);
 };
 
 const dispatchUncatchPostCommit = async (
@@ -699,20 +687,8 @@ export const deleteLocalMatchEntitiesForUser = async (
   const normalizedUserId = userId?.trim();
   if (!normalizedUserId || !db?.matches) return;
 
-  await db.transaction(
-    "rw",
-    [
-      db.matches,
-      db.matchlineups,
-      db.playerpresences,
-      db.gameevents,
-      db.timeanchors,
-    ],
-    async () => {
-      const match = (await db.matches.get(matchId)) as TrackedMatch | undefined;
-      if (match?.userId !== normalizedUserId) return;
+  const match = (await db.matches.get(matchId)) as TrackedMatch | undefined;
+  if (match?.userId !== normalizedUserId) return;
 
-      await deleteLocalMatchEntities(matchId);
-    },
-  );
+  await deleteMatchLocally(matchId);
 };

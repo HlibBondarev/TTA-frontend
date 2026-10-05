@@ -7,6 +7,12 @@ import {
 
 let isSyncing = false;
 
+export interface MatchSyncBatchResponse {
+  syncedEventIds?: string[];
+  syncedAnchorIds?: string[];
+  syncedPresenceIds?: string[];
+}
+
 interface SyncQueueItem {
   id?: number;
   actionType: string;
@@ -33,6 +39,138 @@ interface SyncCacheContext {
 
 const MATCH_TEAM_ENDPOINT_REGEX = /\/Matches\/([^/]+)\/teams\/([^/]+)/;
 
+/**
+ * Synchronizes un-synced events, anchors, and presence intervals for a match in a single batch.
+ */
+export const syncMatchBatch = async (
+  matchId: string,
+): Promise<MatchSyncBatchResponse> => {
+  if (!matchId || !matchId.trim()) {
+    throw new Error("Match ID is required for batch synchronization.");
+  }
+  const normalizedMatchId = matchId.trim();
+
+  const lineups = await db.matchlineups
+    .where("matchId")
+    .equals(normalizedMatchId)
+    .toArray();
+  const lineupIds = new Set(lineups.map((l) => l.id));
+
+  const unsyncedEvents = await db.gameevents
+    .filter((e) => lineupIds.has(e.matchLineupId) && e.isSynced === 0)
+    .toArray();
+
+  const unsyncedAnchors = await db.timeanchors
+    .where("matchId")
+    .equals(normalizedMatchId)
+    .filter((a) => a.isSynced === 0)
+    .toArray();
+
+  const unsyncedPresences = await db.playerpresences
+    .filter((p) => lineupIds.has(p.matchLineupId) && p.isSynced === 0)
+    .toArray();
+
+  const eventsPayload = unsyncedEvents.map((e) => ({
+    ...e,
+    eventTimestamp: e.eventTimestamp
+      ? new Date(e.eventTimestamp).toISOString()
+      : new Date().toISOString(),
+  }));
+
+  const anchorsPayload = unsyncedAnchors.map((a) => ({
+    ...a,
+    timestamp: a.timestamp
+      ? new Date(a.timestamp).toISOString()
+      : new Date().toISOString(),
+  }));
+
+  const presencesPayload = unsyncedPresences.map((p) => ({
+    id: p.id,
+    matchLineupId: p.matchLineupId,
+    periodNumber: p.periodNumber,
+    timeIn: p.timeIn ? new Date(p.timeIn).toISOString() : null,
+    timeOut: p.timeOut ? new Date(p.timeOut).toISOString() : null,
+  }));
+
+  const requestPayload = {
+    events: eventsPayload,
+    anchors: anchorsPayload,
+    presences: presencesPayload,
+  };
+
+  let response:
+    | { status?: number; data?: MatchSyncBatchResponse }
+    | MatchSyncBatchResponse;
+  try {
+    const res = await apiClient.post<MatchSyncBatchResponse>(
+      `/Matches/${normalizedMatchId}/sync-batch`,
+      requestPayload,
+    );
+    response = res;
+  } catch (err) {
+    const status = extractErrorStatus(err);
+    if (
+      status === 400 &&
+      typeof err === "object" &&
+      err !== null &&
+      "data" in err
+    ) {
+      throw err;
+    }
+    throw err;
+  }
+
+  const batchData: MatchSyncBatchResponse =
+    typeof response === "object" && response !== null && "data" in response
+      ? (response.data as MatchSyncBatchResponse)
+      : (response as MatchSyncBatchResponse);
+
+  const syncedEventIds = batchData?.syncedEventIds ?? [];
+  const syncedAnchorIds = batchData?.syncedAnchorIds ?? [];
+  const syncedPresenceIds = batchData?.syncedPresenceIds ?? [];
+
+  await db.transaction(
+    "rw",
+    [db.gameevents, db.timeanchors, db.playerpresences, db.syncQueue],
+    async () => {
+      if (syncedEventIds.length > 0) {
+        await db.gameevents
+          .where("id")
+          .anyOf(syncedEventIds)
+          .modify({ isSynced: 1 });
+      }
+      if (syncedAnchorIds.length > 0) {
+        await db.timeanchors
+          .where("id")
+          .anyOf(syncedAnchorIds)
+          .modify({ isSynced: 1 });
+      }
+      if (syncedPresenceIds.length > 0) {
+        await db.playerpresences
+          .where("id")
+          .anyOf(syncedPresenceIds)
+          .modify({ isSynced: 1 });
+      }
+
+      if (db.syncQueue) {
+        const queueItems = await db.syncQueue.toArray();
+        const matchQueueIds = queueItems
+          .filter((item) =>
+            item.endpoint.includes(`/Matches/${normalizedMatchId}`),
+          )
+          .map((item) => item.id)
+          .filter((id): id is number => id !== undefined);
+
+        for (const queueId of matchQueueIds) {
+          await db.syncQueue.delete(queueId);
+        }
+      }
+    },
+  );
+
+  return batchData;
+};
+
 const extractPresenceLineupIds = (
   presencePayload: Record<string, unknown>,
 ): string[] => {
@@ -44,10 +182,16 @@ const extractPresenceLineupIds = (
   if (Array.isArray(presencePayload.playerLineupIds)) {
     return presencePayload.playerLineupIds as string[];
   }
-  return [
-    presencePayload.playerOutLineupId,
-    presencePayload.playerInLineupId,
-  ].filter(Boolean) as string[];
+  const result: string[] = [];
+  const playerOut = presencePayload.playerOutLineupId;
+  if (typeof playerOut === "string") {
+    result.push(playerOut);
+  }
+  const playerIn = presencePayload.playerInLineupId;
+  if (typeof playerIn === "string") {
+    result.push(playerIn);
+  }
+  return result;
 };
 
 const extractEntityIds = (
@@ -86,7 +230,7 @@ const syncPresences = async (
   payload: unknown,
   targetStatus: number = 1,
 ): Promise<void> => {
-  const presencePayload = payload as Record<string, unknown>;
+  const presencePayload = (payload ?? {}) as Record<string, unknown>;
   if (
     typeof presencePayload.periodNumber !== "number" ||
     !db?.playerpresences
@@ -152,7 +296,7 @@ export const markEntitiesSynced = async (
   payload: unknown,
   targetStatus: number = 1,
 ): Promise<void> => {
-  if (!endpoint || !payload) return;
+  if (!endpoint || payload === null || payload === undefined) return;
 
   if (endpoint.includes("/presence") || endpoint.includes("/substitutions")) {
     await syncPresences(payload, targetStatus);
@@ -182,12 +326,8 @@ const resolveEventTeamId = async (
   event: Record<string, unknown>,
   lineupTeamCache?: Map<string, string | null>,
 ): Promise<string> => {
-  if (
-    typeof event?.matchLineupId === "string" &&
-    db?.matchlineups &&
-    db?.playerrosters
-  ) {
-    const lineupId = event.matchLineupId;
+  const lineupId = event?.matchLineupId;
+  if (typeof lineupId === "string" && db?.matchlineups && db?.playerrosters) {
     if (lineupTeamCache?.has(lineupId)) {
       const cached = lineupTeamCache.get(lineupId);
       return cached ?? "UNRESOLVED";
