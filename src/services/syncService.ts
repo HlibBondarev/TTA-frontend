@@ -74,7 +74,7 @@ const fetchAndFormatBatchPayloads = async (normalizedMatchId: string) => {
       periodNumber: e.periodNumber,
       eventTimestamp: e.eventTimestamp
         ? new Date(e.eventTimestamp).toISOString()
-        : new Date().toISOString(),
+        : e.eventTimestamp,
       isLeadToGoal: e.isLeadToGoal,
     })),
     anchors: unsyncedAnchors.map((a) => ({
@@ -83,7 +83,7 @@ const fetchAndFormatBatchPayloads = async (normalizedMatchId: string) => {
       type: a.type,
       timestamp: a.timestamp
         ? new Date(a.timestamp).toISOString()
-        : new Date().toISOString(),
+        : a.timestamp,
     })),
     presences: unsyncedPresences.map((p) => ({
       id: p.id,

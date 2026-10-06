@@ -2013,10 +2013,24 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       expect(processed).toBe(1);
     });
 
-    it("formats missing timestamps in fetchAndFormatBatchPayloads with current ISO date string", async () => {
+    it("preserves original event and anchor timestamps without defaulting to current execution time", async () => {
       const mockLineups = [{ id: "l1", matchId: "m1" }];
-      const mockEvents = [{ id: "e1", matchLineupId: "l1", isSynced: 0 }];
-      const mockAnchors = [{ id: "a1", matchId: "m1", isSynced: 0 }];
+      const mockEvents = [
+        {
+          id: "e1",
+          matchLineupId: "l1",
+          isSynced: 0,
+          eventTimestamp: "2026-10-05T10:15:30.000Z",
+        },
+      ];
+      const mockAnchors = [
+        {
+          id: "a1",
+          matchId: "m1",
+          isSynced: 0,
+          timestamp: "2026-10-05T10:00:00.000Z",
+        },
+      ];
 
       const mockModify = vi.fn();
       const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
@@ -2061,13 +2075,13 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
           events: [
             expect.objectContaining({
               id: "e1",
-              eventTimestamp: expect.any(String),
+              eventTimestamp: "2026-10-05T10:15:30.000Z",
             }),
           ],
           anchors: [
             expect.objectContaining({
               id: "a1",
-              timestamp: expect.any(String),
+              timestamp: "2026-10-05T10:00:00.000Z",
             }),
           ],
         }),
