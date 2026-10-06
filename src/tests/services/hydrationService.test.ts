@@ -44,19 +44,27 @@ vi.mock("../../db/ttaDatabase", () => ({
     },
     tournaments: { put: vi.fn(), get: vi.fn(), delete: vi.fn() },
     sportconfigurations: { put: vi.fn(), get: vi.fn() },
-    matchlineups: { where: vi.fn(), bulkPut: vi.fn() },
-    timeanchors: { where: vi.fn(), bulkPut: vi.fn() },
+    matchlineups: {
+      where: vi.fn(),
+      bulkPut: vi.fn(),
+      bulkDelete: vi.fn().mockResolvedValue(undefined),
+    },
+    timeanchors: {
+      where: vi.fn(),
+      bulkPut: vi.fn(),
+      bulkDelete: vi.fn().mockResolvedValue(undefined),
+    },
     playerpresences: {
       filter: vi.fn(),
       where: vi.fn(),
       bulkPut: vi.fn(),
-      bulkDelete: vi.fn(),
+      bulkDelete: vi.fn().mockResolvedValue(undefined),
     },
     gameevents: {
       filter: vi.fn(),
       where: vi.fn(),
       bulkPut: vi.fn(),
-      bulkDelete: vi.fn(),
+      bulkDelete: vi.fn().mockResolvedValue(undefined),
     },
     eventdefinitions: {
       bulkPut: vi.fn(),
@@ -145,10 +153,12 @@ describe("Hydration Service", () => {
 
     vi.mocked(db.playerpresences.filter).mockReturnValue({
       primaryKeys: vi.fn().mockResolvedValue([]),
+      toArray: vi.fn().mockResolvedValue([]),
     } as unknown as ReturnType<typeof db.playerpresences.filter>);
 
     vi.mocked(db.gameevents.filter).mockReturnValue({
       primaryKeys: vi.fn().mockResolvedValue([]),
+      toArray: vi.fn().mockResolvedValue([]),
     } as unknown as ReturnType<typeof db.gameevents.filter>);
 
     vi.mocked(db.usereventpresets.where).mockReturnValue({
@@ -641,8 +651,6 @@ describe("Hydration Service", () => {
   });
 
   it("should purge all records associated with a match when discardUnfinishedMatch is called and match is unfinished", async () => {
-    const mockDelete = vi.fn().mockResolvedValue(1);
-
     vi.mocked(db.matches.get).mockResolvedValue({
       id: matchId,
       homeScore: null,
@@ -651,29 +659,13 @@ describe("Hydration Service", () => {
 
     vi.mocked(db.matchlineups.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
-        delete: mockDelete,
         toArray: vi.fn().mockResolvedValue([{ id: "l1", matchId }]),
       }),
     } as unknown as ReturnType<typeof db.matchlineups.where>);
 
-    vi.mocked(db.playerpresences.where).mockReturnValue({
-      equals: vi.fn().mockReturnValue({ delete: mockDelete }),
-      anyOf: vi.fn().mockReturnValue({ delete: mockDelete }),
-    } as unknown as ReturnType<typeof db.playerpresences.where>);
-
-    vi.mocked(db.gameevents.where).mockReturnValue({
-      equals: vi.fn().mockReturnValue({ delete: mockDelete }),
-      anyOf: vi.fn().mockReturnValue({ delete: mockDelete }),
-    } as unknown as ReturnType<typeof db.gameevents.where>);
-
-    vi.mocked(db.timeanchors.where).mockReturnValue({
-      equals: vi.fn().mockReturnValue({ delete: mockDelete }),
-    } as unknown as ReturnType<typeof db.timeanchors.where>);
-
     await discardUnfinishedMatch(matchId);
 
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
-    expect(mockDelete).toHaveBeenCalledTimes(4);
   });
 
   it("should NOT delete tournament record from IndexedDB when discardUnfinishedMatch is executed", async () => {
@@ -781,6 +773,7 @@ describe("Hydration Service", () => {
         const matched = dummyPresences.filter(predicate);
         return {
           primaryKeys: vi.fn().mockResolvedValue(matched.map(() => "dummy-id")),
+          toArray: vi.fn().mockResolvedValue([]),
         };
       }) as unknown as typeof db.playerpresences.filter);
 
@@ -794,6 +787,7 @@ describe("Hydration Service", () => {
         const matched = dummyEvents.filter(predicate);
         return {
           primaryKeys: vi.fn().mockResolvedValue(matched.map(() => "dummy-id")),
+          toArray: vi.fn().mockResolvedValue([]),
         };
       }) as unknown as typeof db.gameevents.filter);
 
@@ -1051,6 +1045,7 @@ describe("Hydration Service", () => {
           primaryKeys: vi
             .fn()
             .mockResolvedValue(matched.map((item) => item.id)),
+          toArray: vi.fn().mockResolvedValue([]),
         };
       }) as unknown as typeof db.playerpresences.filter);
 
@@ -1062,6 +1057,7 @@ describe("Hydration Service", () => {
           primaryKeys: vi
             .fn()
             .mockResolvedValue(matched.map((item) => item.id)),
+          toArray: vi.fn().mockResolvedValue([]),
         };
       }) as unknown as typeof db.gameevents.filter);
 
@@ -1137,6 +1133,7 @@ describe("Hydration Service", () => {
           primaryKeys: vi
             .fn()
             .mockResolvedValue(filtered.map((item) => item.id)),
+          toArray: vi.fn().mockResolvedValue([]),
         };
       }) as unknown as typeof db.playerpresences.filter);
 
@@ -1148,6 +1145,7 @@ describe("Hydration Service", () => {
           primaryKeys: vi
             .fn()
             .mockResolvedValue(filtered.map((item) => item.id)),
+          toArray: vi.fn().mockResolvedValue([]),
         };
       }) as unknown as typeof db.gameevents.filter);
 
@@ -1465,7 +1463,7 @@ describe("Hydration Service", () => {
     expect(apiClient.delete).toHaveBeenCalledWith(
       `/Matches/${matchId}/teams/${"team-home-111"}/catch`,
     );
-    expect(db.syncQueue.toArray).not.toHaveBeenCalled();
+    expect(db.syncQueue.toArray).toHaveBeenCalledTimes(1);
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 
@@ -1702,6 +1700,7 @@ describe("Hydration Service", () => {
           primaryKeys: vi
             .fn()
             .mockResolvedValue(filtered.map((item) => item.id)),
+          toArray: vi.fn().mockResolvedValue([]),
         };
       }) as unknown as typeof db.gameevents.filter);
 
@@ -1949,18 +1948,6 @@ describe("Hydration Service", () => {
       }),
     } as unknown as ReturnType<typeof db.matchlineups.where>);
 
-    vi.mocked(db.playerpresences.where).mockReturnValue({
-      anyOf: vi.fn().mockReturnValue({ delete: vi.fn().mockResolvedValue(1) }),
-    } as unknown as ReturnType<typeof db.playerpresences.where>);
-
-    vi.mocked(db.gameevents.where).mockReturnValue({
-      anyOf: vi.fn().mockReturnValue({ delete: vi.fn().mockResolvedValue(1) }),
-    } as unknown as ReturnType<typeof db.gameevents.where>);
-
-    vi.mocked(db.timeanchors.where).mockReturnValue({
-      equals: vi.fn().mockReturnValue({ delete: vi.fn().mockResolvedValue(1) }),
-    } as unknown as ReturnType<typeof db.timeanchors.where>);
-
     await deleteLocalMatchEntitiesForUser("m-1", "user-owner");
 
     expect(db.matches.delete).toHaveBeenCalledWith("m-1");
@@ -2071,6 +2058,7 @@ describe("Hydration Service", () => {
       predicate({ matchLineupId: "other", isSynced: 1 });
       return {
         primaryKeys: vi.fn().mockResolvedValue(["p1"]),
+        toArray: vi.fn().mockResolvedValue([]),
       };
     }) as unknown as typeof db.playerpresences.filter);
 
@@ -2083,6 +2071,7 @@ describe("Hydration Service", () => {
       predicate({ matchLineupId: "other", isSynced: 1 });
       return {
         primaryKeys: vi.fn().mockResolvedValue(["e1"]),
+        toArray: vi.fn().mockResolvedValue([]),
       };
     }) as unknown as typeof db.gameevents.filter);
 
@@ -2100,5 +2089,36 @@ describe("Hydration Service", () => {
       expect.arrayContaining([db.usereventpresets]),
       expect.any(Function),
     );
+  });
+
+  it("should preserve staged DELETE item in syncQueue when offline during discardUnfinishedMatch", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    const stagedDeleteQueueItem = {
+      id: 99,
+      endpoint: `/Matches/${matchId}/teams/${teamId}/catch`,
+      actionType: "DELETE",
+    };
+
+    vi.mocked(db.syncQueue.toArray).mockResolvedValue([
+      stagedDeleteQueueItem,
+    ] as never);
+    vi.mocked(db.syncQueue.put).mockResolvedValueOnce(99 as never);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(db.syncQueue.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "DELETE",
+        endpoint: `/Matches/${matchId}/teams/${teamId}/catch`,
+      }),
+    );
+    expect(db.syncQueue.bulkDelete).not.toHaveBeenCalledWith([99]);
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 });
