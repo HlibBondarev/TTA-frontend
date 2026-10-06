@@ -476,7 +476,10 @@ export const discardUnfinishedMatch = async (
       });
     }
 
-    await deleteLocalMatchEntities(matchId, { preserveDeleteQueueItems: true });
+    await deleteLocalMatchEntities(matchId, {
+      preserveDeleteQueueItems: true,
+      force: true,
+    });
     checkFreshness?.();
   });
 
@@ -689,6 +692,7 @@ export const hydrateMatchData = async (
 export const deleteLocalMatchEntitiesForUser = async (
   matchId: string,
   userId?: string,
+  options?: DeleteMatchLocallyOptions,
 ): Promise<void> => {
   const normalizedUserId = userId?.trim();
   if (!normalizedUserId || !db?.matches) return;
@@ -696,5 +700,5 @@ export const deleteLocalMatchEntitiesForUser = async (
   const match = (await db.matches.get(matchId)) as TrackedMatch | undefined;
   if (match?.userId !== normalizedUserId) return;
 
-  await deleteMatchLocally(matchId);
+  await deleteMatchLocally(matchId, { force: true, ...options });
 };
