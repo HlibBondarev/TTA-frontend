@@ -1755,7 +1755,7 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
     expect(db.syncQueue.delete).toHaveBeenCalledWith(10);
   });
 
-  it("handles wrapped API response { data: MatchSyncBatchResponse } and fallback generated ISO timestamps for missing dates", async () => {
+  it("handles wrapped API response { data: MatchSyncBatchResponse }", async () => {
     const mockLineups = [{ id: "l1", matchId: "m123" }];
     const mockEvents = [{ id: "e1", matchLineupId: "l1", isSynced: 0 }];
     const mockAnchors = [{ id: "a1", matchId: "m123", isSynced: 0 }];
