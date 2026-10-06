@@ -200,7 +200,7 @@ export const matchFinalizationService = {
 
       // Step 1: Batch sync match entities and flush pending offline sync queue items to backend
       await syncMatchBatch(normalizedMatchId);
-      await processSyncQueue();
+      await processSyncQueue(normalizedMatchId);
 
       const exactEndpoint = `/Matches/${normalizedMatchId}`;
       const endpointPrefix = `/Matches/${normalizedMatchId}/`;

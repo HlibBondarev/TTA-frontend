@@ -171,7 +171,7 @@ describe("matchFinalizationService", () => {
     expect(processSyncQueue).not.toHaveBeenCalled();
   });
 
-  it("should execute syncBatch, syncQueue, record result, normalize events, and purge scoped IndexedDB entities on success", async () => {
+  it("should execute syncBatch, syncQueue with matchId, record result, normalize events, and purge scoped IndexedDB entities on success", async () => {
     const matchId = "00000000-0000-4000-8000-000000000123";
     const params = {
       matchId,
@@ -185,6 +185,7 @@ describe("matchFinalizationService", () => {
 
     expect(syncMatchBatch).toHaveBeenCalledWith(matchId);
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
+    expect(processSyncQueue).toHaveBeenCalledWith(matchId);
 
     expect(apiClient.put).toHaveBeenNthCalledWith(
       1,
@@ -263,6 +264,7 @@ describe("matchFinalizationService", () => {
     );
     expect(syncMatchBatch).toHaveBeenCalledWith(matchId);
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
+    expect(processSyncQueue).toHaveBeenCalledWith(matchId);
   });
 
   it("should auto-close open active period even when no active presences exist in IndexedDB", async () => {
@@ -538,6 +540,7 @@ describe("matchFinalizationService", () => {
 
     expect(syncMatchBatch).toHaveBeenCalledWith("match-123");
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
+    expect(processSyncQueue).toHaveBeenCalledWith("match-123");
     expect(apiClient.put).not.toHaveBeenCalled();
     expect(deleteMatchLocally).not.toHaveBeenCalled();
   });
@@ -561,6 +564,7 @@ describe("matchFinalizationService", () => {
 
     expect(syncMatchBatch).toHaveBeenCalledWith("match-123");
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
+    expect(processSyncQueue).toHaveBeenCalledWith("match-123");
     expect(apiClient.put).toHaveBeenCalledTimes(1);
     expect(deleteMatchLocally).not.toHaveBeenCalled();
   });
