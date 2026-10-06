@@ -1558,7 +1558,12 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
     } as unknown as ReturnType<typeof db.playerpresences.where>);
 
     vi.mocked(db.syncQueue.toArray).mockResolvedValue([
-      { id: 10, endpoint: "/Matches/m123/events" },
+      {
+        id: 10,
+        actionType: "POST",
+        endpoint: "/Matches/m123/events",
+        payload: JSON.stringify([{ id: "e1" }]),
+      },
     ] as never);
 
     const result = await syncMatchBatch("m123");
@@ -1623,5 +1628,51 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
     await expect(syncMatchBatch("m123")).rejects.toThrow(
       "Event timestamp is invalid.; Anchor period does not match.",
     );
+  });
+
+  it("preserves non-POST and unsynced POST queue items during syncMatchBatch cleanup", async () => {
+    const mockLineups = [{ id: "l1", matchId: "m123" }];
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockLineups),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({
+      syncedEventIds: ["e1"],
+      syncedAnchorIds: [],
+      syncedPresenceIds: [],
+    });
+
+    const mockQueueItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m123/teams/t1/events",
+        payload: JSON.stringify([{ id: "e1" }]),
+      },
+      {
+        id: 2,
+        actionType: "POST",
+        endpoint: "/Matches/m123/teams/t1/events",
+        payload: JSON.stringify([{ id: "e2-unsynced" }]),
+      },
+      {
+        id: 3,
+        actionType: "PUT",
+        endpoint: "/Matches/m123/presence/terminate",
+        payload: JSON.stringify({ periodNumber: 1 }),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.toArray).mockResolvedValue(mockQueueItems as never);
+
+    await syncMatchBatch("m123");
+
+    expect(db.syncQueue.delete).toHaveBeenCalledTimes(1);
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(2);
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(3);
   });
 });

@@ -168,21 +168,79 @@ export const syncMatchBatch = async (
 
       if (db.syncQueue) {
         const queueItems = await db.syncQueue.toArray();
-        const matchQueueIds = queueItems
-          .filter((item) =>
-            item.endpoint.includes(`/Matches/${normalizedMatchId}`),
-          )
-          .map((item) => item.id)
-          .filter((id): id is number => id !== undefined);
+        const prefix = `/Matches/${normalizedMatchId}/`;
+        const syncedEventSet = new Set(syncedEventIds);
+        const syncedAnchorSet = new Set(syncedAnchorIds);
+        const syncedPresenceSet = new Set(syncedPresenceIds);
 
-        for (const queueId of matchQueueIds) {
-          await db.syncQueue.delete(queueId);
+        for (const item of queueItems) {
+          if (
+            item.id === undefined ||
+            item.actionType !== "POST" ||
+            !item.endpoint.startsWith(prefix)
+          ) {
+            continue;
+          }
+
+          const payload = parsePayload(item.payload);
+          if (payload === null) continue;
+
+          let shouldDelete = false;
+
+          if (item.endpoint.includes("/events")) {
+            const ids = extractEventIds(item.endpoint, payload);
+            if (ids.length > 0 && ids.every((id) => syncedEventSet.has(id))) {
+              shouldDelete = true;
+            }
+          } else if (item.endpoint.includes("/anchors")) {
+            const ids = extractAnchorIds(item.endpoint, payload);
+            if (ids.length > 0 && ids.every((id) => syncedAnchorSet.has(id))) {
+              shouldDelete = true;
+            }
+          } else if (item.endpoint.includes("/presence")) {
+            const ids = extractPresenceIds(payload);
+            if (
+              ids.length > 0 &&
+              ids.every((id) => syncedPresenceSet.has(id))
+            ) {
+              shouldDelete = true;
+            }
+          }
+
+          if (shouldDelete) {
+            await db.syncQueue.delete(item.id);
+          }
         }
       }
     },
   );
 
   return batchData;
+};
+
+const extractPresenceIds = (payload: unknown): string[] => {
+  if (typeof payload !== "object" || payload === null) return [];
+
+  const obj = payload as Record<string, unknown>;
+  if (Array.isArray(obj.presenceItems)) {
+    return (obj.presenceItems as PresenceItemPayload[])
+      .map((item) => item.id)
+      .filter((id): id is string => typeof id === "string");
+  }
+
+  const items = Array.isArray(payload) ? payload : [payload];
+  const ids: string[] = [];
+  for (const item of items) {
+    if (
+      typeof item === "object" &&
+      item !== null &&
+      "id" in item &&
+      typeof (item as { id?: string }).id === "string"
+    ) {
+      ids.push((item as { id: string }).id);
+    }
+  }
+  return ids;
 };
 
 const extractPresenceLineupIds = (
