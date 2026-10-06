@@ -5,6 +5,10 @@ export interface DeleteMatchLocallyOptions {
   force?: boolean;
 }
 
+const isMatchEndpoint = (endpoint: string | undefined, id: string): boolean =>
+  typeof endpoint === "string" &&
+  (endpoint === `/Matches/${id}` || endpoint.startsWith(`/Matches/${id}/`));
+
 const deleteMatchEvents = async (lineupIds: Set<string>): Promise<void> => {
   if (lineupIds.size === 0 || !db.gameevents) return;
   const eventsToDelete = await db.gameevents
@@ -51,10 +55,9 @@ const deleteMatchSyncQueueItems = async (
 ): Promise<void> => {
   if (!db.syncQueue) return;
   const queueItems = await db.syncQueue.toArray();
-  const matchPrefix = `/Matches/${normalizedMatchId}`;
   const queueIdsToDelete = queueItems
     .filter((item) => {
-      if (!item.endpoint?.includes(matchPrefix)) {
+      if (!isMatchEndpoint(item.endpoint, normalizedMatchId)) {
         return false;
       }
       return !(
@@ -106,7 +109,7 @@ const assertMatchCanBeDeleted = async (
   if (db.syncQueue) {
     const queueItems = await db.syncQueue.toArray();
     pendingQueueItems = queueItems.filter((item) =>
-      item.endpoint?.includes(`/Matches/${normalizedMatchId}`),
+      isMatchEndpoint(item.endpoint, normalizedMatchId),
     ).length;
   }
 

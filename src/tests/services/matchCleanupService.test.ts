@@ -175,6 +175,21 @@ describe("Match Cleanup Service", () => {
       expect(db.syncQueue.bulkDelete).not.toHaveBeenCalled();
     });
 
+    it("does not block cleanup or delete queue items for other matches sharing an ID prefix", async () => {
+      const mockQueueItems = [
+        { id: 1, endpoint: "/Matches/match-1234/events", actionType: "POST" },
+      ];
+
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue(
+        mockQueueItems as never,
+      );
+
+      await deleteMatchLocally("match-123");
+
+      expect(db.matches.delete).toHaveBeenCalledWith("match-123");
+      expect(db.syncQueue.bulkDelete).not.toHaveBeenCalled();
+    });
+
     it("deletes all associated entities for a given fully-synced match ID", async () => {
       const mockLineups = [
         { id: "lineup-1", matchId: "match-123" },
