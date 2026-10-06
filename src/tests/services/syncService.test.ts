@@ -1664,6 +1664,12 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
         endpoint: "/Matches/m123/presence/terminate",
         payload: JSON.stringify({ periodNumber: 1 }),
       },
+      {
+        id: 4,
+        actionType: "PUT",
+        endpoint: "/Matches/m123/events/e1",
+        payload: JSON.stringify({ id: "e1" }),
+      },
     ];
 
     vi.mocked(db.syncQueue.toArray).mockResolvedValue(mockQueueItems as never);
@@ -1674,6 +1680,7 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
     expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
     expect(db.syncQueue.delete).not.toHaveBeenCalledWith(2);
     expect(db.syncQueue.delete).not.toHaveBeenCalledWith(3);
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(4);
   });
 
   it("omits timeIn and timeOut from presence payload when stored presence missing time values", async () => {
