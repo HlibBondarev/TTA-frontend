@@ -4,6 +4,70 @@ export interface DeleteMatchLocallyOptions {
   preserveDeleteQueueItems?: boolean;
 }
 
+const deleteMatchEvents = async (lineupIds: Set<string>): Promise<void> => {
+  if (lineupIds.size === 0 || !db.gameevents) return;
+  const eventsToDelete = await db.gameevents
+    .filter((e) => lineupIds.has(e.matchLineupId))
+    .toArray();
+  const eventIds = eventsToDelete
+    .map((e) => e.id)
+    .filter((id): id is string => Boolean(id));
+  if (eventIds.length > 0) {
+    await db.gameevents.bulkDelete(eventIds);
+  }
+};
+
+const deleteMatchPresences = async (lineupIds: Set<string>): Promise<void> => {
+  if (lineupIds.size === 0 || !db.playerpresences) return;
+  const presencesToDelete = await db.playerpresences
+    .filter((p) => lineupIds.has(p.matchLineupId))
+    .toArray();
+  const presenceIds = presencesToDelete
+    .map((p) => p.id)
+    .filter((id): id is string => Boolean(id));
+  if (presenceIds.length > 0) {
+    await db.playerpresences.bulkDelete(presenceIds);
+  }
+};
+
+const deleteMatchAnchors = async (normalizedMatchId: string): Promise<void> => {
+  if (!db.timeanchors) return;
+  const anchorsToDelete = await db.timeanchors
+    .where("matchId")
+    .equals(normalizedMatchId)
+    .toArray();
+  const anchorIds = anchorsToDelete
+    .map((a) => a.id)
+    .filter((id): id is string => Boolean(id));
+  if (anchorIds.length > 0) {
+    await db.timeanchors.bulkDelete(anchorIds);
+  }
+};
+
+const deleteMatchSyncQueueItems = async (
+  normalizedMatchId: string,
+  options?: DeleteMatchLocallyOptions,
+): Promise<void> => {
+  if (!db.syncQueue) return;
+  const queueItems = await db.syncQueue.toArray();
+  const matchPrefix = `/Matches/${normalizedMatchId}`;
+  const queueIdsToDelete = queueItems
+    .filter((item) => {
+      if (!item.endpoint?.includes(matchPrefix)) {
+        return false;
+      }
+      return !(
+        options?.preserveDeleteQueueItems && item.actionType === "DELETE"
+      );
+    })
+    .map((item) => item.id)
+    .filter((id): id is number => id !== undefined);
+
+  if (queueIdsToDelete.length > 0) {
+    await db.syncQueue.bulkDelete(queueIdsToDelete);
+  }
+};
+
 /**
  * Deletes all local IndexedDB records associated with a specific match ID.
  * This includes game events, time anchors, player presences, match lineups, match metadata,
@@ -13,7 +77,7 @@ export const deleteMatchLocally = async (
   matchId: string,
   options?: DeleteMatchLocallyOptions,
 ): Promise<void> => {
-  if (!matchId || !matchId.trim()) {
+  if (!matchId?.trim()) {
     throw new Error("Match ID is required for local cleanup.");
   }
 
@@ -37,82 +101,19 @@ export const deleteMatchLocally = async (
       db.syncQueue,
     ],
     async () => {
-      // 1. Delete Game Events associated with match lineups
-      if (lineupIds.size > 0 && db.gameevents) {
-        const eventsToDelete = await db.gameevents
-          .filter((e) => lineupIds.has(e.matchLineupId))
-          .toArray();
-        const eventIds = eventsToDelete
-          .map((e) => e.id)
-          .filter((id): id is string => Boolean(id));
-        if (eventIds.length > 0) {
-          await db.gameevents.bulkDelete(eventIds);
-        }
+      await deleteMatchEvents(lineupIds);
+      await deleteMatchPresences(lineupIds);
+      await deleteMatchAnchors(normalizedMatchId);
+
+      if (db.matchlineups && lineupIds.size > 0) {
+        await db.matchlineups.bulkDelete(Array.from(lineupIds));
       }
 
-      // 2. Delete Player Presences associated with match lineups
-      if (lineupIds.size > 0 && db.playerpresences) {
-        const presencesToDelete = await db.playerpresences
-          .filter((p) => lineupIds.has(p.matchLineupId))
-          .toArray();
-        const presenceIds = presencesToDelete
-          .map((p) => p.id)
-          .filter((id): id is string => Boolean(id));
-        if (presenceIds.length > 0) {
-          await db.playerpresences.bulkDelete(presenceIds);
-        }
-      }
-
-      // 3. Delete Time Anchors for the match
-      if (db.timeanchors) {
-        const anchorsToDelete = await db.timeanchors
-          .where("matchId")
-          .equals(normalizedMatchId)
-          .toArray();
-        const anchorIds = anchorsToDelete
-          .map((a) => a.id)
-          .filter((id): id is string => Boolean(id));
-        if (anchorIds.length > 0) {
-          await db.timeanchors.bulkDelete(anchorIds);
-        }
-      }
-
-      // 4. Delete Lineups for the match
-      if (db.matchlineups) {
-        const lineupArray = Array.from(lineupIds);
-        if (lineupArray.length > 0) {
-          await db.matchlineups.bulkDelete(lineupArray);
-        }
-      }
-
-      // 5. Delete Match Record
       if (db.matches) {
         await db.matches.delete(normalizedMatchId);
       }
 
-      // 6. Delete Sync Queue items related to this match
-      if (db.syncQueue) {
-        const queueItems = await db.syncQueue.toArray();
-        const queueIdsToDelete = queueItems
-          .filter((item) => {
-            if (!item.endpoint?.includes(`/Matches/${normalizedMatchId}`)) {
-              return false;
-            }
-            if (
-              options?.preserveDeleteQueueItems &&
-              item.actionType === "DELETE"
-            ) {
-              return false;
-            }
-            return true;
-          })
-          .map((item) => item.id)
-          .filter((id): id is number => id !== undefined);
-
-        if (queueIdsToDelete.length > 0) {
-          await db.syncQueue.bulkDelete(queueIdsToDelete);
-        }
-      }
+      await deleteMatchSyncQueueItems(normalizedMatchId, options);
     },
   );
 };

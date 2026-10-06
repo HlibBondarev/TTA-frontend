@@ -37,19 +37,15 @@ interface SyncCacheContext {
   matchRecordCache?: Map<string, MatchTeamData | null>;
 }
 
+interface SyncedEntitySets {
+  events: Set<string>;
+  anchors: Set<string>;
+  presences: Set<string>;
+}
+
 const MATCH_TEAM_ENDPOINT_REGEX = /\/Matches\/([^/]+)\/teams\/([^/]+)/;
 
-/**
- * Synchronizes un-synced events, anchors, and presence intervals for a match in a single batch.
- */
-export const syncMatchBatch = async (
-  matchId: string,
-): Promise<MatchSyncBatchResponse> => {
-  if (!matchId || !matchId.trim()) {
-    throw new Error("Match ID is required for batch synchronization.");
-  }
-  const normalizedMatchId = matchId.trim();
-
+const fetchAndFormatBatchPayloads = async (normalizedMatchId: string) => {
   const lineups = await db.matchlineups
     .where("matchId")
     .equals(normalizedMatchId)
@@ -70,74 +66,145 @@ export const syncMatchBatch = async (
     .filter((p) => lineupIds.has(p.matchLineupId) && p.isSynced === 0)
     .toArray();
 
-  const eventsPayload = unsyncedEvents.map((e) => ({
-    ...e,
-    eventTimestamp: e.eventTimestamp
-      ? new Date(e.eventTimestamp).toISOString()
-      : new Date().toISOString(),
-  }));
-
-  const anchorsPayload = unsyncedAnchors.map((a) => ({
-    ...a,
-    timestamp: a.timestamp
-      ? new Date(a.timestamp).toISOString()
-      : new Date().toISOString(),
-  }));
-
-  const presencesPayload = unsyncedPresences.map((p) => ({
-    id: p.id,
-    matchLineupId: p.matchLineupId,
-    periodNumber: p.periodNumber,
-    ...(p.timeIn ? { timeIn: new Date(p.timeIn).toISOString() } : {}),
-    ...(p.timeOut ? { timeOut: new Date(p.timeOut).toISOString() } : {}),
-  }));
-
-  const requestPayload = {
-    events: eventsPayload,
-    anchors: anchorsPayload,
-    presences: presencesPayload,
+  return {
+    events: unsyncedEvents.map((e) => ({
+      ...e,
+      eventTimestamp: e.eventTimestamp
+        ? new Date(e.eventTimestamp).toISOString()
+        : new Date().toISOString(),
+    })),
+    anchors: unsyncedAnchors.map((a) => ({
+      ...a,
+      timestamp: a.timestamp
+        ? new Date(a.timestamp).toISOString()
+        : new Date().toISOString(),
+    })),
+    presences: unsyncedPresences.map((p) => ({
+      id: p.id,
+      matchLineupId: p.matchLineupId,
+      periodNumber: p.periodNumber,
+      ...(p.timeIn ? { timeIn: new Date(p.timeIn).toISOString() } : {}),
+      ...(p.timeOut ? { timeOut: new Date(p.timeOut).toISOString() } : {}),
+    })),
   };
+};
 
-  let response:
-    | { status?: number; data?: MatchSyncBatchResponse }
-    | MatchSyncBatchResponse;
+const extractBatchError = (err: unknown): Error | null => {
+  if (
+    extractErrorStatus(err) !== 400 ||
+    typeof err !== "object" ||
+    err === null ||
+    !("data" in err)
+  ) {
+    return null;
+  }
+
+  const apiData = (
+    err as { data?: { errors?: Record<string, string[] | string> } }
+  ).data;
+  if (!apiData?.errors || typeof apiData.errors !== "object") return null;
+
+  const messages = Object.values(apiData.errors)
+    .flatMap((val) => (Array.isArray(val) ? val : [val]))
+    .filter(Boolean);
+
+  if (messages.length === 0) return null;
+
+  const validationError = new Error(messages.join("; "));
+  (validationError as unknown as Record<string, unknown>).status = 400;
+  (validationError as unknown as Record<string, unknown>).data = apiData;
+  return validationError;
+};
+
+const postSyncBatch = async (
+  normalizedMatchId: string,
+  requestPayload: unknown,
+): Promise<MatchSyncBatchResponse> => {
   try {
     const res = await apiClient.post<MatchSyncBatchResponse>(
       `/Matches/${normalizedMatchId}/sync-batch`,
       requestPayload,
     );
-    response = res;
+    return typeof res === "object" && res !== null && "data" in res
+      ? (res.data as MatchSyncBatchResponse)
+      : res;
   } catch (err) {
-    const status = extractErrorStatus(err);
-    if (
-      status === 400 &&
-      typeof err === "object" &&
-      err !== null &&
-      "data" in err
-    ) {
-      const apiData = (
-        err as { data?: { errors?: Record<string, string[] | string> } }
-      ).data;
-      if (apiData?.errors && typeof apiData.errors === "object") {
-        const messages = Object.values(apiData.errors)
-          .flatMap((val) => (Array.isArray(val) ? val : [val]))
-          .filter(Boolean);
-        if (messages.length > 0) {
-          const validationError = new Error(messages.join("; "));
-          (validationError as unknown as Record<string, unknown>).status = 400;
-          (validationError as unknown as Record<string, unknown>).data =
-            apiData;
-          throw validationError;
-        }
-      }
-    }
+    const validationError = extractBatchError(err);
+    if (validationError) throw validationError;
     throw err;
   }
+};
 
-  const batchData: MatchSyncBatchResponse =
-    typeof response === "object" && response !== null && "data" in response
-      ? (response.data as MatchSyncBatchResponse)
-      : (response as MatchSyncBatchResponse);
+const shouldDeleteQueueItem = (
+  item: SyncQueueItem,
+  syncedSets: SyncedEntitySets,
+): boolean => {
+  const payload = parsePayload(item.payload);
+  if (payload === null) return false;
+
+  if (item.endpoint.includes("/events")) {
+    const ids = extractEventIds(item.endpoint, payload);
+    return ids.length > 0 && ids.every((id) => syncedSets.events.has(id));
+  }
+  if (item.endpoint.includes("/anchors")) {
+    const ids = extractAnchorIds(item.endpoint, payload);
+    return ids.length > 0 && ids.every((id) => syncedSets.anchors.has(id));
+  }
+  if (item.endpoint.includes("/presence")) {
+    const ids = extractPresenceIds(payload);
+    return ids.length > 0 && ids.every((id) => syncedSets.presences.has(id));
+  }
+  return false;
+};
+
+const cleanupBatchQueue = async (
+  normalizedMatchId: string,
+  batchData: MatchSyncBatchResponse,
+): Promise<void> => {
+  if (!db.syncQueue) return;
+
+  const queueItems = await db.syncQueue.toArray();
+  const prefix = `/Matches/${normalizedMatchId}/`;
+  const syncedSets: SyncedEntitySets = {
+    events: new Set(batchData?.syncedEventIds ?? []),
+    anchors: new Set(batchData?.syncedAnchorIds ?? []),
+    presences: new Set(batchData?.syncedPresenceIds ?? []),
+  };
+
+  const idsToDelete: number[] = [];
+
+  for (const item of queueItems) {
+    if (
+      item.id === undefined ||
+      item.actionType !== "POST" ||
+      !item.endpoint.startsWith(prefix)
+    ) {
+      continue;
+    }
+
+    if (shouldDeleteQueueItem(item, syncedSets)) {
+      idsToDelete.push(item.id);
+    }
+  }
+
+  if (idsToDelete.length > 0) {
+    await Promise.all(idsToDelete.map((id) => db.syncQueue.delete(id)));
+  }
+};
+
+/**
+ * Synchronizes un-synced events, anchors, and presence intervals for a match in a single batch.
+ */
+export const syncMatchBatch = async (
+  matchId: string,
+): Promise<MatchSyncBatchResponse> => {
+  if (!matchId?.trim()) {
+    throw new Error("Match ID is required for batch synchronization.");
+  }
+  const normalizedMatchId = matchId.trim();
+
+  const requestPayload = await fetchAndFormatBatchPayloads(normalizedMatchId);
+  const batchData = await postSyncBatch(normalizedMatchId, requestPayload);
 
   const syncedEventIds = batchData?.syncedEventIds ?? [];
   const syncedAnchorIds = batchData?.syncedAnchorIds ?? [];
@@ -166,52 +233,7 @@ export const syncMatchBatch = async (
           .modify({ isSynced: 1 });
       }
 
-      if (db.syncQueue) {
-        const queueItems = await db.syncQueue.toArray();
-        const prefix = `/Matches/${normalizedMatchId}/`;
-        const syncedEventSet = new Set(syncedEventIds);
-        const syncedAnchorSet = new Set(syncedAnchorIds);
-        const syncedPresenceSet = new Set(syncedPresenceIds);
-
-        for (const item of queueItems) {
-          if (
-            item.id === undefined ||
-            item.actionType !== "POST" ||
-            !item.endpoint.startsWith(prefix)
-          ) {
-            continue;
-          }
-
-          const payload = parsePayload(item.payload);
-          if (payload === null) continue;
-
-          let shouldDelete = false;
-
-          if (item.endpoint.includes("/events")) {
-            const ids = extractEventIds(item.endpoint, payload);
-            if (ids.length > 0 && ids.every((id) => syncedEventSet.has(id))) {
-              shouldDelete = true;
-            }
-          } else if (item.endpoint.includes("/anchors")) {
-            const ids = extractAnchorIds(item.endpoint, payload);
-            if (ids.length > 0 && ids.every((id) => syncedAnchorSet.has(id))) {
-              shouldDelete = true;
-            }
-          } else if (item.endpoint.includes("/presence")) {
-            const ids = extractPresenceIds(payload);
-            if (
-              ids.length > 0 &&
-              ids.every((id) => syncedPresenceSet.has(id))
-            ) {
-              shouldDelete = true;
-            }
-          }
-
-          if (shouldDelete) {
-            await db.syncQueue.delete(item.id);
-          }
-        }
-      }
+      await cleanupBatchQueue(normalizedMatchId, batchData);
     },
   );
 
