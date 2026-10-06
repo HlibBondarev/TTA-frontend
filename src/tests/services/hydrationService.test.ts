@@ -2108,6 +2108,7 @@ describe("Hydration Service", () => {
     vi.mocked(db.syncQueue.toArray).mockResolvedValue([
       stagedDeleteQueueItem,
     ] as never);
+    vi.mocked(db.syncQueue.put).mockResolvedValueOnce(99 as never);
 
     await discardUnfinishedMatch(matchId, teamId);
 
