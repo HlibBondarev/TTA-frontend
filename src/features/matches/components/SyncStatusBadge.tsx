@@ -1,11 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { liveQuery } from "dexie";
+import { useSelector } from "react-redux";
 import { db } from "../../../db/ttaDatabase";
 import { processSyncQueue } from "../../../services/syncService";
+import type { MatchState } from "../store/matchSlice";
 
 export const SyncStatusBadge: React.FC = () => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingCount, setPendingCount] = useState<number>(0);
+  const activeMatchId = useSelector(
+    (state: { match: MatchState }) => state.match?.activeMatchId,
+  );
 
   useEffect(() => {
     const handleOnline = () => {
@@ -18,6 +23,18 @@ export const SyncStatusBadge: React.FC = () => {
 
     const subscription = liveQuery(async () => {
       if (!db?.syncQueue) return 0;
+
+      if (activeMatchId?.trim()) {
+        const prefix = `/Matches/${activeMatchId.trim()}/`;
+        return await db.syncQueue
+          .filter(
+            (item) =>
+              typeof item.endpoint === "string" &&
+              item.endpoint.startsWith(prefix),
+          )
+          .count();
+      }
+
       return await db.syncQueue.count();
     }).subscribe({
       next: (count) => setPendingCount(count || 0),
@@ -29,11 +46,11 @@ export const SyncStatusBadge: React.FC = () => {
       window.removeEventListener("offline", handleOffline);
       subscription.unsubscribe();
     };
-  }, []);
+  }, [activeMatchId]);
 
   const handleManualSync = () => {
     if (isOnline) {
-      void processSyncQueue().catch((syncErr) => {
+      void processSyncQueue(activeMatchId ?? undefined).catch((syncErr) => {
         console.error("Manual background sync failed:", syncErr);
       });
     }

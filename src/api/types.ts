@@ -1300,6 +1300,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/Matches/{id}/sync-batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["MatchSyncBatchRequest"];
+                    "text/json": components["schemas"]["MatchSyncBatchRequest"];
+                    "application/*+json": components["schemas"]["MatchSyncBatchRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MatchSyncBatchResponse"];
+                        "application/json": components["schemas"]["MatchSyncBatchResponse"];
+                        "text/json": components["schemas"]["MatchSyncBatchResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ValidationProblemDetails"];
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                        "text/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/Matches/{matchId}/event-definitions": {
         parameters: {
             query?: never;
@@ -3996,6 +4096,18 @@ export interface components {
             eventTimestamp?: string;
             isLeadToGoal?: boolean;
         };
+        CreatePlayerPresenceRequest: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            matchLineupId?: string;
+            /** Format: int32 */
+            periodNumber?: number;
+            /** Format: date-time */
+            timeIn?: string;
+            /** Format: date-time */
+            timeOut?: string | null;
+        };
         CreatePlayerRequest: {
             firstName?: string | null;
             lastName?: string | null;
@@ -4103,6 +4215,18 @@ export interface components {
             /** Format: uuid */
             positionId?: string;
             positionName?: string | null;
+        };
+        MatchSyncBatchRequest: {
+            events?: components["schemas"]["CreateGameEventRequest"][] | null;
+            anchors?: components["schemas"]["CreateTimeAnchorRequest"][] | null;
+            presences?: components["schemas"]["CreatePlayerPresenceRequest"][] | null;
+        };
+        MatchSyncBatchResponse: {
+            /** Format: uuid */
+            matchId?: string;
+            syncedEventIds?: string[] | null;
+            syncedAnchorIds?: string[] | null;
+            syncedPresenceIds?: string[] | null;
         };
         MatchWithDetailsResponse: {
             /** Format: uuid */

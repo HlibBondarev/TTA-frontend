@@ -2,8 +2,9 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import { matchFinalizationService } from "../../services/matchFinalizationService";
 import { apiClient } from "../../api/client";
 import { db } from "../../db/ttaDatabase";
-import { processSyncQueue } from "../../services/syncService";
+import { processSyncQueue, syncMatchBatch } from "../../services/syncService";
 import { matchLockService } from "../../services/matchLockService";
+import { deleteMatchLocally } from "../../services/matchCleanupService";
 
 vi.mock("../../api/client", () => ({
   apiClient: {
@@ -13,6 +14,11 @@ vi.mock("../../api/client", () => ({
 
 vi.mock("../../services/syncService", () => ({
   processSyncQueue: vi.fn().mockResolvedValue(1),
+  syncMatchBatch: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../services/matchCleanupService", () => ({
+  deleteMatchLocally: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../db/eventService", () => ({
@@ -119,6 +125,7 @@ describe("matchFinalizationService", () => {
       "Missing required matchId or activeTeamId for match finalization.",
     );
 
+    expect(syncMatchBatch).not.toHaveBeenCalled();
     expect(processSyncQueue).not.toHaveBeenCalled();
     expect(apiClient.put).not.toHaveBeenCalled();
   });
@@ -140,6 +147,7 @@ describe("matchFinalizationService", () => {
       }),
     ).rejects.toThrow("Match match-123 belongs to another user.");
 
+    expect(syncMatchBatch).not.toHaveBeenCalled();
     expect(processSyncQueue).not.toHaveBeenCalled();
     expect(matchLockService.isMatchLocked("match-123")).toBe(false);
   });
@@ -159,12 +167,12 @@ describe("matchFinalizationService", () => {
       "Cannot finalize match match-123: match is currently locked for finalization.",
     );
 
+    expect(syncMatchBatch).not.toHaveBeenCalled();
     expect(processSyncQueue).not.toHaveBeenCalled();
   });
 
-  it("should execute sync, record result, normalize events, and purge scoped IndexedDB entities on success", async () => {
+  it("should execute syncBatch, syncQueue with matchId, record result, normalize events, and purge scoped IndexedDB entities on success", async () => {
     const matchId = "00000000-0000-4000-8000-000000000123";
-    const otherMatchId = "00000000-0000-4000-8000-000000000124";
     const params = {
       matchId,
       activeTeamId: "team-456",
@@ -175,7 +183,9 @@ describe("matchFinalizationService", () => {
 
     await matchFinalizationService.finalizeMatch(params);
 
+    expect(syncMatchBatch).toHaveBeenCalledWith(matchId);
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
+    expect(processSyncQueue).toHaveBeenCalledWith(matchId);
 
     expect(apiClient.put).toHaveBeenNthCalledWith(
       1,
@@ -192,46 +202,7 @@ describe("matchFinalizationService", () => {
       `/Matches/${matchId}/teams/team-456/events/normalize`,
     );
 
-    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
-    expect(mockBulkDelete).toHaveBeenCalledWith([101]);
-
-    const matchlineupsWhere = vi.mocked(db.matchlineups.where);
-    expect(matchlineupsWhere.mock.results[0].value.equals).toHaveBeenCalledWith(
-      matchId,
-    );
-    expect(matchlineupsWhere.mock.results[1].value.equals).toHaveBeenCalledWith(
-      matchId,
-    );
-
-    expect(db.gameevents.where).toHaveBeenCalledWith("matchLineupId");
-    const eventsAnyOf = vi.mocked(db.gameevents.where).mock.results[0].value
-      .anyOf;
-    expect(eventsAnyOf).toHaveBeenCalledWith(["lineup-1"]);
-
-    const presencesAnyOf = vi.mocked(db.playerpresences.where).mock.results[0]
-      .value.anyOf;
-    expect(presencesAnyOf).toHaveBeenCalledWith(["lineup-1"]);
-
-    expect(db.timeanchors.where).toHaveBeenLastCalledWith("matchId");
-    const anchorsEquals = vi.mocked(db.timeanchors.where).mock.results.at(-1)!
-      .value.equals;
-    expect(anchorsEquals).toHaveBeenLastCalledWith(matchId);
-
-    const filterCalls = vi.mocked(db.syncQueue.filter).mock.calls;
-    expect(filterCalls).toHaveLength(2);
-    for (const [fn] of filterCalls) {
-      const predicate = fn as (item: { endpoint?: unknown }) => boolean;
-      expect(predicate({ endpoint: `/Matches/${matchId}` })).toBe(true);
-      expect(predicate({ endpoint: `/Matches/${matchId}/anchors` })).toBe(true);
-      expect(predicate({ endpoint: `/Matches/${matchId}0/anchors` })).toBe(
-        false,
-      );
-      expect(predicate({ endpoint: `/Matches/${otherMatchId}/anchors` })).toBe(
-        false,
-      );
-      expect(predicate({ endpoint: undefined })).toBe(false);
-    }
-
+    expect(deleteMatchLocally).toHaveBeenCalledWith(matchId);
     expect(matchLockService.isMatchLocked(matchId)).toBe(false);
   });
 
@@ -291,7 +262,9 @@ describe("matchFinalizationService", () => {
         timeOut: expect.any(String),
       }),
     );
+    expect(syncMatchBatch).toHaveBeenCalledWith(matchId);
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
+    expect(processSyncQueue).toHaveBeenCalledWith(matchId);
   });
 
   it("should auto-close open active period even when no active presences exist in IndexedDB", async () => {
@@ -487,32 +460,6 @@ describe("matchFinalizationService", () => {
     );
   });
 
-  it("should skip line-item and syncQueue bulk deletes when no lineups or match sync keys exist in Step 4", async () => {
-    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
-      equals: vi.fn().mockReturnValueOnce({
-        toArray: vi.fn().mockResolvedValueOnce([]),
-        delete: mockDelete,
-      }),
-    } as unknown as ReturnType<typeof db.matchlineups.where>);
-
-    vi.mocked(db.syncQueue.filter).mockReturnValue({
-      primaryKeys: vi.fn().mockResolvedValue([]),
-      count: vi.fn().mockResolvedValue(0),
-    } as unknown as ReturnType<typeof db.syncQueue.filter>);
-
-    await matchFinalizationService.finalizeMatch({
-      matchId: "match-empty-lineups",
-      activeTeamId: "team-456",
-      homeScore: 5,
-      guestScore: 3,
-      temperature: null,
-    });
-
-    expect(db.gameevents.where).not.toHaveBeenCalled();
-    expect(mockBulkDelete).not.toHaveBeenCalled();
-    expect(db.matches.delete).toHaveBeenCalledWith("match-empty-lineups");
-  });
-
   it("should correctly sort time anchors by timestamp when sequence numbers are identical during auto-close", async () => {
     const matchId = "match-same-seq";
     vi.mocked(db.timeanchors.where).mockReturnValueOnce({
@@ -567,6 +514,7 @@ describe("matchFinalizationService", () => {
       matchFinalizationService.finalizeMatch(params),
     ).rejects.toThrow("IndexedDB write failed inside transaction");
 
+    expect(syncMatchBatch).not.toHaveBeenCalled();
     expect(processSyncQueue).not.toHaveBeenCalled();
     expect(apiClient.put).not.toHaveBeenCalled();
   });
@@ -590,9 +538,11 @@ describe("matchFinalizationService", () => {
       "Cannot finalize match: offline sync queue is not empty. Please ensure all pending actions are synchronized.",
     );
 
+    expect(syncMatchBatch).toHaveBeenCalledWith("match-123");
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
+    expect(processSyncQueue).toHaveBeenCalledWith("match-123");
     expect(apiClient.put).not.toHaveBeenCalled();
-    expect(db.matches.delete).not.toHaveBeenCalled();
+    expect(deleteMatchLocally).not.toHaveBeenCalled();
   });
 
   it("should ABORT IndexedDB purge if record result API fails", async () => {
@@ -612,9 +562,11 @@ describe("matchFinalizationService", () => {
       matchFinalizationService.finalizeMatch(params),
     ).rejects.toThrow("API Error 500: Server error");
 
+    expect(syncMatchBatch).toHaveBeenCalledWith("match-123");
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
+    expect(processSyncQueue).toHaveBeenCalledWith("match-123");
     expect(apiClient.put).toHaveBeenCalledTimes(1);
-    expect(db.matches.delete).not.toHaveBeenCalled();
+    expect(deleteMatchLocally).not.toHaveBeenCalled();
   });
 
   it("should unlock match even if finalization fails with an error", async () => {

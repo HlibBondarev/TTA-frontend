@@ -18,14 +18,29 @@ import { SyncStatusBadge } from "../components/SyncStatusBadge";
 import { db } from "../../../db/ttaDatabase";
 import { processSyncQueue } from "../../../services/syncService";
 
+vi.mock("react-redux", () => ({
+  useSelector: vi.fn((selector) =>
+    selector({
+      match: {
+        activeMatchId: "active-match-123",
+      },
+    }),
+  ),
+}));
+
 vi.mock("../../../services/syncService", () => ({
   processSyncQueue: vi.fn().mockResolvedValue(0),
 }));
 
+const mockCount = vi.fn().mockResolvedValue(0);
+
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
     syncQueue: {
-      count: vi.fn().mockResolvedValue(0),
+      count: vi.fn().mockImplementation(() => mockCount()),
+      filter: vi.fn().mockReturnValue({
+        count: vi.fn().mockImplementation(() => mockCount()),
+      }),
     },
   },
 }));
@@ -52,6 +67,7 @@ describe("SyncStatusBadge Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCount.mockResolvedValue(0);
     Object.defineProperty(navigator, "onLine", {
       configurable: true,
       value: true,
@@ -59,7 +75,7 @@ describe("SyncStatusBadge Component", () => {
   });
 
   afterEach(() => {
-    vi.mocked(db.syncQueue.count).mockResolvedValue(0);
+    mockCount.mockResolvedValue(0);
   });
 
   afterAll(() => {
@@ -80,12 +96,13 @@ describe("SyncStatusBadge Component", () => {
     expect(screen.queryByText(/pending/i)).not.toBeInTheDocument();
   });
 
-  it("renders pending count tag when syncQueue contains items", async () => {
-    vi.mocked(db.syncQueue.count).mockResolvedValue(3);
+  it("renders pending count tag when syncQueue contains items for active match", async () => {
+    mockCount.mockResolvedValueOnce(3);
 
     render(<SyncStatusBadge />);
 
     expect(await screen.findByText("3 pending")).toBeInTheDocument();
+    expect(db.syncQueue.filter).toHaveBeenCalled();
   });
 
   it("updates to Offline badge on offline window event and disables button", async () => {
@@ -100,13 +117,14 @@ describe("SyncStatusBadge Component", () => {
     expect(screen.getByText("Offline")).toBeInTheDocument();
   });
 
-  it("triggers processSyncQueue on click when online", async () => {
+  it("triggers processSyncQueue with activeMatchId from Redux state on click when online", async () => {
     render(<SyncStatusBadge />);
 
     const badgeButton = await screen.findByRole("button");
     fireEvent.click(badgeButton);
 
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
+    expect(processSyncQueue).toHaveBeenCalledWith("active-match-123");
   });
 
   it("handles processSyncQueue rejection gracefully on manual sync click", async () => {
