@@ -175,6 +175,40 @@ const extractPresenceIds = (payload: unknown): string[] => {
   return ids;
 };
 
+const isSyncedEventItem = (
+  item: SyncQueueItem,
+  payload: unknown,
+  syncedEvents: Set<string>,
+): boolean => {
+  if (item.actionType !== "POST") return false;
+  const ids = extractEventIds(item.endpoint, payload);
+  return ids.length > 0 && ids.every((id) => syncedEvents.has(id));
+};
+
+const isSyncedAnchorItem = (
+  item: SyncQueueItem,
+  payload: unknown,
+  syncedAnchors: Set<string>,
+): boolean => {
+  if (item.actionType !== "POST") return false;
+  const ids = extractAnchorIds(item.endpoint, payload);
+  return ids.length > 0 && ids.every((id) => syncedAnchors.has(id));
+};
+
+const isSyncedPresenceItem = (
+  item: SyncQueueItem,
+  payload: unknown,
+  syncedPresences: Set<string>,
+): boolean => {
+  if (item.endpoint.includes("/presence/terminate")) {
+    return item.actionType === "PUT" && syncedPresences.size > 0;
+  }
+
+  if (item.actionType !== "POST") return false;
+  const ids = extractPresenceIds(payload);
+  return ids.length > 0 && ids.every((id) => syncedPresences.has(id));
+};
+
 const shouldDeleteQueueItem = (
   item: SyncQueueItem,
   syncedSets: SyncedEntitySets,
@@ -182,34 +216,19 @@ const shouldDeleteQueueItem = (
   const payload = parsePayload(item.payload);
   if (payload === null) return false;
 
-  // 1. Game events (POST only)
   if (item.endpoint.includes("/events")) {
-    if (item.actionType !== "POST") return false;
-    const ids = extractEventIds(item.endpoint, payload);
-    return ids.length > 0 && ids.every((id) => syncedSets.events.has(id));
+    return isSyncedEventItem(item, payload, syncedSets.events);
   }
 
-  // 2. Time anchors (POST only)
   if (item.endpoint.includes("/anchors")) {
-    if (item.actionType !== "POST") return false;
-    const ids = extractAnchorIds(item.endpoint, payload);
-    return ids.length > 0 && ids.every((id) => syncedSets.anchors.has(id));
+    return isSyncedAnchorItem(item, payload, syncedSets.anchors);
   }
 
-  // 3. Period end / presence session termination (PUT only)
-  if (item.endpoint.includes("/presence/terminate")) {
-    if (item.actionType !== "PUT") return false;
-    return syncedSets.presences.size > 0;
-  }
-
-  // 4. Presence initialization & player substitutions (POST only)
   if (
     item.endpoint.includes("/presence") ||
     item.endpoint.includes("/substitutions")
   ) {
-    if (item.actionType !== "POST") return false;
-    const ids = extractPresenceIds(payload);
-    return ids.length > 0 && ids.every((id) => syncedSets.presences.has(id));
+    return isSyncedPresenceItem(item, payload, syncedSets.presences);
   }
 
   return false;
