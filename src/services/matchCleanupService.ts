@@ -70,6 +70,65 @@ const deleteMatchSyncQueueItems = async (
 };
 
 /**
+ * Validates that all records for a match are fully synchronized before allowing local deletion.
+ * Throws an error if any unsynced entities or pending sync queue items are found.
+ */
+const assertMatchCanBeDeleted = async (
+  normalizedMatchId: string,
+  lineupIds: Set<string>,
+): Promise<void> => {
+  let unsyncedEvents = 0;
+  if (lineupIds.size > 0 && db.gameevents) {
+    const events = await db.gameevents
+      .filter((e) => lineupIds.has(e.matchLineupId) && e.isSynced === 0)
+      .toArray();
+    unsyncedEvents = events.length;
+  }
+
+  let unsyncedPresences = 0;
+  if (lineupIds.size > 0 && db.playerpresences) {
+    const presences = await db.playerpresences
+      .filter((p) => lineupIds.has(p.matchLineupId) && p.isSynced === 0)
+      .toArray();
+    unsyncedPresences = presences.length;
+  }
+
+  let unsyncedAnchors = 0;
+  if (db.timeanchors) {
+    const matchAnchors = await db.timeanchors
+      .where("matchId")
+      .equals(normalizedMatchId)
+      .toArray();
+    unsyncedAnchors = matchAnchors.filter((a) => a.isSynced === 0).length;
+  }
+
+  let pendingQueueItems = 0;
+  if (db.syncQueue) {
+    const queueItems = await db.syncQueue.toArray();
+    pendingQueueItems = queueItems.filter((item) =>
+      item.endpoint?.includes(`/Matches/${normalizedMatchId}`),
+    ).length;
+  }
+
+  if (
+    unsyncedEvents > 0 ||
+    unsyncedPresences > 0 ||
+    unsyncedAnchors > 0 ||
+    pendingQueueItems > 0
+  ) {
+    throw new Error(
+      `Cannot delete match ${
+        normalizedMatchId
+      } locally: synchronization is incomplete. Unsynced items exist (events: ${
+        unsyncedEvents
+      }, anchors: ${unsyncedAnchors}, presences: ${unsyncedPresences}, queue: ${
+        pendingQueueItems
+      }).`,
+    );
+  }
+};
+
+/**
  * Deletes all local IndexedDB records associated with a specific match ID.
  * Aborts cleanup if unsynced entities or pending sync queue items exist, unless force option is true.
  */
@@ -102,61 +161,7 @@ export const deleteMatchLocally = async (
       const lineupIds = new Set(lineups.map((l) => l.id));
 
       if (!options?.force) {
-        const unsyncedEvents =
-          lineupIds.size > 0 && db.gameevents
-            ? (
-                await db.gameevents
-                  .filter(
-                    (e) => lineupIds.has(e.matchLineupId) && e.isSynced === 0,
-                  )
-                  .toArray()
-              ).length
-            : 0;
-
-        const unsyncedPresences =
-          lineupIds.size > 0 && db.playerpresences
-            ? (
-                await db.playerpresences
-                  .filter(
-                    (p) => lineupIds.has(p.matchLineupId) && p.isSynced === 0,
-                  )
-                  .toArray()
-              ).length
-            : 0;
-
-        const matchAnchors = db.timeanchors
-          ? await db.timeanchors
-              .where("matchId")
-              .equals(normalizedMatchId)
-              .toArray()
-          : [];
-
-        const unsyncedAnchors = matchAnchors.filter(
-          (a) => a.isSynced === 0,
-        ).length;
-
-        const pendingQueueItems = db.syncQueue
-          ? (await db.syncQueue.toArray()).filter((item) =>
-              item.endpoint?.includes(`/Matches/${normalizedMatchId}`),
-            ).length
-          : 0;
-
-        if (
-          unsyncedEvents > 0 ||
-          unsyncedPresences > 0 ||
-          unsyncedAnchors > 0 ||
-          pendingQueueItems > 0
-        ) {
-          throw new Error(
-            `Cannot delete match ${
-              normalizedMatchId
-            } locally: synchronization is incomplete. Unsynced items exist (events: ${
-              unsyncedEvents
-            }, anchors: ${unsyncedAnchors}, presences: ${
-              unsyncedPresences
-            }, queue: ${pendingQueueItems}).`,
-          );
-        }
+        await assertMatchCanBeDeleted(normalizedMatchId, lineupIds);
       }
 
       await deleteMatchEvents(lineupIds);
