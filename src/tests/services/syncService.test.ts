@@ -1627,12 +1627,15 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
     );
   });
 
-  it("collects un-synced events, anchors, and presences, formats UTC ISO timestamps, and posts batch request", async () => {
+  it("collects un-synced events, anchors, and presences, formats UTC ISO timestamps, and posts batch request without local metadata", async () => {
     const mockLineups = [{ id: "l1", matchId: "m123" }];
     const mockEvents = [
       {
         id: "e1",
         matchLineupId: "l1",
+        eventDefinitionId: "def-1",
+        periodNumber: 1,
+        isLeadToGoal: false,
         isSynced: 0,
         eventTimestamp: "2026-10-05T12:00:00Z",
       },
@@ -1641,6 +1644,8 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       {
         id: "a1",
         matchId: "m123",
+        periodNumber: 1,
+        type: 0,
         isSynced: 0,
         timestamp: "2026-10-05T12:00:00Z",
       },
@@ -1717,15 +1722,17 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
         {
           id: "e1",
           matchLineupId: "l1",
-          isSynced: 0,
+          eventDefinitionId: "def-1",
+          periodNumber: 1,
           eventTimestamp: "2026-10-05T12:00:00.000Z",
+          isLeadToGoal: false,
         },
       ],
       anchors: [
         {
           id: "a1",
-          matchId: "m123",
-          isSynced: 0,
+          periodNumber: 1,
+          type: 0,
           timestamp: "2026-10-05T12:00:00.000Z",
         },
       ],
