@@ -943,8 +943,8 @@ export const processSyncQueue = async (
 
     if (targetMatchId?.trim()) {
       const prefix = `/Matches/${targetMatchId.trim()}/`;
-      pendingItems = pendingItems.filter(
-        (item) => item.endpoint && item.endpoint.startsWith(prefix),
+      pendingItems = pendingItems.filter((item) =>
+        item.endpoint?.startsWith(prefix),
       );
     }
 
