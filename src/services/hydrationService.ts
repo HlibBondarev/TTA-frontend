@@ -22,7 +22,10 @@ import {
   UNRECOVERABLE_STATUS_CODES,
   extractErrorStatus,
 } from "../utils/syncErrorUtils";
-import { deleteMatchLocally } from "./matchCleanupService";
+import {
+  deleteMatchLocally,
+  type DeleteMatchLocallyOptions,
+} from "./matchCleanupService";
 
 export class StaleUserError extends Error {
   constructor(message = "Operation aborted due to user account change.") {
@@ -71,7 +74,7 @@ const syncPresence = async (
   }
 
   if (presence.length > 0) {
-    const pendingPresenceIds = new Set(
+    const pendingPresenceIds = new Set<string>(
       (await db.playerpresences
         .filter((p) => p.isSynced === 0)
         .primaryKeys()) as string[],
@@ -104,7 +107,7 @@ const syncEvents = async (
   }
 
   if (events.length > 0) {
-    const pendingEventIds = new Set(
+    const pendingEventIds = new Set<string>(
       (await db.gameevents
         .filter((e) => e.isSynced === 0)
         .primaryKeys()) as string[],
@@ -386,8 +389,11 @@ const purgePendingMatchMutations = async (matchId: string): Promise<void> => {
   }
 };
 
-const deleteLocalMatchEntities = async (matchId: string): Promise<void> => {
-  await deleteMatchLocally(matchId);
+const deleteLocalMatchEntities = async (
+  matchId: string,
+  options?: DeleteMatchLocallyOptions,
+): Promise<void> => {
+  await deleteMatchLocally(matchId, options);
 };
 
 const dispatchUncatchPostCommit = async (
@@ -470,7 +476,7 @@ export const discardUnfinishedMatch = async (
       });
     }
 
-    await deleteLocalMatchEntities(matchId);
+    await deleteLocalMatchEntities(matchId, { preserveDeleteQueueItems: true });
     checkFreshness?.();
   });
 
@@ -545,7 +551,7 @@ const persistHydrationPayloads = async (
     .equals(matchId)
     .toArray();
 
-  const matchLineupIds = new Set([
+  const matchLineupIds = new Set<string>([
     ...existingLineups.map((lineup) => lineup.id),
     ...(payloads.lineups ?? []).map((lineup) => lineup.id),
   ]);

@@ -1,11 +1,18 @@
 import { db } from "../db/ttaDatabase";
 
+export interface DeleteMatchLocallyOptions {
+  preserveDeleteQueueItems?: boolean;
+}
+
 /**
  * Deletes all local IndexedDB records associated with a specific match ID.
  * This includes game events, time anchors, player presences, match lineups, match metadata,
  * and any pending sync queue items referencing the match.
  */
-export const deleteMatchLocally = async (matchId: string): Promise<void> => {
+export const deleteMatchLocally = async (
+  matchId: string,
+  options?: DeleteMatchLocallyOptions,
+): Promise<void> => {
   if (!matchId || !matchId.trim()) {
     throw new Error("Match ID is required for local cleanup.");
   }
@@ -87,9 +94,18 @@ export const deleteMatchLocally = async (matchId: string): Promise<void> => {
       if (db.syncQueue) {
         const queueItems = await db.syncQueue.toArray();
         const queueIdsToDelete = queueItems
-          .filter((item) =>
-            item.endpoint?.includes(`/Matches/${normalizedMatchId}`),
-          )
+          .filter((item) => {
+            if (!item.endpoint?.includes(`/Matches/${normalizedMatchId}`)) {
+              return false;
+            }
+            if (
+              options?.preserveDeleteQueueItems &&
+              item.actionType === "DELETE"
+            ) {
+              return false;
+            }
+            return true;
+          })
           .map((item) => item.id)
           .filter((id): id is number => id !== undefined);
 

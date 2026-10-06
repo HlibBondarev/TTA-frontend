@@ -125,6 +125,35 @@ describe("Match Cleanup Service", () => {
       expect(db.syncQueue.bulkDelete).toHaveBeenCalledWith([1]);
     });
 
+    it("preserves DELETE queue items when preserveDeleteQueueItems option is true", async () => {
+      const mockSyncItems = [
+        {
+          id: 1,
+          endpoint: "/Matches/match-123/teams/team-1/catch",
+          actionType: "DELETE",
+        },
+        { id: 2, endpoint: "/Matches/match-123/events", actionType: "POST" },
+      ];
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue(mockSyncItems as never);
+
+      await deleteMatchLocally("match-123", { preserveDeleteQueueItems: true });
+
+      expect(db.syncQueue.bulkDelete).toHaveBeenCalledWith([2]);
+    });
+
     it("handles deletion gracefully when no entities exist for the match ID", async () => {
       vi.mocked(db.matchlineups.where).mockReturnValue({
         equals: vi.fn().mockReturnValue({

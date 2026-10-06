@@ -2090,4 +2090,34 @@ describe("Hydration Service", () => {
       expect.any(Function),
     );
   });
+
+  it("should preserve staged DELETE item in syncQueue when offline during discardUnfinishedMatch", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: matchId,
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    const stagedDeleteQueueItem = {
+      id: 99,
+      endpoint: `/Matches/${matchId}/teams/${teamId}/catch`,
+      actionType: "DELETE",
+    };
+
+    vi.mocked(db.syncQueue.toArray).mockResolvedValue([
+      stagedDeleteQueueItem,
+    ] as never);
+
+    await discardUnfinishedMatch(matchId, teamId);
+
+    expect(db.syncQueue.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "DELETE",
+        endpoint: `/Matches/${matchId}/teams/${teamId}/catch`,
+      }),
+    );
+    expect(db.syncQueue.bulkDelete).not.toHaveBeenCalledWith([99]);
+    expect(db.matches.delete).toHaveBeenCalledWith(matchId);
+  });
 });
