@@ -83,13 +83,6 @@ export const deleteMatchLocally = async (
 
   const normalizedMatchId = matchId.trim();
 
-  const lineups = await db.matchlineups
-    .where("matchId")
-    .equals(normalizedMatchId)
-    .toArray();
-
-  const lineupIds = new Set(lineups.map((l) => l.id));
-
   await db.transaction(
     "rw",
     [
@@ -101,6 +94,13 @@ export const deleteMatchLocally = async (
       db.syncQueue,
     ],
     async () => {
+      const lineups = await db.matchlineups
+        .where("matchId")
+        .equals(normalizedMatchId)
+        .toArray();
+
+      const lineupIds = new Set(lineups.map((l) => l.id));
+
       if (!options?.force) {
         const unsyncedEvents =
           lineupIds.size > 0 && db.gameevents

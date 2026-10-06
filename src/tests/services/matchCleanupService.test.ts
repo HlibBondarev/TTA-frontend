@@ -34,9 +34,6 @@ vi.mock("../../db/ttaDatabase", () => ({
     timeanchors: {
       where: vi.fn().mockReturnValue({
         equals: vi.fn().mockReturnValue({
-          filter: vi.fn().mockReturnValue({
-            toArray: vi.fn().mockResolvedValue([]),
-          }),
           toArray: vi.fn().mockResolvedValue([]),
         }),
       }),
@@ -60,6 +57,28 @@ vi.mock("../../db/ttaDatabase", () => ({
 describe("Match Cleanup Service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.gameevents.filter).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([]),
+    } as unknown as ReturnType<typeof db.gameevents.filter>);
+
+    vi.mocked(db.playerpresences.filter).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([]),
+    } as unknown as ReturnType<typeof db.playerpresences.filter>);
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.syncQueue.toArray).mockResolvedValue([] as never);
   });
 
   describe("deleteMatchLocally", () => {
@@ -72,7 +91,7 @@ describe("Match Cleanup Service", () => {
       );
     });
 
-    it("throws an error and aborts cleanup when unsynced entities exist", async () => {
+    it("throws an error and aborts cleanup when unsynced events exist", async () => {
       const mockLineups = [{ id: "lineup-1", matchId: "match-123" }];
       const mockUnsyncedEvents = [
         { id: "event-1", matchLineupId: "lineup-1", isSynced: 0 },
@@ -89,11 +108,71 @@ describe("Match Cleanup Service", () => {
       } as unknown as ReturnType<typeof db.gameevents.filter>);
 
       await expect(deleteMatchLocally("match-123")).rejects.toThrow(
-        "Cannot delete match match-123 locally: synchronization is incomplete.",
+        "Cannot delete match match-123 locally: synchronization is incomplete. Unsynced items exist (events: 1, anchors: 0, presences: 0, queue: 0).",
       );
 
       expect(db.matches.delete).not.toHaveBeenCalled();
       expect(db.gameevents.bulkDelete).not.toHaveBeenCalled();
+    });
+
+    it("throws an error and aborts cleanup when unsynced presences exist", async () => {
+      const mockLineups = [{ id: "lineup-1", matchId: "match-123" }];
+      const mockUnsyncedPresences = [
+        { id: "presence-1", matchLineupId: "lineup-1", isSynced: 0 },
+      ];
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue(mockLineups),
+        }),
+      } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+      vi.mocked(db.playerpresences.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockUnsyncedPresences),
+      } as unknown as ReturnType<typeof db.playerpresences.filter>);
+
+      await expect(deleteMatchLocally("match-123")).rejects.toThrow(
+        "Cannot delete match match-123 locally: synchronization is incomplete. Unsynced items exist (events: 0, anchors: 0, presences: 1, queue: 0).",
+      );
+
+      expect(db.matches.delete).not.toHaveBeenCalled();
+      expect(db.playerpresences.bulkDelete).not.toHaveBeenCalled();
+    });
+
+    it("throws an error and aborts cleanup when unsynced anchors exist", async () => {
+      const mockUnsyncedAnchors = [
+        { id: "anchor-1", matchId: "match-123", isSynced: 0 },
+      ];
+
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue(mockUnsyncedAnchors),
+        }),
+      } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+      await expect(deleteMatchLocally("match-123")).rejects.toThrow(
+        "Cannot delete match match-123 locally: synchronization is incomplete. Unsynced items exist (events: 0, anchors: 1, presences: 0, queue: 0).",
+      );
+
+      expect(db.matches.delete).not.toHaveBeenCalled();
+      expect(db.timeanchors.bulkDelete).not.toHaveBeenCalled();
+    });
+
+    it("throws an error and aborts cleanup when pending queue items exist", async () => {
+      const mockQueueItems = [
+        { id: 1, endpoint: "/Matches/match-123/events", actionType: "POST" },
+      ];
+
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue(
+        mockQueueItems as never,
+      );
+
+      await expect(deleteMatchLocally("match-123")).rejects.toThrow(
+        "Cannot delete match match-123 locally: synchronization is incomplete. Unsynced items exist (events: 0, anchors: 0, presences: 0, queue: 1).",
+      );
+
+      expect(db.matches.delete).not.toHaveBeenCalled();
+      expect(db.syncQueue.bulkDelete).not.toHaveBeenCalled();
     });
 
     it("deletes all associated entities for a given fully-synced match ID", async () => {
@@ -136,9 +215,6 @@ describe("Match Cleanup Service", () => {
 
       vi.mocked(db.timeanchors.where).mockReturnValue({
         equals: vi.fn().mockReturnValue({
-          filter: vi.fn().mockReturnValue({
-            toArray: vi.fn().mockResolvedValue([]),
-          }),
           toArray: vi.fn().mockResolvedValue(mockAnchors),
         }),
       } as unknown as ReturnType<typeof db.timeanchors.where>);
