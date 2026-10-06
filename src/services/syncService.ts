@@ -88,8 +88,8 @@ export const syncMatchBatch = async (
     id: p.id,
     matchLineupId: p.matchLineupId,
     periodNumber: p.periodNumber,
-    timeIn: p.timeIn ? new Date(p.timeIn).toISOString() : null,
-    timeOut: p.timeOut ? new Date(p.timeOut).toISOString() : null,
+    ...(p.timeIn ? { timeIn: new Date(p.timeIn).toISOString() } : {}),
+    ...(p.timeOut ? { timeOut: new Date(p.timeOut).toISOString() } : {}),
   }));
 
   const requestPayload = {

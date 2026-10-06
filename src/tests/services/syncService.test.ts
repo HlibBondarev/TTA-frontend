@@ -1675,4 +1675,58 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
     expect(db.syncQueue.delete).not.toHaveBeenCalledWith(2);
     expect(db.syncQueue.delete).not.toHaveBeenCalledWith(3);
   });
+
+  it("omits timeIn and timeOut from presence payload when stored presence missing time values", async () => {
+    const mockLineups = [{ id: "l1", matchId: "m123" }];
+    const mockPresences = [
+      {
+        id: "p1",
+        matchLineupId: "l1",
+        periodNumber: 1,
+        timeIn: null,
+        timeOut: null,
+        isSynced: 0,
+      },
+    ];
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockLineups),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.gameevents.filter).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([]),
+    } as unknown as ReturnType<typeof db.gameevents.filter>);
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.playerpresences.filter).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockPresences),
+    } as unknown as ReturnType<typeof db.playerpresences.filter>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({
+      syncedPresenceIds: ["p1"],
+    });
+
+    await syncMatchBatch("m123");
+
+    expect(apiClient.post).toHaveBeenCalledWith("/Matches/m123/sync-batch", {
+      events: [],
+      anchors: [],
+      presences: [
+        {
+          id: "p1",
+          matchLineupId: "l1",
+          periodNumber: 1,
+        },
+      ],
+    });
+  });
 });
