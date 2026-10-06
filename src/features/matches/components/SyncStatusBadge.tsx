@@ -23,6 +23,18 @@ export const SyncStatusBadge: React.FC = () => {
 
     const subscription = liveQuery(async () => {
       if (!db?.syncQueue) return 0;
+
+      if (activeMatchId?.trim()) {
+        const prefix = `/Matches/${activeMatchId.trim()}/`;
+        return await db.syncQueue
+          .filter(
+            (item) =>
+              typeof item.endpoint === "string" &&
+              item.endpoint.startsWith(prefix),
+          )
+          .count();
+      }
+
       return await db.syncQueue.count();
     }).subscribe({
       next: (count) => setPendingCount(count || 0),
@@ -34,7 +46,7 @@ export const SyncStatusBadge: React.FC = () => {
       window.removeEventListener("offline", handleOffline);
       subscription.unsubscribe();
     };
-  }, []);
+  }, [activeMatchId]);
 
   const handleManualSync = () => {
     if (isOnline) {
