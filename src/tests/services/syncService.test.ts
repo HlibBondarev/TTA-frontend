@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { processSyncQueue, syncMatchBatch } from "../../services/syncService";
+import {
+  processSyncQueue,
+  syncMatchBatch,
+  markEntitiesSynced,
+} from "../../services/syncService";
 import { db } from "../../db/ttaDatabase";
 import { apiClient } from "../../api/client";
 
@@ -1467,6 +1471,146 @@ describe("Sync Engine Service", () => {
       expect.any(Object),
     );
   });
+
+  it("handles team resolution when lineup exists but playerroster is missing or lacks teamId", async () => {
+    vi.mocked(db.matchlineups.get).mockResolvedValue({
+      playerRosterId: "roster-missing",
+    } as never);
+    vi.mocked(db.playerrosters.get).mockResolvedValue(undefined);
+
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/teams/placeholder/events",
+        payload: JSON.stringify([{ id: "e1", matchLineupId: "l1" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as never);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(1);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/m1/teams/placeholder/events",
+      [{ id: "e1", matchLineupId: "l1" }],
+      expect.any(Object),
+    );
+  });
+
+  it("handles event payload without matchLineupId property gracefully", async () => {
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/teams/placeholder/events",
+        payload: JSON.stringify([{ id: "e1" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as never);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(1);
+  });
+
+  it("executes non-transactional fallback in purgeBatchFromSyncQueue and finalizeBatchSync when db.transaction is undefined", async () => {
+    const originalTx = db.transaction;
+    (db as unknown as { transaction?: unknown }).transaction = undefined;
+
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/m1/anchors",
+        payload: JSON.stringify([{ id: "a1" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as never);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(1);
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
+
+    db.transaction = originalTx;
+  });
+
+  it("handles malformed team endpoints in resolveFallbackTeamEndpoint", async () => {
+    const mockItems = [
+      {
+        id: 1,
+        actionType: "POST",
+        endpoint: "/Matches/malformed-endpoint",
+        payload: JSON.stringify([{ id: "a1" }]),
+      },
+    ];
+
+    vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockItems),
+    } as never);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+    const processed = await processSyncQueue();
+
+    expect(processed).toBe(1);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/Matches/malformed-endpoint",
+      [{ id: "a1" }],
+      expect.any(Object),
+    );
+  });
+});
+
+describe("Direct Helper Unit Tests (markEntitiesSynced)", () => {
+  it("returns early when endpoint is missing, or payload is null/undefined", async () => {
+    await expect(markEntitiesSynced("", {})).resolves.toBeUndefined();
+    await expect(
+      markEntitiesSynced("/Matches/m1/events", null),
+    ).resolves.toBeUndefined();
+    await expect(
+      markEntitiesSynced("/Matches/m1/events", undefined),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does nothing when endpoint matches no known sync entity routes", async () => {
+    await expect(
+      markEntitiesSynced("/Matches/m1/unsupported-route", { id: "1" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("handles substitution payload with playerOutLineupId and playerInLineupId strings", async () => {
+    const mockModify = vi.fn();
+    const mockFilter = vi.fn().mockReturnValue({ modify: mockModify });
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({ filter: mockFilter }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    await markEntitiesSynced("/Matches/m1/substitutions", {
+      periodNumber: 1,
+      playerOutLineupId: "l-out",
+      playerInLineupId: "l-in",
+    });
+
+    expect(db.playerpresences.where).toHaveBeenCalledWith("periodNumber");
+    expect(mockModify).toHaveBeenCalledWith({ isSynced: 1 });
+  });
 });
 
 describe("Batch Sync Service (syncMatchBatch)", () => {
@@ -1604,6 +1748,58 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
     expect(db.syncQueue.delete).toHaveBeenCalledWith(10);
   });
 
+  it("handles wrapped API response { data: MatchSyncBatchResponse } and fallback generated ISO timestamps for missing dates", async () => {
+    const mockLineups = [{ id: "l1", matchId: "m123" }];
+    const mockEvents = [{ id: "e1", matchLineupId: "l1", isSynced: 0 }];
+    const mockAnchors = [{ id: "a1", matchId: "m123", isSynced: 0 }];
+
+    const mockModify = vi.fn();
+    const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockLineups),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.gameevents.filter).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockEvents),
+    } as unknown as ReturnType<typeof db.gameevents.filter>);
+
+    vi.mocked(db.gameevents.where).mockReturnValue({
+      anyOf: mockAnyOf,
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue(mockAnchors),
+        }),
+      }),
+      anyOf: mockAnyOf,
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.playerpresences.filter).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([]),
+    } as unknown as ReturnType<typeof db.playerpresences.filter>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({
+      data: {
+        syncedEventIds: ["e1"],
+        syncedAnchorIds: ["a1"],
+        syncedPresenceIds: [],
+      },
+    });
+
+    const result = await syncMatchBatch("m123");
+
+    expect(result).toEqual({
+      syncedEventIds: ["e1"],
+      syncedAnchorIds: ["a1"],
+      syncedPresenceIds: [],
+    });
+  });
+
   it("unpacks ValidationProblemDetails.errors and throws formatted validation error on 400 Bad Request during batch sync", async () => {
     const mockLineups = [{ id: "l1", matchId: "m123" }];
 
@@ -1628,6 +1824,33 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
     await expect(syncMatchBatch("m123")).rejects.toThrow(
       "Event timestamp is invalid.; Anchor period does not match.",
     );
+  });
+
+  it("re-throws generic non-400 errors or malformed 400 errors directly in postSyncBatch", async () => {
+    const mockLineups = [{ id: "l1", matchId: "m123" }];
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockLineups),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(apiClient.post).mockRejectedValueOnce({
+      status: 500,
+      message: "Internal Error",
+    });
+
+    await expect(syncMatchBatch("m123")).rejects.toEqual({
+      status: 500,
+      message: "Internal Error",
+    });
+
+    vi.mocked(apiClient.post).mockRejectedValueOnce({ status: 400, data: {} });
+
+    await expect(syncMatchBatch("m123")).rejects.toEqual({
+      status: 400,
+      data: {},
+    });
   });
 
   it("preserves non-POST and unsynced POST queue items during syncMatchBatch cleanup", async () => {
