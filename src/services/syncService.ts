@@ -93,15 +93,17 @@ const extractBatchError = (err: unknown): Error | null => {
   if (
     extractErrorStatus(err) !== 400 ||
     typeof err !== "object" ||
-    err === null ||
-    !("data" in err)
+    err === null
   ) {
     return null;
   }
 
-  const apiData = (
-    err as { data?: { errors?: Record<string, string[] | string> } }
-  ).data;
+  const errObj = err as {
+    problemDetails?: { errors?: Record<string, string[] | string> };
+    data?: { errors?: Record<string, string[] | string> };
+  };
+
+  const apiData = errObj.problemDetails ?? errObj.data;
   if (!apiData?.errors || typeof apiData.errors !== "object") return null;
 
   const messages = Object.values(apiData.errors)
@@ -113,6 +115,8 @@ const extractBatchError = (err: unknown): Error | null => {
   const validationError = new Error(messages.join("; "));
   (validationError as unknown as Record<string, unknown>).status = 400;
   (validationError as unknown as Record<string, unknown>).data = apiData;
+  (validationError as unknown as Record<string, unknown>).problemDetails =
+    apiData;
   return validationError;
 };
 

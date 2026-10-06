@@ -1811,7 +1811,7 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
 
     const error400 = {
       status: 400,
-      data: {
+      problemDetails: {
         errors: {
           Events: ["Event timestamp is invalid."],
           Anchors: ["Anchor period does not match."],
