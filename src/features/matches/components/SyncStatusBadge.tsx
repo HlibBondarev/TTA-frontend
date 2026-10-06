@@ -1,11 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { liveQuery } from "dexie";
+import { useSelector } from "react-redux";
 import { db } from "../../../db/ttaDatabase";
 import { processSyncQueue } from "../../../services/syncService";
+import type { MatchState } from "../store/matchSlice";
 
 export const SyncStatusBadge: React.FC = () => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingCount, setPendingCount] = useState<number>(0);
+  const activeMatchId = useSelector(
+    (state: { match: MatchState }) => state.match?.activeMatchId,
+  );
 
   useEffect(() => {
     const handleOnline = () => {
@@ -33,7 +38,7 @@ export const SyncStatusBadge: React.FC = () => {
 
   const handleManualSync = () => {
     if (isOnline) {
-      void processSyncQueue().catch((syncErr) => {
+      void processSyncQueue(activeMatchId ?? undefined).catch((syncErr) => {
         console.error("Manual background sync failed:", syncErr);
       });
     }

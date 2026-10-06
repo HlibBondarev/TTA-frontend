@@ -18,6 +18,16 @@ import { SyncStatusBadge } from "../components/SyncStatusBadge";
 import { db } from "../../../db/ttaDatabase";
 import { processSyncQueue } from "../../../services/syncService";
 
+vi.mock("react-redux", () => ({
+  useSelector: vi.fn((selector) =>
+    selector({
+      match: {
+        activeMatchId: "active-match-123",
+      },
+    }),
+  ),
+}));
+
 vi.mock("../../../services/syncService", () => ({
   processSyncQueue: vi.fn().mockResolvedValue(0),
 }));
@@ -100,13 +110,14 @@ describe("SyncStatusBadge Component", () => {
     expect(screen.getByText("Offline")).toBeInTheDocument();
   });
 
-  it("triggers processSyncQueue on click when online", async () => {
+  it("triggers processSyncQueue with activeMatchId from Redux state on click when online", async () => {
     render(<SyncStatusBadge />);
 
     const badgeButton = await screen.findByRole("button");
     fireEvent.click(badgeButton);
 
     expect(processSyncQueue).toHaveBeenCalledTimes(1);
+    expect(processSyncQueue).toHaveBeenCalledWith("active-match-123");
   });
 
   it("handles processSyncQueue rejection gracefully on manual sync click", async () => {

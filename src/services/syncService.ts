@@ -920,8 +920,11 @@ const processSyncBatch = async (
 
 /**
  * Processes pending syncQueue items with batching for consecutive identical POST endpoints.
+ * Optionally scopes execution to a specific match via targetMatchId.
  */
-export const processSyncQueue = async (): Promise<number> => {
+export const processSyncQueue = async (
+  targetMatchId?: string,
+): Promise<number> => {
   if (isSyncing || !navigator.onLine || !db?.syncQueue) {
     return 0;
   }
@@ -934,9 +937,17 @@ export const processSyncQueue = async (): Promise<number> => {
   const cache: SyncCacheContext = { lineupTeamCache, matchRecordCache };
 
   try {
-    const pendingItems = (await db.syncQueue
+    let pendingItems = (await db.syncQueue
       .orderBy("id")
       .toArray()) as SyncQueueItem[];
+
+    if (targetMatchId?.trim()) {
+      const prefix = `/Matches/${targetMatchId.trim()}/`;
+      pendingItems = pendingItems.filter(
+        (item) => item.endpoint && item.endpoint.startsWith(prefix),
+      );
+    }
+
     let i = 0;
 
     while (i < pendingItems.length) {

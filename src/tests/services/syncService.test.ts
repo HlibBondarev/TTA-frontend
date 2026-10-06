@@ -2397,5 +2397,40 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
 
       expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
     });
+
+    it("filters sync queue processing by targetMatchId when provided, leaving other matches queued", async () => {
+      const mockItems = [
+        {
+          id: 1,
+          actionType: "POST",
+          endpoint: "/Matches/m-user1/anchors",
+          payload: JSON.stringify([{ id: "a1" }]),
+        },
+        {
+          id: 2,
+          actionType: "POST",
+          endpoint: "/Matches/m-user2/anchors",
+          payload: JSON.stringify([{ id: "a2" }]),
+        },
+      ];
+
+      vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockItems),
+      } as never);
+
+      vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
+
+      const processed = await processSyncQueue("m-user1");
+
+      expect(processed).toBe(1);
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/Matches/m-user1/anchors",
+        [{ id: "a1" }],
+        expect.any(Object),
+      );
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(2);
+    });
   });
 });
