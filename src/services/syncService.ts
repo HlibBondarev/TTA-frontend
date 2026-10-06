@@ -44,6 +44,7 @@ interface SyncedEntitySets {
 }
 
 const MATCH_TEAM_ENDPOINT_REGEX = /\/Matches\/([^/]+)\/teams\/([^/]+)/;
+const ALLOWED_BATCH_CLEANUP_ACTIONS = new Set(["POST", "PUT"]);
 
 const fetchAndFormatBatchPayloads = async (normalizedMatchId: string) => {
   const lineups = await db.matchlineups
@@ -145,6 +146,35 @@ const postSyncBatch = async (
   }
 };
 
+const extractPresenceIds = (payload: unknown): string[] => {
+  if (typeof payload !== "object" || payload === null) return [];
+
+  const obj = payload as Record<string, unknown>;
+  if (Array.isArray(obj.presenceItems)) {
+    return (obj.presenceItems as PresenceItemPayload[])
+      .map((item) => item.id)
+      .filter((id): id is string => typeof id === "string");
+  }
+
+  if (typeof obj.incomingPresenceId === "string") {
+    return [obj.incomingPresenceId];
+  }
+
+  const items = Array.isArray(payload) ? payload : [payload];
+  const ids: string[] = [];
+  for (const item of items) {
+    if (
+      typeof item === "object" &&
+      item !== null &&
+      "id" in item &&
+      typeof (item as { id?: string }).id === "string"
+    ) {
+      ids.push((item as { id: string }).id);
+    }
+  }
+  return ids;
+};
+
 const shouldDeleteQueueItem = (
   item: SyncQueueItem,
   syncedSets: SyncedEntitySets,
@@ -152,18 +182,36 @@ const shouldDeleteQueueItem = (
   const payload = parsePayload(item.payload);
   if (payload === null) return false;
 
+  // 1. Game events (POST only)
   if (item.endpoint.includes("/events")) {
+    if (item.actionType !== "POST") return false;
     const ids = extractEventIds(item.endpoint, payload);
     return ids.length > 0 && ids.every((id) => syncedSets.events.has(id));
   }
+
+  // 2. Time anchors (POST only)
   if (item.endpoint.includes("/anchors")) {
+    if (item.actionType !== "POST") return false;
     const ids = extractAnchorIds(item.endpoint, payload);
     return ids.length > 0 && ids.every((id) => syncedSets.anchors.has(id));
   }
-  if (item.endpoint.includes("/presence")) {
+
+  // 3. Period end / presence session termination (PUT only)
+  if (item.endpoint.includes("/presence/terminate")) {
+    if (item.actionType !== "PUT") return false;
+    return syncedSets.presences.size > 0;
+  }
+
+  // 4. Presence initialization & player substitutions (POST only)
+  if (
+    item.endpoint.includes("/presence") ||
+    item.endpoint.includes("/substitutions")
+  ) {
+    if (item.actionType !== "POST") return false;
     const ids = extractPresenceIds(payload);
     return ids.length > 0 && ids.every((id) => syncedSets.presences.has(id));
   }
+
   return false;
 };
 
@@ -186,7 +234,7 @@ const cleanupBatchQueue = async (
   for (const item of queueItems) {
     if (
       item.id === undefined ||
-      item.actionType !== "POST" ||
+      !ALLOWED_BATCH_CLEANUP_ACTIONS.has(item.actionType) ||
       !item.endpoint.startsWith(prefix)
     ) {
       continue;
@@ -248,31 +296,6 @@ export const syncMatchBatch = async (
   );
 
   return batchData;
-};
-
-const extractPresenceIds = (payload: unknown): string[] => {
-  if (typeof payload !== "object" || payload === null) return [];
-
-  const obj = payload as Record<string, unknown>;
-  if (Array.isArray(obj.presenceItems)) {
-    return (obj.presenceItems as PresenceItemPayload[])
-      .map((item) => item.id)
-      .filter((id): id is string => typeof id === "string");
-  }
-
-  const items = Array.isArray(payload) ? payload : [payload];
-  const ids: string[] = [];
-  for (const item of items) {
-    if (
-      typeof item === "object" &&
-      item !== null &&
-      "id" in item &&
-      typeof (item as { id?: string }).id === "string"
-    ) {
-      ids.push((item as { id: string }).id);
-    }
-  }
-  return ids;
 };
 
 const extractPresenceLineupIds = (

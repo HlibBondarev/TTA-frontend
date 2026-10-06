@@ -2308,5 +2308,94 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
         "String error message rather than array",
       );
     });
+
+    it("cleans up PUT /presence/terminate queue items during syncMatchBatch when presences are synced", async () => {
+      const mockLineups = [{ id: "l1", matchId: "m123" }];
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue(mockLineups),
+        }),
+      } as never);
+
+      const mockModify = vi.fn();
+      const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        anyOf: mockAnyOf,
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockReturnValue({ modify: mockModify }),
+        }),
+      } as never);
+
+      vi.mocked(apiClient.post).mockResolvedValue({
+        syncedEventIds: [],
+        syncedAnchorIds: [],
+        syncedPresenceIds: ["p1"],
+      });
+
+      const mockQueueItems = [
+        {
+          id: 1,
+          actionType: "PUT",
+          endpoint: "/Matches/m123/presence/terminate",
+          payload: JSON.stringify({ periodNumber: 1 }),
+        },
+      ];
+
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue(
+        mockQueueItems as never,
+      );
+
+      await syncMatchBatch("m123");
+
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
+    });
+
+    it("cleans up POST /substitutions queue items with incomingPresenceId during syncMatchBatch when matching presence is synced", async () => {
+      const mockLineups = [{ id: "l1", matchId: "m123" }];
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue(mockLineups),
+        }),
+      } as never);
+
+      const mockModify = vi.fn();
+      const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        anyOf: mockAnyOf,
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockReturnValue({ modify: mockModify }),
+        }),
+      } as never);
+
+      vi.mocked(apiClient.post).mockResolvedValue({
+        syncedEventIds: [],
+        syncedAnchorIds: [],
+        syncedPresenceIds: ["pres-new-123"],
+      });
+
+      const mockQueueItems = [
+        {
+          id: 1,
+          actionType: "POST",
+          endpoint: "/Matches/m123/substitutions",
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerOutLineupId: "l-out",
+            playerInLineupId: "l-in",
+            incomingPresenceId: "pres-new-123",
+          }),
+        },
+      ];
+
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue(
+        mockQueueItems as never,
+      );
+
+      await syncMatchBatch("m123");
+
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
+    });
   });
 });
