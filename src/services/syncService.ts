@@ -54,7 +54,7 @@ export const syncMatchBatch = async (
     .where("matchId")
     .equals(normalizedMatchId)
     .toArray();
-  const lineupIds = new Set(lineups.map((l) => l.id));
+  const lineupIds = new Set<string>(lineups.map((l) => l.id));
 
   const unsyncedEvents = await db.gameevents
     .filter((e) => lineupIds.has(e.matchLineupId) && e.isSynced === 0)
@@ -115,7 +115,21 @@ export const syncMatchBatch = async (
       err !== null &&
       "data" in err
     ) {
-      throw err;
+      const apiData = (
+        err as { data?: { errors?: Record<string, string[] | string> } }
+      ).data;
+      if (apiData?.errors && typeof apiData.errors === "object") {
+        const messages = Object.values(apiData.errors)
+          .flatMap((val) => (Array.isArray(val) ? val : [val]))
+          .filter(Boolean);
+        if (messages.length > 0) {
+          const validationError = new Error(messages.join("; "));
+          (validationError as unknown as Record<string, unknown>).status = 400;
+          (validationError as unknown as Record<string, unknown>).data =
+            apiData;
+          throw validationError;
+        }
+      }
     }
     throw err;
   }

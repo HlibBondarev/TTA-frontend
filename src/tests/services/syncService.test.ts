@@ -1598,4 +1598,30 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
     });
     expect(db.syncQueue.delete).toHaveBeenCalledWith(10);
   });
+
+  it("unpacks ValidationProblemDetails.errors and throws formatted validation error on 400 Bad Request during batch sync", async () => {
+    const mockLineups = [{ id: "l1", matchId: "m123" }];
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockLineups),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    const error400 = {
+      status: 400,
+      data: {
+        errors: {
+          Events: ["Event timestamp is invalid."],
+          Anchors: ["Anchor period does not match."],
+        },
+      },
+    };
+
+    vi.mocked(apiClient.post).mockRejectedValueOnce(error400);
+
+    await expect(syncMatchBatch("m123")).rejects.toThrow(
+      "Event timestamp is invalid.; Anchor period does not match.",
+    );
+  });
 });
