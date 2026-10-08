@@ -153,6 +153,14 @@ describe("TTAConsole Component", () => {
       isPositive: true,
       isEnabled: true,
     },
+    {
+      id: "def-turnover",
+      sportId: "sport-1",
+      name: "Turnover",
+      shortName: "TO",
+      isPositive: false,
+      isEnabled: true,
+    },
   ];
 
   beforeEach(() => {
@@ -227,6 +235,40 @@ describe("TTAConsole Component", () => {
     );
 
     expect(screen.getByText(/TTA Match Recorder/i)).toBeDefined();
+  });
+
+  test("resets action selection when switching tabs between POSITIVE and NEGATIVE", async () => {
+    const store = configureStore({
+      reducer: rootReducer,
+      preloadedState: {
+        match: {
+          ...initialMatchState,
+          activeMatchId: "test-id",
+          activeTeamId: "team-123",
+          isPeriodActive: true,
+        },
+      } as unknown as RootState,
+    });
+
+    render(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    // 1. Select positive action and player
+    const passBtn = await screen.findByText("Pass");
+    fireEvent.click(passBtn);
+    fireEvent.click(screen.getByText("Mock Player"));
+
+    const enterBtn = screen.getByRole("button", { name: /Enter/i });
+    expect(enterBtn).not.toBeDisabled();
+
+    // 2. Switch to NEGATIVE tab
+    fireEvent.click(screen.getByRole("button", { name: /Negative/i }));
+
+    // 3. Enter button should be disabled because switching tabs reset pendingAction
+    expect(enterBtn).toBeDisabled();
   });
 
   test("successfully dispatches addRecentAction when ENTER is clicked", async () => {

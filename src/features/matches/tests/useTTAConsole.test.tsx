@@ -133,6 +133,29 @@ describe("useTTAConsole Custom Hook", () => {
     expect(result.current.pendingAction).toBeNull();
   });
 
+  it("should clear pendingAction and consoleError when clearPendingAction is called", () => {
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+    });
+
+    const { result } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.handleActionSelect("Shot", true, "def-shot-1");
+    });
+
+    expect(result.current.pendingAction).not.toBeNull();
+
+    act(() => {
+      result.current.clearPendingAction();
+    });
+
+    expect(result.current.pendingAction).toBeNull();
+    expect(result.current.consoleError).toBeNull();
+  });
+
   it("should record game event and reset selections on handleEnter", async () => {
     const store = createTestStore({
       match: { activeMatchId: "m-123" },

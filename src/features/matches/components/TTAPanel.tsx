@@ -7,18 +7,29 @@ export interface TTAPanelProps extends UseTTAPanelOptions {
     isPositive: boolean,
     eventDefinitionId?: string,
   ) => void;
-  selectedAction: string | null;
+  onTabChange?: () => void;
+  selectedActionDefinitionId: string | null;
   disabled: boolean;
 }
 
 export const TTAPanel: React.FC<TTAPanelProps> = ({
   onActionSelect,
-  selectedAction,
+  onTabChange,
+  selectedActionDefinitionId,
   disabled,
   userId,
 }) => {
   const { activeTab, setActiveTab, displayedActions, checkIsPositive } =
     useTTAPanel({ userId });
+
+  const handleTabClick = (tab: "positive" | "negative") => {
+    if (activeTab !== tab) {
+      setActiveTab(tab);
+      if (onTabChange) {
+        onTabChange();
+      }
+    }
+  };
 
   return (
     <div
@@ -29,7 +40,7 @@ export const TTAPanel: React.FC<TTAPanelProps> = ({
       <div className="flex border-b border-gray-800 mb-2">
         <button
           type="button"
-          onClick={() => setActiveTab("positive")}
+          onClick={() => handleTabClick("positive")}
           disabled={disabled}
           className={`flex-1 py-2 min-h-11 text-xs font-bold uppercase transition-all disabled:cursor-not-allowed ${
             activeTab === "positive"
@@ -41,7 +52,7 @@ export const TTAPanel: React.FC<TTAPanelProps> = ({
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab("negative")}
+          onClick={() => handleTabClick("negative")}
           disabled={disabled}
           className={`flex-1 py-2 min-h-11 text-xs font-bold uppercase transition-all disabled:cursor-not-allowed ${
             activeTab === "negative"
@@ -56,7 +67,8 @@ export const TTAPanel: React.FC<TTAPanelProps> = ({
       <div className="grid grid-cols-3 gap-2">
         {displayedActions.map((def) => {
           const isPos = checkIsPositive(def);
-          const isSelected = selectedAction === def.name;
+          const isSelected =
+            Boolean(def.id) && selectedActionDefinitionId === def.id;
 
           let buttonColorStyle = "bg-gray-800 text-rose-200 hover:bg-gray-700";
           if (isSelected) {
