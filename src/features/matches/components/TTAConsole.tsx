@@ -24,6 +24,7 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
     handleFinalizeSuccess,
     handleEnter,
     handleActionSelect,
+    clearPendingAction,
   } = useTTAConsole({ onCompleteMatch });
 
   return (
@@ -58,8 +59,11 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
 
             <TTAPanel
               disabled={!isRecordingEnabled}
-              selectedAction={pendingAction?.name || null}
+              selectedActionDefinitionId={
+                pendingAction?.eventDefinitionId || null
+              }
               onActionSelect={handleActionSelect}
+              onTabChange={clearPendingAction}
             />
           </div>
           <button

@@ -137,6 +137,22 @@ describe("TTAPanel Component", () => {
       isPositive: true,
       createdAt: "",
     },
+    {
+      id: "6",
+      sportId: "s1",
+      name: "Penalty",
+      shortName: "PEN+",
+      isPositive: true,
+      createdAt: "",
+    },
+    {
+      id: "7",
+      sportId: "s1",
+      name: "Penalty",
+      shortName: "PEN-",
+      isPositive: false,
+      createdAt: "",
+    },
   ];
 
   const mockPresets = [
@@ -166,6 +182,20 @@ describe("TTAPanel Component", () => {
       eventDefinitionId: "4",
       sportId: "s1",
       sortOrder: 4,
+      isEnabled: true,
+    },
+    {
+      userId: "user-1",
+      eventDefinitionId: "6",
+      sportId: "s1",
+      sortOrder: 6,
+      isEnabled: true,
+    },
+    {
+      userId: "user-1",
+      eventDefinitionId: "7",
+      sportId: "s1",
+      sortOrder: 7,
       isEnabled: true,
     },
   ];
@@ -207,7 +237,7 @@ describe("TTAPanel Component", () => {
       <Provider store={store}>
         <TTAPanel
           onActionSelect={mockOnActionSelect}
-          selectedAction={null}
+          selectedActionDefinitionId={null}
           disabled={false}
         />
       </Provider>,
@@ -225,14 +255,39 @@ describe("TTAPanel Component", () => {
     expect(mockOnActionSelect).toHaveBeenCalledWith("Foul", false, "4");
   });
 
-  it("applies selected styling to the active action button", async () => {
+  it("triggers onTabChange callback when switching between POSITIVE and NEGATIVE tabs", async () => {
+    const mockOnTabChange = vi.fn();
     const store = createTestStore();
 
     render(
       <Provider store={store}>
         <TTAPanel
           onActionSelect={vi.fn()}
-          selectedAction="Goal"
+          onTabChange={mockOnTabChange}
+          selectedActionDefinitionId={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+
+    fireEvent.click(screen.getByText("Negative"));
+    expect(mockOnTabChange).toHaveBeenCalledTimes(1);
+
+    // Clicking active tab again should not re-trigger callback
+    fireEvent.click(screen.getByText("Negative"));
+    expect(mockOnTabChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies selected styling strictly based on selectedActionDefinitionId", async () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="1"
           disabled={false}
         />
       </Provider>,
@@ -240,6 +295,25 @@ describe("TTAPanel Component", () => {
 
     const goalBtn = await screen.findByText("Goal");
     expect(goalBtn).toHaveClass("bg-blue-600");
+  });
+
+  it("does not highlight actions with identical names in other tabs if definition ID does not match", async () => {
+    const store = createTestStore();
+
+    // Select negative Penalty (id: "7")
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="7"
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    // Positive tab should contain positive Penalty (id: "6"), which should NOT be highlighted
+    const positivePenaltyBtn = await screen.findByText("Penalty");
+    expect(positivePenaltyBtn).not.toHaveClass("bg-blue-600");
   });
 
   it("filters out disabled event definitions from display", async () => {
@@ -264,7 +338,7 @@ describe("TTAPanel Component", () => {
       <Provider store={store}>
         <TTAPanel
           onActionSelect={vi.fn()}
-          selectedAction={null}
+          selectedActionDefinitionId={null}
           disabled={false}
         />
       </Provider>,
@@ -281,7 +355,7 @@ describe("TTAPanel Component", () => {
       <Provider store={store}>
         <TTAPanel
           onActionSelect={vi.fn()}
-          selectedAction={null}
+          selectedActionDefinitionId={null}
           disabled={true}
         />
       </Provider>,
@@ -315,7 +389,7 @@ describe("TTAPanel Component", () => {
       <Provider store={store}>
         <TTAPanel
           onActionSelect={vi.fn()}
-          selectedAction={null}
+          selectedActionDefinitionId={null}
           disabled={false}
         />
       </Provider>,
@@ -342,7 +416,7 @@ describe("TTAPanel Component", () => {
       <Provider store={store}>
         <TTAPanel
           onActionSelect={vi.fn()}
-          selectedAction={null}
+          selectedActionDefinitionId={null}
           disabled={false}
         />
       </Provider>,
@@ -366,7 +440,7 @@ describe("TTAPanel Component", () => {
       <Provider store={store}>
         <TTAPanel
           onActionSelect={vi.fn()}
-          selectedAction={null}
+          selectedActionDefinitionId={null}
           disabled={false}
         />
       </Provider>,
@@ -379,7 +453,7 @@ describe("TTAPanel Component", () => {
       <Provider store={newUserStore}>
         <TTAPanel
           onActionSelect={vi.fn()}
-          selectedAction={null}
+          selectedActionDefinitionId={null}
           disabled={false}
         />
       </Provider>,
@@ -406,7 +480,7 @@ describe("TTAPanel Component", () => {
       <Provider store={storeUserA}>
         <TTAPanel
           onActionSelect={vi.fn()}
-          selectedAction={null}
+          selectedActionDefinitionId={null}
           disabled={false}
         />
       </Provider>,
@@ -420,7 +494,7 @@ describe("TTAPanel Component", () => {
       <Provider store={storeUserB}>
         <TTAPanel
           onActionSelect={vi.fn()}
-          selectedAction={null}
+          selectedActionDefinitionId={null}
           disabled={false}
         />
       </Provider>,
@@ -437,7 +511,7 @@ describe("TTAPanel Component", () => {
         <TTAPanel
           key="user-B-hydrated"
           onActionSelect={vi.fn()}
-          selectedAction={null}
+          selectedActionDefinitionId={null}
           disabled={false}
         />
       </Provider>,
@@ -453,7 +527,7 @@ describe("TTAPanel Component", () => {
       <Provider store={noUserStore}>
         <TTAPanel
           onActionSelect={vi.fn()}
-          selectedAction={null}
+          selectedActionDefinitionId={null}
           disabled={false}
         />
       </Provider>,
@@ -476,7 +550,7 @@ describe("TTAPanel Component", () => {
       <Provider store={store}>
         <TTAPanel
           onActionSelect={vi.fn()}
-          selectedAction={null}
+          selectedActionDefinitionId={null}
           disabled={false}
         />
       </Provider>,
