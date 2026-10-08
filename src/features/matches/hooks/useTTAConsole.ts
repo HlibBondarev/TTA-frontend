@@ -48,6 +48,11 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     }
   };
 
+  const clearPendingAction = () => {
+    setPendingAction(null);
+    setConsoleError(null);
+  };
+
   const handleEnter = async () => {
     if (
       pendingAction?.eventDefinitionId &&
@@ -103,5 +108,6 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     handleFinalizeSuccess,
     handleEnter,
     handleActionSelect,
+    clearPendingAction,
   };
 }
