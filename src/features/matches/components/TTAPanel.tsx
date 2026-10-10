@@ -1,5 +1,6 @@
 import React from "react";
 import { useTTAPanel, type UseTTAPanelOptions } from "../hooks/useTTAPanel";
+import { InteractivePlayground } from "./InteractivePlayground";
 
 export interface TTAPanelProps extends UseTTAPanelOptions {
   onActionSelect: (
@@ -10,6 +11,9 @@ export interface TTAPanelProps extends UseTTAPanelOptions {
   onTabChange?: () => void;
   selectedActionDefinitionId: string | null;
   disabled: boolean;
+  pendingLocation?: { locationX: number; locationY: number } | null;
+  playgroundSvg?: string | null;
+  onLocationSelect?: (x: number | null, y: number | null) => void;
 }
 
 export const TTAPanel: React.FC<TTAPanelProps> = ({
@@ -18,14 +22,23 @@ export const TTAPanel: React.FC<TTAPanelProps> = ({
   selectedActionDefinitionId,
   disabled,
   userId,
+  pendingLocation,
+  playgroundSvg,
+  onLocationSelect,
 }) => {
   const { activeTab, setActiveTab, displayedActions, checkIsPositive } =
     useTTAPanel({ userId });
 
-  const handleTabClick = (tab: "positive" | "negative") => {
+  const handleTabClick = (tab: "positive" | "negative" | "map") => {
     if (activeTab !== tab) {
+      // Скидаємо дію ТІЛЬКИ при перемиканні між Positive та Negative
+      const isCategorySwitch =
+        (activeTab === "positive" && tab === "negative") ||
+        (activeTab === "negative" && tab === "positive");
+
       setActiveTab(tab);
-      if (onTabChange) {
+
+      if (isCategorySwitch && onTabChange) {
         onTabChange();
       }
     }
@@ -62,36 +75,61 @@ export const TTAPanel: React.FC<TTAPanelProps> = ({
         >
           Negative
         </button>
+        <button
+          type="button"
+          onClick={() => handleTabClick("map")}
+          disabled={disabled}
+          className={`flex-1 py-2 min-h-11 text-xs font-bold uppercase transition-all disabled:cursor-not-allowed flex items-center justify-center space-x-1 ${
+            activeTab === "map"
+              ? "text-blue-400 border-b-2 border-blue-400"
+              : "text-gray-500"
+          }`}
+        >
+          <span>Map</span>
+          {pendingLocation && (
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+          )}
+        </button>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
-        {displayedActions.map((def) => {
-          const isPos = checkIsPositive(def);
-          const isSelected =
-            Boolean(def.id) && selectedActionDefinitionId === def.id;
+      {activeTab === "map" ? (
+        <InteractivePlayground
+          playgroundSvg={playgroundSvg}
+          locationX={pendingLocation?.locationX ?? null}
+          locationY={pendingLocation?.locationY ?? null}
+          disabled={disabled}
+          onLocationSelect={onLocationSelect ?? (() => {})}
+        />
+      ) : (
+        <div className="grid grid-cols-3 gap-2">
+          {displayedActions.map((def) => {
+            const isPos = checkIsPositive(def);
+            const isSelected =
+              Boolean(def.id) && selectedActionDefinitionId === def.id;
 
-          let buttonColorStyle = "bg-gray-800 text-rose-200 hover:bg-gray-700";
-          if (isSelected) {
-            buttonColorStyle = "bg-blue-600 text-white";
-          } else if (activeTab === "positive") {
-            buttonColorStyle = "bg-gray-800 text-emerald-200 hover:bg-gray-700";
-          }
+            let buttonColorStyle =
+              "bg-gray-800 text-rose-200 hover:bg-gray-700";
+            if (isSelected) {
+              buttonColorStyle = "bg-blue-600 text-white";
+            } else if (activeTab === "positive") {
+              buttonColorStyle =
+                "bg-gray-800 text-emerald-200 hover:bg-gray-700";
+            }
 
-          return (
-            <button
-              type="button"
-              key={def.id || def.name}
-              onClick={() => onActionSelect(def.name, isPos, def.id)}
-              disabled={disabled}
-              className={`p-2 min-h-11 rounded text-xs font-medium transition-all disabled:cursor-not-allowed ${
-                buttonColorStyle
-              }`}
-            >
-              {def.name}
-            </button>
-          );
-        })}
-      </div>
+            return (
+              <button
+                type="button"
+                key={def.id || def.name}
+                onClick={() => onActionSelect(def.name, isPos, def.id)}
+                disabled={disabled}
+                className={`p-2 min-h-11 rounded text-xs font-medium transition-all disabled:cursor-not-allowed ${buttonColorStyle}`}
+              >
+                {def.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

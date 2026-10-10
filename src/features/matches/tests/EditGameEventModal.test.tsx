@@ -193,6 +193,8 @@ describe("EditGameEventModal Component", () => {
         eventDefinitionId: "def-2",
         expectedSportId: "sport-1",
         isLeadToGoal: false,
+        locationX: null,
+        locationY: null,
         userId: undefined,
       });
       expect(mockOnClose).toHaveBeenCalled();
@@ -241,6 +243,8 @@ describe("EditGameEventModal Component", () => {
         eventDefinitionId: "def-1",
         expectedSportId: "sport-1",
         isLeadToGoal: true,
+        locationX: null,
+        locationY: null,
         userId: undefined,
       });
       expect(mockOnClose).toHaveBeenCalled();

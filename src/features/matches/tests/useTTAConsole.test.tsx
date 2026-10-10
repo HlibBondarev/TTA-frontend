@@ -76,6 +76,7 @@ describe("useTTAConsole Custom Hook", () => {
     expect(result.current.periodNumber).toBe(1);
     expect(result.current.isRecordingEnabled).toBe(true);
     expect(result.current.pendingAction).toBeNull();
+    expect(result.current.pendingLocation).toBeNull();
     expect(result.current.selectedPlayerId).toBeNull();
   });
 
@@ -133,6 +134,31 @@ describe("useTTAConsole Custom Hook", () => {
     expect(result.current.pendingAction).toBeNull();
   });
 
+  it("should update location state when handleLocationSelect is called", () => {
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+    });
+
+    const { result } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.handleLocationSelect(25.5, 75.0);
+    });
+
+    expect(result.current.pendingLocation).toEqual({
+      locationX: 25.5,
+      locationY: 75.0,
+    });
+
+    act(() => {
+      result.current.handleLocationSelect(null, null);
+    });
+
+    expect(result.current.pendingLocation).toBeNull();
+  });
+
   it("should clear pendingAction and consoleError when clearPendingAction is called", async () => {
     mockRecordGameEvent.mockRejectedValueOnce(
       new Error("Database write error"),
@@ -148,6 +174,7 @@ describe("useTTAConsole Custom Hook", () => {
 
     act(() => {
       result.current.handleActionSelect("Shot", true, "def-shot-1");
+      result.current.handleLocationSelect(10.0, 20.0);
       result.current.setSelectedPlayerId("player-7");
     });
 
@@ -164,6 +191,7 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     expect(result.current.pendingAction).toBeNull();
+    expect(result.current.pendingLocation).toBeNull();
     expect(result.current.consoleError).toBeNull();
   });
 
@@ -191,9 +219,46 @@ describe("useTTAConsole Custom Hook", () => {
       isPositive: true,
       eventDefinitionId: "def-goal-1",
       isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
     });
 
     expect(result.current.pendingAction).toBeNull();
+    expect(result.current.pendingLocation).toBeNull();
+    expect(result.current.selectedPlayerId).toBeNull();
+  });
+
+  it("should record game event with coordinates and reset selections on handleEnter", async () => {
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+    });
+
+    const { result } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.handleActionSelect("Goal", true, "def-goal-1");
+      result.current.handleLocationSelect(50.0, 50.0);
+      result.current.setSelectedPlayerId("player-7");
+    });
+
+    await act(async () => {
+      await result.current.handleEnter();
+    });
+
+    expect(mockRecordGameEvent).toHaveBeenCalledWith({
+      selectedPlayerId: "player-7",
+      actionName: "Goal",
+      isPositive: true,
+      eventDefinitionId: "def-goal-1",
+      isLeadToGoal: false,
+      locationX: 50.0,
+      locationY: 50.0,
+    });
+
+    expect(result.current.pendingAction).toBeNull();
+    expect(result.current.pendingLocation).toBeNull();
     expect(result.current.selectedPlayerId).toBeNull();
   });
 
@@ -233,6 +298,7 @@ describe("useTTAConsole Custom Hook", () => {
 
     act(() => {
       result.current.handleActionSelect("Goal", true, "def-goal-1");
+      result.current.handleLocationSelect(30.0, 40.0);
       result.current.setSelectedPlayerId("player-7");
     });
 
@@ -248,6 +314,7 @@ describe("useTTAConsole Custom Hook", () => {
 
     expect(result.current.periodNumber).toBe(2);
     expect(result.current.pendingAction).toBeNull();
+    expect(result.current.pendingLocation).toBeNull();
     expect(result.current.selectedPlayerId).toBeNull();
   });
 

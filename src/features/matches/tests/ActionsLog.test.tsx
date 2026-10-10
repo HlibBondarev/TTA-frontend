@@ -220,6 +220,8 @@ describe("ActionsLog Component", () => {
         eventDefinitionId: "def-2",
         expectedSportId: "s1",
         isLeadToGoal: true,
+        locationX: null,
+        locationY: null,
         userId: undefined,
       });
     });

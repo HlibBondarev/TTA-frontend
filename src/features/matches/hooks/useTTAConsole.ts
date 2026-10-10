@@ -25,6 +25,10 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     isPositive: boolean;
     eventDefinitionId: string;
   } | null>(null);
+  const [pendingLocation, setPendingLocation] = useState<{
+    locationX: number;
+    locationY: number;
+  } | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [consoleError, setConsoleError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -34,6 +38,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   if (periodNumber !== prevPeriod) {
     setPrevPeriod(periodNumber);
     setPendingAction(null);
+    setPendingLocation(null);
     setSelectedPlayerId(null);
     setConsoleError(null);
   }
@@ -50,7 +55,16 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
 
   const clearPendingAction = () => {
     setPendingAction(null);
+    setPendingLocation(null);
     setConsoleError(null);
+  };
+
+  const handleLocationSelect = (x: number | null, y: number | null) => {
+    if (x === null || y === null) {
+      setPendingLocation(null);
+    } else {
+      setPendingLocation({ locationX: x, locationY: y });
+    }
   };
 
   const handleEnter = async () => {
@@ -69,9 +83,12 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
           isPositive: pendingAction.isPositive,
           eventDefinitionId: pendingAction.eventDefinitionId,
           isLeadToGoal: false,
+          locationX: pendingLocation?.locationX ?? null,
+          locationY: pendingLocation?.locationY ?? null,
         });
 
         setPendingAction(null);
+        setPendingLocation(null);
         setSelectedPlayerId(null);
       } catch (err: unknown) {
         console.error("Failed to record game event:", err);
@@ -101,6 +118,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     periodNumber,
     isRecordingEnabled,
     pendingAction,
+    pendingLocation,
     selectedPlayerId,
     setSelectedPlayerId,
     consoleError,
@@ -108,6 +126,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     handleFinalizeSuccess,
     handleEnter,
     handleActionSelect,
+    handleLocationSelect,
     clearPendingAction,
   };
 }
