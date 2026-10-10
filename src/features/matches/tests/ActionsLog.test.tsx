@@ -191,9 +191,9 @@ describe("ActionsLog Component", () => {
     const store = createStoreWithActions([
       {
         id: "action-2",
-        playerNumber: 3,
-        actionName: "Turnover",
-        isPositive: false,
+        playerNumber: 2,
+        actionName: "Pass",
+        isPositive: true,
         timestamp: new Date().toISOString(),
         matchLineupId: "lineup-2",
         eventDefinitionId: "def-2",
@@ -208,8 +208,9 @@ describe("ActionsLog Component", () => {
       </Provider>,
     );
 
-    const checkbox = screen.getByRole("checkbox");
-    expect(checkbox).not.toBeChecked();
+    const checkbox = await screen.findByRole("checkbox", {
+      name: /Toggle leads to goal for action #2 Pass/i,
+    });
 
     fireEvent.click(checkbox);
 
@@ -220,8 +221,8 @@ describe("ActionsLog Component", () => {
         eventDefinitionId: "def-2",
         expectedSportId: "s1",
         isLeadToGoal: true,
-        locationX: null,
-        locationY: null,
+        locationX: undefined,
+        locationY: undefined,
         userId: undefined,
       });
     });

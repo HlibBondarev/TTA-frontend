@@ -540,18 +540,27 @@ export const updateGameEventTx = async (
         );
       }
 
+      const locationX =
+        params.locationX === undefined
+          ? (existing.locationX ?? null)
+          : params.locationX;
+      const locationY =
+        params.locationY === undefined
+          ? (existing.locationY ?? null)
+          : params.locationY;
+
       updatedEvent = {
         ...existing,
         matchLineupId: params.matchLineupId,
         eventDefinitionId: params.eventDefinitionId,
         isLeadToGoal: params.isLeadToGoal,
-        locationX: params.locationX ?? null,
-        locationY: params.locationY ?? null,
+        locationX,
+        locationY,
       };
 
       await db.gameevents.put(updatedEvent);
 
-      await updateSyncQueueForEvent(params);
+      await updateSyncQueueForEvent({ ...params, locationX, locationY });
     },
   );
 

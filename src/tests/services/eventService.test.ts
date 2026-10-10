@@ -1163,4 +1163,52 @@ describe("Event Database Service (eventService)", () => {
 
     expect(db.eventdefinitions.bulkPut).toHaveBeenCalledTimes(2);
   });
+
+  it("should preserve existing locationX and locationY when parameters are undefined during updateGameEventTx", async () => {
+    const existingEvent = {
+      id: "event-coords-1",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: false,
+      locationX: 42.5,
+      locationY: 85.0,
+      createdAt: "2026-07-22T12:00:00.000Z",
+      sequenceNumber: 1,
+      isSynced: 0,
+    };
+
+    mockGameEventsGet.mockResolvedValueOnce(existingEvent);
+    mockMatchLineupsGet.mockImplementation((id: string) => {
+      if (id === "lineup-1") {
+        return Promise.resolve({ id, matchId: "match-123" });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    mockSyncQueueFilter.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 10,
+          endpoint: `/Matches/match-123/teams/team-456/events`,
+          payload: JSON.stringify([
+            { id: "event-coords-1", matchLineupId: "lineup-1" },
+          ]),
+        },
+      ]),
+    });
+
+    const updated = await updateGameEventTx({
+      eventId: "event-coords-1",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      isLeadToGoal: false,
+      locationX: undefined,
+      locationY: undefined,
+    });
+
+    expect(updated.locationX).toBe(42.5);
+    expect(updated.locationY).toBe(85.0);
+  });
 });

@@ -19,6 +19,20 @@ vi.mock("../../../db/ttaDatabase", () => ({
       get: vi.fn().mockResolvedValue({
         id: "tour-1",
         sportId: "sport-1",
+        configurationId: "config-1",
+      }),
+    },
+    sportconfigurations: {
+      get: vi.fn().mockResolvedValue({
+        id: "config-1",
+        playground: "<svg>Court</svg>",
+      }),
+    },
+    gameevents: {
+      get: vi.fn().mockResolvedValue({
+        id: "action-123",
+        locationX: 35.5,
+        locationY: 70.0,
       }),
     },
     matchlineups: {
@@ -193,8 +207,8 @@ describe("EditGameEventModal Component", () => {
         eventDefinitionId: "def-2",
         expectedSportId: "sport-1",
         isLeadToGoal: false,
-        locationX: null,
-        locationY: null,
+        locationX: 35.5,
+        locationY: 70,
         userId: undefined,
       });
       expect(mockOnClose).toHaveBeenCalled();
@@ -243,8 +257,8 @@ describe("EditGameEventModal Component", () => {
         eventDefinitionId: "def-1",
         expectedSportId: "sport-1",
         isLeadToGoal: true,
-        locationX: null,
-        locationY: null,
+        locationX: 35.5,
+        locationY: 70,
         userId: undefined,
       });
       expect(mockOnClose).toHaveBeenCalled();
@@ -330,5 +344,106 @@ describe("EditGameEventModal Component", () => {
     const closeBtn = screen.getByText("✕");
     fireEvent.click(closeBtn);
     expect(mockOnClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows switching to Map tab, renders field layout, and passes spatial coordinates on save", async () => {
+    vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
+      id: "action-123",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "",
+      isLeadToGoal: false,
+      locationX: 35.5,
+      locationY: 70.0,
+      createdAt: "",
+      sequenceNumber: 1,
+      isSynced: 0,
+    });
+
+    const mockOnClose = vi.fn();
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction}
+          matchId="match-1"
+          onClose={mockOnClose}
+        />
+      </Provider>,
+    );
+
+    const mapTab = await screen.findByRole("button", { name: /Map/i });
+    fireEvent.click(mapTab);
+
+    expect(screen.getByText("Field Location Map")).toBeInTheDocument();
+    expect(screen.getByText("X: 35.5% | Y: 70%")).toBeInTheDocument();
+
+    const saveBtn = screen.getByRole("button", { name: /Save/i });
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(eventService.updateGameEventTx).toHaveBeenCalledWith({
+        eventId: "action-123",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        expectedSportId: "sport-1",
+        isLeadToGoal: true,
+        locationX: 35.5,
+        locationY: 70.0,
+        userId: undefined,
+      });
+      expect(mockOnClose).toHaveBeenCalled();
+    });
+  });
+
+  it("allows clearing coordinates on Map tab during action editing", async () => {
+    vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
+      id: "action-123",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "",
+      isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
+      createdAt: "",
+      sequenceNumber: 1,
+      isSynced: 0,
+    });
+
+    const mockOnClose = vi.fn();
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction}
+          matchId="match-1"
+          onClose={mockOnClose}
+        />
+      </Provider>,
+    );
+
+    const mapTab = await screen.findByRole("button", { name: /Map/i });
+    fireEvent.click(mapTab);
+
+    const clearBtn = await screen.findByRole("button", { name: /Clear/i });
+    fireEvent.click(clearBtn);
+
+    const saveBtn = screen.getByRole("button", { name: /Save/i });
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(eventService.updateGameEventTx).toHaveBeenCalledWith(
+        expect.objectContaining({
+          locationX: null,
+          locationY: null,
+        }),
+      );
+    });
   });
 });

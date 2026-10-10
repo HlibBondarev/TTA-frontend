@@ -7,6 +7,7 @@ import {
 import type { ActionEntry } from "../store/matchSlice";
 import { useGameEvents } from "../hooks/useGameEvents";
 import { ModalDialog } from "./ModalDialog";
+import { InteractivePlayground } from "./InteractivePlayground";
 
 interface EditGameEventModalProps {
   isOpen: boolean;
@@ -32,6 +33,7 @@ const EditGameEventModalContent: React.FC<{
   const [eventDefinitions, setEventDefinitions] = useState<
     EventDefinitionLookup[]
   >([]);
+  const [playgroundSvg, setPlaygroundSvg] = useState<string | null>(null);
 
   const [selectedMatchLineupId, setSelectedMatchLineupId] = useState<string>(
     action.matchLineupId,
@@ -42,14 +44,36 @@ const EditGameEventModalContent: React.FC<{
   const [selectedEventDefinitionId, setSelectedEventDefinitionId] =
     useState<string>(action.eventDefinitionId);
   const [isPositive, setIsPositive] = useState<boolean>(action.isPositive);
-  const [activeTab, setActiveTab] = useState<"positive" | "negative">(
+  const [activeTab, setActiveTab] = useState<"positive" | "negative" | "map">(
     action.isPositive ? "positive" : "negative",
   );
+
+  const [locationX, setLocationX] = useState<number | null>(null);
+  const [locationY, setLocationY] = useState<number | null>(null);
+
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
+
+    // Load existing event spatial coordinates from Dexie DB
+    db.gameevents.get(action.id).then((evt) => {
+      if (!isMounted || !evt) return;
+      if (typeof evt.locationX === "number") setLocationX(evt.locationX);
+      if (typeof evt.locationY === "number") setLocationY(evt.locationY);
+    });
+
+    // Load playground SVG layout for active match sport configuration
+    db.matches.get(matchId).then(async (m) => {
+      if (!isMounted || !m?.tournamentId) return;
+      const tour = await db.tournaments.get(m.tournamentId);
+      if (!tour?.configurationId) return;
+      const config = await db.sportconfigurations.get(tour.configurationId);
+      if (isMounted && config?.playground) {
+        setPlaygroundSvg(config.playground);
+      }
+    });
 
     db.matchlineups
       .where("matchId")
@@ -76,7 +100,7 @@ const EditGameEventModalContent: React.FC<{
     return () => {
       isMounted = false;
     };
-  }, [matchId]);
+  }, [action.id, matchId]);
 
   const positiveActions = eventDefinitions.filter((def) =>
     checkIsPositive(def),
@@ -116,6 +140,8 @@ const EditGameEventModalContent: React.FC<{
         eventDefinitionId: selectedEventDefinitionId,
         isPositive,
         isLeadToGoal: isGoalAction ? false : action.isLeadToGoal,
+        locationX,
+        locationY,
       });
       onClose();
     } catch (err: unknown) {
@@ -124,6 +150,9 @@ const EditGameEventModalContent: React.FC<{
       setIsSaving(false);
     }
   };
+
+  const hasLocation =
+    typeof locationX === "number" && typeof locationY === "number";
 
   return (
     <ModalDialog
@@ -149,7 +178,7 @@ const EditGameEventModalContent: React.FC<{
           <span className="block text-[10px] uppercase text-gray-400 font-bold mb-1">
             Player (Full Roster)
           </span>
-          <div className="grid grid-cols-5 gap-1.5 max-h-48 overflow-y-auto pr-1">
+          <div className="grid grid-cols-5 gap-1.5 max-h-36 overflow-y-auto pr-1">
             {lineups.map((l) => (
               <button
                 key={l.id}
@@ -167,7 +196,7 @@ const EditGameEventModalContent: React.FC<{
           </div>
         </div>
 
-        {/* Action Type Selection */}
+        {/* Action Type & Location Navigation Tabs */}
         <div>
           <div className="flex border-b border-gray-800 mb-2">
             <button
@@ -192,27 +221,53 @@ const EditGameEventModalContent: React.FC<{
             >
               Negative
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("map")}
+              className={`flex-1 py-1.5 text-[11px] font-bold uppercase transition-all flex items-center justify-center space-x-1 ${
+                activeTab === "map"
+                  ? "text-blue-400 border-b-2 border-blue-400"
+                  : "text-gray-500"
+              }`}
+            >
+              <span>Map</span>
+              {hasLocation && (
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+              )}
+            </button>
           </div>
 
-          <div className="grid grid-cols-3 gap-1.5 max-h-56 overflow-y-auto pr-1">
-            {displayedActions.map((def) => {
-              const isSelected = selectedActionName === def.name;
-              return (
-                <button
-                  key={def.id || def.name}
-                  type="button"
-                  onClick={() => handleActionSelect(def)}
-                  className={`p-2 min-h-10 rounded text-[11px] font-medium transition-all ${
-                    isSelected
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-800 text-gray-300 hover:bg-gray-700"
-                  }`}
-                >
-                  {def.name}
-                </button>
-              );
-            })}
-          </div>
+          {activeTab === "map" ? (
+            <InteractivePlayground
+              playgroundSvg={playgroundSvg}
+              locationX={locationX}
+              locationY={locationY}
+              onLocationSelect={(x, y) => {
+                setLocationX(x);
+                setLocationY(y);
+              }}
+            />
+          ) : (
+            <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-1">
+              {displayedActions.map((def) => {
+                const isSelected = selectedActionName === def.name;
+                return (
+                  <button
+                    key={def.id || def.name}
+                    type="button"
+                    onClick={() => handleActionSelect(def)}
+                    className={`p-2 min-h-10 rounded text-[11px] font-medium transition-all ${
+                      isSelected
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                    }`}
+                  >
+                    {def.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 

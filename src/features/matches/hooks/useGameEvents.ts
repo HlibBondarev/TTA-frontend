@@ -198,8 +198,8 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       eventDefinitionId: resolvedEventDefId,
       expectedSportId: sportId,
       isLeadToGoal,
-      locationX: locationX ?? null,
-      locationY: locationY ?? null,
+      locationX,
+      locationY,
       userId: currentUserId,
     });
 
