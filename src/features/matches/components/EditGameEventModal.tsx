@@ -58,22 +58,32 @@ const EditGameEventModalContent: React.FC<{
     let isMounted = true;
 
     // Load existing event spatial coordinates from Dexie DB
-    db.gameevents.get(action.id).then((evt) => {
-      if (!isMounted || !evt) return;
-      if (typeof evt.locationX === "number") setLocationX(evt.locationX);
-      if (typeof evt.locationY === "number") setLocationY(evt.locationY);
-    });
+    db.gameevents
+      .get(action.id)
+      .then((evt) => {
+        if (!isMounted || !evt) return;
+        if (typeof evt.locationX === "number") setLocationX(evt.locationX);
+        if (typeof evt.locationY === "number") setLocationY(evt.locationY);
+      })
+      .catch(() => {
+        // Silently ignore or handle missing initial coordinates error
+      });
 
     // Load playground SVG layout for active match sport configuration
-    db.matches.get(matchId).then(async (m) => {
-      if (!isMounted || !m?.tournamentId) return;
-      const tour = await db.tournaments.get(m.tournamentId);
-      if (!tour?.configurationId) return;
-      const config = await db.sportconfigurations.get(tour.configurationId);
-      if (isMounted && config?.playground) {
-        setPlaygroundSvg(config.playground);
-      }
-    });
+    db.matches
+      .get(matchId)
+      .then(async (m) => {
+        if (!isMounted || !m?.tournamentId) return;
+        const tour = await db.tournaments.get(m.tournamentId);
+        if (!tour?.configurationId) return;
+        const config = await db.sportconfigurations.get(tour.configurationId);
+        if (isMounted && config?.playground) {
+          setPlaygroundSvg(config.playground);
+        }
+      })
+      .catch(() => {
+        // Silently ignore or handle missing layout configuration error
+      });
 
     db.matchlineups
       .where("matchId")
