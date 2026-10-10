@@ -19,6 +19,8 @@ export interface RecordGameEventParams {
   isPositive: boolean;
   isLeadToGoal: boolean;
   eventDefinitionId: string;
+  locationX?: number | null;
+  locationY?: number | null;
 }
 
 export interface UpdateGameEventHookParams {
@@ -28,6 +30,8 @@ export interface UpdateGameEventHookParams {
   isPositive: boolean;
   isLeadToGoal: boolean;
   eventDefinitionId: string;
+  locationX?: number | null;
+  locationY?: number | null;
 }
 
 export const useGameEvents = (matchId: string, userId?: string) => {
@@ -84,6 +88,8 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       isPositive,
       isLeadToGoal,
       eventDefinitionId,
+      locationX,
+      locationY,
     } = params;
 
     const normalizedMatchId = matchId?.trim();
@@ -124,6 +130,8 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       periodNumber,
       eventTimestamp: timestamp,
       isLeadToGoal,
+      locationX: locationX ?? null,
+      locationY: locationY ?? null,
     });
 
     dispatch(setGlobalSequenceNumber(createdEvent.sequenceNumber));
@@ -157,6 +165,8 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       isPositive,
       isLeadToGoal,
       eventDefinitionId,
+      locationX,
+      locationY,
     } = params;
 
     const normalizedMatchId = matchId?.trim();
@@ -188,6 +198,8 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       eventDefinitionId: resolvedEventDefId,
       expectedSportId: sportId,
       isLeadToGoal,
+      locationX: locationX ?? null,
+      locationY: locationY ?? null,
       userId: currentUserId,
     });
 

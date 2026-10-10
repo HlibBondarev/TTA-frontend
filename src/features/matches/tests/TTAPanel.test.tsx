@@ -21,6 +21,20 @@ vi.mock("@auth0/auth0-react", () => ({
   }),
 }));
 
+vi.mock("../components/InteractivePlayground", () => ({
+  InteractivePlayground: ({
+    onLocationSelect,
+  }: {
+    onLocationSelect: (x: number | null, y: number | null) => void;
+  }) => (
+    <div data-testid="interactive-playground">
+      <button type="button" onClick={() => onLocationSelect(40, 60)}>
+        Select Position
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock("../../../db/eventService", () => ({
   clearEventDefinitionsCache: vi.fn(),
   isSportHydratedForUser: vi.fn().mockResolvedValue(true),
@@ -255,7 +269,7 @@ describe("TTAPanel Component", () => {
     expect(mockOnActionSelect).toHaveBeenCalledWith("Foul", false, "4");
   });
 
-  it("triggers onTabChange callback when switching between POSITIVE and NEGATIVE tabs", async () => {
+  it("triggers onTabChange callback ONLY when switching between POSITIVE and NEGATIVE tabs", async () => {
     const mockOnTabChange = vi.fn();
     const store = createTestStore();
 
@@ -272,12 +286,46 @@ describe("TTAPanel Component", () => {
 
     await screen.findByText("Goal");
 
+    // 1. Transitioning Positive -> Map must NOT clear pending action
+    fireEvent.click(screen.getByText("Map"));
+    expect(mockOnTabChange).not.toHaveBeenCalled();
+
+    // 2. Transitioning Map -> Negative must NOT clear pending action
     fireEvent.click(screen.getByText("Negative"));
+    expect(mockOnTabChange).not.toHaveBeenCalled();
+
+    // 3. Direct transition Negative -> Positive MUST trigger onTabChange (1st call)
+    fireEvent.click(screen.getByText("Positive"));
     expect(mockOnTabChange).toHaveBeenCalledTimes(1);
 
-    // Clicking active tab again should not re-trigger callback
+    // 4. Direct transition Positive -> Negative MUST trigger onTabChange (2nd call)
     fireEvent.click(screen.getByText("Negative"));
-    expect(mockOnTabChange).toHaveBeenCalledTimes(1);
+    expect(mockOnTabChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows switching to Map tab and interacting with InteractivePlayground", async () => {
+    const mockOnLocationSelect = vi.fn();
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          onLocationSelect={mockOnLocationSelect}
+          selectedActionDefinitionId={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+
+    fireEvent.click(screen.getByText("Map"));
+
+    expect(screen.getByTestId("interactive-playground")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Select Position"));
+    expect(mockOnLocationSelect).toHaveBeenCalledWith(40, 60);
   });
 
   it("applies selected styling strictly based on selectedActionDefinitionId", async () => {
@@ -300,7 +348,6 @@ describe("TTAPanel Component", () => {
   it("does not highlight actions with identical names in other tabs if definition ID does not match", async () => {
     const store = createTestStore();
 
-    // Select negative Penalty (id: "7")
     render(
       <Provider store={store}>
         <TTAPanel
@@ -311,7 +358,6 @@ describe("TTAPanel Component", () => {
       </Provider>,
     );
 
-    // Positive tab should contain positive Penalty (id: "6"), which should NOT be highlighted
     const positivePenaltyBtn = await screen.findByText("Penalty");
     expect(positivePenaltyBtn).not.toHaveClass("bg-blue-600");
   });

@@ -8,15 +8,22 @@ import {
   useTTAConsole,
   type UseTTAConsoleOptions,
 } from "../hooks/useTTAConsole";
+import { useTTAPanel } from "../hooks/useTTAPanel";
 
-export type TTAConsoleProps = UseTTAConsoleOptions;
+export type TTAConsoleProps = UseTTAConsoleOptions & {
+  userId?: string;
+};
 
-export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
+export const TTAConsole: React.FC<TTAConsoleProps> = ({
+  onCompleteMatch,
+  userId,
+}) => {
   const {
     activeMatchId,
     periodNumber,
     isRecordingEnabled,
     pendingAction,
+    pendingLocation,
     selectedPlayerId,
     setSelectedPlayerId,
     consoleError,
@@ -24,8 +31,11 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
     handleFinalizeSuccess,
     handleEnter,
     handleActionSelect,
+    handleLocationSelect,
     clearPendingAction,
   } = useTTAConsole({ onCompleteMatch });
+
+  const { playgroundSvg } = useTTAPanel({ userId });
 
   return (
     <div className="w-full max-w-sm mx-auto flex flex-col h-screen pb-safe overflow-hidden">
@@ -48,6 +58,15 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
           <div className="flex-1 overflow-y-auto w-full px-2 space-y-2">
             <MatchLifecyclePanel onFinalizeSuccess={handleFinalizeSuccess} />
 
+            {pendingLocation && (
+              <div className="flex items-center justify-between bg-gray-950 border border-gray-800 rounded px-2 py-1 text-[10px] text-gray-400">
+                <span className="uppercase font-bold">Coordinates:</span>
+                <span className="font-mono text-blue-400 font-bold">
+                  [{pendingLocation.locationX}%, {pendingLocation.locationY}%]
+                </span>
+              </div>
+            )}
+
             <ActionsLog />
 
             <PlayerPresencePanel
@@ -62,8 +81,12 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({ onCompleteMatch }) => {
               selectedActionDefinitionId={
                 pendingAction?.eventDefinitionId || null
               }
+              pendingLocation={pendingLocation}
+              playgroundSvg={playgroundSvg}
               onActionSelect={handleActionSelect}
+              onLocationSelect={handleLocationSelect}
               onTabChange={clearPendingAction}
+              userId={userId}
             />
           </div>
           <button

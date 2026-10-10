@@ -59,6 +59,9 @@ export interface SportConfigurationLookup {
   rosterLimit: number;
   lineupLimit: number;
   activePlayersLimit: number;
+  playground?: string | null;
+  fieldLength?: number | null;
+  fieldWidth?: number | null;
 }
 
 export interface MatchLookup {
@@ -117,6 +120,8 @@ export interface GameEvent {
   periodNumber: number;
   eventTimestamp: string;
   isLeadToGoal: boolean;
+  locationX?: number | null;
+  locationY?: number | null;
   createdAt: string;
   sequenceNumber: number;
   isSynced: number;

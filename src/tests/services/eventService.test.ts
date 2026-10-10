@@ -439,6 +439,8 @@ describe("Event Database Service (eventService)", () => {
       periodNumber: 1,
       eventTimestamp: "2026-07-22T12:00:00.000Z",
       isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
       createdAt: expect.any(String),
       sequenceNumber: 5,
       isSynced: 0,
@@ -452,6 +454,35 @@ describe("Event Database Service (eventService)", () => {
     expect(db.gameevents.add).toHaveBeenCalledWith(createdEvent);
   });
 
+  it("should store locationX and locationY in created GameEvent and syncQueue payload when coordinates are provided", async () => {
+    const params = {
+      matchId: "match-123",
+      teamId: "team-456",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: false,
+      locationX: 45.5,
+      locationY: 82.25,
+    };
+
+    const createdEvent = await createGameEventTx(params);
+
+    expect(createdEvent.locationX).toBe(45.5);
+    expect(createdEvent.locationY).toBe(82.25);
+    expect(db.syncQueue.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.stringContaining('"locationX":45.5'),
+      }),
+    );
+    expect(db.syncQueue.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.stringContaining('"locationY":82.25'),
+      }),
+    );
+  });
+
   it("should update an unsynchronized GameEvent entity and its syncQueue payload", async () => {
     const existingEvent = {
       id: "event-1",
@@ -460,6 +491,8 @@ describe("Event Database Service (eventService)", () => {
       periodNumber: 1,
       eventTimestamp: "2026-07-22T12:00:00.000Z",
       isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
       createdAt: "2026-07-22T12:00:00.000Z",
       sequenceNumber: 1,
       isSynced: 0,
@@ -490,14 +523,18 @@ describe("Event Database Service (eventService)", () => {
       matchLineupId: "lineup-2",
       eventDefinitionId: "def-2",
       isLeadToGoal: true,
+      locationX: 15.25,
+      locationY: 30.5,
     });
 
     expect(updated.matchLineupId).toBe("lineup-2");
     expect(updated.eventDefinitionId).toBe("def-2");
     expect(updated.isLeadToGoal).toBe(true);
+    expect(updated.locationX).toBe(15.25);
+    expect(updated.locationY).toBe(30.5);
     expect(mockGameEventsPut).toHaveBeenCalledWith(updated);
     expect(mockSyncQueueUpdate).toHaveBeenCalledWith(10, {
-      payload: expect.stringContaining('"matchLineupId":"lineup-2"'),
+      payload: expect.stringContaining('"locationX":15.25'),
     });
   });
 

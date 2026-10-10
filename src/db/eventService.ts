@@ -258,6 +258,8 @@ export interface CreateGameEventParams {
   periodNumber: number;
   eventTimestamp: string;
   isLeadToGoal: boolean;
+  locationX?: number | null;
+  locationY?: number | null;
 }
 
 export interface UpdateGameEventParams {
@@ -266,6 +268,8 @@ export interface UpdateGameEventParams {
   eventDefinitionId: string;
   expectedSportId?: string;
   isLeadToGoal: boolean;
+  locationX?: number | null;
+  locationY?: number | null;
   userId?: string;
 }
 
@@ -287,6 +291,8 @@ const processQueueItemUpdate = async (
       matchLineupId: params.matchLineupId,
       eventDefinitionId: params.eventDefinitionId,
       isLeadToGoal: params.isLeadToGoal,
+      locationX: params.locationX ?? null,
+      locationY: params.locationY ?? null,
     };
 
     await db.syncQueue.update(item.id!, {
@@ -461,6 +467,8 @@ export const createGameEventTx = async (
         periodNumber: params.periodNumber,
         eventTimestamp: params.eventTimestamp,
         isLeadToGoal: params.isLeadToGoal,
+        locationX: params.locationX ?? null,
+        locationY: params.locationY ?? null,
         createdAt: new Date().toISOString(),
         sequenceNumber: nextSeq,
         isSynced: 0,
@@ -476,6 +484,8 @@ export const createGameEventTx = async (
           periodNumber: params.periodNumber,
           isLeadToGoal: params.isLeadToGoal,
           eventTimestamp: params.eventTimestamp,
+          locationX: createdEvent.locationX,
+          locationY: createdEvent.locationY,
         },
       ]);
 
@@ -535,6 +545,8 @@ export const updateGameEventTx = async (
         matchLineupId: params.matchLineupId,
         eventDefinitionId: params.eventDefinitionId,
         isLeadToGoal: params.isLeadToGoal,
+        locationX: params.locationX ?? null,
+        locationY: params.locationY ?? null,
       };
 
       await db.gameevents.put(updatedEvent);

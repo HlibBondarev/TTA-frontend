@@ -43,12 +43,13 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
   );
   const currentUserId = options?.userId?.trim() || auth0UserId || reduxUserId;
 
-  const [activeTab, setActiveTab] = useState<"positive" | "negative">(
+  const [activeTab, setActiveTab] = useState<"positive" | "negative" | "map">(
     "positive",
   );
   const [eventDefinitions, setEventDefinitions] = useState<
     EventDefinitionLookup[]
   >([]);
+  const [playgroundSvg, setPlaygroundSvg] = useState<string | null>(null);
   const [prevActiveMatchId, setPrevActiveMatchId] = useState(activeMatchId);
   const [prevUserId, setPrevUserId] = useState(currentUserId);
 
@@ -56,40 +57,55 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
     setPrevActiveMatchId(activeMatchId);
     setPrevUserId(currentUserId);
     setEventDefinitions([]);
+    setPlaygroundSvg(null);
     clearEventDefinitionsCache();
   }
 
   useEffect(() => {
     const subscription = liveQuery(async () => {
-      if (!activeMatchId) return [];
+      if (!activeMatchId) return { definitions: [], playgroundSvg: null };
 
       const normalizedUserId = currentUserId?.trim();
-      if (!normalizedUserId) return [];
+      if (!normalizedUserId) return { definitions: [], playgroundSvg: null };
 
       const match = await db.matches.get(activeMatchId);
-      if (!match) return [];
+      if (!match) return { definitions: [], playgroundSvg: null };
 
       if (match.userId && match.userId !== normalizedUserId) {
-        return [];
+        return { definitions: [], playgroundSvg: null };
       }
 
       let targetSportId: string | null = null;
+      let targetConfigId: string | null = null;
       if (match.tournamentId) {
         const tournament = await db.tournaments.get(match.tournamentId);
         if (tournament?.sportId) {
           targetSportId = tournament.sportId;
         }
+        if (tournament?.configurationId) {
+          targetConfigId = tournament.configurationId;
+        }
       }
 
-      if (!targetSportId) return [];
+      if (!targetSportId) return { definitions: [], playgroundSvg: null };
+
+      let loadedPlaygroundSvg: string | null = null;
+      if (targetConfigId) {
+        const sportConfig = await db.sportconfigurations.get(targetConfigId);
+        if (sportConfig?.playground) {
+          loadedPlaygroundSvg = sportConfig.playground;
+        }
+      }
 
       const isHydrated = await isSportHydratedForUser(
         targetSportId,
         normalizedUserId,
       );
       if (!isHydrated) {
-        return [];
+        return { definitions: [], playgroundSvg: loadedPlaygroundSvg };
       }
+
+      let loadedDefinitions: EventDefinitionLookup[] = [];
 
       if (db.usereventpresets) {
         const presets = await db.usereventpresets
@@ -101,23 +117,32 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
           .sort((a, b) => a.sortOrder - b.sortOrder);
 
         const defIds = enabledPresets.map((p) => p.eventDefinitionId);
-        if (defIds.length === 0) return [];
-
-        const defs = await db.eventdefinitions.bulkGet(defIds);
-        return defs.filter((d): d is EventDefinitionLookup => d !== undefined);
+        if (defIds.length > 0) {
+          const defs = await db.eventdefinitions.bulkGet(defIds);
+          loadedDefinitions = defs.filter(
+            (d): d is EventDefinitionLookup => d !== undefined,
+          );
+        }
+      } else {
+        loadedDefinitions = await db.eventdefinitions
+          .where("sportId")
+          .equals(targetSportId)
+          .toArray();
       }
 
-      return await db.eventdefinitions
-        .where("sportId")
-        .equals(targetSportId)
-        .toArray();
+      return {
+        definitions: loadedDefinitions,
+        playgroundSvg: loadedPlaygroundSvg,
+      };
     }).subscribe({
-      next: (definitions) => {
-        setEventDefinitions(definitions || []);
+      next: (data) => {
+        setEventDefinitions(data?.definitions || []);
+        setPlaygroundSvg(data?.playgroundSvg || null);
       },
       error: (err) => {
         console.error("Failed to load event definitions from Dexie:", err);
         setEventDefinitions([]);
+        setPlaygroundSvg(null);
       },
     });
 
@@ -141,5 +166,6 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
     setActiveTab,
     displayedActions,
     checkIsPositive,
+    playgroundSvg,
   };
 }

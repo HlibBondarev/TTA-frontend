@@ -41,6 +41,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
     tournaments: {
       get: vi.fn(),
     },
+    sportconfigurations: {
+      get: vi.fn(),
+    },
     eventdefinitions: {
       bulkGet: (...args: unknown[]) => mockEventDefinitionsBulkGet(...args),
       where: vi.fn(() => ({
@@ -123,7 +126,12 @@ describe("useTTAPanel Custom Hook", () => {
     vi.mocked(db.tournaments.get).mockResolvedValue({
       id: "tourn-1",
       sportId: "sport-wp",
+      configurationId: "config-1",
     } as unknown as Awaited<ReturnType<typeof db.tournaments.get>>);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "config-1",
+      playground: "<svg>Pool</svg>",
+    } as unknown as Awaited<ReturnType<typeof db.sportconfigurations.get>>);
     mockWhereEqualsToArray.mockReturnValue({
       toArray: vi.fn().mockResolvedValue(mockDefinitions),
     });
@@ -147,6 +155,7 @@ describe("useTTAPanel Custom Hook", () => {
     await waitFor(() => {
       expect(result.current.displayedActions).toHaveLength(1);
       expect(result.current.displayedActions[0].name).toBe("Goal");
+      expect(result.current.playgroundSvg).toBe("<svg>Pool</svg>");
     });
   });
 
@@ -170,6 +179,22 @@ describe("useTTAPanel Custom Hook", () => {
     expect(result.current.activeTab).toBe("negative");
     expect(result.current.displayedActions).toHaveLength(1);
     expect(result.current.displayedActions[0].name).toBe("Foul");
+  });
+
+  it("should support switching to 'map' tab", async () => {
+    const store = createTestStore({
+      match: { activeMatchId: "match-123" },
+    });
+
+    const { result } = renderHook(() => useTTAPanel(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.setActiveTab("map");
+    });
+
+    expect(result.current.activeTab).toBe("map");
   });
 
   it("should return empty actions array if match userId belongs to another user", async () => {

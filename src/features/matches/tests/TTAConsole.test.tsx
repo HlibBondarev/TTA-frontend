@@ -23,8 +23,8 @@ interface MockPresenceProps {
 
 let mockPeriodActive = true;
 let mockPeriodNumber = 1;
+let mockPendingLocation: { locationX: number; locationY: number } | null = null;
 
-// Mock Auth0 to provide a valid authenticated user ID for TTAPanel
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
     user: { sub: "user-1", id: "user-1" },
@@ -48,6 +48,23 @@ vi.mock("../hooks/useMatchLifecycle", () => ({
 }));
 
 const mockRecordGameEvent = vi.fn();
+const mockHandleLocationSelect = vi.fn();
+
+vi.mock("../hooks/useTTAConsole", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../hooks/useTTAConsole")>();
+  return {
+    ...actual,
+    useTTAConsole: (options?: unknown) => {
+      const result = actual.useTTAConsole(options as never);
+      return {
+        ...result,
+        pendingLocation: mockPendingLocation,
+        handleLocationSelect: mockHandleLocationSelect,
+      };
+    },
+  };
+});
 
 vi.mock("../hooks/useGameEvents", () => ({
   useGameEvents: () => ({
@@ -99,7 +116,6 @@ vi.mock("../../../db/ttaDatabase", () => ({
   },
 }));
 
-// Lightweight liveQuery mock for async state subscription in tests
 vi.mock("dexie", async (importOriginal) => {
   const actual = await importOriginal<typeof import("dexie")>();
   return {
@@ -167,6 +183,7 @@ describe("TTAConsole Component", () => {
     vi.clearAllMocks();
     mockPeriodActive = true;
     mockPeriodNumber = 1;
+    mockPendingLocation = null;
 
     vi.mocked(db.matches.get).mockResolvedValue({
       id: "test-id",
@@ -237,6 +254,30 @@ describe("TTAConsole Component", () => {
     expect(screen.getByText(/TTA Match Recorder/i)).toBeDefined();
   });
 
+  test("displays selected spatial coordinates when pendingLocation is set", () => {
+    mockPendingLocation = { locationX: 45.5, locationY: 80.0 };
+
+    const store = configureStore({
+      reducer: rootReducer,
+      preloadedState: {
+        match: {
+          ...initialMatchState,
+          activeMatchId: "test-id",
+          activeTeamId: "team-123",
+        },
+      } as unknown as RootState,
+    });
+
+    render(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    expect(screen.getByText("Coordinates:")).toBeInTheDocument();
+    expect(screen.getByText("[45.5%, 80%]")).toBeInTheDocument();
+  });
+
   test("resets action selection when switching tabs between POSITIVE and NEGATIVE", async () => {
     const store = configureStore({
       reducer: rootReducer,
@@ -256,7 +297,6 @@ describe("TTAConsole Component", () => {
       </Provider>,
     );
 
-    // 1. Select positive action and player
     const passBtn = await screen.findByText("Pass");
     fireEvent.click(passBtn);
     fireEvent.click(screen.getByText("Mock Player"));
@@ -264,10 +304,8 @@ describe("TTAConsole Component", () => {
     const enterBtn = screen.getByRole("button", { name: /Enter/i });
     expect(enterBtn).not.toBeDisabled();
 
-    // 2. Switch to NEGATIVE tab
     fireEvent.click(screen.getByRole("button", { name: /Negative/i }));
 
-    // 3. Enter button should be disabled because switching tabs reset pendingAction
     expect(enterBtn).toBeDisabled();
   });
 
@@ -356,9 +394,7 @@ describe("TTAConsole Component", () => {
 
     const enterBtn = screen.getByRole("button", { name: /Enter/i });
 
-    // First click initiates transaction
     fireEvent.click(enterBtn);
-    // Rapid second click during in-flight submission
     fireEvent.click(enterBtn);
 
     await waitFor(() => {
@@ -427,11 +463,9 @@ describe("TTAConsole Component", () => {
       </Provider>,
     );
 
-    // Select player and check selection presence
     fireEvent.click(screen.getByText("Mock Player"));
     expect(screen.getByText("Selected: player-1")).toBeInTheDocument();
 
-    // Trigger runtime period number increment simulation
     mockPeriodNumber = 2;
 
     rerender(
@@ -440,7 +474,6 @@ describe("TTAConsole Component", () => {
       </Provider>,
     );
 
-    // Verify selection state rolled back to clear out state for the new period block
     expect(screen.getByText("Selected: none")).toBeInTheDocument();
   });
 
@@ -484,7 +517,6 @@ describe("TTAConsole Component", () => {
       </Provider>,
     );
 
-    // Select "Pass" and record
     const passBtn = await screen.findByText("Pass");
     fireEvent.click(passBtn);
     fireEvent.click(screen.getByText("Mock Player"));
