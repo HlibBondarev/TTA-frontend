@@ -19,6 +19,44 @@ const checkIsPositive = (def: EventDefinitionLookup): boolean => {
   return !!value;
 };
 
+async function getMatchSportAndConfig(tournamentId?: string | null) {
+  if (!tournamentId) return { targetSportId: null, targetConfigId: null };
+  const tournament = await db.tournaments.get(tournamentId);
+  return {
+    targetSportId: tournament?.sportId || null,
+    targetConfigId: tournament?.configurationId || null,
+  };
+}
+
+async function getPlaygroundSvg(targetConfigId: string | null) {
+  if (!targetConfigId) return null;
+  const sportConfig = await db.sportconfigurations.get(targetConfigId);
+  return sportConfig?.playground || null;
+}
+
+async function getEventDefinitionsForSport(
+  targetSportId: string,
+  normalizedUserId: string,
+): Promise<EventDefinitionLookup[]> {
+  if (!db.usereventpresets) {
+    return db.eventdefinitions.where("sportId").equals(targetSportId).toArray();
+  }
+
+  const presets = await db.usereventpresets
+    .where({ userId: normalizedUserId, sportId: targetSportId })
+    .toArray();
+
+  const enabledDefIds = presets
+    .filter((p) => p.isEnabled)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((p) => p.eventDefinitionId);
+
+  if (enabledDefIds.length === 0) return [];
+
+  const defs = await db.eventdefinitions.bulkGet(enabledDefIds);
+  return defs.filter((d): d is EventDefinitionLookup => d !== undefined);
+}
+
 export function useTTAPanel(options?: UseTTAPanelOptions) {
   const activeMatchId = useSelector(
     (state: RootState) => state.match.activeMatchId,
@@ -63,39 +101,23 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
 
   useEffect(() => {
     const subscription = liveQuery(async () => {
-      if (!activeMatchId) return { definitions: [], playgroundSvg: null };
+      const emptyResult = { definitions: [], playgroundSvg: null };
+      if (!activeMatchId) return emptyResult;
 
       const normalizedUserId = currentUserId?.trim();
-      if (!normalizedUserId) return { definitions: [], playgroundSvg: null };
+      if (!normalizedUserId) return emptyResult;
 
       const match = await db.matches.get(activeMatchId);
-      if (!match) return { definitions: [], playgroundSvg: null };
-
-      if (match.userId && match.userId !== normalizedUserId) {
-        return { definitions: [], playgroundSvg: null };
+      if (!match || (match.userId && match.userId !== normalizedUserId)) {
+        return emptyResult;
       }
 
-      let targetSportId: string | null = null;
-      let targetConfigId: string | null = null;
-      if (match.tournamentId) {
-        const tournament = await db.tournaments.get(match.tournamentId);
-        if (tournament?.sportId) {
-          targetSportId = tournament.sportId;
-        }
-        if (tournament?.configurationId) {
-          targetConfigId = tournament.configurationId;
-        }
-      }
+      const { targetSportId, targetConfigId } = await getMatchSportAndConfig(
+        match.tournamentId,
+      );
+      if (!targetSportId) return emptyResult;
 
-      if (!targetSportId) return { definitions: [], playgroundSvg: null };
-
-      let loadedPlaygroundSvg: string | null = null;
-      if (targetConfigId) {
-        const sportConfig = await db.sportconfigurations.get(targetConfigId);
-        if (sportConfig?.playground) {
-          loadedPlaygroundSvg = sportConfig.playground;
-        }
-      }
+      const loadedPlaygroundSvg = await getPlaygroundSvg(targetConfigId);
 
       const isHydrated = await isSportHydratedForUser(
         targetSportId,
@@ -105,30 +127,10 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
         return { definitions: [], playgroundSvg: loadedPlaygroundSvg };
       }
 
-      let loadedDefinitions: EventDefinitionLookup[] = [];
-
-      if (db.usereventpresets) {
-        const presets = await db.usereventpresets
-          .where({ userId: normalizedUserId, sportId: targetSportId })
-          .toArray();
-
-        const enabledPresets = presets
-          .filter((p) => p.isEnabled)
-          .sort((a, b) => a.sortOrder - b.sortOrder);
-
-        const defIds = enabledPresets.map((p) => p.eventDefinitionId);
-        if (defIds.length > 0) {
-          const defs = await db.eventdefinitions.bulkGet(defIds);
-          loadedDefinitions = defs.filter(
-            (d): d is EventDefinitionLookup => d !== undefined,
-          );
-        }
-      } else {
-        loadedDefinitions = await db.eventdefinitions
-          .where("sportId")
-          .equals(targetSportId)
-          .toArray();
-      }
+      const loadedDefinitions = await getEventDefinitionsForSport(
+        targetSportId,
+        normalizedUserId,
+      );
 
       return {
         definitions: loadedDefinitions,

@@ -101,4 +101,17 @@ describe("InteractivePlayground Component", () => {
 
     expect(handleLocationSelect).not.toHaveBeenCalled();
   });
+
+  it("supports keyboard-triggered position selection (Enter / Space)", () => {
+    const handleLocationSelect = vi.fn();
+    const { container } = render(
+      <InteractivePlayground onLocationSelect={handleLocationSelect} />,
+    );
+
+    const playgroundButton = container.querySelector(".cursor-crosshair")!;
+
+    fireEvent.click(playgroundButton, { clientX: 0, clientY: 0 });
+
+    expect(handleLocationSelect).toHaveBeenCalledWith(50, 50);
+  });
 });

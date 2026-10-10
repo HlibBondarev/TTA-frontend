@@ -18,8 +18,16 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
   const hasCoordinates =
     typeof locationX === "number" && typeof locationY === "number";
 
-  const handlePlaygroundClick = (event: React.MouseEvent<HTMLDivElement>) => {
+  const handlePlaygroundClick = (
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
     if (disabled) return;
+
+    // Handle keyboard-triggered click (e.g. Enter / Space) where click coordinates are 0
+    if (event.clientX === 0 && event.clientY === 0) {
+      onLocationSelect(50, 50);
+      return;
+    }
 
     const rect = event.currentTarget.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
@@ -76,9 +84,11 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
       {/* Scrollable Adaptive Field Container */}
       <div className="w-full relative">
         <div className="w-full max-h-80 sm:max-h-112.5 overflow-y-auto overflow-x-hidden rounded-xl border border-slate-700 bg-slate-900/60 shadow-inner custom-scrollbar relative touch-pan-y">
-          <div
+          <button
+            type="button"
+            disabled={disabled}
             onClick={handlePlaygroundClick}
-            className={`w-full relative flex justify-center items-center select-none ${
+            className={`w-full relative flex justify-center items-center select-none border-0 p-0 bg-transparent ${
               disabled ? "cursor-not-allowed opacity-60" : "cursor-crosshair"
             }`}
           >
@@ -117,7 +127,7 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
                 </div>
               </div>
             )}
-          </div>
+          </button>
         </div>
 
         {/* Scroll Indicator Badge */}
