@@ -494,4 +494,32 @@ describe("EditGameEventModal Component", () => {
       expect(saveBtn).not.toBeDisabled();
     });
   });
+
+  it("displays error alert and keeps Save button disabled if db.gameevents.get fails", async () => {
+    vi.mocked(db.gameevents.get).mockRejectedValueOnce(
+      new Error("Failed to load coordinates"),
+    );
+
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction}
+          matchId="match-1"
+          onClose={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Failed to load event coordinates.",
+      );
+    });
+
+    const saveBtn = screen.getByRole("button", { name: /Save/i });
+    expect(saveBtn).toBeDisabled();
+  });
 });

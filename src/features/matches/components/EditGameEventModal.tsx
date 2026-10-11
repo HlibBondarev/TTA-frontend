@@ -70,7 +70,10 @@ const EditGameEventModalContent: React.FC<{
         setIsLocationLoaded(true);
       })
       .catch(() => {
-        if (isMounted) setIsLocationLoaded(true);
+        if (isMounted) {
+          setError("Failed to load event coordinates.");
+          setIsLocationLoaded(false);
+        }
       });
 
     // Load playground SVG layout for active match sport configuration
