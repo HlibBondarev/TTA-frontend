@@ -110,9 +110,13 @@ describe("InteractivePlayground Component", () => {
 
     const playgroundButton = container.querySelector(".cursor-crosshair")!;
 
-    // Keyboard trigger fires click with detail === 0 and clientX === 0, clientY === 0
-    fireEvent.click(playgroundButton, { clientX: 0, clientY: 0, detail: 0 });
+    // Test Enter key via keyDown
+    fireEvent.keyDown(playgroundButton, { key: "Enter" });
+    expect(handleLocationSelect).toHaveBeenCalledWith(50, 50);
 
+    // Test Space key via keyDown
+    handleLocationSelect.mockClear();
+    fireEvent.keyDown(playgroundButton, { key: " " });
     expect(handleLocationSelect).toHaveBeenCalledWith(50, 50);
   });
 

@@ -34,14 +34,6 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
   ) => {
     if (disabled) return;
 
-    // Detect keyboard activation (Enter / Space on focused button yields detail === 0 and clientX/Y === 0)
-    if (event.detail === 0 && event.clientX === 0 && event.clientY === 0) {
-      if (!hasCoordinates) {
-        onLocationSelect(50, 50);
-      }
-      return;
-    }
-
     const rect = event.currentTarget.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
 
@@ -61,6 +53,15 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (disabled) return;
+
+    // Handle explicit Enter / Space selection
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (!hasCoordinates) {
+        onLocationSelect(50, 50);
+      }
+      return;
+    }
 
     const arrowKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
     if (!arrowKeys.includes(event.key)) return;
