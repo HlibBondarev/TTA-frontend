@@ -34,8 +34,8 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
   ) => {
     if (disabled) return;
 
-    // Handle keyboard-triggered click (e.g. Enter / Space) where click coordinates are 0
-    if (event.clientX === 0 && event.clientY === 0) {
+    // Detect keyboard activation (Enter / Space on focused button yields detail === 0 and clientX/Y === 0)
+    if (event.detail === 0 && event.clientX === 0 && event.clientY === 0) {
       if (!hasCoordinates) {
         onLocationSelect(50, 50);
       }

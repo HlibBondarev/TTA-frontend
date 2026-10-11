@@ -110,9 +110,37 @@ describe("InteractivePlayground Component", () => {
 
     const playgroundButton = container.querySelector(".cursor-crosshair")!;
 
-    fireEvent.click(playgroundButton, { clientX: 0, clientY: 0 });
+    // Keyboard trigger fires click with detail === 0 and clientX === 0, clientY === 0
+    fireEvent.click(playgroundButton, { clientX: 0, clientY: 0, detail: 0 });
 
     expect(handleLocationSelect).toHaveBeenCalledWith(50, 50);
+  });
+
+  it("correctly calculates coordinates for a pointer event at position (0, 0)", () => {
+    const handleLocationSelect = vi.fn();
+    const { container } = render(
+      <InteractivePlayground onLocationSelect={handleLocationSelect} />,
+    );
+
+    const clickableArea = container.querySelector(".cursor-crosshair")!;
+
+    vi.spyOn(clickableArea, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 100,
+      right: 200,
+      bottom: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+
+    // Pointer click at clientX: 0, clientY: 0 with detail: 1
+    fireEvent.click(clickableArea, { clientX: 0, clientY: 0, detail: 1 });
+
+    // Expected: X=0% (left), Y=100% (top edge relative to bottom-left origin)
+    expect(handleLocationSelect).toHaveBeenCalledWith(0, 100);
   });
 
   it("sanitizes malicious SVG markup using DOMPurify before rendering", () => {
