@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useMemo } from "react";
+import DOMPurify from "dompurify";
 
 export interface InteractivePlaygroundProps {
   playgroundSvg?: string | null;
@@ -15,6 +16,16 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
   disabled = false,
   onLocationSelect,
 }) => {
+  const safeSvg = useMemo(
+    () =>
+      playgroundSvg
+        ? DOMPurify.sanitize(playgroundSvg, {
+            USE_PROFILES: { svg: true, svgFilters: true },
+          })
+        : null,
+    [playgroundSvg],
+  );
+
   const hasCoordinates =
     typeof locationX === "number" && typeof locationY === "number";
 
@@ -93,10 +104,10 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
             }`}
           >
             {/* SVG Playground Layout */}
-            {playgroundSvg ? (
+            {safeSvg ? (
               <div
                 className="w-full h-auto max-w-full pointer-events-none flex items-center justify-center [&>svg]:w-full [&>svg]:h-auto [&>svg]:block"
-                dangerouslySetInnerHTML={{ __html: playgroundSvg }}
+                dangerouslySetInnerHTML={{ __html: safeSvg }}
               />
             ) : (
               /* Fallback Waterpolo Pool SVG Layout */

@@ -114,4 +114,19 @@ describe("InteractivePlayground Component", () => {
 
     expect(handleLocationSelect).toHaveBeenCalledWith(50, 50);
   });
+
+  it("sanitizes malicious SVG markup using DOMPurify before rendering", () => {
+    const xssSvg =
+      '<svg data-testid="xss-svg"><script>alert("xss")</script><circle cx="10" cy="10" r="5" onload="alert(1)" /></svg>';
+
+    render(
+      <InteractivePlayground
+        playgroundSvg={xssSvg}
+        onLocationSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("xss-svg")).toBeInTheDocument();
+    expect(document.querySelector("script")).not.toBeInTheDocument();
+  });
 });
