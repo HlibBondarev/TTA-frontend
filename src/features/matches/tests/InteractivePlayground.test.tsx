@@ -129,4 +129,33 @@ describe("InteractivePlayground Component", () => {
     expect(screen.getByTestId("xss-svg")).toBeInTheDocument();
     expect(document.querySelector("script")).not.toBeInTheDocument();
   });
+
+  it("adjusts location coordinates using arrow keys (ArrowUp, ArrowDown, ArrowLeft, ArrowRight)", () => {
+    const handleLocationSelect = vi.fn();
+    const { container } = render(
+      <InteractivePlayground
+        locationX={50}
+        locationY={50}
+        onLocationSelect={handleLocationSelect}
+      />,
+    );
+
+    const playgroundButton = container.querySelector(".cursor-crosshair")!;
+
+    // Press ArrowRight: should increase X from 50 to 55
+    fireEvent.keyDown(playgroundButton, { key: "ArrowRight" });
+    expect(handleLocationSelect).toHaveBeenCalledWith(55, 50);
+
+    // Press ArrowUp: should increase Y from 50 to 55
+    fireEvent.keyDown(playgroundButton, { key: "ArrowUp" });
+    expect(handleLocationSelect).toHaveBeenCalledWith(50, 55);
+
+    // Press ArrowLeft: should decrease X from 50 to 45
+    fireEvent.keyDown(playgroundButton, { key: "ArrowLeft" });
+    expect(handleLocationSelect).toHaveBeenCalledWith(45, 50);
+
+    // Press ArrowDown: should decrease Y from 50 to 45
+    fireEvent.keyDown(playgroundButton, { key: "ArrowDown" });
+    expect(handleLocationSelect).toHaveBeenCalledWith(50, 45);
+  });
 });

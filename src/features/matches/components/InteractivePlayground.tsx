@@ -36,7 +36,9 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
 
     // Handle keyboard-triggered click (e.g. Enter / Space) where click coordinates are 0
     if (event.clientX === 0 && event.clientY === 0) {
-      onLocationSelect(50, 50);
+      if (!hasCoordinates) {
+        onLocationSelect(50, 50);
+      }
       return;
     }
 
@@ -55,6 +57,29 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
     const clampY = Math.min(100, Math.max(0, rawY));
 
     onLocationSelect(Number(clampX.toFixed(2)), Number(clampY.toFixed(2)));
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (disabled) return;
+
+    const arrowKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+    if (!arrowKeys.includes(event.key)) return;
+
+    event.preventDefault();
+
+    const currentX = locationX ?? 50;
+    const currentY = locationY ?? 50;
+    const step = 5;
+
+    let newX = currentX;
+    let newY = currentY;
+
+    if (event.key === "ArrowLeft") newX = Math.max(0, currentX - step);
+    if (event.key === "ArrowRight") newX = Math.min(100, currentX + step);
+    if (event.key === "ArrowUp") newY = Math.min(100, currentY + step);
+    if (event.key === "ArrowDown") newY = Math.max(0, currentY - step);
+
+    onLocationSelect(Number(newX.toFixed(2)), Number(newY.toFixed(2)));
   };
 
   const handleClearLocation = (e: React.MouseEvent) => {
@@ -99,6 +124,8 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
             type="button"
             disabled={disabled}
             onClick={handlePlaygroundClick}
+            onKeyDown={handleKeyDown}
+            aria-label="Field Location Map"
             className={`w-full relative flex justify-center items-center select-none border-0 p-0 bg-transparent ${
               disabled ? "cursor-not-allowed opacity-60" : "cursor-crosshair"
             }`}
