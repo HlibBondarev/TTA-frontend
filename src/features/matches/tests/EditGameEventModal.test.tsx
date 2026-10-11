@@ -1,4 +1,10 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
@@ -444,6 +450,48 @@ describe("EditGameEventModal Component", () => {
           locationY: null,
         }),
       );
+    });
+  });
+
+  it("disables Save button while db.gameevents.get coordinate loading is pending", async () => {
+    let resolveGameEvents: (value: unknown) => void;
+    const pendingPromise = new Promise((resolve) => {
+      resolveGameEvents = resolve;
+    });
+
+    vi.mocked(db.gameevents.get).mockReturnValueOnce(
+      pendingPromise as unknown as ReturnType<typeof db.gameevents.get>,
+    );
+
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction}
+          matchId="match-1"
+          onClose={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    // Save button should be disabled while the request is pending
+    const saveBtn = screen.getByRole("button", { name: /Save/i });
+    expect(saveBtn).toBeDisabled();
+
+    // Resolve the coordinate loading promise
+    await act(async () => {
+      resolveGameEvents!({
+        id: "action-123",
+        locationX: 35.5,
+        locationY: 70.0,
+      });
+    });
+
+    // Save button should become enabled once the promise resolves
+    await waitFor(() => {
+      expect(saveBtn).not.toBeDisabled();
     });
   });
 });

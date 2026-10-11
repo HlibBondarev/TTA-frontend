@@ -50,6 +50,7 @@ const EditGameEventModalContent: React.FC<{
 
   const [locationX, setLocationX] = useState<number | null>(null);
   const [locationY, setLocationY] = useState<number | null>(null);
+  const [isLocationLoaded, setIsLocationLoaded] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -61,12 +62,15 @@ const EditGameEventModalContent: React.FC<{
     db.gameevents
       .get(action.id)
       .then((evt) => {
-        if (!isMounted || !evt) return;
-        if (typeof evt.locationX === "number") setLocationX(evt.locationX);
-        if (typeof evt.locationY === "number") setLocationY(evt.locationY);
+        if (!isMounted) return;
+        if (evt) {
+          if (typeof evt.locationX === "number") setLocationX(evt.locationX);
+          if (typeof evt.locationY === "number") setLocationY(evt.locationY);
+        }
+        setIsLocationLoaded(true);
       })
       .catch(() => {
-        // Silently ignore or handle missing initial coordinates error
+        if (isMounted) setIsLocationLoaded(true);
       });
 
     // Load playground SVG layout for active match sport configuration
@@ -135,7 +139,8 @@ const EditGameEventModalContent: React.FC<{
       !selectedMatchLineupId ||
       !selectedActionName ||
       !selectedEventDefinitionId ||
-      isSaving
+      isSaving ||
+      !isLocationLoaded
     )
       return;
 
@@ -295,6 +300,7 @@ const EditGameEventModalContent: React.FC<{
           onClick={handleSave}
           disabled={
             isSaving ||
+            !isLocationLoaded ||
             !selectedMatchLineupId ||
             !selectedActionName ||
             !selectedEventDefinitionId
