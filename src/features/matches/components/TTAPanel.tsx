@@ -12,7 +12,6 @@ export interface TTAPanelProps extends UseTTAPanelOptions {
   selectedActionDefinitionId: string | null;
   disabled: boolean;
   pendingLocation?: { locationX: number; locationY: number } | null;
-  playgroundSvg?: string | null;
   onLocationSelect?: (x: number | null, y: number | null) => void;
 }
 
@@ -23,15 +22,19 @@ export const TTAPanel: React.FC<TTAPanelProps> = ({
   disabled,
   userId,
   pendingLocation,
-  playgroundSvg,
   onLocationSelect,
 }) => {
-  const { activeTab, setActiveTab, displayedActions, checkIsPositive } =
-    useTTAPanel({ userId });
+  const {
+    activeTab,
+    setActiveTab,
+    displayedActions,
+    checkIsPositive,
+    playgroundSvg,
+  } = useTTAPanel({ userId });
 
   const handleTabClick = (tab: "positive" | "negative" | "map") => {
     if (activeTab !== tab) {
-      // Скидаємо дію ТІЛЬКИ при перемиканні між Positive та Negative
+      // Reset action ONLY when switching between Positive and Negative
       const isCategorySwitch =
         (activeTab === "positive" && tab === "negative") ||
         (activeTab === "negative" && tab === "positive");

@@ -8,7 +8,6 @@ import {
   useTTAConsole,
   type UseTTAConsoleOptions,
 } from "../hooks/useTTAConsole";
-import { useTTAPanel } from "../hooks/useTTAPanel";
 
 export type TTAConsoleProps = UseTTAConsoleOptions & {
   userId?: string;
@@ -34,8 +33,6 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({
     handleLocationSelect,
     clearPendingAction,
   } = useTTAConsole({ onCompleteMatch });
-
-  const { playgroundSvg } = useTTAPanel({ userId });
 
   return (
     <div className="w-full max-w-sm mx-auto flex flex-col h-screen pb-safe overflow-hidden">
@@ -82,7 +79,6 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({
                 pendingAction?.eventDefinitionId || null
               }
               pendingLocation={pendingLocation}
-              playgroundSvg={playgroundSvg}
               onActionSelect={handleActionSelect}
               onLocationSelect={handleLocationSelect}
               onTabChange={clearPendingAction}
