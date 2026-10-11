@@ -60,8 +60,8 @@ export interface SportConfigurationLookup {
   lineupLimit: number;
   activePlayersLimit: number;
   playground?: string | null;
-  fieldLength?: number | null;
-  fieldWidth?: number | null;
+  fieldLength?: number;
+  fieldWidth?: number;
 }
 
 export interface MatchLookup {
