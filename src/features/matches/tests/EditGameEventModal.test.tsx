@@ -180,7 +180,7 @@ describe("EditGameEventModal Component", () => {
     expect(screen.getByText("Pass")).toBeInTheDocument();
   });
 
-  it("allows switching between Positive and Negative action tabs and resets selection", async () => {
+  it("allows switching between Positive and Negative action tabs and preserves selection", async () => {
     const store = createStore();
     render(
       <Provider store={store}>
@@ -201,9 +201,9 @@ describe("EditGameEventModal Component", () => {
     expect(screen.getByText("Foul")).toBeInTheDocument();
     expect(screen.queryByText("Pass")).not.toBeInTheDocument();
 
-    // Save button should be disabled as no action is selected after switching categories
+    // Save button remains enabled because previous selection is preserved
     const saveBtn = screen.getByRole("button", { name: /Save/i });
-    expect(saveBtn).toBeDisabled();
+    expect(saveBtn).not.toBeDisabled();
   });
 
   it("forces isLeadToGoal to false when switching action to Goal", async () => {

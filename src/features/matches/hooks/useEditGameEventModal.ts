@@ -213,16 +213,7 @@ export function useEditGameEventModal({
 
   const handleTabClick = (tab: "positive" | "negative" | "map") => {
     if (activeTab !== tab) {
-      const isCategorySwitch =
-        (activeTab === "positive" && tab === "negative") ||
-        (activeTab === "negative" && tab === "positive");
-
       setActiveTab(tab);
-
-      if (isCategorySwitch) {
-        setSelectedActionName("");
-        setSelectedEventDefinitionId("");
-      }
     }
   };
 

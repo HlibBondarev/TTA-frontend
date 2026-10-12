@@ -224,7 +224,7 @@ describe("useEditGameEventModal Hook", () => {
     ]);
   });
 
-  it("resets action selection when switching between positive and negative tabs", async () => {
+  it("preserves action selection when switching between positive and negative tabs", async () => {
     const { result } = renderHook(() =>
       useEditGameEventModal({
         action: sampleAction,
@@ -244,14 +244,15 @@ describe("useEditGameEventModal Hook", () => {
     });
 
     expect(result.current.activeTab).toBe("negative");
-    expect(result.current.selectedEventDefinitionId).toBe("");
+    // Selection is preserved even on tab switch
+    expect(result.current.selectedEventDefinitionId).toBe("def-1");
 
     act(() => {
       result.current.handleTabClick("positive");
     });
 
     expect(result.current.activeTab).toBe("positive");
-    expect(result.current.selectedEventDefinitionId).toBe("");
+    expect(result.current.selectedEventDefinitionId).toBe("def-1");
   });
 
   it("preserves action selection when switching to map tab and back", async () => {
