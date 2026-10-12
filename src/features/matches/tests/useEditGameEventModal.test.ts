@@ -447,4 +447,47 @@ describe("useEditGameEventModal Hook", () => {
     expect(result.current.displayedActions).toHaveLength(1);
     expect(result.current.displayedActions[0].id).toBe("def-1");
   });
+
+  it("retains current recorded definition in displayedActions even if it is not in active presets", async () => {
+    (
+      db.eventdefinitions.get as unknown as ReturnType<typeof vi.fn>
+    ).mockImplementation((id: string) => {
+      if (id === "def-unpreset") {
+        return Promise.resolve({
+          id: "def-unpreset",
+          name: "Unpreset Action",
+          isPositive: true,
+        });
+      }
+      return Promise.resolve({
+        id,
+        name: "Default Action",
+        isPositive: true,
+      });
+    });
+
+    const unpresetAction = {
+      ...sampleAction,
+      eventDefinitionId: "def-unpreset",
+    };
+
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: unpresetAction,
+        matchId: "match-1",
+        onClose: mockOnClose,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+    });
+
+    // Should include active preset definitions (def-1, def-2) AND retain def-unpreset
+    expect(result.current.displayedActions.map((def) => def.id)).toEqual([
+      "def-1",
+      "def-2",
+      "def-unpreset",
+    ]);
+  });
 });
