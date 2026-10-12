@@ -173,7 +173,7 @@ export function useEditGameEventModal({
       }
     };
 
-    loadMatchData();
+    void loadMatchData();
 
     db.matchlineups
       .where("matchId")
