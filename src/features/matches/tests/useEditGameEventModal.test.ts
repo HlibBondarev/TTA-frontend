@@ -2,6 +2,7 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { useEditGameEventModal } from "../hooks/useEditGameEventModal";
 import * as eventService from "../../../db/eventService";
+import { db } from "../../../db/ttaDatabase";
 
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
@@ -352,5 +353,31 @@ describe("useEditGameEventModal Hook", () => {
 
     expect(result.current.error).toBe("Save failed");
     expect(mockOnClose).not.toHaveBeenCalled();
+  });
+
+  it("does not load sport defaults if user has a preset with all actions disabled", async () => {
+    vi.mocked(db.usereventpresets.where).mockReturnValueOnce({
+      toArray: vi
+        .fn()
+        .mockResolvedValue([
+          { eventDefinitionId: "def-1", isEnabled: false, sortOrder: 1 },
+        ]),
+    } as unknown as ReturnType<typeof db.usereventpresets.where>);
+
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: sampleAction,
+        matchId: "match-1",
+        onClose: mockOnClose,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+    });
+
+    // Should retain only the current recorded event definition (def-1) without falling back to default sport definitions
+    expect(result.current.displayedActions).toHaveLength(1);
+    expect(result.current.displayedActions[0].id).toBe("def-1");
   });
 });

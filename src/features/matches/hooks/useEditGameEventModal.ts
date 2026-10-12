@@ -112,12 +112,15 @@ export function useEditGameEventModal({
         // Load active event definitions for this match's sport
         if (tour.sportId) {
           let defs: EventDefinitionLookup[] = [];
+          let hasPresets = false;
           const normalizedUserId = currentUserId?.trim();
 
           if (db.usereventpresets && normalizedUserId) {
             const presets = await db.usereventpresets
               .where({ userId: normalizedUserId, sportId: tour.sportId })
               .toArray();
+
+            hasPresets = presets.length > 0;
 
             const enabledDefIds = presets
               .filter((p) => p.isEnabled)
@@ -133,8 +136,8 @@ export function useEditGameEventModal({
             }
           }
 
-          // Fallback if no presets found: get default active definitions for this sport
-          if (defs.length === 0) {
+          // Fallback if no presets exist: get default active definitions for this sport
+          if (!hasPresets) {
             const sportDefs = await db.eventdefinitions
               .where("sportId")
               .equals(tour.sportId)
