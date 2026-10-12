@@ -52,20 +52,71 @@ vi.mock("../../../db/ttaDatabase", () => ({
       }),
     },
     usereventpresets: {
-      where: vi.fn().mockReturnValue({
-        toArray: vi.fn().mockResolvedValue([
-          { eventDefinitionId: "def-1", isEnabled: true, sortOrder: 1 },
-          { eventDefinitionId: "def-2", isEnabled: true, sortOrder: 2 },
-          { eventDefinitionId: "def-3", isEnabled: true, sortOrder: 3 },
-        ]),
-      }),
+      where: vi
+        .fn()
+        .mockImplementation((query: { userId: string; sportId: string }) => ({
+          toArray: vi.fn().mockResolvedValue(
+            [
+              {
+                userId: "user-123",
+                sportId: "sport-1",
+                eventDefinitionId: "def-1",
+                isEnabled: true,
+                sortOrder: 1,
+              },
+              {
+                userId: "user-123",
+                sportId: "sport-1",
+                eventDefinitionId: "def-2",
+                isEnabled: true,
+                sortOrder: 2,
+              },
+              {
+                userId: "user-123",
+                sportId: "sport-1",
+                eventDefinitionId: "def-disabled",
+                isEnabled: false,
+                sortOrder: 3,
+              },
+              {
+                userId: "user-123",
+                sportId: "sport-2",
+                eventDefinitionId: "def-other-sport",
+                isEnabled: true,
+                sortOrder: 4,
+              },
+            ].filter(
+              (preset) =>
+                preset.userId === query.userId &&
+                preset.sportId === query.sportId,
+            ),
+          ),
+        })),
     },
     eventdefinitions: {
-      bulkGet: vi.fn().mockResolvedValue([
-        { id: "def-1", name: "Pass", isPositive: true },
-        { id: "def-2", name: "Goal", isPositive: true },
-        { id: "def-3", name: "Foul", isPositive: false },
-      ]),
+      bulkGet: vi.fn().mockImplementation((ids: string[]) => {
+        const defsMap: Record<
+          string,
+          { id: string; name: string; isPositive: boolean }
+        > = {
+          "def-1": { id: "def-1", name: "Pass", isPositive: true },
+          "def-2": { id: "def-2", name: "Goal", isPositive: true },
+          "def-disabled": {
+            id: "def-disabled",
+            name: "Disabled",
+            isPositive: true,
+          },
+          "def-other-sport": {
+            id: "def-other-sport",
+            name: "Other sport",
+            isPositive: true,
+          },
+          "def-3": { id: "def-3", name: "Foul", isPositive: false },
+        };
+        return Promise.resolve(
+          ids.map((id) => defsMap[id]).filter((item) => item !== undefined),
+        );
+      }),
       get: vi.fn().mockImplementation((id: string) => {
         const defs: Record<
           string,
@@ -73,6 +124,16 @@ vi.mock("../../../db/ttaDatabase", () => ({
         > = {
           "def-1": { id: "def-1", name: "Pass", isPositive: true },
           "def-2": { id: "def-2", name: "Goal", isPositive: true },
+          "def-disabled": {
+            id: "def-disabled",
+            name: "Disabled",
+            isPositive: true,
+          },
+          "def-other-sport": {
+            id: "def-other-sport",
+            name: "Other sport",
+            isPositive: true,
+          },
           "def-3": { id: "def-3", name: "Foul", isPositive: false },
         };
         return Promise.resolve(defs[id]);
@@ -82,6 +143,8 @@ vi.mock("../../../db/ttaDatabase", () => ({
           toArray: vi.fn().mockResolvedValue([
             { id: "def-1", name: "Pass", isPositive: true },
             { id: "def-2", name: "Goal", isPositive: true },
+            { id: "def-disabled", name: "Disabled", isPositive: true },
+            { id: "def-other-sport", name: "Other sport", isPositive: true },
             { id: "def-3", name: "Foul", isPositive: false },
           ]),
         }),
@@ -155,6 +218,10 @@ describe("useEditGameEventModal Hook", () => {
     expect(result.current.playgroundSvg).toBe("<svg>Court</svg>");
     expect(result.current.lineups).toHaveLength(2);
     expect(result.current.displayedActions).toHaveLength(2);
+    expect(result.current.displayedActions.map((def) => def.id)).toEqual([
+      "def-1",
+      "def-2",
+    ]);
   });
 
   it("resets action selection when switching between positive and negative tabs", async () => {
