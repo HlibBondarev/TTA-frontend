@@ -95,6 +95,8 @@ describe("useGameEvents Custom Hook", () => {
       periodNumber: 2,
       eventTimestamp: new Date().toISOString(),
       isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
       createdAt: new Date().toISOString(),
       sequenceNumber: 11,
       isSynced: 0,
@@ -123,6 +125,8 @@ describe("useGameEvents Custom Hook", () => {
       periodNumber: 2,
       eventTimestamp: expect.any(String),
       isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
     });
 
     expect(store.getState().match.globalSequenceNumber).toBe(11);
@@ -137,6 +141,61 @@ describe("useGameEvents Custom Hook", () => {
       eventDefinitionId: "def-goal-id",
       isLeadToGoal: false,
       isSynced: 0,
+    });
+  });
+
+  it("should pass spatial coordinates locationX and locationY to createGameEventTx when provided", async () => {
+    const store = createTestStore();
+
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-7",
+      matchId: "test-match-id",
+      playerRosterId: "roster-7",
+      number: 7,
+      positionId: null,
+    });
+
+    vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce({
+      id: "created-event-uuid",
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-goal-id",
+      periodNumber: 2,
+      eventTimestamp: new Date().toISOString(),
+      isLeadToGoal: false,
+      locationX: 45.5,
+      locationY: 80.25,
+      createdAt: new Date().toISOString(),
+      sequenceNumber: 11,
+      isSynced: 0,
+    });
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      const success = await result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-7",
+        actionName: "Goal",
+        isPositive: true,
+        isLeadToGoal: false,
+        eventDefinitionId: "def-goal-id",
+        locationX: 45.5,
+        locationY: 80.25,
+      });
+      expect(success).toBe(true);
+    });
+
+    expect(eventService.createGameEventTx).toHaveBeenCalledWith({
+      matchId: "test-match-id",
+      teamId: "team-456",
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-goal-id",
+      periodNumber: 2,
+      eventTimestamp: expect.any(String),
+      isLeadToGoal: false,
+      locationX: 45.5,
+      locationY: 80.25,
     });
   });
 
@@ -249,6 +308,8 @@ describe("useGameEvents Custom Hook", () => {
       periodNumber: 2,
       eventTimestamp: new Date().toISOString(),
       isLeadToGoal: true,
+      locationX: null,
+      locationY: null,
       createdAt: new Date().toISOString(),
       sequenceNumber: 12,
       isSynced: 0,
@@ -277,6 +338,8 @@ describe("useGameEvents Custom Hook", () => {
       periodNumber: 2,
       eventTimestamp: expect.any(String),
       isLeadToGoal: true,
+      locationX: null,
+      locationY: null,
     });
   });
 
@@ -305,6 +368,8 @@ describe("useGameEvents Custom Hook", () => {
       periodNumber: 2,
       eventTimestamp: new Date().toISOString(),
       isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
       createdAt: new Date().toISOString(),
       sequenceNumber: 15,
       isSynced: 0,
@@ -333,6 +398,8 @@ describe("useGameEvents Custom Hook", () => {
       periodNumber: 2,
       eventTimestamp: expect.any(String),
       isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
     });
   });
 
@@ -368,6 +435,8 @@ describe("useGameEvents Custom Hook", () => {
       periodNumber: 2,
       eventTimestamp: new Date().toISOString(),
       isLeadToGoal: true,
+      locationX: 12.5,
+      locationY: 88.0,
       createdAt: new Date().toISOString(),
       sequenceNumber: 5,
       isSynced: 0,
@@ -385,6 +454,8 @@ describe("useGameEvents Custom Hook", () => {
         eventDefinitionId: "def-steal-direct",
         isPositive: true,
         isLeadToGoal: true,
+        locationX: 12.5,
+        locationY: 88.0,
       });
       expect(success).toBe(true);
     });
@@ -395,6 +466,8 @@ describe("useGameEvents Custom Hook", () => {
       eventDefinitionId: "def-steal-direct",
       expectedSportId: "waterpolo-sport-id",
       isLeadToGoal: true,
+      locationX: 12.5,
+      locationY: 88.0,
       userId: "user-123",
     });
 

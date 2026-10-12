@@ -6401,6 +6401,16 @@
           },
           "isLeadToGoal": {
             "type": "boolean"
+          },
+          "locationX": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "locationY": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -6620,6 +6630,16 @@
           },
           "isLeadToGoal": {
             "type": "boolean"
+          },
+          "locationX": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "locationY": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
           },
           "playerName": {
             "type": "string",
@@ -6868,6 +6888,16 @@
           },
           "isLeadToGoal": {
             "type": "boolean"
+          },
+          "locationX": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "locationY": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -7143,6 +7173,18 @@
           "activePlayersLimit": {
             "type": "integer",
             "format": "int32"
+          },
+          "playground": {
+            "type": "string",
+            "nullable": true
+          },
+          "fieldLength": {
+            "type": "number",
+            "format": "double"
+          },
+          "fieldWidth": {
+            "type": "number",
+            "format": "double"
           }
         },
         "additionalProperties": false
@@ -7488,6 +7530,16 @@
           },
           "isLeadToGoal": {
             "type": "boolean"
+          },
+          "locationX": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "locationY": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
           }
         },
         "additionalProperties": false

@@ -4095,6 +4095,10 @@ export interface components {
             /** Format: date-time */
             eventTimestamp?: string;
             isLeadToGoal?: boolean;
+            /** Format: double */
+            locationX?: number | null;
+            /** Format: double */
+            locationY?: number | null;
         };
         CreatePlayerPresenceRequest: {
             /** Format: uuid */
@@ -4183,6 +4187,10 @@ export interface components {
             /** Format: date-span */
             normalizedMatchTime?: string | null;
             isLeadToGoal?: boolean;
+            /** Format: double */
+            locationX?: number | null;
+            /** Format: double */
+            locationY?: number | null;
             playerName?: string | null;
             /** Format: int32 */
             playerNumber?: number | null;
@@ -4265,6 +4273,10 @@ export interface components {
             /** Format: date-span */
             normalizedMatchTime?: string | null;
             isLeadToGoal?: boolean;
+            /** Format: double */
+            locationX?: number | null;
+            /** Format: double */
+            locationY?: number | null;
         };
         PlayerDetailedMatchReportResponse: {
             firstName?: string | null;
@@ -4374,6 +4386,11 @@ export interface components {
             lineupLimit?: number;
             /** Format: int32 */
             activePlayersLimit?: number;
+            playground?: string | null;
+            /** Format: double */
+            fieldLength?: number;
+            /** Format: double */
+            fieldWidth?: number;
         };
         SportResponse: {
             /** Format: uuid */
@@ -4509,6 +4526,10 @@ export interface components {
             /** Format: int32 */
             periodNumber?: number;
             isLeadToGoal?: boolean;
+            /** Format: double */
+            locationX?: number | null;
+            /** Format: double */
+            locationY?: number | null;
         };
         UpdatePlayerInMatchLineupRequest: {
             /** Format: int32 */
