@@ -1,13 +1,8 @@
-import React, { useEffect, useState } from "react";
-import {
-  db,
-  type MatchLineupLookup,
-  type EventDefinitionLookup,
-} from "../../../db/ttaDatabase";
+import React from "react";
 import type { ActionEntry } from "../store/matchSlice";
-import { useGameEvents } from "../hooks/useGameEvents";
 import { ModalDialog } from "./ModalDialog";
 import { InteractivePlayground } from "./InteractivePlayground";
+import { useEditGameEventModal } from "../hooks/useEditGameEventModal";
 
 interface EditGameEventModalProps {
   isOpen: boolean;
@@ -16,161 +11,30 @@ interface EditGameEventModalProps {
   onClose: () => void;
 }
 
-const checkIsPositive = (def: EventDefinitionLookup): boolean => {
-  const value =
-    def.isPositive ?? (def as unknown as Record<string, unknown>).ispositive;
-  return !!value;
-};
-
 const EditGameEventModalContent: React.FC<{
   action: ActionEntry;
   matchId: string;
   onClose: () => void;
 }> = ({ action, matchId, onClose }) => {
-  const { updateGameEvent } = useGameEvents(matchId);
-
-  const [lineups, setLineups] = useState<MatchLineupLookup[]>([]);
-  const [eventDefinitions, setEventDefinitions] = useState<
-    EventDefinitionLookup[]
-  >([]);
-  const [playgroundSvg, setPlaygroundSvg] = useState<string | null>(null);
-
-  const [selectedMatchLineupId, setSelectedMatchLineupId] = useState<string>(
-    action.matchLineupId,
-  );
-  const [selectedActionName, setSelectedActionName] = useState<string>(
-    action.actionName,
-  );
-  const [selectedEventDefinitionId, setSelectedEventDefinitionId] =
-    useState<string>(action.eventDefinitionId);
-  const [isPositive, setIsPositive] = useState<boolean>(action.isPositive);
-  const [activeTab, setActiveTab] = useState<"positive" | "negative" | "map">(
-    action.isPositive ? "positive" : "negative",
-  );
-
-  const [locationX, setLocationX] = useState<number | null>(null);
-  const [locationY, setLocationY] = useState<number | null>(null);
-  const [isLocationLoaded, setIsLocationLoaded] = useState(false);
-
-  const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    // Load existing event spatial coordinates from Dexie DB
-    db.gameevents
-      .get(action.id)
-      .then((evt) => {
-        if (!isMounted) return;
-        if (evt) {
-          if (typeof evt.locationX === "number") setLocationX(evt.locationX);
-          if (typeof evt.locationY === "number") setLocationY(evt.locationY);
-        }
-        setIsLocationLoaded(true);
-      })
-      .catch(() => {
-        if (isMounted) {
-          setError("Failed to load event coordinates.");
-          setIsLocationLoaded(false);
-        }
-      });
-
-    // Load playground SVG layout for active match sport configuration
-    db.matches
-      .get(matchId)
-      .then(async (m) => {
-        if (!isMounted || !m?.tournamentId) return;
-        const tour = await db.tournaments.get(m.tournamentId);
-        if (!tour?.configurationId) return;
-        const config = await db.sportconfigurations.get(tour.configurationId);
-        if (isMounted && config?.playground) {
-          setPlaygroundSvg(config.playground);
-        }
-      })
-      .catch(() => {
-        // Silently ignore or handle missing layout configuration error
-      });
-
-    db.matchlineups
-      .where("matchId")
-      .equals(matchId)
-      .toArray()
-      .then((items) => {
-        if (!isMounted) return;
-        items.sort((a, b) => (a.number ?? 999) - (b.number ?? 999));
-        setLineups(items);
-      })
-      .catch(() => {
-        if (isMounted) setError("Failed to load match roster.");
-      });
-
-    db.eventdefinitions
-      .toArray()
-      .then((defs) => {
-        if (isMounted) setEventDefinitions(defs);
-      })
-      .catch(() => {
-        if (isMounted) setError("Failed to load action definitions.");
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [action.id, matchId]);
-
-  const positiveActions = eventDefinitions.filter((def) =>
-    checkIsPositive(def),
-  );
-  const negativeActions = eventDefinitions.filter(
-    (def) => !checkIsPositive(def),
-  );
-  const displayedActions =
-    activeTab === "positive" ? positiveActions : negativeActions;
-
-  const isGoalAction = selectedActionName.trim().toLowerCase() === "goal";
-
-  const handleActionSelect = (def: EventDefinitionLookup) => {
-    const isPos = checkIsPositive(def);
-    setSelectedActionName(def.name);
-    setSelectedEventDefinitionId(def.id);
-    setIsPositive(isPos);
-  };
-
-  const handleSave = async () => {
-    if (
-      !selectedMatchLineupId ||
-      !selectedActionName ||
-      !selectedEventDefinitionId ||
-      isSaving ||
-      !isLocationLoaded
-    )
-      return;
-
-    setIsSaving(true);
-    setError(null);
-
-    try {
-      await updateGameEvent({
-        eventId: action.id,
-        selectedPlayerId: selectedMatchLineupId,
-        actionName: selectedActionName,
-        eventDefinitionId: selectedEventDefinitionId,
-        isPositive,
-        isLeadToGoal: isGoalAction ? false : action.isLeadToGoal,
-        locationX,
-        locationY,
-      });
-      onClose();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to update action.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const hasLocation =
-    typeof locationX === "number" && typeof locationY === "number";
+  const {
+    lineups,
+    displayedActions,
+    playgroundSvg,
+    selectedMatchLineupId,
+    selectedEventDefinitionId,
+    activeTab,
+    locationX,
+    locationY,
+    hasLocation,
+    isLocationLoaded,
+    isSaving,
+    error,
+    setSelectedMatchLineupId,
+    handleActionSelect,
+    handleTabClick,
+    handleLocationSelect,
+    handleSave,
+  } = useEditGameEventModal({ action, matchId, onClose });
 
   return (
     <ModalDialog
@@ -219,7 +83,7 @@ const EditGameEventModalContent: React.FC<{
           <div className="flex border-b border-gray-800 mb-2">
             <button
               type="button"
-              onClick={() => setActiveTab("positive")}
+              onClick={() => handleTabClick("positive")}
               className={`flex-1 py-1.5 text-[11px] font-bold uppercase transition-all ${
                 activeTab === "positive"
                   ? "text-emerald-400 border-b-2 border-emerald-400"
@@ -230,7 +94,7 @@ const EditGameEventModalContent: React.FC<{
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab("negative")}
+              onClick={() => handleTabClick("negative")}
               className={`flex-1 py-1.5 text-[11px] font-bold uppercase transition-all ${
                 activeTab === "negative"
                   ? "text-rose-400 border-b-2 border-rose-400"
@@ -241,7 +105,7 @@ const EditGameEventModalContent: React.FC<{
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab("map")}
+              onClick={() => handleTabClick("map")}
               className={`flex-1 py-1.5 text-[11px] font-bold uppercase transition-all flex items-center justify-center space-x-1 ${
                 activeTab === "map"
                   ? "text-blue-400 border-b-2 border-blue-400"
@@ -260,15 +124,13 @@ const EditGameEventModalContent: React.FC<{
               playgroundSvg={playgroundSvg}
               locationX={locationX}
               locationY={locationY}
-              onLocationSelect={(x, y) => {
-                setLocationX(x);
-                setLocationY(y);
-              }}
+              onLocationSelect={handleLocationSelect}
             />
           ) : (
             <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-1">
               {displayedActions.map((def) => {
-                const isSelected = selectedActionName === def.name;
+                const isSelected =
+                  Boolean(def.id) && selectedEventDefinitionId === def.id;
                 return (
                   <button
                     key={def.id || def.name}
@@ -305,7 +167,6 @@ const EditGameEventModalContent: React.FC<{
             isSaving ||
             !isLocationLoaded ||
             !selectedMatchLineupId ||
-            !selectedActionName ||
             !selectedEventDefinitionId
           }
           className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 text-white rounded-lg text-xs font-bold uppercase transition-all"

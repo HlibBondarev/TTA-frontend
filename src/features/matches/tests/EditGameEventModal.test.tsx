@@ -13,6 +13,12 @@ import matchReducer from "../store/matchSlice";
 import * as eventService from "../../../db/eventService";
 import { db } from "../../../db/ttaDatabase";
 
+vi.mock("@auth0/auth0-react", () => ({
+  useAuth0: () => ({
+    user: { sub: "user-123", email: "test@example.com" },
+  }),
+}));
+
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
     matches: {
@@ -41,6 +47,42 @@ vi.mock("../../../db/ttaDatabase", () => ({
         locationY: 70.0,
       }),
     },
+    usereventpresets: {
+      where: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { eventDefinitionId: "def-1", isEnabled: true, sortOrder: 1 },
+          { eventDefinitionId: "def-2", isEnabled: true, sortOrder: 2 },
+          { eventDefinitionId: "def-3", isEnabled: true, sortOrder: 3 },
+        ]),
+      }),
+    },
+    eventdefinitions: {
+      bulkGet: vi.fn().mockResolvedValue([
+        { id: "def-1", name: "Pass", isPositive: true },
+        { id: "def-2", name: "Goal", isPositive: true },
+        { id: "def-3", name: "Foul", isPositive: false },
+      ]),
+      get: vi.fn().mockImplementation((id: string) => {
+        const defs: Record<
+          string,
+          { id: string; name: string; isPositive: boolean }
+        > = {
+          "def-1": { id: "def-1", name: "Pass", isPositive: true },
+          "def-2": { id: "def-2", name: "Goal", isPositive: true },
+          "def-3": { id: "def-3", name: "Foul", isPositive: false },
+        };
+        return Promise.resolve(defs[id]);
+      }),
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            { id: "def-1", name: "Pass", isPositive: true },
+            { id: "def-2", name: "Goal", isPositive: true },
+            { id: "def-3", name: "Foul", isPositive: false },
+          ]),
+        }),
+      }),
+    },
     matchlineups: {
       get: vi.fn().mockImplementation((id: string) => {
         const lineups: Record<
@@ -60,13 +102,6 @@ vi.mock("../../../db/ttaDatabase", () => ({
           ]),
         }),
       }),
-    },
-    eventdefinitions: {
-      toArray: vi.fn().mockResolvedValue([
-        { id: "def-1", name: "Pass", isPositive: true },
-        { id: "def-2", name: "Goal", isPositive: true },
-        { id: "def-3", name: "Foul", ispositive: false },
-      ]),
     },
   },
 }));
@@ -145,7 +180,7 @@ describe("EditGameEventModal Component", () => {
     expect(screen.getByText("Pass")).toBeInTheDocument();
   });
 
-  it("allows switching between Positive and Negative action tabs", async () => {
+  it("allows switching between Positive and Negative action tabs and preserves selection", async () => {
     const store = createStore();
     render(
       <Provider store={store}>
@@ -165,6 +200,10 @@ describe("EditGameEventModal Component", () => {
 
     expect(screen.getByText("Foul")).toBeInTheDocument();
     expect(screen.queryByText("Pass")).not.toBeInTheDocument();
+
+    // Save button remains enabled because previous selection is preserved
+    const saveBtn = screen.getByRole("button", { name: /Save/i });
+    expect(saveBtn).not.toBeDisabled();
   });
 
   it("forces isLeadToGoal to false when switching action to Goal", async () => {
@@ -215,7 +254,7 @@ describe("EditGameEventModal Component", () => {
         isLeadToGoal: false,
         locationX: 35.5,
         locationY: 70,
-        userId: undefined,
+        userId: "user-123",
       });
       expect(mockOnClose).toHaveBeenCalled();
     });
@@ -265,7 +304,7 @@ describe("EditGameEventModal Component", () => {
         isLeadToGoal: true,
         locationX: 35.5,
         locationY: 70,
-        userId: undefined,
+        userId: "user-123",
       });
       expect(mockOnClose).toHaveBeenCalled();
     });
@@ -305,10 +344,6 @@ describe("EditGameEventModal Component", () => {
         toArray: vi.fn().mockRejectedValueOnce(new Error("Roster error")),
       }),
     } as unknown as ReturnType<typeof db.matchlineups.where>);
-
-    vi.mocked(db.eventdefinitions.toArray).mockRejectedValueOnce(
-      new Error("Defs error"),
-    );
 
     const store = createStore();
 
@@ -399,7 +434,7 @@ describe("EditGameEventModal Component", () => {
         isLeadToGoal: true,
         locationX: 35.5,
         locationY: 70.0,
-        userId: undefined,
+        userId: "user-123",
       });
       expect(mockOnClose).toHaveBeenCalled();
     });
