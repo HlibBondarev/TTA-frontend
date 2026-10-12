@@ -47,15 +47,6 @@ export const TTAPanel: React.FC<TTAPanelProps> = ({
     }
   };
 
-  const handleTabClick = (tab: "positive" | "negative") => {
-    if (activeTab !== tab) {
-      setActiveTab(tab);
-      if (onTabChange) {
-        onTabChange();
-      }
-    }
-  };
-
   return (
     <div
       className={`w-full p-2 bg-gray-900 rounded-xl border border-gray-800 my-2 ${
