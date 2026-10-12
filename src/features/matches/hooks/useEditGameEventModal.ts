@@ -28,7 +28,7 @@ export function useEditGameEventModal({
   onClose,
 }: UseEditGameEventModalOptions) {
   const { user } = useAuth0();
-  const auth0UserId = user?.sub || user?.id;
+  const auth0UserId = user?.sub ?? user?.email;
   const reduxUserId = useSelector(
     (state: RootState) =>
       (
