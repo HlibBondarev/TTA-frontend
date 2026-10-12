@@ -22,6 +22,55 @@ export const checkIsPositive = (def: EventDefinitionLookup): boolean => {
   return !!value;
 };
 
+async function loadSportDefinitions(
+  sportId: string,
+  currentUserId?: string,
+  currentEventDefId?: string,
+): Promise<EventDefinitionLookup[]> {
+  let defs: EventDefinitionLookup[] = [];
+  let hasPresets = false;
+  const normalizedUserId = currentUserId?.trim();
+
+  if (db.usereventpresets && normalizedUserId) {
+    const presets = await db.usereventpresets
+      .where({ userId: normalizedUserId, sportId })
+      .toArray();
+
+    hasPresets = presets.length > 0;
+
+    const enabledDefIds = presets
+      .filter((p) => p.isEnabled)
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((p) => p.eventDefinitionId);
+
+    if (enabledDefIds.length > 0) {
+      const presetDefs = await db.eventdefinitions.bulkGet(enabledDefIds);
+      defs = presetDefs.filter(
+        (d): d is EventDefinitionLookup => d !== undefined,
+      );
+    }
+  }
+
+  // Fallback if no presets exist: get default active definitions for this sport
+  if (!hasPresets) {
+    const sportDefs = await db.eventdefinitions
+      .where("sportId")
+      .equals(sportId)
+      .toArray();
+    defs = sportDefs.filter((d) => !d.ownerId);
+  }
+
+  // Ensure current action definition is present even if disabled/unpreset
+  if (currentEventDefId && !defs.some((d) => d.id === currentEventDefId)) {
+    const currentDef = await db.eventdefinitions.get(currentEventDefId);
+    if (currentDef) {
+      defs.push(currentDef);
+    }
+  }
+
+  return defs;
+}
+
 export function useEditGameEventModal({
   action,
   matchId,
@@ -94,14 +143,14 @@ export function useEditGameEventModal({
       });
 
     // Load match, tournament, sport configuration, playground SVG and active event definitions
-    db.matches
-      .get(matchId)
-      .then(async (m) => {
+    const loadMatchData = async () => {
+      try {
+        const m = await db.matches.get(matchId);
         if (!isMounted || !m?.tournamentId) return;
-        const tour = await db.tournaments.get(m.tournamentId);
-        if (!tour) return;
 
-        // Load Playground SVG if configuration exists
+        const tour = await db.tournaments.get(m.tournamentId);
+        if (!isMounted || !tour) return;
+
         if (tour.configurationId) {
           const config = await db.sportconfigurations.get(tour.configurationId);
           if (isMounted && config?.playground) {
@@ -109,63 +158,22 @@ export function useEditGameEventModal({
           }
         }
 
-        // Load active event definitions for this match's sport
         if (tour.sportId) {
-          let defs: EventDefinitionLookup[] = [];
-          let hasPresets = false;
-          const normalizedUserId = currentUserId?.trim();
-
-          if (db.usereventpresets && normalizedUserId) {
-            const presets = await db.usereventpresets
-              .where({ userId: normalizedUserId, sportId: tour.sportId })
-              .toArray();
-
-            hasPresets = presets.length > 0;
-
-            const enabledDefIds = presets
-              .filter((p) => p.isEnabled)
-              .sort((a, b) => a.sortOrder - b.sortOrder)
-              .map((p) => p.eventDefinitionId);
-
-            if (enabledDefIds.length > 0) {
-              const presetDefs =
-                await db.eventdefinitions.bulkGet(enabledDefIds);
-              defs = presetDefs.filter(
-                (d): d is EventDefinitionLookup => d !== undefined,
-              );
-            }
-          }
-
-          // Fallback if no presets exist: get default active definitions for this sport
-          if (!hasPresets) {
-            const sportDefs = await db.eventdefinitions
-              .where("sportId")
-              .equals(tour.sportId)
-              .toArray();
-            defs = sportDefs.filter((d) => !d.ownerId);
-          }
-
-          // Ensure current action definition is present even if disabled/unpreset
-          if (
-            action.eventDefinitionId &&
-            !defs.some((d) => d.id === action.eventDefinitionId)
-          ) {
-            const currentDef = await db.eventdefinitions.get(
-              action.eventDefinitionId,
-            );
-            if (currentDef) {
-              defs.push(currentDef);
-            }
-          }
-
+          const defs = await loadSportDefinitions(
+            tour.sportId,
+            currentUserId,
+            action.eventDefinitionId,
+          );
           if (isMounted) {
             setEventDefinitions(defs);
           }
         }
-      })
-      .catch(() => {
+      } catch {
         if (isMounted) setError("Failed to load match or sport definitions.");
-      });
+      }
+    };
+
+    loadMatchData();
 
     db.matchlineups
       .where("matchId")
