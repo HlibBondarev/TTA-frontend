@@ -451,7 +451,7 @@ describe("useEditGameEventModal Hook", () => {
   it("retains current recorded definition in displayedActions even if it is not in active presets", async () => {
     (
       db.eventdefinitions.get as unknown as ReturnType<typeof vi.fn>
-    ).mockImplementation((id: string) => {
+    ).mockImplementationOnce((id: string) => {
       if (id === "def-unpreset") {
         return Promise.resolve({
           id: "def-unpreset",
