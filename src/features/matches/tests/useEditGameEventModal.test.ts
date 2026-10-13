@@ -279,6 +279,13 @@ describe("useEditGameEventModal Hook", () => {
           { id: "def-a", name: "Pass", isPositive: true, sortOrder: 3 },
           { id: "def-b", name: "Goal", isPositive: true, sortOrder: 1 },
           { id: "def-c", name: "Steal", isPositive: true, sortOrder: 2 },
+          {
+            id: "def-owned",
+            name: "Custom Action",
+            isPositive: true,
+            ownerId: "user-123",
+            sortOrder: 0,
+          },
         ]),
       }),
     } as unknown as ReturnType<typeof db.eventdefinitions.where>);
