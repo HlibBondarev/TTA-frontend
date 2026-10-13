@@ -34,17 +34,34 @@ async function getPlaygroundSvg(targetConfigId: string | null) {
   return sportConfig?.playground || null;
 }
 
+async function fetchDefaultSportDefinitions(
+  targetSportId: string,
+): Promise<EventDefinitionLookup[]> {
+  const sportDefs = await db.eventdefinitions
+    .where("sportId")
+    .equals(targetSportId)
+    .toArray();
+  return sportDefs
+    .filter((d) => !d.ownerId)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+}
+
 async function getEventDefinitionsForSport(
   targetSportId: string,
   normalizedUserId: string,
 ): Promise<EventDefinitionLookup[]> {
   if (!db.usereventpresets) {
-    return db.eventdefinitions.where("sportId").equals(targetSportId).toArray();
+    return fetchDefaultSportDefinitions(targetSportId);
   }
 
   const presets = await db.usereventpresets
     .where({ userId: normalizedUserId, sportId: targetSportId })
     .toArray();
+
+  // Fallback if user has no saved presets for this sport
+  if (presets.length === 0) {
+    return fetchDefaultSportDefinitions(targetSportId);
+  }
 
   const enabledDefIds = presets
     .filter((p) => p.isEnabled)

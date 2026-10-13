@@ -102,6 +102,7 @@ export interface EventDefinitionLookup {
   isPositive: boolean;
   isCustom?: boolean;
   ownerId?: string | null;
+  sortOrder?: number;
 }
 
 export interface UserEventPresetLookup {
