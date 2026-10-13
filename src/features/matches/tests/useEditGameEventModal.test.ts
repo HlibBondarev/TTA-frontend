@@ -97,21 +97,38 @@ vi.mock("../../../db/ttaDatabase", () => ({
       bulkGet: vi.fn().mockImplementation((ids: string[]) => {
         const defsMap: Record<
           string,
-          { id: string; name: string; isPositive: boolean }
+          { id: string; name: string; isPositive: boolean; sortOrder?: number }
         > = {
-          "def-1": { id: "def-1", name: "Pass", isPositive: true },
-          "def-2": { id: "def-2", name: "Goal", isPositive: true },
+          "def-1": {
+            id: "def-1",
+            name: "Pass",
+            isPositive: true,
+            sortOrder: 1,
+          },
+          "def-2": {
+            id: "def-2",
+            name: "Goal",
+            isPositive: true,
+            sortOrder: 2,
+          },
           "def-disabled": {
             id: "def-disabled",
             name: "Disabled",
             isPositive: true,
+            sortOrder: 3,
           },
           "def-other-sport": {
             id: "def-other-sport",
             name: "Other sport",
             isPositive: true,
+            sortOrder: 4,
           },
-          "def-3": { id: "def-3", name: "Foul", isPositive: false },
+          "def-3": {
+            id: "def-3",
+            name: "Foul",
+            isPositive: false,
+            sortOrder: 1,
+          },
         };
         return Promise.resolve(
           ids.map((id) => defsMap[id]).filter((item) => item !== undefined),
@@ -120,32 +137,59 @@ vi.mock("../../../db/ttaDatabase", () => ({
       get: vi.fn().mockImplementation((id: string) => {
         const defs: Record<
           string,
-          { id: string; name: string; isPositive: boolean }
+          { id: string; name: string; isPositive: boolean; sortOrder?: number }
         > = {
-          "def-1": { id: "def-1", name: "Pass", isPositive: true },
-          "def-2": { id: "def-2", name: "Goal", isPositive: true },
+          "def-1": {
+            id: "def-1",
+            name: "Pass",
+            isPositive: true,
+            sortOrder: 1,
+          },
+          "def-2": {
+            id: "def-2",
+            name: "Goal",
+            isPositive: true,
+            sortOrder: 2,
+          },
           "def-disabled": {
             id: "def-disabled",
             name: "Disabled",
             isPositive: true,
+            sortOrder: 3,
           },
           "def-other-sport": {
             id: "def-other-sport",
             name: "Other sport",
             isPositive: true,
+            sortOrder: 4,
           },
-          "def-3": { id: "def-3", name: "Foul", isPositive: false },
+          "def-3": {
+            id: "def-3",
+            name: "Foul",
+            isPositive: false,
+            sortOrder: 1,
+          },
         };
         return Promise.resolve(defs[id]);
       }),
       where: vi.fn().mockReturnValue({
         equals: vi.fn().mockReturnValue({
           toArray: vi.fn().mockResolvedValue([
-            { id: "def-1", name: "Pass", isPositive: true },
-            { id: "def-2", name: "Goal", isPositive: true },
-            { id: "def-disabled", name: "Disabled", isPositive: true },
-            { id: "def-other-sport", name: "Other sport", isPositive: true },
-            { id: "def-3", name: "Foul", isPositive: false },
+            { id: "def-1", name: "Pass", isPositive: true, sortOrder: 1 },
+            { id: "def-2", name: "Goal", isPositive: true, sortOrder: 2 },
+            {
+              id: "def-disabled",
+              name: "Disabled",
+              isPositive: true,
+              sortOrder: 3,
+            },
+            {
+              id: "def-other-sport",
+              name: "Other sport",
+              isPositive: true,
+              sortOrder: 4,
+            },
+            { id: "def-3", name: "Foul", isPositive: false, sortOrder: 1 },
           ]),
         }),
       }),
@@ -224,6 +268,40 @@ describe("useEditGameEventModal Hook", () => {
     ]);
   });
 
+  it("sorts default sport definitions by sortOrder ASC when no user presets exist", async () => {
+    vi.mocked(db.usereventpresets.where).mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([]),
+    } as unknown as ReturnType<typeof db.usereventpresets.where>);
+
+    vi.mocked(db.eventdefinitions.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { id: "def-a", name: "Pass", isPositive: true, sortOrder: 3 },
+          { id: "def-b", name: "Goal", isPositive: true, sortOrder: 1 },
+          { id: "def-c", name: "Steal", isPositive: true, sortOrder: 2 },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.eventdefinitions.where>);
+
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: { ...sampleAction, eventDefinitionId: "def-b" },
+        matchId: "match-1",
+        onClose: mockOnClose,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+    });
+
+    expect(result.current.displayedActions.map((def) => def.id)).toEqual([
+      "def-b", // sortOrder: 1
+      "def-c", // sortOrder: 2
+      "def-a", // sortOrder: 3
+    ]);
+  });
+
   it("preserves action selection when switching between positive and negative tabs", async () => {
     const { result } = renderHook(() =>
       useEditGameEventModal({
@@ -244,7 +322,6 @@ describe("useEditGameEventModal Hook", () => {
     });
 
     expect(result.current.activeTab).toBe("negative");
-    // Selection is preserved even on tab switch
     expect(result.current.selectedEventDefinitionId).toBe("def-1");
 
     act(() => {
@@ -444,7 +521,6 @@ describe("useEditGameEventModal Hook", () => {
       expect(result.current.isLocationLoaded).toBe(true);
     });
 
-    // Should retain only the current recorded event definition (def-1) without falling back to default sport definitions
     expect(result.current.displayedActions).toHaveLength(1);
     expect(result.current.displayedActions[0].id).toBe("def-1");
   });
@@ -484,7 +560,6 @@ describe("useEditGameEventModal Hook", () => {
       expect(result.current.isLocationLoaded).toBe(true);
     });
 
-    // Should include active preset definitions (def-1, def-2) AND retain def-unpreset
     expect(result.current.displayedActions.map((def) => def.id)).toEqual([
       "def-1",
       "def-2",

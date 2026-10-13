@@ -51,13 +51,15 @@ async function loadSportDefinitions(
     }
   }
 
-  // Fallback if no presets exist: get default active definitions for this sport
+  // Fallback if no presets exist: get default active definitions for this sport ordered by sortOrder
   if (!hasPresets) {
     const sportDefs = await db.eventdefinitions
       .where("sportId")
       .equals(sportId)
       .toArray();
-    defs = sportDefs.filter((d) => !d.ownerId);
+    defs = sportDefs
+      .filter((d) => !d.ownerId)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   }
 
   // Ensure current action definition is present even if disabled/unpreset

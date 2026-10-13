@@ -88,12 +88,14 @@ describe("useTTAPanel Custom Hook", () => {
       sportId: "sport-wp",
       name: "Goal",
       isPositive: true,
+      sortOrder: 1,
     },
     {
       id: "def-2",
       sportId: "sport-wp",
       name: "Foul",
       isPositive: false,
+      sortOrder: 2,
     },
   ];
 
@@ -156,6 +158,65 @@ describe("useTTAPanel Custom Hook", () => {
       expect(result.current.displayedActions).toHaveLength(1);
       expect(result.current.displayedActions[0].name).toBe("Goal");
       expect(result.current.playgroundSvg).toBe("<svg>Pool</svg>");
+    });
+  });
+
+  it("should fall back to default system definitions sorted by sortOrder ASC when user has no presets", async () => {
+    mockUserPresetsWhere.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([]),
+    });
+
+    const unsortedDefaultDefinitions = [
+      {
+        id: "def-3",
+        sportId: "sport-wp",
+        name: "Steal",
+        isPositive: true,
+        sortOrder: 3,
+      },
+      {
+        id: "def-1",
+        sportId: "sport-wp",
+        name: "Goal",
+        isPositive: true,
+        sortOrder: 1,
+      },
+      {
+        id: "def-2",
+        sportId: "sport-wp",
+        name: "Pass",
+        isPositive: true,
+        sortOrder: 2,
+      },
+      {
+        id: "def-custom",
+        sportId: "sport-wp",
+        name: "Custom User Action",
+        isPositive: true,
+        ownerId: "auth0|user-123",
+        sortOrder: 4,
+      },
+    ];
+
+    mockWhereEqualsToArray.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue(unsortedDefaultDefinitions),
+    });
+
+    const store = createTestStore({
+      match: { activeMatchId: "match-123" },
+    });
+
+    const { result } = renderHook(() => useTTAPanel(), {
+      wrapper: createWrapper(store),
+    });
+
+    await waitFor(() => {
+      expect(result.current.displayedActions).toHaveLength(3);
+      expect(result.current.displayedActions.map((d) => d.id)).toEqual([
+        "def-1", // sortOrder: 1
+        "def-2", // sortOrder: 2
+        "def-3", // sortOrder: 3
+      ]);
     });
   });
 
