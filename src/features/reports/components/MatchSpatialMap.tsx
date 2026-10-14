@@ -29,6 +29,12 @@ const getTooltipPositionClass = (
   return `transform ${xClass} ${yClass}`;
 };
 
+const formatMatchTime = (timeStr?: string): string => {
+  if (!timeStr) return "";
+  // Trim fractional seconds (e.g. "00:07:10.2438170" -> "00:07:10")
+  return timeStr.split(".")[0];
+};
+
 export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
   events,
   eventDefinitionsMap,
@@ -367,7 +373,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
               <div>
                 <span className="text-gray-400">Time: </span>
                 <span className="font-mono">
-                  {activeEvent.normalizedMatchTime}
+                  {formatMatchTime(activeEvent.normalizedMatchTime)}
                 </span>
               </div>
             )}
