@@ -11,6 +11,22 @@ export interface MatchSpatialMapProps {
   showGoalLeadVectors?: boolean;
 }
 
+const getTooltipPositionClass = (
+  locationX: number,
+  locationY: number,
+): string => {
+  let xClass = "-translate-x-1/2";
+  if (locationX > 70) {
+    xClass = "-translate-x-full";
+  } else if (locationX < 30) {
+    xClass = "translate-x-0";
+  }
+
+  const yClass = locationY < 25 ? "translate-y-3" : "-translate-y-full -mt-3";
+
+  return `transform ${xClass} ${yClass}`;
+};
+
 export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
   events,
   eventDefinitionsMap,
@@ -305,11 +321,10 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
       {/* Active Event Hover / Selection Tooltip */}
       {activeEvent?.locationX != null && activeEvent?.locationY != null && (
         <div
-          className={`absolute z-20 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-none transition-all duration-150 ${
-            Number(activeEvent.locationY) < 25
-              ? "transform -translate-x-1/2 translate-y-4"
-              : "transform -translate-x-1/2 -translate-y-full -mt-3"
-          }`}
+          className={`absolute z-20 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-none transition-all duration-150 ${getTooltipPositionClass(
+            Number(activeEvent.locationX),
+            Number(activeEvent.locationY),
+          )}`}
           style={{
             left: `${activeEvent.locationX}%`,
             top: `${activeEvent.locationY}%`,

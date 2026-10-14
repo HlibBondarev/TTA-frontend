@@ -160,4 +160,36 @@ describe("MatchSpatialMap Component", () => {
     fireEvent.click(marker);
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
   });
+
+  it("adjusts tooltip positioning classes dynamically based on boundary coordinates to prevent clipping", () => {
+    const boundaryEvents: GameEventResponse[] = [
+      {
+        id: "right-edge-event",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        eventName: "Goal",
+        isPositive: true,
+        periodNumber: 1,
+        locationX: 85,
+        locationY: 10,
+        playerName: "Right Top Player",
+        playerNumber: 3,
+      },
+    ];
+
+    const { container } = render(
+      <MatchSpatialMap
+        events={boundaryEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+      />,
+    );
+
+    const marker = screen.getByText("#3");
+    fireEvent.mouseEnter(marker);
+
+    const tooltip = container.querySelector(".shadow-2xl")!;
+    expect(tooltip).toBeInTheDocument();
+    expect(tooltip.className).toContain("-translate-x-full");
+    expect(tooltip.className).toContain("translate-y-3");
+  });
 });
