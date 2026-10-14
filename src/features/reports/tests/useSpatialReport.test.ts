@@ -8,6 +8,7 @@ import type { GameEventResponse } from "../../../services/reportService";
 vi.mock("../../../services/reportService", () => ({
   reportService: {
     getMatchEvents: vi.fn(),
+    getTeamLineup: vi.fn(),
   },
 }));
 
@@ -92,6 +93,7 @@ describe("useSpatialReport Custom Hook", () => {
     vi.clearAllMocks();
 
     vi.mocked(reportService.getMatchEvents).mockResolvedValue(mockEvents);
+    vi.mocked(reportService.getTeamLineup).mockResolvedValue(mockLineups);
 
     vi.mocked(db.matchlineups.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
@@ -112,6 +114,7 @@ describe("useSpatialReport Custom Hook", () => {
       expect(result.current.events).toHaveLength(2);
     });
 
+    expect(reportService.getTeamLineup).toHaveBeenCalledWith("m-1", "t-1");
     expect(result.current.teamLineups).toHaveLength(2);
     expect(result.current.eventDefinitionsMap.size).toBe(2);
     expect(result.current.error).toBeNull();
@@ -138,7 +141,8 @@ describe("useSpatialReport Custom Hook", () => {
     expect(result.current.events[0].teamId).toBe("team-home");
   });
 
-  it("dynamically constructs team lineups from server events when local IndexedDB is empty", async () => {
+  it("dynamically constructs team lineups from server events when local IndexedDB and server teamLineup are empty", async () => {
+    vi.mocked(reportService.getTeamLineup).mockResolvedValueOnce([]);
     vi.mocked(db.matchlineups.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
         toArray: vi.fn().mockResolvedValue([]),

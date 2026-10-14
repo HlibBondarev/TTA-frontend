@@ -90,4 +90,17 @@ describe("reportService", () => {
     expect(apiClient.get).toHaveBeenCalledWith("/Matches/m-1/events");
     expect(result).toEqual(mockEvents);
   });
+
+  it("should fetch team lineup via GET request", async () => {
+    const mockLineup = [
+      { id: "ml-1", number: 7, playerRosterId: "pr-1", positionId: "pos-1" },
+    ];
+
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockLineup);
+
+    const result = await reportService.getTeamLineup("m-1", "t-1");
+
+    expect(apiClient.get).toHaveBeenCalledWith("/Matches/m-1/teams/t-1/lineup");
+    expect(result).toEqual(mockLineup);
+  });
 });

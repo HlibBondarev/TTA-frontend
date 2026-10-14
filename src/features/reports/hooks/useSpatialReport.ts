@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   reportService,
   type GameEventResponse,
+  type MatchLineupResponse,
 } from "../../../services/reportService";
 import {
   db,
@@ -64,19 +65,41 @@ export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
           ? fetchedEvents.filter((ev) => ev.teamId === teamId)
           : fetchedEvents;
 
-        // 3. Try loading lineups from local IndexedDB
+        // 3. Load team lineups: try server API when teamId is present, with IndexedDB and events fallbacks
         let lineups: MatchLineupLookup[] = [];
-        try {
-          lineups = await db.matchlineups
-            .where("matchId")
-            .equals(matchId)
-            .toArray();
-        } catch {
-          lineups = [];
+
+        if (teamId) {
+          try {
+            const response = await reportService.getTeamLineup(matchId, teamId);
+            lineups = response.flatMap((lineup: MatchLineupResponse) => {
+              if (!lineup.id || lineup.number == null) return [];
+              return [
+                {
+                  id: lineup.id,
+                  matchId,
+                  playerRosterId: lineup.playerRosterId ?? "",
+                  number: lineup.number,
+                  positionId: lineup.positionId ?? "",
+                },
+              ];
+            });
+          } catch {
+            lineups = [];
+          }
         }
 
-        // FALLBACK: If local DB is empty (e.g., server/tracked match),
-        // dynamically construct roster from server event payload
+        if (lineups.length === 0) {
+          try {
+            lineups = await db.matchlineups
+              .where("matchId")
+              .equals(matchId)
+              .toArray();
+          } catch {
+            lineups = [];
+          }
+        }
+
+        // FALLBACK: If local DB and API return empty, dynamically construct roster from server event payload
         if (lineups.length === 0 && teamEvents.length > 0) {
           const lineupMap = new Map<string, MatchLineupLookup>();
           teamEvents.forEach((ev) => {
