@@ -242,6 +242,45 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     onClose();
   };
 
+  const getModalTitle = (): string => {
+    if (selectedLineupId) {
+      return "Player TTA Detailed Report";
+    }
+    if (reportMode === "spatial") {
+      return "Match Spatial Analytics";
+    }
+    return "Team TTA Summary Report";
+  };
+
+  const renderReportContent = (): React.ReactNode => {
+    if (selectedLineupId) {
+      return (
+        <PlayerDetailedReportView
+          report={playerReport}
+          isLoading={isPlayerLoading}
+          onBack={handleBackToSummary}
+        />
+      );
+    }
+    if (reportMode === "spatial") {
+      return (
+        <MatchSpatialReportView
+          matchId={matchId}
+          teamId={activeTeamId}
+          playgroundSvg={playgroundSvg}
+          onBack={() => setReportMode("summary")}
+        />
+      );
+    }
+    return (
+      <TeamSummaryReportView
+        reports={summaryReports}
+        isLoading={isSummaryLoading}
+        onSelectPlayer={handleSelectPlayer}
+      />
+    );
+  };
+
   return (
     <dialog
       ref={dialogRef}
@@ -257,11 +296,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
               id="report-modal-title"
               className="text-xs sm:text-sm font-black uppercase text-emerald-400 tracking-wider"
             >
-              {selectedLineupId
-                ? "Player TTA Detailed Report"
-                : reportMode === "spatial"
-                  ? "Match Spatial Analytics"
-                  : "Team TTA Summary Report"}
+              {getModalTitle()}
             </h3>
             <button
               type="button"
@@ -355,26 +390,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
         )}
 
         <div className="flex-1 overflow-y-auto pr-0.5">
-          {selectedLineupId ? (
-            <PlayerDetailedReportView
-              report={playerReport}
-              isLoading={isPlayerLoading}
-              onBack={handleBackToSummary}
-            />
-          ) : reportMode === "spatial" ? (
-            <MatchSpatialReportView
-              matchId={matchId}
-              teamId={activeTeamId}
-              playgroundSvg={playgroundSvg}
-              onBack={() => setReportMode("summary")}
-            />
-          ) : (
-            <TeamSummaryReportView
-              reports={summaryReports}
-              isLoading={isSummaryLoading}
-              onSelectPlayer={handleSelectPlayer}
-            />
-          )}
+          {renderReportContent()}
         </div>
 
         <footer className="pt-2 border-t border-gray-800 text-right">
