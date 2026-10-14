@@ -25,7 +25,7 @@ describe("InteractivePlayground Component", () => {
     expect(screen.getByTestId("custom-svg")).toBeInTheDocument();
   });
 
-  it("calculates percentage coordinates relative to bottom-left corner (0,0) on click", () => {
+  it("calculates percentage coordinates relative to bottom-left corner (0,0) on click with canonical X/Y pitch mapping", () => {
     const handleLocationSelect = vi.fn();
     const { container } = render(
       <InteractivePlayground onLocationSelect={handleLocationSelect} />,
@@ -46,10 +46,11 @@ describe("InteractivePlayground Component", () => {
       toJSON: () => {},
     });
 
-    // Click at clickX = 50px (25%), clickY = 20px from top (80% from bottom)
+    // Click at clickX = 50px (Width = 25%), clickY = 20px from top (Length from bottom = 80%)
     fireEvent.click(clickableArea, { clientX: 50, clientY: 20 });
 
-    expect(handleLocationSelect).toHaveBeenCalledWith(25, 80);
+    // Canonical mapping: locationX (Length) = 80, locationY (Width) = 25
+    expect(handleLocationSelect).toHaveBeenCalledWith(80, 25);
   });
 
   it("renders coordinate badge and clear button when locationX and locationY are provided", () => {
@@ -140,11 +141,11 @@ describe("InteractivePlayground Component", () => {
       toJSON: () => {},
     });
 
-    // Pointer click at clientX: 0, clientY: 0 with detail: 1
+    // Pointer click at clientX: 0, clientY: 0
     fireEvent.click(clickableArea, { clientX: 0, clientY: 0, detail: 1 });
 
-    // Expected: X=0% (left), Y=100% (top edge relative to bottom-left origin)
-    expect(handleLocationSelect).toHaveBeenCalledWith(0, 100);
+    // Canonical mapping: locationX (Length) = 100% (top edge), locationY (Width) = 0% (left edge)
+    expect(handleLocationSelect).toHaveBeenCalledWith(100, 0);
   });
 
   it("sanitizes malicious SVG markup using DOMPurify before rendering", () => {
@@ -162,7 +163,7 @@ describe("InteractivePlayground Component", () => {
     expect(document.querySelector("script")).not.toBeInTheDocument();
   });
 
-  it("adjusts location coordinates using arrow keys (ArrowUp, ArrowDown, ArrowLeft, ArrowRight)", () => {
+  it("adjusts location coordinates using arrow keys with canonical pitch orientation (ArrowUp/ArrowDown for Length locationX, ArrowLeft/ArrowRight for Width locationY)", () => {
     const handleLocationSelect = vi.fn();
     const { container } = render(
       <InteractivePlayground
@@ -174,20 +175,20 @@ describe("InteractivePlayground Component", () => {
 
     const playgroundButton = container.querySelector(".cursor-crosshair")!;
 
-    // Press ArrowRight: should increase X from 50 to 55
+    // Press ArrowRight: should increase Width (locationY) from 50 to 55
     fireEvent.keyDown(playgroundButton, { key: "ArrowRight" });
-    expect(handleLocationSelect).toHaveBeenCalledWith(55, 50);
-
-    // Press ArrowUp: should increase Y from 50 to 55
-    fireEvent.keyDown(playgroundButton, { key: "ArrowUp" });
     expect(handleLocationSelect).toHaveBeenCalledWith(50, 55);
 
-    // Press ArrowLeft: should decrease X from 50 to 45
-    fireEvent.keyDown(playgroundButton, { key: "ArrowLeft" });
-    expect(handleLocationSelect).toHaveBeenCalledWith(45, 50);
+    // Press ArrowUp: should increase Length (locationX) from 50 to 55
+    fireEvent.keyDown(playgroundButton, { key: "ArrowUp" });
+    expect(handleLocationSelect).toHaveBeenCalledWith(55, 50);
 
-    // Press ArrowDown: should decrease Y from 50 to 45
-    fireEvent.keyDown(playgroundButton, { key: "ArrowDown" });
+    // Press ArrowLeft: should decrease Width (locationY) from 50 to 45
+    fireEvent.keyDown(playgroundButton, { key: "ArrowLeft" });
     expect(handleLocationSelect).toHaveBeenCalledWith(50, 45);
+
+    // Press ArrowDown: should decrease Length (locationX) from 50 to 45
+    fireEvent.keyDown(playgroundButton, { key: "ArrowDown" });
+    expect(handleLocationSelect).toHaveBeenCalledWith(45, 50);
   });
 });

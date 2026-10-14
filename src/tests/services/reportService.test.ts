@@ -65,4 +65,29 @@ describe("reportService", () => {
     );
     expect(result).toEqual(mockDetailed);
   });
+
+  it("should fetch complete match events timeline via GET request", async () => {
+    const mockEvents = [
+      {
+        id: "ev-1",
+        matchLineupId: "ml-1",
+        eventDefinitionId: "def-1",
+        eventName: "Goal",
+        isPositive: true,
+        periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:00:00Z",
+        normalizedMatchTime: "00:02:15",
+        isLeadToGoal: true,
+        locationX: 75.0,
+        locationY: 50.0,
+      },
+    ];
+
+    vi.mocked(apiClient.get).mockResolvedValueOnce(mockEvents);
+
+    const result = await reportService.getMatchEvents("m-1");
+
+    expect(apiClient.get).toHaveBeenCalledWith("/Matches/m-1/events");
+    expect(result).toEqual(mockEvents);
+  });
 });

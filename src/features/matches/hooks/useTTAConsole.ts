@@ -55,6 +55,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
 
   const clearPendingAction = () => {
     setPendingAction(null);
+    setPendingLocation(null);
     setConsoleError(null);
   };
 

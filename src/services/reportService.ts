@@ -10,6 +10,8 @@ export type PlayerDetailedMatchReportResponse =
 export type PlayerDetailedEventResponse =
   components["schemas"]["PlayerDetailedEventResponse"];
 
+export type GameEventResponse = components["schemas"]["GameEventResponse"];
+
 /**
  * Service for retrieving match performance and TTA reports from WebAPI.
  */
@@ -40,5 +42,13 @@ export const reportService = {
     return apiClient.get<PlayerDetailedMatchReportResponse>(
       `/Matches/${matchId}/lineups/${matchLineupId}/reports/detailed`,
     );
+  },
+
+  /**
+   * Fetches the complete chronological timeline of all game events for a match.
+   * @param matchId The unique identifier of the match.
+   */
+  async getMatchEvents(matchId: string): Promise<GameEventResponse[]> {
+    return apiClient.get<GameEventResponse[]>(`/Matches/${matchId}/events`);
   },
 };
