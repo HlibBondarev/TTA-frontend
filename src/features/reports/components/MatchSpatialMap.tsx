@@ -49,6 +49,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
         <svg
           viewBox="0 0 1000 600"
           className="absolute inset-0 w-full h-full pointer-events-none fill-none"
+          aria-hidden="true"
         >
           {/* Pool Outer Boundary & Water Fill */}
           <rect
@@ -196,7 +197,11 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
       )}
 
       {/* SVG Interactive Overlay Layer */}
-      <svg viewBox="0 0 1000 600" className="absolute inset-0 w-full h-full">
+      <svg
+        viewBox="0 0 1000 600"
+        className="absolute inset-0 w-full h-full"
+        aria-label="Match Spatial Event Map"
+      >
         <defs>
           <marker
             id="arrow-emerald"
