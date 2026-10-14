@@ -296,6 +296,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
             return (
               <g
                 key={eventId}
+                transform={`translate(${cx}, ${cy})`}
                 onClick={() => handleMarkerClick(eventId)}
                 onMouseEnter={() => handleMarkerMouseEnter(eventId)}
                 onMouseLeave={handleMarkerMouseLeave}
@@ -303,20 +304,16 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
               >
                 {event.isLeadToGoal && (
                   <circle
-                    cx={cx}
-                    cy={cy}
-                    r={isHighlighted ? "22" : "18"}
+                    cx={0}
+                    cy={0}
+                    r={isHighlighted ? 22 : 18}
                     className="fill-none stroke-amber-400 stroke-2 animate-ping opacity-75"
-                    style={{
-                      transformOrigin: `${cx}px ${cy}px`,
-                      transformBox: "fill-box",
-                    }}
                   />
                 )}
                 <circle
-                  cx={cx}
-                  cy={cy}
-                  r={isHighlighted ? "17" : "13"}
+                  cx={0}
+                  cy={0}
+                  r={isHighlighted ? 17 : 13}
                   className={`${
                     event.isPositive
                       ? "fill-emerald-500 stroke-emerald-300"
@@ -324,8 +321,8 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
                   } stroke-2 shadow-lg transition-all duration-150`}
                 />
                 <text
-                  x={cx}
-                  y={cy + 4}
+                  x={0}
+                  y={4}
                   textAnchor="middle"
                   className="fill-white font-mono font-black text-[10px] pointer-events-none select-none"
                 >
