@@ -16,13 +16,15 @@ const getTooltipPositionClass = (
   locationY: number,
 ): string => {
   let xClass = "-translate-x-1/2";
-  if (locationX > 70) {
-    xClass = "-translate-x-full";
-  } else if (locationX < 30) {
-    xClass = "translate-x-0";
+  if (locationX > 65) {
+    xClass = "-translate-x-full -ml-1";
+  } else if (locationX < 35) {
+    xClass = "translate-x-0 ml-1";
   }
 
-  const yClass = locationY < 25 ? "translate-y-3" : "-translate-y-full -mt-3";
+  // Y axis: 0 = top, 100 = bottom.
+  // Tooltip height is ~30% of field height. If Y < 38%, shift DOWN below marker to avoid top clipping.
+  const yClass = locationY < 38 ? "translate-y-4" : "-translate-y-full -mt-4";
 
   return `transform ${xClass} ${yClass}`;
 };
@@ -245,29 +247,44 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
 
         {/* Directional Vectors Connecting Assist to Goal */}
         {showGoalLeadVectors &&
-          goalLeadVectors.map((v) => (
-            <g key={v.id}>
-              <line
-                x1={v.x1}
-                y1={v.y1}
-                x2={v.x2}
-                y2={v.y2}
-                stroke={v.isPositive ? "#10b981" : "#f43f5e"}
-                strokeWidth="2.5"
-                strokeDasharray="6 4"
-                markerEnd={
-                  v.isPositive ? "url(#arrow-emerald)" : "url(#arrow-rose)"
-                }
-                className="opacity-80"
-              />
-              <circle
-                cx={v.x2}
-                cy={v.y2}
-                r="4"
-                fill={v.isPositive ? "#10b981" : "#f43f5e"}
-              />
-            </g>
-          ))}
+          goalLeadVectors.map((v) => {
+            const dx = v.x2 - v.x1;
+            const dy = v.y2 - v.y1;
+            const dist = Math.hypot(dx, dy);
+
+            // Offset start & end points by player circle radius so arrowhead sits cleanly outside circle
+            const startOffset = dist > 30 ? 14 : 0;
+            const endOffset = dist > 30 ? 18 : 0;
+
+            const x1 = dist > 0 ? v.x1 + (dx / dist) * startOffset : v.x1;
+            const y1 = dist > 0 ? v.y1 + (dy / dist) * startOffset : v.y1;
+            const x2 = dist > 0 ? v.x2 - (dx / dist) * endOffset : v.x2;
+            const y2 = dist > 0 ? v.y2 - (dy / dist) * endOffset : v.y2;
+
+            return (
+              <g key={v.id}>
+                <line
+                  x1={x1}
+                  y1={y1}
+                  x2={x2}
+                  y2={y2}
+                  stroke={v.isPositive ? "#10b981" : "#f43f5e"}
+                  strokeWidth="2.5"
+                  strokeDasharray="6 4"
+                  markerEnd={
+                    v.isPositive ? "url(#arrow-emerald)" : "url(#arrow-rose)"
+                  }
+                  className="opacity-80"
+                />
+                <circle
+                  cx={v.x2}
+                  cy={v.y2}
+                  r="4"
+                  fill={v.isPositive ? "#10b981" : "#f43f5e"}
+                />
+              </g>
+            );
+          })}
 
         {/* Action Event Point Markers */}
         {renderablePoints.map(
@@ -290,6 +307,10 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
                     cy={cy}
                     r={isHighlighted ? "22" : "18"}
                     className="fill-none stroke-amber-400 stroke-2 animate-ping opacity-75"
+                    style={{
+                      transformOrigin: `${cx}px ${cy}px`,
+                      transformBox: "fill-box",
+                    }}
                   />
                 )}
                 <circle
@@ -326,8 +347,8 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
             Number(activeEvent.locationY),
           )}`}
           style={{
-            left: `${activeEvent.locationX}%`,
-            top: `${activeEvent.locationY}%`,
+            left: `${Math.max(2, Math.min(98, Number(activeEvent.locationX)))}%`,
+            top: `${Math.max(2, Math.min(98, Number(activeEvent.locationY)))}%`,
           }}
         >
           <div className="flex items-center space-x-1.5 font-bold text-emerald-400 border-b border-gray-800 pb-1 mb-1">

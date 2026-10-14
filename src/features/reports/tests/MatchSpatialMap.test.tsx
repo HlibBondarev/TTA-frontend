@@ -190,6 +190,6 @@ describe("MatchSpatialMap Component", () => {
     const tooltip = container.querySelector(".shadow-2xl")!;
     expect(tooltip).toBeInTheDocument();
     expect(tooltip.className).toContain("-translate-x-full");
-    expect(tooltip.className).toContain("translate-y-3");
+    expect(tooltip.className).toContain("translate-y-4");
   });
 });
