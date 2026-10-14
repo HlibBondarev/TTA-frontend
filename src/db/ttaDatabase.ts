@@ -156,16 +156,6 @@ export interface SyncQueueItem {
   createdAt: string;
 }
 
-export interface SpatialAnalyticsFilterState {
-  periodNumber: number | null; // null = All periods
-  selectedLineupIds: string[]; // empty = All players
-  selectedPositiveDefIds: string[]; // empty = All positive actions
-  selectedNegativeDefIds: string[]; // empty = All negative actions
-  activeTab: "positive" | "negative" | "all";
-  displayMode: "scatter" | "heatmap";
-  showGoalLeadVectors: boolean;
-}
-
 export class TTADatabase extends Dexie {
   sports!: Table<SportLookup, string>;
   players!: Table<PlayerLookup, string>;
