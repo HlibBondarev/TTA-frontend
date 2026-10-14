@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useMemo } from "react";
+import DOMPurify from "dompurify";
 import type { GameEventResponse } from "../../../services/reportService";
 import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
 import { useSpatialMap } from "../hooks/useSpatialMap";
@@ -25,13 +26,23 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
     handleMarkerMouseLeave,
   } = useSpatialMap({ events, eventDefinitionsMap });
 
+  const safeSvg = useMemo(
+    () =>
+      playgroundSvg
+        ? DOMPurify.sanitize(playgroundSvg, {
+            USE_PROFILES: { svg: true, svgFilters: true },
+          })
+        : null,
+    [playgroundSvg],
+  );
+
   return (
     <div className="relative w-full aspect-5/3 bg-blue-950/60 border border-blue-900/60 rounded-2xl overflow-hidden select-none">
       {/* Background Court Layout */}
-      {playgroundSvg ? (
+      {safeSvg ? (
         <div
           className="absolute inset-0 w-full h-full pointer-events-none opacity-50"
-          dangerouslySetInnerHTML={{ __html: playgroundSvg }}
+          dangerouslySetInnerHTML={{ __html: safeSvg }}
         />
       ) : (
         /* Full Regulation Water Polo Court SVG Layout */

@@ -60,7 +60,7 @@ describe("MatchSpatialMap Component", () => {
     );
 
     const svgElements = container.querySelectorAll("svg");
-    expect(svgElements.length).toBeGreaterThanOrEqual(2); // Fallback court background + Overlay
+    expect(svgElements.length).toBeGreaterThanOrEqual(2);
   });
 
   it("renders custom playgroundSvg when provided", () => {
@@ -75,6 +75,22 @@ describe("MatchSpatialMap Component", () => {
     );
 
     expect(container.innerHTML).toContain('data-testid="custom-court"');
+  });
+
+  it("sanitizes malicious SVG markup using DOMPurify before rendering", () => {
+    const xssSvg =
+      '<svg data-testid="xss-svg"><script>alert("xss")</script><circle cx="10" cy="10" r="5" onload="alert(1)" /></svg>';
+
+    render(
+      <MatchSpatialMap
+        events={mockEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playgroundSvg={xssSvg}
+      />,
+    );
+
+    expect(screen.getByTestId("xss-svg")).toBeInTheDocument();
+    expect(document.querySelector("script")).not.toBeInTheDocument();
   });
 
   it("renders event markers on court with jersey numbers", () => {
@@ -121,7 +137,6 @@ describe("MatchSpatialMap Component", () => {
     expect(screen.getByText("Q1")).toBeInTheDocument();
     expect(screen.getByText("03:45")).toBeInTheDocument();
 
-    // Mouse leave to close tooltip
     fireEvent.mouseLeave(marker);
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
   });
@@ -142,7 +157,6 @@ describe("MatchSpatialMap Component", () => {
     expect(screen.getByText("John Doe")).toBeInTheDocument();
     expect(screen.getByText("Action:")).toBeInTheDocument();
 
-    // Click again to close
     fireEvent.click(marker);
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
   });
