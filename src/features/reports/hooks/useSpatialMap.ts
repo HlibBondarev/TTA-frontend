@@ -120,7 +120,7 @@ export const useSpatialMap = ({
           ? Number.NaN
           : Date.parse(assistEv.eventTimestamp);
 
-      // Find nearest subsequent Goal event in the same period and team
+      // Strictly find nearest subsequent Goal event in the same period and team with valid metadata
       const candidateGoals = goalEvents
         .map((goal) => ({
           goal,
@@ -129,32 +129,18 @@ export const useSpatialMap = ({
               ? Number.NaN
               : Date.parse(goal.eventTimestamp),
         }))
-        .filter(({ goal, timestamp }) => {
-          if (goal.id === assistEv.id) return false;
-          if (
+        .filter(
+          ({ goal, timestamp }) =>
+            goal.id !== assistEv.id &&
             assistEv.periodNumber != null &&
-            goal.periodNumber !== assistEv.periodNumber
-          ) {
-            return false;
-          }
-          if (
+            goal.periodNumber === assistEv.periodNumber &&
             assistEv.teamId != null &&
-            goal.teamId != null &&
-            goal.teamId !== assistEv.teamId
-          ) {
-            return false;
-          }
-          if (Number.isFinite(assistTimestamp) && Number.isFinite(timestamp)) {
-            return timestamp >= assistTimestamp;
-          }
-          return true;
-        })
-        .sort((a, b) => {
-          if (Number.isFinite(a.timestamp) && Number.isFinite(b.timestamp)) {
-            return a.timestamp - b.timestamp;
-          }
-          return 0;
-        });
+            goal.teamId === assistEv.teamId &&
+            Number.isFinite(assistTimestamp) &&
+            Number.isFinite(timestamp) &&
+            timestamp >= assistTimestamp,
+        )
+        .sort((a, b) => a.timestamp - b.timestamp);
 
       const matchingGoal = candidateGoals[0]?.goal;
 
@@ -165,7 +151,7 @@ export const useSpatialMap = ({
         x2 = (Number(matchingGoal.locationX) / 100) * viewBoxWidth;
         y2 = (Number(matchingGoal.locationY) / 100) * viewBoxHeight;
       } else {
-        // Fallback to opponent goal center if goal location is unknown
+        // Fallback to opponent goal center if goal location is unknown or metadata is incomplete
         x2 = x1 > viewBoxWidth / 2 ? viewBoxWidth - 15 : 15;
         y2 = viewBoxHeight / 2;
       }

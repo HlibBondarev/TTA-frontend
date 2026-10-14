@@ -118,7 +118,7 @@ describe("useSpatialMap Custom Hook", () => {
         eventDefinitionId: "def-1",
         eventName: "Assist",
         isPositive: true,
-        periodNumber: 2, // Period 2
+        periodNumber: 2,
         eventTimestamp: "2026-10-14T10:20:00Z",
         locationX: 70,
         locationY: 50,
@@ -130,7 +130,7 @@ describe("useSpatialMap Custom Hook", () => {
         eventDefinitionId: "def-2",
         eventName: "Goal",
         isPositive: true,
-        periodNumber: 1, // Goal was in Period 1
+        periodNumber: 1,
         eventTimestamp: "2026-10-14T10:05:00Z",
         locationX: 90,
         locationY: 40,
@@ -150,7 +150,51 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.goalLeadVectors).toHaveLength(1);
     const vector = result.current.goalLeadVectors[0];
 
-    // Assist at X=70% (> 50%) should target opponent goal center (viewBoxWidth - 15 = 985, viewBoxHeight / 2 = 300)
+    expect(vector.x2).toBe(985);
+    expect(vector.y2).toBe(300);
+  });
+
+  it("falls back vector target to opponent goal center when teamId, period, or timestamp metadata is missing", () => {
+    const missingMetadataEvents: GameEventResponse[] = [
+      {
+        id: "assist-incomplete",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        eventName: "Assist",
+        isPositive: true,
+        periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:00:00Z",
+        locationX: 80,
+        locationY: 50,
+        teamId: undefined, // Missing teamId
+      },
+      {
+        id: "goal-complete",
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-2",
+        eventName: "Goal",
+        isPositive: true,
+        periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:05:00Z",
+        locationX: 90,
+        locationY: 40,
+        teamId: "team-1",
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: missingMetadataEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 1000,
+        viewBoxHeight: 600,
+      }),
+    );
+
+    expect(result.current.goalLeadVectors).toHaveLength(1);
+    const vector = result.current.goalLeadVectors[0];
+
+    // Assist missing teamId cannot verify match, should fall back to goal center (x2=985, y2=300)
     expect(vector.x2).toBe(985);
     expect(vector.y2).toBe(300);
   });
