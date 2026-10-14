@@ -87,7 +87,7 @@ describe("useSpatialMap Custom Hook", () => {
     expect(secondPoint.shortCode).toBe("GOA"); // fallback to eventName first 3 uppercase letters
   });
 
-  it("calculates goalLeadVectors connecting Assist directly to Goal in the same period", () => {
+  it("calculates goalLeadVectors connecting Assist directly to nearest subsequent Goal in the same period", () => {
     const { result } = renderHook(() =>
       useSpatialMap({
         events: mockEvents,

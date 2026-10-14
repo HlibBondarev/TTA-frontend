@@ -96,6 +96,7 @@ export const useSpatialMap = ({
       (e) =>
         (Boolean(e.isLeadToGoal) ||
           e.eventName?.toLowerCase().includes("assist")) &&
+        !e.eventName?.toLowerCase().includes("goal") &&
         e.locationX != null &&
         e.locationY != null &&
         e.id != null,
@@ -114,15 +115,55 @@ export const useSpatialMap = ({
       const x1 = (Number(assistEv.locationX) / 100) * viewBoxWidth;
       const y1 = (Number(assistEv.locationY) / 100) * viewBoxHeight;
 
-      // Find matching Goal event in the same period
-      let matchingGoal = goalEvents.find(
-        (g) => g.periodNumber === assistEv.periodNumber && g.id !== assistEv.id,
-      );
+      const assistTimestamp =
+        assistEv.eventTimestamp == null
+          ? Number.NaN
+          : Date.parse(assistEv.eventTimestamp);
 
-      // Fallback: if no goal found in same period, try any goal in dataset
-      if (!matchingGoal && goalEvents.length > 0) {
-        matchingGoal = goalEvents.find((g) => g.id !== assistEv.id);
-      }
+      // Find nearest subsequent Goal event in the same period and team
+      const candidateGoals = goalEvents
+        .map((goal) => ({
+          goal,
+          timestamp:
+            goal.eventTimestamp == null
+              ? Number.NaN
+              : Date.parse(goal.eventTimestamp),
+        }))
+        .filter(({ goal, timestamp }) => {
+          if (goal.id === assistEv.id) return false;
+          if (
+            assistEv.periodNumber != null &&
+            goal.periodNumber !== assistEv.periodNumber
+          ) {
+            return false;
+          }
+          if (
+            assistEv.teamId != null &&
+            goal.teamId != null &&
+            goal.teamId !== assistEv.teamId
+          ) {
+            return false;
+          }
+          if (Number.isFinite(assistTimestamp) && Number.isFinite(timestamp)) {
+            return timestamp >= assistTimestamp;
+          }
+          return true;
+        })
+        .sort((a, b) => {
+          if (Number.isFinite(a.timestamp) && Number.isFinite(b.timestamp)) {
+            return a.timestamp - b.timestamp;
+          }
+          return 0;
+        });
+
+      // Pure declarative fallback chain avoiding TS2322 variable type narrowing issues
+      const matchingGoal =
+        candidateGoals[0]?.goal ??
+        goalEvents.find(
+          (g) =>
+            g.periodNumber === assistEv.periodNumber && g.id !== assistEv.id,
+        ) ??
+        goalEvents.find((g) => g.id !== assistEv.id);
 
       let x2: number;
       let y2: number;
