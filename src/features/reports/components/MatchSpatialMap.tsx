@@ -303,46 +303,44 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
       </svg>
 
       {/* Active Event Hover / Selection Tooltip */}
-      {activeEvent &&
-        activeEvent.locationX != null &&
-        activeEvent.locationY != null && (
-          <div
-            className={`absolute z-20 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-none transition-all duration-150 ${
-              Number(activeEvent.locationY) < 25
-                ? "transform -translate-x-1/2 translate-y-4"
-                : "transform -translate-x-1/2 -translate-y-full -mt-3"
-            }`}
-            style={{
-              left: `${activeEvent.locationX}%`,
-              top: `${activeEvent.locationY}%`,
-            }}
-          >
-            <div className="flex items-center space-x-1.5 font-bold text-emerald-400 border-b border-gray-800 pb-1 mb-1">
-              <span>#{activeEvent.playerNumber ?? "-"}</span>
-              <span>{activeEvent.playerName || "Player"}</span>
+      {activeEvent?.locationX != null && activeEvent?.locationY != null && (
+        <div
+          className={`absolute z-20 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-none transition-all duration-150 ${
+            Number(activeEvent.locationY) < 25
+              ? "transform -translate-x-1/2 translate-y-4"
+              : "transform -translate-x-1/2 -translate-y-full -mt-3"
+          }`}
+          style={{
+            left: `${activeEvent.locationX}%`,
+            top: `${activeEvent.locationY}%`,
+          }}
+        >
+          <div className="flex items-center space-x-1.5 font-bold text-emerald-400 border-b border-gray-800 pb-1 mb-1">
+            <span>#{activeEvent.playerNumber ?? "-"}</span>
+            <span>{activeEvent.playerName || "Player"}</span>
+          </div>
+          <div className="space-y-0.5 text-gray-300">
+            <div>
+              <span className="text-gray-400">Action: </span>
+              <span className="font-semibold text-white">
+                {activeEvent.eventName || "Action"}
+              </span>
             </div>
-            <div className="space-y-0.5 text-gray-300">
+            <div>
+              <span className="text-gray-400">Period: </span>
+              <span>Q{activeEvent.periodNumber ?? "-"}</span>
+            </div>
+            {activeEvent.normalizedMatchTime && (
               <div>
-                <span className="text-gray-400">Action: </span>
-                <span className="font-semibold text-white">
-                  {activeEvent.eventName || "Action"}
+                <span className="text-gray-400">Time: </span>
+                <span className="font-mono">
+                  {activeEvent.normalizedMatchTime}
                 </span>
               </div>
-              <div>
-                <span className="text-gray-400">Period: </span>
-                <span>Q{activeEvent.periodNumber ?? "-"}</span>
-              </div>
-              {activeEvent.normalizedMatchTime && (
-                <div>
-                  <span className="text-gray-400">Time: </span>
-                  <span className="font-mono">
-                    {activeEvent.normalizedMatchTime}
-                  </span>
-                </div>
-              )}
-            </div>
+            )}
           </div>
-        )}
+        </div>
+      )}
     </div>
   );
 };
