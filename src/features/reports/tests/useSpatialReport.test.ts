@@ -120,6 +120,33 @@ describe("useSpatialReport Custom Hook", () => {
     expect(result.current.error).toBeNull();
   });
 
+  it("normalizes missing playerRosterId and positionId to null when loading team lineups", async () => {
+    const incompleteLineups = [
+      {
+        id: "lineup-incomplete",
+        matchId: "m-1",
+        number: 10,
+        playerRosterId: undefined,
+        positionId: undefined,
+      },
+    ];
+    vi.mocked(reportService.getTeamLineup).mockResolvedValueOnce(
+      incompleteLineups as never,
+    );
+
+    const { result } = renderHook(() =>
+      useSpatialReport({ matchId: "m-1", teamId: "t-1" }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.teamLineups).toHaveLength(1);
+    expect(result.current.teamLineups[0].playerRosterId).toBeNull();
+    expect(result.current.teamLineups[0].positionId).toBeNull();
+  });
+
   it("loads lineups from IndexedDB when teamId is omitted", async () => {
     const { result } = renderHook(() => useSpatialReport({ matchId: "m-1" }));
 
@@ -172,6 +199,7 @@ describe("useSpatialReport Custom Hook", () => {
     expect(result.current.teamLineups).toHaveLength(2);
     expect(result.current.teamLineups[0].number).toBe(4);
     expect(result.current.teamLineups[1].number).toBe(7);
+    expect(result.current.teamLineups[0].positionId).toBeNull();
   });
 
   it("enriches event definitions from server events when missing in local IndexedDB", async () => {

@@ -42,9 +42,9 @@ async function loadLineups(
           {
             id: lineup.id,
             matchId,
-            playerRosterId: lineup.playerRosterId ?? "",
+            playerRosterId: lineup.playerRosterId ?? null,
             number: lineup.number,
-            positionId: lineup.positionId ?? "",
+            positionId: lineup.positionId ?? null,
           },
         ];
       });
@@ -75,7 +75,7 @@ async function loadLineups(
           matchId: matchId,
           playerRosterId: ev.matchLineupId,
           number: ev.playerNumber ?? 0,
-          positionId: "",
+          positionId: null,
         });
       }
     });
