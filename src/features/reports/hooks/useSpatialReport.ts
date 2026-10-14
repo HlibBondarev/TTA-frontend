@@ -88,7 +88,8 @@ export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
           }
         }
 
-        if (lineups.length === 0) {
+        // Only query local IndexedDB for match lineups when no specific teamId is active
+        if (!teamId && lineups.length === 0) {
           try {
             lineups = await db.matchlineups
               .where("matchId")

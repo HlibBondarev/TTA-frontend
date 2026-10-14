@@ -120,6 +120,18 @@ describe("useSpatialReport Custom Hook", () => {
     expect(result.current.error).toBeNull();
   });
 
+  it("loads lineups from IndexedDB when teamId is omitted", async () => {
+    const { result } = renderHook(() => useSpatialReport({ matchId: "m-1" }));
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(reportService.getTeamLineup).not.toHaveBeenCalled();
+    expect(db.matchlineups.where).toHaveBeenCalledWith("matchId");
+    expect(result.current.teamLineups).toHaveLength(2);
+  });
+
   it("filters events by teamId when provided", async () => {
     const multiTeamEvents: GameEventResponse[] = [
       { ...mockEvents[0], teamId: "team-home" },
@@ -254,20 +266,17 @@ describe("useSpatialReport Custom Hook", () => {
       expect(result.current.events).toHaveLength(2);
     });
 
-    // Toggle player lineup-1
     act(() => {
       result.current.togglePlayerSelection("lineup-1");
     });
     expect(result.current.filteredEvents).toHaveLength(1);
     expect(result.current.filteredEvents[0].matchLineupId).toBe("lineup-1");
 
-    // Select all players
     act(() => {
       result.current.handleSelectAllPlayers();
     });
     expect(result.current.filters.selectedLineupIds).toHaveLength(2);
 
-    // Clear player selections
     act(() => {
       result.current.handleClearPlayerSelection();
     });
