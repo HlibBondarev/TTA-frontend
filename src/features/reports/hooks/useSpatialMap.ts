@@ -22,6 +22,7 @@ export interface RenderableSpatialPoint {
 
 export interface UseSpatialMapParams {
   events: GameEventResponse[];
+  allEvents?: GameEventResponse[];
   eventDefinitionsMap: Map<string, EventDefinitionLookup>;
   viewBoxWidth?: number;
   viewBoxHeight?: number;
@@ -29,6 +30,7 @@ export interface UseSpatialMapParams {
 
 export const useSpatialMap = ({
   events,
+  allEvents,
   eventDefinitionsMap,
   viewBoxWidth = 1000,
   viewBoxHeight = 600,
@@ -102,7 +104,10 @@ export const useSpatialMap = ({
         e.id != null,
     );
 
-    const goalEvents = events.filter(
+    // Use full unfiltered allEvents array for target search if present
+    const searchList = allEvents && allEvents.length > 0 ? allEvents : events;
+
+    const goalEvents = searchList.filter(
       (e) =>
         e.eventName?.toLowerCase().includes("goal") &&
         !e.eventName?.toLowerCase().includes("missed") &&
@@ -165,7 +170,7 @@ export const useSpatialMap = ({
         isPositive: assistEv.isPositive ?? true,
       };
     });
-  }, [events, viewBoxWidth, viewBoxHeight]);
+  }, [events, allEvents, viewBoxWidth, viewBoxHeight]);
 
   return {
     activeEvent,

@@ -6,6 +6,7 @@ import { useSpatialMap } from "../hooks/useSpatialMap";
 
 export interface MatchSpatialMapProps {
   events: GameEventResponse[];
+  allEvents?: GameEventResponse[];
   eventDefinitionsMap: Map<string, EventDefinitionLookup>;
   playgroundSvg?: string | null;
   showGoalLeadVectors?: boolean;
@@ -37,6 +38,7 @@ const formatMatchTime = (timeStr?: string): string => {
 
 export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
   events,
+  allEvents,
   eventDefinitionsMap,
   playgroundSvg,
   showGoalLeadVectors = false,
@@ -48,7 +50,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
     handleMarkerClick,
     handleMarkerMouseEnter,
     handleMarkerMouseLeave,
-  } = useSpatialMap({ events, eventDefinitionsMap });
+  } = useSpatialMap({ events, allEvents, eventDefinitionsMap });
 
   const safeSvg = useMemo(
     () =>

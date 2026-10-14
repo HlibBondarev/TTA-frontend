@@ -11,7 +11,17 @@ import type { GameEventResponse } from "../../../services/reportService";
 vi.mock("../hooks/useSpatialReport");
 
 vi.mock("../components/MatchSpatialMap", () => ({
-  MatchSpatialMap: () => <div data-testid="match-spatial-map">Map Canvas</div>,
+  MatchSpatialMap: ({
+    events,
+    allEvents,
+  }: {
+    events: GameEventResponse[];
+    allEvents?: GameEventResponse[];
+  }) => (
+    <div data-testid="match-spatial-map">
+      Map Canvas (Filtered: {events.length}, Total: {allEvents?.length ?? 0})
+    </div>
+  ),
 }));
 
 describe("MatchSpatialReportView Component", () => {
@@ -141,12 +151,11 @@ describe("MatchSpatialReportView Component", () => {
     expect(mockOnBack).toHaveBeenCalledTimes(1);
   });
 
-  it("renders filter controls, player chips, action definition chips, and court map", () => {
+  it("renders filter controls, player chips, action definition chips, and court map with allEvents passed", () => {
     vi.mocked(useSpatialReport).mockReturnValue(mockHookReturnValue);
 
     render(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
 
-    // Use a custom matcher function to handle text broken up across nested elements
     expect(
       screen.getByText((_content, node) => {
         const hasText = (el?: Element | null) =>
@@ -168,6 +177,9 @@ describe("MatchSpatialReportView Component", () => {
     expect(screen.getByText("- Negative Actions")).toBeInTheDocument();
     expect(screen.getByText("Foul")).toBeInTheDocument();
     expect(screen.getByTestId("match-spatial-map")).toBeInTheDocument();
+    expect(
+      screen.getByText("Map Canvas (Filtered: 2, Total: 2)"),
+    ).toBeInTheDocument();
   });
 
   it("triggers filter callbacks on button clicks including specific definition chips", () => {

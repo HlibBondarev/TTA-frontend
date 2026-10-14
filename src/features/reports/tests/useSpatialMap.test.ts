@@ -110,6 +110,28 @@ describe("useSpatialMap Custom Hook", () => {
     expect(vector.isPositive).toBe(true);
   });
 
+  it("targets goal coordinates from allEvents even when goal is filtered out from active events", () => {
+    const filteredEvents = [mockEvents[0]]; // Only Assist event
+    const allEvents = mockEvents; // Full list with Assist and Goal
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: filteredEvents,
+        allEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 1000,
+        viewBoxHeight: 600,
+      }),
+    );
+
+    expect(result.current.goalLeadVectors).toHaveLength(1);
+    const vector = result.current.goalLeadVectors[0];
+
+    // Goal event coordinates from allEvents (90%, 40%) -> (900, 240)
+    expect(vector.x2).toBe(900);
+    expect(vector.y2).toBe(240);
+  });
+
   it("falls back vector target to opponent goal center when no goal matches in the same period", () => {
     const unmatchedEvents: GameEventResponse[] = [
       {

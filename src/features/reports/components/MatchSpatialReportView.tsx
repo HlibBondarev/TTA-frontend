@@ -267,6 +267,7 @@ export const MatchSpatialReportView: React.FC<MatchSpatialReportViewProps> = ({
       {/* Spatial Map Canvas */}
       <MatchSpatialMap
         events={filteredEvents}
+        allEvents={events}
         eventDefinitionsMap={eventDefinitionsMap}
         playgroundSvg={playgroundSvg}
         showGoalLeadVectors={filters.showGoalLeadVectors}

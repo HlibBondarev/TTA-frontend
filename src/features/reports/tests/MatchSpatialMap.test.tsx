@@ -27,7 +27,7 @@ describe("MatchSpatialMap Component", () => {
       isPositive: true,
       periodNumber: 1,
       eventTimestamp: "2026-10-14T10:00:00Z",
-      normalizedMatchTime: "03:45",
+      normalizedMatchTime: "03:45.1234567",
       isLeadToGoal: true,
       locationX: 75,
       locationY: 50,
@@ -105,10 +105,11 @@ describe("MatchSpatialMap Component", () => {
     expect(screen.getByText("#4")).toBeInTheDocument();
   });
 
-  it("renders directional vector when showGoalLeadVectors is true", () => {
+  it("renders directional vector when showGoalLeadVectors is true and respects allEvents prop", () => {
     const { container } = render(
       <MatchSpatialMap
         events={mockEvents}
+        allEvents={mockEvents}
         eventDefinitionsMap={mockEventDefinitionsMap}
         showGoalLeadVectors={true}
       />,
@@ -118,7 +119,7 @@ describe("MatchSpatialMap Component", () => {
     expect(line).toBeInTheDocument();
   });
 
-  it("displays tooltip on hover and closes tooltip on mouse leave", () => {
+  it("displays tooltip on hover with formatted match time trimming decimal seconds", () => {
     render(
       <MatchSpatialMap
         events={mockEvents}
@@ -135,6 +136,7 @@ describe("MatchSpatialMap Component", () => {
     expect(screen.getByText("Action:")).toBeInTheDocument();
     expect(screen.getByText("Goal")).toBeInTheDocument();
     expect(screen.getByText("Q1")).toBeInTheDocument();
+    // Fractional seconds .1234567 trimmed out
     expect(screen.getByText("03:45")).toBeInTheDocument();
 
     fireEvent.mouseLeave(marker);
