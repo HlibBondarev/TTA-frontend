@@ -33,6 +33,7 @@ describe("useSpatialMap Custom Hook", () => {
       locationY: 50,
       playerName: "John Doe",
       playerNumber: 7,
+      teamId: "team-1",
     },
     {
       id: "event-2",
@@ -48,6 +49,7 @@ describe("useSpatialMap Custom Hook", () => {
       locationY: 40,
       playerName: "Jane Smith",
       playerNumber: 3,
+      teamId: "team-1",
     },
     {
       id: "event-no-location",
@@ -106,6 +108,51 @@ describe("useSpatialMap Custom Hook", () => {
     expect(vector.x2).toBe(900); // Goal X (90%)
     expect(vector.y2).toBe(240); // Goal Y (40%)
     expect(vector.isPositive).toBe(true);
+  });
+
+  it("falls back vector target to opponent goal center when no goal matches in the same period", () => {
+    const unmatchedEvents: GameEventResponse[] = [
+      {
+        id: "assist-q2",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        eventName: "Assist",
+        isPositive: true,
+        periodNumber: 2, // Period 2
+        eventTimestamp: "2026-10-14T10:20:00Z",
+        locationX: 70,
+        locationY: 50,
+        teamId: "team-1",
+      },
+      {
+        id: "goal-q1",
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-2",
+        eventName: "Goal",
+        isPositive: true,
+        periodNumber: 1, // Goal was in Period 1
+        eventTimestamp: "2026-10-14T10:05:00Z",
+        locationX: 90,
+        locationY: 40,
+        teamId: "team-1",
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: unmatchedEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 1000,
+        viewBoxHeight: 600,
+      }),
+    );
+
+    expect(result.current.goalLeadVectors).toHaveLength(1);
+    const vector = result.current.goalLeadVectors[0];
+
+    // Assist at X=70% (> 50%) should target opponent goal center (viewBoxWidth - 15 = 985, viewBoxHeight / 2 = 300)
+    expect(vector.x2).toBe(985);
+    expect(vector.y2).toBe(300);
   });
 
   it("handles marker hover and click interactions correctly", () => {

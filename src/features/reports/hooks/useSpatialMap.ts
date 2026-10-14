@@ -156,14 +156,7 @@ export const useSpatialMap = ({
           return 0;
         });
 
-      // Pure declarative fallback chain avoiding TS2322 variable type narrowing issues
-      const matchingGoal =
-        candidateGoals[0]?.goal ??
-        goalEvents.find(
-          (g) =>
-            g.periodNumber === assistEv.periodNumber && g.id !== assistEv.id,
-        ) ??
-        goalEvents.find((g) => g.id !== assistEv.id);
+      const matchingGoal = candidateGoals[0]?.goal;
 
       let x2: number;
       let y2: number;
