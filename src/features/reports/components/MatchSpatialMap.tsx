@@ -253,7 +253,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
           </marker>
         </defs>
 
-        {/* Directional Vectors Connecting Assist to Goal */}
+        {/* Directional Vectors Connecting Lead Events to Goal */}
         {showGoalLeadVectors &&
           goalLeadVectors.map((v) => {
             const dx = v.x2 - v.x1;

@@ -77,19 +77,19 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.renderablePoints).toHaveLength(2);
 
     const firstPoint = result.current.renderablePoints[0];
-    expect(firstPoint.cx).toBe(800); // 80% of 1000
-    expect(firstPoint.cy).toBe(300); // 50% of 600
+    expect(firstPoint.cx).toBe(800);
+    expect(firstPoint.cy).toBe(300);
     expect(firstPoint.shortCode).toBe("AST");
     expect(firstPoint.isSelected).toBe(false);
     expect(firstPoint.isHovered).toBe(false);
 
     const secondPoint = result.current.renderablePoints[1];
-    expect(secondPoint.cx).toBe(900); // 90% of 1000
-    expect(secondPoint.cy).toBe(240); // 40% of 600
-    expect(secondPoint.shortCode).toBe("GOA"); // fallback to eventName first 3 uppercase letters
+    expect(secondPoint.cx).toBe(900);
+    expect(secondPoint.cy).toBe(240);
+    expect(secondPoint.shortCode).toBe("GOA");
   });
 
-  it("calculates goalLeadVectors connecting Assist directly to nearest subsequent Goal in the same period matching positivity", () => {
+  it("calculates goalLeadVectors connecting lead events directly to nearest subsequent Goal in the same period matching positivity", () => {
     const { result } = renderHook(() =>
       useSpatialMap({
         events: mockEvents,
@@ -103,10 +103,10 @@ describe("useSpatialMap Custom Hook", () => {
     const vector = result.current.goalLeadVectors[0];
 
     expect(vector.id).toBe("vector-event-1");
-    expect(vector.x1).toBe(800); // Assist X (80%)
-    expect(vector.y1).toBe(300); // Assist Y (50%)
-    expect(vector.x2).toBe(900); // Goal X (90%)
-    expect(vector.y2).toBe(240); // Goal Y (40%)
+    expect(vector.x1).toBe(800);
+    expect(vector.y1).toBe(300);
+    expect(vector.x2).toBe(900);
+    expect(vector.y2).toBe(240);
     expect(vector.isPositive).toBe(true);
   });
 
@@ -117,7 +117,7 @@ describe("useSpatialMap Custom Hook", () => {
         matchLineupId: "lineup-1",
         eventDefinitionId: "def-foul",
         eventName: "Exclusion",
-        isPositive: false, // Negative action
+        isPositive: false,
         periodNumber: 1,
         eventTimestamp: "2026-10-14T10:00:00Z",
         isLeadToGoal: true,
@@ -130,7 +130,7 @@ describe("useSpatialMap Custom Hook", () => {
         matchLineupId: "lineup-2",
         eventDefinitionId: "def-goal",
         eventName: "Goal Scored",
-        isPositive: true, // Positive goal (scored)
+        isPositive: true,
         periodNumber: 1,
         eventTimestamp: "2026-10-14T10:02:00Z",
         locationX: 90,
@@ -142,7 +142,7 @@ describe("useSpatialMap Custom Hook", () => {
         matchLineupId: "lineup-1",
         eventDefinitionId: "def-goal-conceded",
         eventName: "Goal Conceded",
-        isPositive: false, // Negative goal (conceded)
+        isPositive: false,
         periodNumber: 1,
         eventTimestamp: "2026-10-14T10:03:00Z",
         locationX: 10,
@@ -163,15 +163,14 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.goalLeadVectors).toHaveLength(1);
     const vector = result.current.goalLeadVectors[0];
 
-    // Negative lead event should connect to Goal Conceded (10%, 50% -> x2: 100, y2: 300) and NOT Goal Scored
     expect(vector.x2).toBe(100);
     expect(vector.y2).toBe(300);
     expect(vector.isPositive).toBe(false);
   });
 
   it("targets goal coordinates from allEvents even when goal is filtered out from active events", () => {
-    const filteredEvents = [mockEvents[0]]; // Only Assist event
-    const allEvents = mockEvents; // Full list with Assist and Goal
+    const filteredEvents = [mockEvents[0]];
+    const allEvents = mockEvents;
 
     const { result } = renderHook(() =>
       useSpatialMap({
@@ -186,7 +185,6 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.goalLeadVectors).toHaveLength(1);
     const vector = result.current.goalLeadVectors[0];
 
-    // Goal event coordinates from allEvents (90%, 40%) -> (900, 240)
     expect(vector.x2).toBe(900);
     expect(vector.y2).toBe(240);
   });
@@ -199,6 +197,7 @@ describe("useSpatialMap Custom Hook", () => {
         eventDefinitionId: "def-1",
         eventName: "Assist",
         isPositive: true,
+        isLeadToGoal: true,
         periodNumber: 2,
         eventTimestamp: "2026-10-14T10:20:00Z",
         locationX: 70,
@@ -243,9 +242,9 @@ describe("useSpatialMap Custom Hook", () => {
         eventDefinitionId: "def-1",
         eventName: "Exclusion",
         isPositive: false,
+        isLeadToGoal: true,
         periodNumber: 1,
         eventTimestamp: "2026-10-14T10:00:00Z",
-        isLeadToGoal: true,
         locationX: 40,
         locationY: 50,
         teamId: "team-1",
@@ -264,7 +263,6 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.goalLeadVectors).toHaveLength(1);
     const vector = result.current.goalLeadVectors[0];
 
-    // Negative action fallback MUST target OUR goal on the LEFT (x2: 15, y2: 300)
     expect(vector.x2).toBe(15);
     expect(vector.y2).toBe(300);
     expect(vector.isPositive).toBe(false);
@@ -280,7 +278,6 @@ describe("useSpatialMap Custom Hook", () => {
 
     expect(result.current.activeEvent).toBeNull();
 
-    // Hover over event-1
     act(() => {
       result.current.handleMarkerMouseEnter("event-1");
     });
@@ -289,7 +286,6 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.activeEvent?.id).toBe("event-1");
     expect(result.current.renderablePoints[0].isHovered).toBe(true);
 
-    // Mouse leave event-1
     act(() => {
       result.current.handleMarkerMouseLeave();
     });
@@ -297,7 +293,6 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.hoveredEventId).toBeNull();
     expect(result.current.activeEvent).toBeNull();
 
-    // Select event-1 via click
     act(() => {
       result.current.handleMarkerClick("event-1");
     });
@@ -306,7 +301,6 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.activeEvent?.id).toBe("event-1");
     expect(result.current.renderablePoints[0].isSelected).toBe(true);
 
-    // Toggle off event-1
     act(() => {
       result.current.handleMarkerClick("event-1");
     });
@@ -314,7 +308,6 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.activeEvent).toBeNull();
     expect(result.current.renderablePoints[0].isSelected).toBe(false);
 
-    // Select event-2 and clear
     act(() => {
       result.current.handleMarkerClick("event-2");
     });

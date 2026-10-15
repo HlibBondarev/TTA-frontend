@@ -94,10 +94,10 @@ export const useSpatialMap = ({
 
   // Calculate directional vectors connecting Lead events directly to Goal events matching positivity
   const goalLeadVectors = useMemo<GoalLeadVector[]>(() => {
+    // Strictly rely on isLeadToGoal flag
     const leadEvents = events.filter(
       (e) =>
-        (Boolean(e.isLeadToGoal) ||
-          e.eventName?.toLowerCase().includes("assist")) &&
+        Boolean(e.isLeadToGoal) &&
         !e.eventName?.toLowerCase().includes("goal") &&
         e.locationX != null &&
         e.locationY != null &&
