@@ -162,11 +162,14 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           const lineupTeamId =
             lineupTeamMap.get(e.matchLineupId) || activeTeamId;
 
-          const isHomeTeamLineup = homeTeamId
-            ? lineupTeamId === homeTeamId
-            : guestTeamId
-              ? lineupTeamId !== guestTeamId
-              : lineupTeamId === activeTeamId;
+          let isHomeTeamLineup: boolean;
+          if (homeTeamId) {
+            isHomeTeamLineup = lineupTeamId === homeTeamId;
+          } else if (guestTeamId) {
+            isHomeTeamLineup = lineupTeamId !== guestTeamId;
+          } else {
+            isHomeTeamLineup = lineupTeamId === activeTeamId;
+          }
 
           if (positiveGoalDefIds.has(e.eventDefinitionId)) {
             // Scored Goal (Positive Result)
