@@ -89,7 +89,7 @@ describe("useSpatialMap Custom Hook", () => {
     expect(secondPoint.shortCode).toBe("GOA"); // fallback to eventName first 3 uppercase letters
   });
 
-  it("calculates goalLeadVectors connecting Assist directly to nearest subsequent Goal in the same period", () => {
+  it("calculates goalLeadVectors connecting Assist directly to nearest subsequent Goal in the same period matching positivity", () => {
     const { result } = renderHook(() =>
       useSpatialMap({
         events: mockEvents,
@@ -108,6 +108,65 @@ describe("useSpatialMap Custom Hook", () => {
     expect(vector.x2).toBe(900); // Goal X (90%)
     expect(vector.y2).toBe(240); // Goal Y (40%)
     expect(vector.isPositive).toBe(true);
+  });
+
+  it("matches negative lead events specifically to negative goal events and not positive goals", () => {
+    const mixedEvents: GameEventResponse[] = [
+      {
+        id: "foul-1",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-foul",
+        eventName: "Exclusion",
+        isPositive: false, // Negative action
+        periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:00:00Z",
+        isLeadToGoal: true,
+        locationX: 30,
+        locationY: 40,
+        teamId: "team-1",
+      },
+      {
+        id: "goal-positive",
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-goal",
+        eventName: "Goal Scored",
+        isPositive: true, // Positive goal (scored)
+        periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:02:00Z",
+        locationX: 90,
+        locationY: 50,
+        teamId: "team-1",
+      },
+      {
+        id: "goal-negative",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-goal-conceded",
+        eventName: "Goal Conceded",
+        isPositive: false, // Negative goal (conceded)
+        periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:03:00Z",
+        locationX: 10,
+        locationY: 50,
+        teamId: "team-1",
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: mixedEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 1000,
+        viewBoxHeight: 600,
+      }),
+    );
+
+    expect(result.current.goalLeadVectors).toHaveLength(1);
+    const vector = result.current.goalLeadVectors[0];
+
+    // Negative lead event should connect to Goal Conceded (10%, 50% -> x2: 100, y2: 300) and NOT Goal Scored
+    expect(vector.x2).toBe(100);
+    expect(vector.y2).toBe(300);
+    expect(vector.isPositive).toBe(false);
   });
 
   it("targets goal coordinates from allEvents even when goal is filtered out from active events", () => {

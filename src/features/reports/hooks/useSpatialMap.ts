@@ -92,9 +92,9 @@ export const useSpatialMap = ({
     viewBoxHeight,
   ]);
 
-  // Calculate directional vectors connecting Assist events directly to Goal events
+  // Calculate directional vectors connecting Lead events directly to Goal events matching positivity
   const goalLeadVectors = useMemo<GoalLeadVector[]>(() => {
-    const assistEvents = events.filter(
+    const leadEvents = events.filter(
       (e) =>
         (Boolean(e.isLeadToGoal) ||
           e.eventName?.toLowerCase().includes("assist")) &&
@@ -116,16 +116,18 @@ export const useSpatialMap = ({
         e.id != null,
     );
 
-    return assistEvents.map((assistEv) => {
-      const x1 = (Number(assistEv.locationX) / 100) * viewBoxWidth;
-      const y1 = (Number(assistEv.locationY) / 100) * viewBoxHeight;
+    return leadEvents.map((leadEv) => {
+      const x1 = (Number(leadEv.locationX) / 100) * viewBoxWidth;
+      const y1 = (Number(leadEv.locationY) / 100) * viewBoxHeight;
 
-      const assistTimestamp =
-        assistEv.eventTimestamp == null
+      const leadTimestamp =
+        leadEv.eventTimestamp == null
           ? Number.NaN
-          : Date.parse(assistEv.eventTimestamp);
+          : Date.parse(leadEv.eventTimestamp);
 
-      // Strictly find nearest subsequent Goal event in the same period and team with valid metadata
+      const isPositiveLead = leadEv.isPositive ?? true;
+
+      // Strictly find nearest subsequent Goal event matching period, team AND positivity (positive vs negative goal)
       const candidateGoals = goalEvents
         .map((goal) => ({
           goal,
@@ -136,14 +138,15 @@ export const useSpatialMap = ({
         }))
         .filter(
           ({ goal, timestamp }) =>
-            goal.id !== assistEv.id &&
-            assistEv.periodNumber != null &&
-            goal.periodNumber === assistEv.periodNumber &&
-            assistEv.teamId != null &&
-            goal.teamId === assistEv.teamId &&
-            Number.isFinite(assistTimestamp) &&
+            goal.id !== leadEv.id &&
+            leadEv.periodNumber != null &&
+            goal.periodNumber === leadEv.periodNumber &&
+            leadEv.teamId != null &&
+            goal.teamId === leadEv.teamId &&
+            (goal.isPositive ?? true) === isPositiveLead && // Match positivity!
+            Number.isFinite(leadTimestamp) &&
             Number.isFinite(timestamp) &&
-            timestamp >= assistTimestamp,
+            timestamp >= leadTimestamp,
         )
         .sort((a, b) => a.timestamp - b.timestamp);
 
@@ -156,18 +159,22 @@ export const useSpatialMap = ({
         x2 = (Number(matchingGoal.locationX) / 100) * viewBoxWidth;
         y2 = (Number(matchingGoal.locationY) / 100) * viewBoxHeight;
       } else {
-        // Fallback to opponent goal center if goal location is unknown or metadata is incomplete
-        x2 = x1 > viewBoxWidth / 2 ? viewBoxWidth - 15 : 15;
+        // Fallback: Positive actions target opponent goal; negative actions target own goal
+        if (isPositiveLead) {
+          x2 = x1 > viewBoxWidth / 2 ? viewBoxWidth - 15 : 15;
+        } else {
+          x2 = x1 > viewBoxWidth / 2 ? 15 : viewBoxWidth - 15;
+        }
         y2 = viewBoxHeight / 2;
       }
 
       return {
-        id: `vector-${assistEv.id!}`,
+        id: `vector-${leadEv.id!}`,
         x1,
         y1,
         x2,
         y2,
-        isPositive: assistEv.isPositive ?? true,
+        isPositive: isPositiveLead,
       };
     });
   }, [events, allEvents, viewBoxWidth, viewBoxHeight]);
