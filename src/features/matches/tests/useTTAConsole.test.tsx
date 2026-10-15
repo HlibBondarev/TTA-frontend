@@ -159,7 +159,7 @@ describe("useTTAConsole Custom Hook", () => {
     expect(result.current.pendingLocation).toBeNull();
   });
 
-  it("should clear pendingAction and consoleError when clearPendingAction is called while preserving pendingLocation", async () => {
+  it("should clear pendingAction, pendingLocation, and consoleError when clearPendingAction is called", async () => {
     mockRecordGameEvent.mockRejectedValueOnce(
       new Error("Database write error"),
     );
@@ -191,10 +191,7 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     expect(result.current.pendingAction).toBeNull();
-    expect(result.current.pendingLocation).toEqual({
-      locationX: 10.0,
-      locationY: 20.0,
-    });
+    expect(result.current.pendingLocation).toBeNull();
     expect(result.current.consoleError).toBeNull();
   });
 

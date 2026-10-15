@@ -10,6 +10,30 @@ vi.mock("../../../services/reportService", () => ({
   },
 }));
 
+vi.mock("../../reports/components/MatchSpatialReportView", () => ({
+  MatchSpatialReportView: ({
+    matchId,
+    teamId,
+    playgroundSvg,
+    onBack,
+  }: {
+    matchId: string;
+    teamId: string;
+    playgroundSvg?: string | null;
+    onBack?: () => void;
+  }) => (
+    <div data-testid="match-spatial-report-view">
+      <span>
+        Spatial View for Match {matchId}, Team {teamId}
+      </span>
+      {playgroundSvg && <span>SVG: {playgroundSvg}</span>}
+      <button type="button" onClick={onBack}>
+        Back from Spatial
+      </button>
+    </div>
+  ),
+}));
+
 describe("MatchReportModal", () => {
   const defaultProps = {
     isOpen: true,
@@ -263,11 +287,9 @@ describe("MatchReportModal", () => {
       );
     });
 
-    // User clicks active "Home Squad" tab while initial request is pending
     const homeTab = screen.getByRole("button", { name: /Home Squad/i });
     fireEvent.click(homeTab);
 
-    // A replacement request should be triggered immediately
     await waitFor(() => {
       expect(reportService.getTeamSummaryReport).toHaveBeenCalledTimes(2);
       expect(reportService.getTeamSummaryReport).toHaveBeenLastCalledWith(
@@ -343,14 +365,11 @@ describe("MatchReportModal", () => {
       );
     });
 
-    // User explicitly clicks Home Squad tab while guest report request is pending
     const homeTab = screen.getByRole("button", { name: /Home Squad/i });
     fireEvent.click(homeTab);
 
-    // Resolve guest report promise
     resolveGuestReport!(mockGuestSummary);
 
-    // Verify Home Player is rendered and Guest Player is NOT rendered
     await waitFor(() => {
       expect(screen.getByText(/HomePlayer One/i)).toBeInTheDocument();
       expect(screen.queryByText(/GuestPlayer Two/i)).not.toBeInTheDocument();
@@ -552,10 +571,8 @@ describe("MatchReportModal", () => {
     closeButton.focus();
     expect(document.activeElement).toBe(closeButton);
 
-    // Context prop change while remaining open
     rerender(<MatchReportModal {...defaultProps} matchId="match-999" />);
 
-    // Focus must remain on elements inside the dialog and not restore prematurely to triggerBtn
     expect(document.activeElement).not.toBe(triggerBtn);
 
     document.body.removeChild(triggerBtn);
@@ -663,6 +680,131 @@ describe("MatchReportModal", () => {
     expect(
       screen.getByRole("button", { name: /Michael Jordan/i }),
     ).toBeInTheDocument();
+  });
+
+  it("switches to spatial analytics view mode when Spatial Map tab is clicked and allows returning to summary", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
+      mockTeamSummary,
+    );
+
+    render(<MatchReportModal {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
+    });
+
+    const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
+    fireEvent.click(spatialTab);
+
+    expect(screen.getByText("Match Spatial Analytics")).toBeInTheDocument();
+    expect(screen.getByTestId("match-spatial-report-view")).toBeInTheDocument();
+    expect(
+      screen.getByText("Spatial View for Match match-101, Team team-202"),
+    ).toBeInTheDocument();
+
+    const summaryTab = screen.getByRole("button", { name: /Summary Report/i });
+    fireEvent.click(summaryTab);
+
+    expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("match-spatial-report-view"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("passes playgroundSvg prop to MatchSpatialReportView when provided", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
+      mockTeamSummary,
+    );
+
+    render(
+      <MatchReportModal {...defaultProps} playgroundSvg="<svg>court</svg>" />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
+    });
+
+    const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
+    fireEvent.click(spatialTab);
+
+    expect(screen.getByText("SVG: <svg>court</svg>")).toBeInTheDocument();
+  });
+
+  it("passes active guest team ID to MatchSpatialReportView when guest team tab is active", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
+      mockTeamSummary,
+    );
+
+    render(
+      <MatchReportModal
+        {...defaultProps}
+        guestTeamId="guest-team-303"
+        guestTeamName="Opponent Squad"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
+    });
+
+    const guestTab = screen.getByRole("button", { name: /Opponent Squad/i });
+    fireEvent.click(guestTab);
+
+    const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
+    fireEvent.click(spatialTab);
+
+    expect(
+      screen.getByText("Spatial View for Match match-101, Team guest-team-303"),
+    ).toBeInTheDocument();
+  });
+
+  it("allows returning to summary view using onBack callback from spatial view", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
+      mockTeamSummary,
+    );
+
+    render(<MatchReportModal {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
+    });
+
+    const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
+    fireEvent.click(spatialTab);
+
+    const backButton = screen.getByRole("button", {
+      name: /Back from Spatial/i,
+    });
+    fireEvent.click(backButton);
+
+    expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
+  });
+
+  it("resets reportMode to summary when modal closes and reopens or context props transition", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
+      mockTeamSummary,
+    );
+
+    const { rerender } = render(<MatchReportModal {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
+    });
+
+    const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
+    fireEvent.click(spatialTab);
+
+    expect(screen.getByText("Match Spatial Analytics")).toBeInTheDocument();
+
+    rerender(<MatchReportModal {...defaultProps} isOpen={false} />);
+    rerender(<MatchReportModal {...defaultProps} isOpen={true} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("match-spatial-report-view"),
+      ).not.toBeInTheDocument();
+    });
   });
 
   it("calls onClose when Close Report button is clicked", async () => {

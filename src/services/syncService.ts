@@ -77,6 +77,8 @@ const fetchAndFormatBatchPayloads = async (normalizedMatchId: string) => {
         ? new Date(e.eventTimestamp).toISOString()
         : e.eventTimestamp,
       isLeadToGoal: e.isLeadToGoal,
+      locationX: e.locationX ?? null,
+      locationY: e.locationY ?? null,
     })),
     anchors: unsyncedAnchors.map((a) => ({
       id: a.id,
