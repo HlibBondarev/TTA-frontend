@@ -106,17 +106,47 @@ describe("MatchSpatialMap Component", () => {
   });
 
   it("renders directional vector when showGoalLeadVectors is true and respects allEvents prop", () => {
+    const vectorEvents: GameEventResponse[] = [
+      {
+        id: "lead-1",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        eventName: "Key Pass",
+        isPositive: true,
+        periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:00:00Z",
+        isLeadToGoal: true,
+        locationX: 40,
+        locationY: 50,
+        teamId: "team-1",
+      },
+      {
+        id: "goal-1",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        eventName: "Goal",
+        isPositive: true,
+        periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:01:00Z",
+        isLeadToGoal: false,
+        locationX: 90,
+        locationY: 50,
+        teamId: "team-1",
+      },
+    ];
+
     const { container } = render(
       <MatchSpatialMap
-        events={mockEvents}
-        allEvents={mockEvents}
+        events={vectorEvents}
+        allEvents={vectorEvents}
         eventDefinitionsMap={mockEventDefinitionsMap}
         showGoalLeadVectors={true}
       />,
     );
 
-    const line = container.querySelector("line");
-    expect(line).toBeInTheDocument();
+    // Assert strictly against directional vector line (with arrowhead marker)
+    const vectorLine = container.querySelector("line[marker-end]");
+    expect(vectorLine).toBeInTheDocument();
   });
 
   it("displays tooltip on hover with formatted match time trimming decimal seconds and enforcing minimum width", () => {
