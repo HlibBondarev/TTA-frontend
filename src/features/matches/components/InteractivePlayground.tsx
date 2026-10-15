@@ -41,14 +41,19 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
     const clickX = event.clientX - rect.left;
     const clickY = event.clientY - rect.top;
 
-    // Convert to percentage scale [0.00, 100.00] relative to BOTTOM-LEFT origin (0,0)
-    const rawX = (clickX / rect.width) * 100;
-    const rawY = ((rect.height - clickY) / rect.height) * 100;
+    // In portrait layout:
+    // - Vertical axis (bottom-to-top) represents pitch Length (canonical locationX: 0%..100%)
+    // - Horizontal axis (left-to-right) represents pitch Width (canonical locationY: 0%..100%)
+    const rawWidthPct = (clickX / rect.width) * 100;
+    const rawLengthPct = ((rect.height - clickY) / rect.height) * 100;
 
-    const clampX = Math.min(100, Math.max(0, rawX));
-    const clampY = Math.min(100, Math.max(0, rawY));
+    const clampLength = Math.min(100, Math.max(0, rawLengthPct));
+    const clampWidth = Math.min(100, Math.max(0, rawWidthPct));
 
-    onLocationSelect(Number(clampX.toFixed(2)), Number(clampY.toFixed(2)));
+    onLocationSelect(
+      Number(clampLength.toFixed(2)),
+      Number(clampWidth.toFixed(2)),
+    );
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -68,19 +73,22 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
 
     event.preventDefault();
 
-    const currentX = locationX ?? 50;
-    const currentY = locationY ?? 50;
+    const currentLength = locationX ?? 50;
+    const currentWidth = locationY ?? 50;
     const step = 5;
 
-    let newX = currentX;
-    let newY = currentY;
+    let newLength = currentLength;
+    let newWidth = currentWidth;
 
-    if (event.key === "ArrowLeft") newX = Math.max(0, currentX - step);
-    if (event.key === "ArrowRight") newX = Math.min(100, currentX + step);
-    if (event.key === "ArrowUp") newY = Math.min(100, currentY + step);
-    if (event.key === "ArrowDown") newY = Math.max(0, currentY - step);
+    if (event.key === "ArrowLeft") newWidth = Math.max(0, currentWidth - step);
+    if (event.key === "ArrowRight")
+      newWidth = Math.min(100, currentWidth + step);
+    if (event.key === "ArrowUp")
+      newLength = Math.min(100, currentLength + step);
+    if (event.key === "ArrowDown")
+      newLength = Math.max(0, currentLength - step);
 
-    onLocationSelect(Number(newX.toFixed(2)), Number(newY.toFixed(2)));
+    onLocationSelect(Number(newLength.toFixed(2)), Number(newWidth.toFixed(2)));
   };
 
   const handleClearLocation = (e: React.MouseEvent) => {
@@ -153,8 +161,8 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
             {hasCoordinates && (
               <div
                 style={{
-                  left: `${locationX}%`,
-                  top: `${100 - locationY}%`,
+                  left: `${locationY}%`,
+                  top: `${100 - locationX}%`,
                 }}
                 className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none z-10 transition-all duration-150 ease-out"
               >

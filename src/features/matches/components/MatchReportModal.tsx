@@ -6,6 +6,7 @@ import {
 } from "../../../services/reportService";
 import { TeamSummaryReportView } from "./TeamSummaryReportView";
 import { PlayerDetailedReportView } from "./PlayerDetailedReportView";
+import { MatchSpatialReportView } from "../../reports/components/MatchSpatialReportView";
 
 export interface MatchReportModalProps {
   isOpen: boolean;
@@ -14,6 +15,7 @@ export interface MatchReportModalProps {
   teamName?: string;
   guestTeamId?: string;
   guestTeamName?: string;
+  playgroundSvg?: string | null;
   onClose: () => void;
 }
 
@@ -24,17 +26,18 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   teamName,
   guestTeamId,
   guestTeamName,
+  playgroundSvg,
   onClose,
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
   const [activeTeamId, setActiveTeamId] = useState<string>(teamId);
-  // Fetch generation counter to trigger refetch when clicking the already-active team tab
+  const [reportMode, setReportMode] = useState<"summary" | "spatial">(
+    "summary",
+  );
   const [fetchGeneration, setFetchGeneration] = useState<number>(0);
-  // Track auto-switch attempt guard with ref to prevent effect cleanup during pending async requests
   const hasAttemptedAutoSwitchRef = useRef<boolean>(false);
-  // Request sequence token to invalidate pending auto-switches if manual tab selection occurs
   const requestIdRef = useRef<number>(0);
 
   const [summaryReports, setSummaryReports] = useState<
@@ -48,7 +51,6 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     useState<PlayerDetailedMatchReportResponse | null>(null);
   const [isPlayerLoading, setIsPlayerLoading] = useState<boolean>(false);
 
-  // Synchronize state during render when isOpen, matchId, teamId, or guestTeamId transitions
   const [prevProps, setPrevProps] = useState({
     isOpen,
     matchId,
@@ -66,10 +68,10 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     if (isOpen) {
       setActiveTeamId(teamId);
       setSelectedLineupId(null);
+      setReportMode("summary");
     }
   }
 
-  // Manage native dialog showModal and focus restoration strictly bound to modal visibility
   useEffect(() => {
     if (isOpen) {
       previousFocusRef.current = document.activeElement as HTMLElement | null;
@@ -93,27 +95,23 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     };
   }, [isOpen]);
 
-  // Reset auto-switch guard ref when report context props transition while modal is open
   useEffect(() => {
     if (isOpen) {
       hasAttemptedAutoSwitchRef.current = false;
     }
   }, [isOpen, matchId, teamId, guestTeamId]);
 
-  // Event handler for selecting a player row
   const handleSelectPlayer = (lineupId: string) => {
     setSelectedLineupId(lineupId);
     setIsPlayerLoading(true);
     setPlayerReport(null);
   };
 
-  // Event handler for returning back to team summary
   const handleBackToSummary = () => {
     setSelectedLineupId(null);
     setPlayerReport(null);
   };
 
-  // Helper to check if summary report contains any recorded TTA actions
   const hasTrackedActions = (reports: TeamMatchSummaryReportResponse[]) =>
     reports.some(
       (r) =>
@@ -124,9 +122,9 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
         (r.negativeGoalLeadingActions ?? 0) > 0,
     );
 
-  // Fetch Team Summary when modal opens, active team changes, or same team is re-selected
   useEffect(() => {
-    if (!isOpen || !matchId || !activeTeamId) return;
+    if (!isOpen || !matchId || !activeTeamId || reportMode !== "summary")
+      return;
 
     let isMounted = true;
     const currentRequestId = ++requestIdRef.current;
@@ -147,7 +145,6 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
 
         setSummaryReports(data);
 
-        // Smart auto-select guest team if home team has 0 actions and guest team has recorded actions
         if (
           !hasAttemptedAutoSwitchRef.current &&
           activeTeamId === teamId &&
@@ -190,9 +187,16 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, matchId, activeTeamId, teamId, guestTeamId, fetchGeneration]);
+  }, [
+    isOpen,
+    matchId,
+    activeTeamId,
+    teamId,
+    guestTeamId,
+    fetchGeneration,
+    reportMode,
+  ]);
 
-  // Fetch Player Detailed Report when a lineup is selected
   useEffect(() => {
     if (!isOpen || !matchId || !selectedLineupId) return;
 
@@ -238,6 +242,45 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
     onClose();
   };
 
+  const getModalTitle = (): string => {
+    if (selectedLineupId) {
+      return "Player TTA Detailed Report";
+    }
+    if (reportMode === "spatial") {
+      return "Match Spatial Analytics";
+    }
+    return "Team TTA Summary Report";
+  };
+
+  const renderReportContent = (): React.ReactNode => {
+    if (selectedLineupId) {
+      return (
+        <PlayerDetailedReportView
+          report={playerReport}
+          isLoading={isPlayerLoading}
+          onBack={handleBackToSummary}
+        />
+      );
+    }
+    if (reportMode === "spatial") {
+      return (
+        <MatchSpatialReportView
+          matchId={matchId}
+          teamId={activeTeamId}
+          playgroundSvg={playgroundSvg}
+          onBack={() => setReportMode("summary")}
+        />
+      );
+    }
+    return (
+      <TeamSummaryReportView
+        reports={summaryReports}
+        isLoading={isSummaryLoading}
+        onSelectPlayer={handleSelectPlayer}
+      />
+    );
+  };
+
   return (
     <dialog
       ref={dialogRef}
@@ -246,16 +289,14 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
       aria-labelledby="report-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-2 sm:p-4 w-full h-full max-w-none max-h-none border-none m-0"
     >
-      <div className="w-full max-w-sm sm:max-w-md bg-gray-900 border border-gray-800 text-white rounded-2xl shadow-2xl p-3 sm:p-4 flex flex-col space-y-3 max-h-[94vh] overflow-hidden">
+      <div className="w-full max-w-sm sm:max-w-lg bg-gray-900 border border-gray-800 text-white rounded-2xl shadow-2xl p-3 sm:p-4 flex flex-col space-y-3 max-h-[94vh] overflow-hidden">
         <header className="border-b border-gray-800 pb-2 flex flex-col space-y-2">
           <div className="flex items-center justify-between">
             <h3
               id="report-modal-title"
               className="text-xs sm:text-sm font-black uppercase text-emerald-400 tracking-wider"
             >
-              {selectedLineupId
-                ? "Player TTA Detailed Report"
-                : "Team TTA Summary Report"}
+              {getModalTitle()}
             </h3>
             <button
               type="button"
@@ -265,6 +306,34 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
               ✕
             </button>
           </div>
+
+          {/* Report Type View Mode Switcher */}
+          {!selectedLineupId && (
+            <div className="flex bg-gray-950 p-1 rounded-xl border border-gray-800 gap-1">
+              <button
+                type="button"
+                onClick={() => setReportMode("summary")}
+                className={`flex-1 py-1 text-[11px] font-bold rounded-lg transition-colors ${
+                  reportMode === "summary"
+                    ? "bg-indigo-600 text-white"
+                    : "text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                Summary Report
+              </button>
+              <button
+                type="button"
+                onClick={() => setReportMode("spatial")}
+                className={`flex-1 py-1 text-[11px] font-bold rounded-lg transition-colors ${
+                  reportMode === "spatial"
+                    ? "bg-emerald-600 text-white"
+                    : "text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                📍 Spatial Map
+              </button>
+            </div>
+          )}
 
           {/* Team Switcher Tabs */}
           {!selectedLineupId && guestTeamId && (
@@ -311,7 +380,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
           )}
         </header>
 
-        {summaryError && (
+        {summaryError && reportMode === "summary" && (
           <div
             role="alert"
             className="p-2 text-xs bg-red-900/50 border border-red-800 text-red-200 rounded text-center font-medium"
@@ -321,19 +390,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
         )}
 
         <div className="flex-1 overflow-y-auto pr-0.5">
-          {selectedLineupId ? (
-            <PlayerDetailedReportView
-              report={playerReport}
-              isLoading={isPlayerLoading}
-              onBack={handleBackToSummary}
-            />
-          ) : (
-            <TeamSummaryReportView
-              reports={summaryReports}
-              isLoading={isSummaryLoading}
-              onSelectPlayer={handleSelectPlayer}
-            />
-          )}
+          {renderReportContent()}
         </div>
 
         <footer className="pt-2 border-t border-gray-800 text-right">

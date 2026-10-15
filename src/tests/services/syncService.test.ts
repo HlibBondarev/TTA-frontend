@@ -1726,6 +1726,8 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
           periodNumber: 1,
           eventTimestamp: "2026-10-05T12:00:00.000Z",
           isLeadToGoal: false,
+          locationX: null,
+          locationY: null,
         },
       ],
       anchors: [
@@ -1753,6 +1755,68 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       syncedPresenceIds: ["p1"],
     });
     expect(db.syncQueue.delete).toHaveBeenCalledWith(10);
+  });
+
+  it("includes spatial locationX and locationY coordinates in batch request payload when present on events", async () => {
+    const mockLineups = [{ id: "l1", matchId: "m123" }];
+    const mockEvents = [
+      {
+        id: "e-spatial",
+        matchLineupId: "l1",
+        eventDefinitionId: "def-1",
+        periodNumber: 1,
+        isLeadToGoal: true,
+        isSynced: 0,
+        eventTimestamp: "2026-10-05T12:00:00Z",
+        locationX: 45.5,
+        locationY: 80.2,
+      },
+    ];
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockLineups),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.gameevents.filter).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue(mockEvents),
+    } as unknown as ReturnType<typeof db.gameevents.filter>);
+
+    vi.mocked(db.timeanchors.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.playerpresences.filter).mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([]),
+    } as unknown as ReturnType<typeof db.playerpresences.filter>);
+
+    vi.mocked(apiClient.post).mockResolvedValue({
+      syncedEventIds: ["e-spatial"],
+    });
+
+    await syncMatchBatch("m123");
+
+    expect(apiClient.post).toHaveBeenCalledWith("/Matches/m123/sync-batch", {
+      events: [
+        {
+          id: "e-spatial",
+          matchLineupId: "l1",
+          eventDefinitionId: "def-1",
+          periodNumber: 1,
+          eventTimestamp: "2026-10-05T12:00:00.000Z",
+          isLeadToGoal: true,
+          locationX: 45.5,
+          locationY: 80.2,
+        },
+      ],
+      anchors: [],
+      presences: [],
+    });
   });
 
   it("handles wrapped API response { data: MatchSyncBatchResponse }", async () => {
