@@ -30,6 +30,57 @@ vi.mock("../../../services/reportService", () => ({
   },
 }));
 
+// Mock IndexedDB queries in db
+vi.mock("../../../db/ttaDatabase", () => ({
+  db: {
+    matches: {
+      get: vi.fn(),
+    },
+    matchlineups: {
+      where: vi.fn(),
+    },
+    playerrosters: {
+      where: vi.fn(),
+    },
+    eventdefinitions: {
+      toArray: vi.fn(),
+    },
+    gameevents: {
+      where: vi.fn(),
+    },
+  },
+}));
+
+import { db } from "../../../db/ttaDatabase";
+
+const setupDefaultDbMocks = () => {
+  vi.mocked(db.matches.get).mockResolvedValue({
+    id: "test-match-123",
+    homeTeamId: "home-team-id",
+    guestTeamId: "guest-team-id",
+  } as unknown as Record<string, unknown>);
+
+  vi.mocked(db.matchlineups.where).mockReturnValue({
+    equals: vi.fn().mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([]),
+    }),
+  } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+  vi.mocked(db.playerrosters.where).mockReturnValue({
+    anyOf: vi.fn().mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([]),
+    }),
+  } as unknown as ReturnType<typeof db.playerrosters.where>);
+
+  vi.mocked(db.eventdefinitions.toArray).mockResolvedValue([]);
+
+  vi.mocked(db.gameevents.where).mockReturnValue({
+    anyOf: vi.fn().mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([]),
+    }),
+  } as unknown as ReturnType<typeof db.gameevents.where>);
+};
+
 const createTestStore = (
   preloadedMatchState: Partial<MatchState> = {},
   preloadedNavigationState: Partial<NavigationState> = {},
@@ -47,7 +98,7 @@ const createTestStore = (
     preloadedState: {
       match: {
         activeMatchId: "test-match-123",
-        activeTeamId: "test-team-456",
+        activeTeamId: "home-team-id",
         periodNumber: 4,
         homeScore: 8,
         guestScore: 5,
@@ -69,6 +120,7 @@ describe("MatchResultModal Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    setupDefaultDbMocks();
   });
 
   test("should render nothing when isOpen is false", () => {
@@ -82,7 +134,7 @@ describe("MatchResultModal Component", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  test("should render modal and pre-fill scores from Redux when isOpen is true", () => {
+  test("should render modal and fallback to scores from Redux when IndexedDB has no lineup events", async () => {
     const store = createTestStore({ homeScore: 12, guestScore: 7 });
     render(
       <Provider store={store}>
@@ -94,12 +146,198 @@ describe("MatchResultModal Component", () => {
     expect(screen.getByText("Match Result Finalization")).toBeInTheDocument();
 
     const inputs = screen.getAllByRole("textbox");
-    expect(inputs[0]).toHaveValue("12"); // Home score
-    expect(inputs[1]).toHaveValue("7"); // Guest score
-    expect(inputs[2]).toHaveValue(""); // Temperature
+    await waitFor(() => {
+      expect(inputs[0]).toHaveValue("12");
+      expect(inputs[1]).toHaveValue("7");
+    });
   });
 
-  test("should increment and decrement scores using stepper buttons", () => {
+  test("should fallback to scores from Redux when IndexedDB events exist but contain no Goal-definition events", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "test-match-123",
+      homeTeamId: "home-team-id",
+      guestTeamId: "guest-team-id",
+    } as unknown as Record<string, unknown>);
+
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockResolvedValue([
+            { id: "lineup-home-1", playerRosterId: "roster-home-1" },
+          ]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.playerrosters.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockResolvedValue([{ id: "roster-home-1", teamId: "home-team-id" }]),
+      }),
+    } as unknown as ReturnType<typeof db.playerrosters.where>);
+
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([
+      { id: "def-steal", name: "Steal", isPositive: true },
+      { id: "def-goal", name: "Goal", isPositive: true },
+    ] as unknown as Record<string, unknown>[]);
+
+    vi.mocked(db.gameevents.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockResolvedValue([
+            { matchLineupId: "lineup-home-1", eventDefinitionId: "def-steal" },
+          ]),
+      }),
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    const store = createTestStore({ homeScore: 8, guestScore: 5 });
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    const inputs = screen.getAllByRole("textbox");
+
+    await waitFor(() => {
+      expect(inputs[0]).toHaveValue("8");
+      expect(inputs[1]).toHaveValue("5");
+    });
+  });
+
+  test("should preserve user manual score edits if user interacts before initial score calculation completes", async () => {
+    let resolveEvents: (value: unknown) => void;
+    const eventsPromise = new Promise((resolve) => {
+      resolveEvents = resolve;
+    });
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "test-match-123",
+      homeTeamId: "home-team-id",
+      guestTeamId: "guest-team-id",
+    } as unknown as Record<string, unknown>);
+
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockResolvedValue([
+            { id: "lineup-home-1", playerRosterId: "roster-home-1" },
+          ]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.playerrosters.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockResolvedValue([{ id: "roster-home-1", teamId: "home-team-id" }]),
+      }),
+    } as unknown as ReturnType<typeof db.playerrosters.where>);
+
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([
+      { id: "def-goal-pos", name: "Goal", isPositive: true },
+    ] as unknown as Record<string, unknown>[]);
+
+    vi.mocked(db.gameevents.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockReturnValue(eventsPromise),
+      }),
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    const store = createTestStore({ homeScore: 0, guestScore: 0 });
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    const inputs = screen.getAllByRole("textbox");
+
+    // User edits score manually before async query resolves
+    fireEvent.change(inputs[0], { target: { value: "99" } });
+    expect(inputs[0]).toHaveValue("99");
+
+    // Resolve async calculation with 5 goals
+    resolveEvents!([
+      { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
+      { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
+      { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
+      { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
+      { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
+    ]);
+
+    // Value should stay 99 and not be overwritten by 5
+    await waitFor(() => {
+      expect(inputs[0]).toHaveValue("99");
+    });
+  });
+
+  test("should auto-calculate initial scores from positive and negative Goal events in IndexedDB", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "test-match-123",
+      homeTeamId: "home-team-id",
+      guestTeamId: "guest-team-id",
+    } as unknown as Record<string, unknown>);
+
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { id: "lineup-home-1", playerRosterId: "roster-home-1" },
+          { id: "lineup-guest-gk", playerRosterId: "roster-guest-gk" },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.playerrosters.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { id: "roster-home-1", teamId: "home-team-id" },
+          { id: "roster-guest-gk", teamId: "guest-team-id" },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.playerrosters.where>);
+
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([
+      { id: "def-goal-pos", name: "Goal", isPositive: true },
+      { id: "def-goal-neg", name: "Goal", isPositive: false },
+    ] as unknown as Record<string, unknown>[]);
+
+    vi.mocked(db.gameevents.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
+          { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
+          {
+            matchLineupId: "lineup-guest-gk",
+            eventDefinitionId: "def-goal-neg",
+          },
+          {
+            matchLineupId: "lineup-guest-gk",
+            eventDefinitionId: "def-goal-pos",
+          },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    const store = createTestStore({ homeScore: 0, guestScore: 0 });
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    const inputs = screen.getAllByRole("textbox");
+
+    await waitFor(() => {
+      expect(inputs[0]).toHaveValue("3");
+      expect(inputs[1]).toHaveValue("1");
+    });
+  });
+
+  test("should increment and decrement scores using stepper buttons", async () => {
     const store = createTestStore({ homeScore: 2, guestScore: 0 });
     render(
       <Provider store={store}>
@@ -114,20 +352,21 @@ describe("MatchResultModal Component", () => {
 
     const inputs = screen.getAllByRole("textbox");
 
-    // Increment Home Score (2 -> 3)
+    await waitFor(() => {
+      expect(inputs[0]).toHaveValue("2");
+    });
+
     fireEvent.click(homePlus);
     expect(inputs[0]).toHaveValue("3");
 
-    // Decrement Home Score (3 -> 2)
     fireEvent.click(homeMinus);
     expect(inputs[0]).toHaveValue("2");
 
-    // Try Decrementing Guest Score below 0 (0 -> 0)
     fireEvent.click(guestMinus);
     expect(inputs[1]).toHaveValue("0");
   });
 
-  test("should disable submit button when scores are invalid", () => {
+  test("should disable submit button when scores are invalid", async () => {
     const store = createTestStore();
     render(
       <Provider store={store}>
@@ -138,23 +377,18 @@ describe("MatchResultModal Component", () => {
     const inputs = screen.getAllByRole("textbox");
     const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
 
-    expect(submitBtn).not.toBeDisabled();
+    await waitFor(() => {
+      expect(submitBtn).not.toBeDisabled();
+    });
 
-    // Set invalid negative/text home score
     fireEvent.change(inputs[0], { target: { value: "-3" } });
     expect(submitBtn).toBeDisabled();
 
-    // Set non-numeric text home score
     fireEvent.change(inputs[0], { target: { value: "abc" } });
-    expect(submitBtn).toBeDisabled();
-
-    // Reset home score to valid, set guest score empty
-    fireEvent.change(inputs[0], { target: { value: "5" } });
-    fireEvent.change(inputs[1], { target: { value: "" } });
     expect(submitBtn).toBeDisabled();
   });
 
-  test("should validate optional temperature input correctly", () => {
+  test("should validate optional temperature input correctly", async () => {
     const store = createTestStore();
     render(
       <Provider store={store}>
@@ -166,14 +400,16 @@ describe("MatchResultModal Component", () => {
     const tempInput = inputs[2];
     const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
 
-    // Invalid temperature string
+    await waitFor(() => {
+      expect(submitBtn).not.toBeDisabled();
+    });
+
     fireEvent.change(tempInput, { target: { value: "invalid-temp" } });
     expect(submitBtn).toBeDisabled();
     expect(
       screen.getByText("Enter a valid numeric temperature value."),
     ).toBeInTheDocument();
 
-    // Valid decimal temperature
     fireEvent.change(tempInput, { target: { value: "26.5" } });
     expect(submitBtn).not.toBeDisabled();
     expect(
@@ -195,7 +431,7 @@ describe("MatchResultModal Component", () => {
     );
 
     const inputs = screen.getAllByRole("textbox");
-    fireEvent.change(inputs[2], { target: { value: "24.0" } }); // Temperature
+    fireEvent.change(inputs[2], { target: { value: "24.0" } });
 
     const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
     fireEvent.click(submitBtn);
@@ -203,7 +439,7 @@ describe("MatchResultModal Component", () => {
     await waitFor(() => {
       expect(matchFinalizationService.finalizeMatch).toHaveBeenCalledWith({
         matchId: "test-match-123",
-        activeTeamId: "test-team-456",
+        activeTeamId: "home-team-id",
         homeScore: 10,
         guestScore: 8,
         temperature: 24.0,
@@ -211,10 +447,8 @@ describe("MatchResultModal Component", () => {
       });
     });
 
-    // Check Redux match state is STILL ACTIVE while report modal is open
     expect(store.getState().match.activeMatchId).toBe("test-match-123");
 
-    // Check post-finalization MatchReportModal rendered
     await waitFor(() => {
       expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
     });
@@ -236,18 +470,15 @@ describe("MatchResultModal Component", () => {
     const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
     fireEvent.click(submitBtn);
 
-    // Wait for report modal to appear
     await waitFor(() => {
       expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
     });
 
-    // Close report modal
     const closeReportBtn = screen.getByRole("button", {
       name: /close report/i,
     });
     fireEvent.click(closeReportBtn);
 
-    // Check Redux match state was reset AND navigation switched to MY_MATCHES after closing report
     expect(store.getState().match.activeMatchId).toBeNull();
     expect(store.getState().navigation.currentView).toBe("MY_MATCHES");
     expect(mockOnClose).toHaveBeenCalledTimes(1);
@@ -271,7 +502,6 @@ describe("MatchResultModal Component", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Network timeout during sync");
 
-    // Ensure Redux state is preserved on failure
     expect(store.getState().match.activeMatchId).toBe("test-match-123");
   });
 
@@ -323,7 +553,7 @@ describe("MatchResultModal Component", () => {
     expect(cancelBtn).toBeNull();
   });
 
-  test("should reject hexadecimal string as temperature input", () => {
+  test("should reject hexadecimal string as temperature input", async () => {
     const store = createTestStore();
     render(
       <Provider store={store}>
@@ -335,7 +565,10 @@ describe("MatchResultModal Component", () => {
     const tempInput = inputs[2];
     const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
 
-    // Hexadecimal value should fail validation
+    await waitFor(() => {
+      expect(submitBtn).not.toBeDisabled();
+    });
+
     fireEvent.change(tempInput, { target: { value: "0x10" } });
     expect(submitBtn).toBeDisabled();
     expect(
