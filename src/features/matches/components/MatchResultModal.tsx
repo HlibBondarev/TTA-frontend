@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import { resetMatchState } from "../store/matchSlice";
@@ -44,6 +44,15 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   } | null>(null);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
 
+  const hasUserEditedRef = useRef<boolean>(false);
+  const homeScoreRef = useRef(homeScore);
+  const guestScoreRef = useRef(guestScore);
+
+  useEffect(() => {
+    homeScoreRef.current = homeScore;
+    guestScoreRef.current = guestScore;
+  }, [homeScore, guestScore]);
+
   const [prevIsOpen, setPrevIsOpen] = useState(false);
   if (isOpen !== prevIsOpen) {
     setPrevIsOpen(isOpen);
@@ -61,6 +70,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     if (!isOpen || !activeMatchId) return;
 
     let isMounted = true;
+    hasUserEditedRef.current = false;
 
     const calculateInitialScores = async () => {
       try {
@@ -75,9 +85,9 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           .toArray();
 
         if (lineups.length === 0) {
-          if (isMounted) {
-            setHomeScoreInput(String(homeScore ?? 0));
-            setGuestScoreInput(String(guestScore ?? 0));
+          if (isMounted && !hasUserEditedRef.current) {
+            setHomeScoreInput(String(homeScoreRef.current ?? 0));
+            setGuestScoreInput(String(guestScoreRef.current ?? 0));
           }
           return;
         }
@@ -138,9 +148,9 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
         );
 
         if (goalEvents.length === 0) {
-          if (isMounted) {
-            setHomeScoreInput(String(homeScore ?? 0));
-            setGuestScoreInput(String(guestScore ?? 0));
+          if (isMounted && !hasUserEditedRef.current) {
+            setHomeScoreInput(String(homeScoreRef.current ?? 0));
+            setGuestScoreInput(String(guestScoreRef.current ?? 0));
           }
           return;
         }
@@ -175,7 +185,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           }
         });
 
-        if (isMounted) {
+        if (isMounted && !hasUserEditedRef.current) {
           setHomeScoreInput(String(calcHomeScore));
           setGuestScoreInput(String(calcGuestScore));
         }
@@ -184,9 +194,9 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           "Failed to calculate initial match scores from events:",
           err,
         );
-        if (isMounted) {
-          setHomeScoreInput(String(homeScore ?? 0));
-          setGuestScoreInput(String(guestScore ?? 0));
+        if (isMounted && !hasUserEditedRef.current) {
+          setHomeScoreInput(String(homeScoreRef.current ?? 0));
+          setGuestScoreInput(String(guestScoreRef.current ?? 0));
         }
       }
     };
@@ -196,7 +206,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, activeMatchId, activeTeamId, homeScore, guestScore]);
+  }, [isOpen, activeMatchId, activeTeamId]);
 
   if (!isOpen && !isReportOpen) return null;
 
@@ -232,6 +242,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     currentVal: string,
     delta: number,
   ) => {
+    hasUserEditedRef.current = true;
     const num = Number.parseInt(currentVal, 10);
     const safeNum = Number.isNaN(num) ? 0 : num;
     const nextVal = Math.max(0, safeNum + delta);
@@ -375,7 +386,10 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
                 type="text"
                 inputMode="numeric"
                 value={homeScoreInput}
-                onChange={(e) => setHomeScoreInput(e.target.value)}
+                onChange={(e) => {
+                  hasUserEditedRef.current = true;
+                  setHomeScoreInput(e.target.value);
+                }}
                 disabled={isSubmitting}
                 className="flex-1 h-10 bg-gray-950 border border-gray-800 rounded-lg text-center font-mono font-bold text-base text-emerald-400 focus:outline-none focus:border-emerald-500 disabled:opacity-50"
               />
@@ -415,7 +429,10 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
                 type="text"
                 inputMode="numeric"
                 value={guestScoreInput}
-                onChange={(e) => setGuestScoreInput(e.target.value)}
+                onChange={(e) => {
+                  hasUserEditedRef.current = true;
+                  setGuestScoreInput(e.target.value);
+                }}
                 disabled={isSubmitting}
                 className="flex-1 h-10 bg-gray-950 border border-gray-800 rounded-lg text-center font-mono font-bold text-base text-emerald-400 focus:outline-none focus:border-emerald-500 disabled:opacity-50"
               />

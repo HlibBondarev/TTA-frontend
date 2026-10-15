@@ -182,7 +182,6 @@ describe("MatchResultModal Component", () => {
       { id: "def-goal", name: "Goal", isPositive: true },
     ] as unknown as Record<string, unknown>[]);
 
-    // Only non-goal events (Steal) recorded
     vi.mocked(db.gameevents.where).mockReturnValueOnce({
       anyOf: vi.fn().mockReturnValue({
         toArray: vi
@@ -205,6 +204,74 @@ describe("MatchResultModal Component", () => {
     await waitFor(() => {
       expect(inputs[0]).toHaveValue("8");
       expect(inputs[1]).toHaveValue("5");
+    });
+  });
+
+  test("should preserve user manual score edits if user interacts before initial score calculation completes", async () => {
+    let resolveEvents: (value: unknown) => void;
+    const eventsPromise = new Promise((resolve) => {
+      resolveEvents = resolve;
+    });
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "test-match-123",
+      homeTeamId: "home-team-id",
+      guestTeamId: "guest-team-id",
+    } as unknown as Record<string, unknown>);
+
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockResolvedValue([
+            { id: "lineup-home-1", playerRosterId: "roster-home-1" },
+          ]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.playerrosters.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockResolvedValue([{ id: "roster-home-1", teamId: "home-team-id" }]),
+      }),
+    } as unknown as ReturnType<typeof db.playerrosters.where>);
+
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([
+      { id: "def-goal-pos", name: "Goal", isPositive: true },
+    ] as unknown as Record<string, unknown>[]);
+
+    vi.mocked(db.gameevents.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockReturnValue(eventsPromise),
+      }),
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    const store = createTestStore({ homeScore: 0, guestScore: 0 });
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    const inputs = screen.getAllByRole("textbox");
+
+    // User edits score manually before async query resolves
+    fireEvent.change(inputs[0], { target: { value: "99" } });
+    expect(inputs[0]).toHaveValue("99");
+
+    // Resolve async calculation with 5 goals
+    resolveEvents!([
+      { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
+      { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
+      { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
+      { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
+      { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
+    ]);
+
+    // Value should stay 99 and not be overwritten by 5
+    await waitFor(() => {
+      expect(inputs[0]).toHaveValue("99");
     });
   });
 
