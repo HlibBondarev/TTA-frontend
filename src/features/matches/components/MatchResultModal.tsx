@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import { resetMatchState } from "../store/matchSlice";
 import { navigateToMyMatches } from "../../../store/slices/navigationSlice";
 import { matchFinalizationService } from "../../../services/matchFinalizationService";
 import { MatchReportModal } from "./MatchReportModal";
+import { db } from "../../../db/ttaDatabase";
 
 export interface MatchResultModalProps {
   isOpen: boolean;
@@ -43,6 +44,15 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   } | null>(null);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
 
+  const hasUserEditedRef = useRef<boolean>(false);
+  const homeScoreRef = useRef(homeScore);
+  const guestScoreRef = useRef(guestScore);
+
+  useEffect(() => {
+    homeScoreRef.current = homeScore;
+    guestScoreRef.current = guestScore;
+  }, [homeScore, guestScore]);
+
   const [prevIsOpen, setPrevIsOpen] = useState(false);
   if (isOpen !== prevIsOpen) {
     setPrevIsOpen(isOpen);
@@ -54,6 +64,152 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
       setIsSubmitting(false);
     }
   }
+
+  // Calculate initial scores based on recorded Goal events in IndexedDB
+  useEffect(() => {
+    if (!isOpen || !activeMatchId) return;
+
+    let isMounted = true;
+    hasUserEditedRef.current = false;
+
+    const calculateInitialScores = async () => {
+      try {
+        const match = await db.matches.get(activeMatchId);
+        const homeTeamId = match?.homeTeamId;
+        const guestTeamId = match?.guestTeamId;
+
+        // 1. Fetch all match lineups
+        const lineups = await db.matchlineups
+          .where("matchId")
+          .equals(activeMatchId)
+          .toArray();
+
+        if (lineups.length === 0) {
+          if (isMounted && !hasUserEditedRef.current) {
+            setHomeScoreInput(String(homeScoreRef.current ?? 0));
+            setGuestScoreInput(String(guestScoreRef.current ?? 0));
+          }
+          return;
+        }
+
+        const lineupIds = lineups.map((l) => l.id);
+
+        // 2. Map lineups to team IDs via rosters
+        const rosterIds = lineups
+          .map((l) => l.playerRosterId)
+          .filter((id): id is string => Boolean(id));
+
+        const rosters =
+          rosterIds.length > 0
+            ? await db.playerrosters.where("id").anyOf(rosterIds).toArray()
+            : [];
+
+        const rosterTeamMap = new Map<string, string>();
+        rosters.forEach((r) => rosterTeamMap.set(r.id, r.teamId));
+
+        const lineupTeamMap = new Map<string, string>();
+        lineups.forEach((l) => {
+          if (l.playerRosterId && rosterTeamMap.has(l.playerRosterId)) {
+            lineupTeamMap.set(l.id, rosterTeamMap.get(l.playerRosterId)!);
+          } else if (activeTeamId) {
+            lineupTeamMap.set(l.id, activeTeamId);
+          }
+        });
+
+        // 3. Find Positive and Negative Goal event definition IDs
+        const allEventDefs = await db.eventdefinitions.toArray();
+        const positiveGoalDefIds = new Set<string>();
+        const negativeGoalDefIds = new Set<string>();
+
+        allEventDefs.forEach((def) => {
+          const isGoal = def.name?.trim().toLowerCase() === "goal";
+          if (isGoal) {
+            const isPos =
+              def.isPositive ??
+              (def as unknown as Record<string, unknown>).ispositive;
+            if (isPos) {
+              positiveGoalDefIds.add(def.id);
+            } else {
+              negativeGoalDefIds.add(def.id);
+            }
+          }
+        });
+
+        // 4. Fetch and aggregate game events
+        const events = await db.gameevents
+          .where("matchLineupId")
+          .anyOf(lineupIds)
+          .toArray();
+
+        const goalEvents = events.filter(
+          (e) =>
+            positiveGoalDefIds.has(e.eventDefinitionId) ||
+            negativeGoalDefIds.has(e.eventDefinitionId),
+        );
+
+        if (goalEvents.length === 0) {
+          if (isMounted && !hasUserEditedRef.current) {
+            setHomeScoreInput(String(homeScoreRef.current ?? 0));
+            setGuestScoreInput(String(guestScoreRef.current ?? 0));
+          }
+          return;
+        }
+
+        let calcHomeScore = 0;
+        let calcGuestScore = 0;
+
+        goalEvents.forEach((e) => {
+          const lineupTeamId =
+            lineupTeamMap.get(e.matchLineupId) || activeTeamId;
+
+          let isHomeTeamLineup: boolean;
+          if (homeTeamId) {
+            isHomeTeamLineup = lineupTeamId === homeTeamId;
+          } else if (guestTeamId) {
+            isHomeTeamLineup = lineupTeamId !== guestTeamId;
+          } else {
+            isHomeTeamLineup = lineupTeamId === activeTeamId;
+          }
+
+          if (positiveGoalDefIds.has(e.eventDefinitionId)) {
+            // Scored Goal (Positive Result)
+            if (isHomeTeamLineup) {
+              calcHomeScore++;
+            } else {
+              calcGuestScore++;
+            }
+          } else if (negativeGoalDefIds.has(e.eventDefinitionId)) {
+            // Conceded Goal (Negative Result for goalkeeper)
+            if (isHomeTeamLineup) {
+              calcGuestScore++;
+            } else {
+              calcHomeScore++;
+            }
+          }
+        });
+
+        if (isMounted && !hasUserEditedRef.current) {
+          setHomeScoreInput(String(calcHomeScore));
+          setGuestScoreInput(String(calcGuestScore));
+        }
+      } catch (err) {
+        console.error(
+          "Failed to calculate initial match scores from events:",
+          err,
+        );
+        if (isMounted && !hasUserEditedRef.current) {
+          setHomeScoreInput(String(homeScoreRef.current ?? 0));
+          setGuestScoreInput(String(guestScoreRef.current ?? 0));
+        }
+      }
+    };
+
+    void calculateInitialScores();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, activeMatchId, activeTeamId]);
 
   if (!isOpen && !isReportOpen) return null;
 
@@ -89,6 +245,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     currentVal: string,
     delta: number,
   ) => {
+    hasUserEditedRef.current = true;
     const num = Number.parseInt(currentVal, 10);
     const safeNum = Number.isNaN(num) ? 0 : num;
     const nextVal = Math.max(0, safeNum + delta);
@@ -232,7 +389,10 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
                 type="text"
                 inputMode="numeric"
                 value={homeScoreInput}
-                onChange={(e) => setHomeScoreInput(e.target.value)}
+                onChange={(e) => {
+                  hasUserEditedRef.current = true;
+                  setHomeScoreInput(e.target.value);
+                }}
                 disabled={isSubmitting}
                 className="flex-1 h-10 bg-gray-950 border border-gray-800 rounded-lg text-center font-mono font-bold text-base text-emerald-400 focus:outline-none focus:border-emerald-500 disabled:opacity-50"
               />
@@ -272,7 +432,10 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
                 type="text"
                 inputMode="numeric"
                 value={guestScoreInput}
-                onChange={(e) => setGuestScoreInput(e.target.value)}
+                onChange={(e) => {
+                  hasUserEditedRef.current = true;
+                  setGuestScoreInput(e.target.value);
+                }}
                 disabled={isSubmitting}
                 className="flex-1 h-10 bg-gray-950 border border-gray-800 rounded-lg text-center font-mono font-bold text-base text-emerald-400 focus:outline-none focus:border-emerald-500 disabled:opacity-50"
               />
