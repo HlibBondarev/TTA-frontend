@@ -119,8 +119,8 @@ describe("MatchSpatialMap Component", () => {
     expect(line).toBeInTheDocument();
   });
 
-  it("displays tooltip on hover with formatted match time trimming decimal seconds", () => {
-    render(
+  it("displays tooltip on hover with formatted match time trimming decimal seconds and enforcing minimum width", () => {
+    const { container } = render(
       <MatchSpatialMap
         events={mockEvents}
         eventDefinitionsMap={mockEventDefinitionsMap}
@@ -136,8 +136,12 @@ describe("MatchSpatialMap Component", () => {
     expect(screen.getByText("Action:")).toBeInTheDocument();
     expect(screen.getByText("Goal")).toBeInTheDocument();
     expect(screen.getByText("Q1")).toBeInTheDocument();
-    // Fractional seconds .1234567 trimmed out
     expect(screen.getByText("03:45")).toBeInTheDocument();
+
+    // Verify minimum width protection class on tooltip
+    const tooltip = container.querySelector(".shadow-2xl")!;
+    expect(tooltip).toBeInTheDocument();
+    expect(tooltip.className).toContain("min-w-40");
 
     fireEvent.mouseLeave(marker);
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();

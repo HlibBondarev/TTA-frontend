@@ -347,7 +347,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
       {/* Active Event Hover / Selection Tooltip */}
       {activeEvent?.locationX != null && activeEvent?.locationY != null && (
         <div
-          className={`absolute z-20 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-none transition-all duration-150 ${getTooltipPositionClass(
+          className={`absolute z-20 min-w-40 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-none transition-all duration-150 ${getTooltipPositionClass(
             Number(activeEvent.locationX),
             Number(activeEvent.locationY),
           )}`}
@@ -356,12 +356,12 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
             top: `${Math.max(2, Math.min(98, Number(activeEvent.locationY)))}%`,
           }}
         >
-          <div className="flex items-center space-x-1.5 font-bold text-emerald-400 border-b border-gray-800 pb-1 mb-1">
+          <div className="flex items-center space-x-1.5 font-bold text-emerald-400 border-b border-gray-800 pb-1 mb-1 whitespace-nowrap">
             <span>#{activeEvent.playerNumber ?? "-"}</span>
             <span>{activeEvent.playerName || "Player"}</span>
           </div>
           <div className="space-y-0.5 text-gray-300">
-            <div>
+            <div className="whitespace-nowrap">
               <span className="text-gray-400">Action: </span>
               <span className="font-semibold text-white">
                 {activeEvent.eventName || "Action"}
