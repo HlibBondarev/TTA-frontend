@@ -152,6 +152,62 @@ describe("MatchResultModal Component", () => {
     });
   });
 
+  test("should fallback to scores from Redux when IndexedDB events exist but contain no Goal-definition events", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "test-match-123",
+      homeTeamId: "home-team-id",
+      guestTeamId: "guest-team-id",
+    } as unknown as Record<string, unknown>);
+
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockResolvedValue([
+            { id: "lineup-home-1", playerRosterId: "roster-home-1" },
+          ]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.playerrosters.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockResolvedValue([{ id: "roster-home-1", teamId: "home-team-id" }]),
+      }),
+    } as unknown as ReturnType<typeof db.playerrosters.where>);
+
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([
+      { id: "def-steal", name: "Steal", isPositive: true },
+      { id: "def-goal", name: "Goal", isPositive: true },
+    ] as unknown as Record<string, unknown>[]);
+
+    // Only non-goal events (Steal) recorded
+    vi.mocked(db.gameevents.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockResolvedValue([
+            { matchLineupId: "lineup-home-1", eventDefinitionId: "def-steal" },
+          ]),
+      }),
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    const store = createTestStore({ homeScore: 8, guestScore: 5 });
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    const inputs = screen.getAllByRole("textbox");
+
+    await waitFor(() => {
+      expect(inputs[0]).toHaveValue("8");
+      expect(inputs[1]).toHaveValue("5");
+    });
+  });
+
   test("should auto-calculate initial scores from positive and negative Goal events in IndexedDB", async () => {
     vi.mocked(db.matches.get).mockResolvedValueOnce({
       id: "test-match-123",

@@ -131,10 +131,24 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           .anyOf(lineupIds)
           .toArray();
 
+        const goalEvents = events.filter(
+          (e) =>
+            positiveGoalDefIds.has(e.eventDefinitionId) ||
+            negativeGoalDefIds.has(e.eventDefinitionId),
+        );
+
+        if (goalEvents.length === 0) {
+          if (isMounted) {
+            setHomeScoreInput(String(homeScore ?? 0));
+            setGuestScoreInput(String(guestScore ?? 0));
+          }
+          return;
+        }
+
         let calcHomeScore = 0;
         let calcGuestScore = 0;
 
-        events.forEach((e) => {
+        goalEvents.forEach((e) => {
           const lineupTeamId =
             lineupTeamMap.get(e.matchLineupId) || activeTeamId;
 
