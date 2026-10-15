@@ -127,7 +127,7 @@ export const useSpatialMap = ({
 
       const isPositiveLead = leadEv.isPositive ?? true;
 
-      // Strictly find nearest subsequent Goal event matching period, team AND positivity (positive vs negative goal)
+      // Strictly find nearest subsequent Goal event matching period, team AND positivity
       const candidateGoals = goalEvents
         .map((goal) => ({
           goal,
@@ -143,7 +143,7 @@ export const useSpatialMap = ({
             goal.periodNumber === leadEv.periodNumber &&
             leadEv.teamId != null &&
             goal.teamId === leadEv.teamId &&
-            (goal.isPositive ?? true) === isPositiveLead && // Match positivity!
+            (goal.isPositive ?? true) === isPositiveLead &&
             Number.isFinite(leadTimestamp) &&
             Number.isFinite(timestamp) &&
             timestamp >= leadTimestamp,
@@ -159,12 +159,10 @@ export const useSpatialMap = ({
         x2 = (Number(matchingGoal.locationX) / 100) * viewBoxWidth;
         y2 = (Number(matchingGoal.locationY) / 100) * viewBoxHeight;
       } else {
-        // Fallback: Positive actions target opponent goal; negative actions target own goal
-        if (isPositiveLead) {
-          x2 = x1 > viewBoxWidth / 2 ? viewBoxWidth - 15 : 15;
-        } else {
-          x2 = x1 > viewBoxWidth / 2 ? 15 : viewBoxWidth - 15;
-        }
+        // Standard convention for Reports in TTA:
+        // - Our Goal is ALWAYS on the LEFT (x = 15)
+        // - Opponent Goal is ALWAYS on the RIGHT (x = viewBoxWidth - 15 = 985)
+        x2 = isPositiveLead ? viewBoxWidth - 15 : 15;
         y2 = viewBoxHeight / 2;
       }
 

@@ -191,7 +191,7 @@ describe("useSpatialMap Custom Hook", () => {
     expect(vector.y2).toBe(240);
   });
 
-  it("falls back vector target to opponent goal center when no goal matches in the same period", () => {
+  it("falls back vector target to opponent goal center (right) for positive actions when no goal matches", () => {
     const unmatchedEvents: GameEventResponse[] = [
       {
         id: "assist-q2",
@@ -235,37 +235,26 @@ describe("useSpatialMap Custom Hook", () => {
     expect(vector.y2).toBe(300);
   });
 
-  it("falls back vector target to opponent goal center when teamId, period, or timestamp metadata is missing", () => {
-    const missingMetadataEvents: GameEventResponse[] = [
+  it("falls back vector target to OUR goal center (left) for negative actions when no goal matches", () => {
+    const unmatchedNegativeEvents: GameEventResponse[] = [
       {
-        id: "assist-incomplete",
+        id: "foul-q1",
         matchLineupId: "lineup-1",
         eventDefinitionId: "def-1",
-        eventName: "Assist",
-        isPositive: true,
+        eventName: "Exclusion",
+        isPositive: false,
         periodNumber: 1,
         eventTimestamp: "2026-10-14T10:00:00Z",
-        locationX: 80,
+        isLeadToGoal: true,
+        locationX: 40,
         locationY: 50,
-        teamId: undefined, // Missing teamId
-      },
-      {
-        id: "goal-complete",
-        matchLineupId: "lineup-2",
-        eventDefinitionId: "def-2",
-        eventName: "Goal",
-        isPositive: true,
-        periodNumber: 1,
-        eventTimestamp: "2026-10-14T10:05:00Z",
-        locationX: 90,
-        locationY: 40,
         teamId: "team-1",
       },
     ];
 
     const { result } = renderHook(() =>
       useSpatialMap({
-        events: missingMetadataEvents,
+        events: unmatchedNegativeEvents,
         eventDefinitionsMap: mockEventDefinitionsMap,
         viewBoxWidth: 1000,
         viewBoxHeight: 600,
@@ -275,9 +264,10 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.goalLeadVectors).toHaveLength(1);
     const vector = result.current.goalLeadVectors[0];
 
-    // Assist missing teamId cannot verify match, should fall back to goal center (x2=985, y2=300)
-    expect(vector.x2).toBe(985);
+    // Negative action fallback MUST target OUR goal on the LEFT (x2: 15, y2: 300)
+    expect(vector.x2).toBe(15);
     expect(vector.y2).toBe(300);
+    expect(vector.isPositive).toBe(false);
   });
 
   it("handles marker hover and click interactions correctly", () => {
