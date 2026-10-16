@@ -263,9 +263,9 @@ describe("MatchSpatialMap Component", () => {
     const marker = screen.getByText("#3");
     fireEvent.mouseEnter(marker);
 
-    const tooltip = container.querySelector(".shadow-2xl")!;
+    const tooltip = container.querySelector(".shadow-2xl") as HTMLElement;
     expect(tooltip).toBeInTheDocument();
-    expect(tooltip.className).toContain("-translate-x-full");
     expect(tooltip.className).toContain("translate-y-4");
+    expect(tooltip.getAttribute("style")).toContain("top: 10%");
   });
 });

@@ -12,22 +12,12 @@ export interface MatchSpatialMapProps {
   showGoalLeadVectors?: boolean;
 }
 
-const getTooltipPositionClass = (
-  locationX: number,
-  locationY: number,
-): string => {
-  let xClass = "-translate-x-1/2";
-  if (locationX > 75) {
-    xClass = "-translate-x-full -ml-1";
-  } else if (locationX < 25) {
-    xClass = "translate-x-0 ml-1";
-  }
-
+const getTooltipPositionClass = (locationY: number): string => {
   // Y axis: 0 = top, 100 = bottom.
   // Tooltip height is ~30% of field height. If Y < 35%, shift DOWN below marker to avoid top clipping.
   const yClass = locationY < 35 ? "translate-y-4" : "-translate-y-full -mt-4";
 
-  return `transform ${xClass} ${yClass}`;
+  return `transform ${yClass}`;
 };
 
 const formatMatchTime = (timeStr?: string): string => {
@@ -397,11 +387,10 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
       {activeEvent?.locationX != null && activeEvent?.locationY != null && (
         <div
           className={`absolute z-20 min-w-40 max-w-55 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-none transition-all duration-150 ${getTooltipPositionClass(
-            Number(activeEvent.locationX),
             Number(activeEvent.locationY),
           )}`}
           style={{
-            left: `${Math.max(10, Math.min(90, Number(activeEvent.locationX)))}%`,
+            left: `clamp(0px, calc(${Number(activeEvent.locationX)}% - 6.875rem), calc(100% - 13.75rem))`,
             top: `${Math.max(5, Math.min(95, Number(activeEvent.locationY)))}%`,
           }}
         >
