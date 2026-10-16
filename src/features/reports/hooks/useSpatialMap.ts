@@ -58,16 +58,7 @@ export const useSpatialMap = ({
   const handleMarkerClick = useCallback(
     (eventId: string) => {
       clearAutoDismissTimer();
-      setSelectedEventId((prev) => {
-        const next = prev === eventId ? null : eventId;
-        if (next) {
-          // Auto-dismiss selected tooltip after 3.5 seconds
-          autoDismissTimerRef.current = setTimeout(() => {
-            setSelectedEventId(null);
-          }, 3500);
-        }
-        return next;
-      });
+      setSelectedEventId((prev) => (prev === eventId ? null : eventId));
     },
     [clearAutoDismissTimer],
   );
@@ -81,10 +72,15 @@ export const useSpatialMap = ({
   }, []);
 
   useEffect(() => {
-    return () => {
-      clearAutoDismissTimer();
-    };
-  }, [clearAutoDismissTimer]);
+    if (!selectedEventId) return;
+
+    autoDismissTimerRef.current = setTimeout(() => {
+      autoDismissTimerRef.current = null;
+      setSelectedEventId(null);
+    }, 3500);
+
+    return clearAutoDismissTimer;
+  }, [selectedEventId, clearAutoDismissTimer]);
 
   // Set of definition IDs strictly representing "Goal" events
   const goalDefinitionIds = useMemo(() => {
