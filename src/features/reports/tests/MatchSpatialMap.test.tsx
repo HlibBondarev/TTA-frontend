@@ -205,7 +205,14 @@ describe("MatchSpatialMap Component", () => {
 
     const marker = screen.getByText("#9");
     fireEvent.click(marker);
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
 
+    // Re-click same marker to toggle/unselect tooltip
+    fireEvent.click(marker);
+    expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
+
+    // Re-open tooltip
+    fireEvent.click(marker);
     expect(screen.getByText("John Doe")).toBeInTheDocument();
 
     // Click SVG map background to dismiss tooltip
