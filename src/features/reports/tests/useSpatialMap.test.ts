@@ -1,10 +1,14 @@
 import { renderHook, act } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { useSpatialMap } from "../hooks/useSpatialMap";
 import type { GameEventResponse } from "../../../services/reportService";
 import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
 
 describe("useSpatialMap Custom Hook", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const mockEventDefinitionsMap = new Map<string, EventDefinitionLookup>([
     [
       "def-1",
@@ -132,8 +136,6 @@ describe("useSpatialMap Custom Hook", () => {
     });
 
     expect(result.current.selectedEventId).toBeNull();
-
-    vi.useRealTimers();
   });
 
   it("calculates goalLeadVectors connecting lead events directly to nearest subsequent Goal in the same period matching positivity", () => {

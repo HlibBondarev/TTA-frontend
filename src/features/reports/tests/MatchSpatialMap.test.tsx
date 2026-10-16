@@ -1,10 +1,14 @@
 import { render, screen, fireEvent, act } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { MatchSpatialMap } from "../components/MatchSpatialMap";
 import type { GameEventResponse } from "../../../services/reportService";
 import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
 
 describe("MatchSpatialMap Component", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const mockEventDefinitionsMap = new Map<string, EventDefinitionLookup>([
     [
       "def-1",
@@ -233,8 +237,6 @@ describe("MatchSpatialMap Component", () => {
     });
 
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
-
-    vi.useRealTimers();
   });
 
   it("adjusts tooltip positioning classes dynamically based on boundary coordinates to prevent clipping", () => {
