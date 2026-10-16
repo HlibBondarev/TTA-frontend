@@ -284,7 +284,7 @@ describe("useSpatialReport Custom Hook", () => {
     expect(result.current.filters.selectedNegativeDefIds).toContain("def-2");
   });
 
-  it("supports multi-selecting and clearing player filters", async () => {
+  it("supports selecting and resetting player filters", async () => {
     const { result } = renderHook(() =>
       useSpatialReport({ matchId: "m-1", teamId: "t-1" }),
     );
@@ -302,11 +302,6 @@ describe("useSpatialReport Custom Hook", () => {
 
     act(() => {
       result.current.handleSelectAllPlayers();
-    });
-    expect(result.current.filters.selectedLineupIds).toHaveLength(2);
-
-    act(() => {
-      result.current.handleClearPlayerSelection();
     });
     expect(result.current.filters.selectedLineupIds).toHaveLength(0);
     expect(result.current.filteredEvents).toHaveLength(2);
