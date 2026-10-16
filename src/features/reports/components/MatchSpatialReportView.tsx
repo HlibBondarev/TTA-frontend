@@ -26,7 +26,6 @@ export const MatchSpatialReportView: React.FC<MatchSpatialReportViewProps> = ({
     togglePeriodFilter,
     togglePlayerSelection,
     handleSelectAllPlayers,
-    handleClearPlayerSelection,
     toggleActiveTab,
     togglePositiveDefSelection,
     toggleNegativeDefSelection,
@@ -133,22 +132,13 @@ export const MatchSpatialReportView: React.FC<MatchSpatialReportViewProps> = ({
           <span className="uppercase text-gray-500 font-bold">
             Players Filter
           </span>
-          <div className="space-x-2 text-[9px]">
-            <button
-              type="button"
-              onClick={handleSelectAllPlayers}
-              className="text-indigo-400 hover:underline"
-            >
-              Select All
-            </button>
-            <button
-              type="button"
-              onClick={handleClearPlayerSelection}
-              className="text-gray-400 hover:underline"
-            >
-              Clear
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleSelectAllPlayers}
+            className="text-indigo-400 hover:underline text-[9px]"
+          >
+            Select All
+          </button>
         </div>
 
         <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">

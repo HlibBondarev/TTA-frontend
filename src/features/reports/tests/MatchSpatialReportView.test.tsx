@@ -113,7 +113,6 @@ describe("MatchSpatialReportView Component", () => {
     toggleGoalLeadVectors: vi.fn(),
     togglePlayerSelection: vi.fn(),
     handleSelectAllPlayers: vi.fn(),
-    handleClearPlayerSelection: vi.fn(),
     togglePositiveDefSelection: vi.fn(),
     toggleNegativeDefSelection: vi.fn(),
   };
@@ -203,12 +202,9 @@ describe("MatchSpatialReportView Component", () => {
       "l-1",
     );
 
-    // Click Select All and Clear player buttons
+    // Click Select All button
     fireEvent.click(screen.getByText("Select All"));
     expect(mockHookReturnValue.handleSelectAllPlayers).toHaveBeenCalled();
-
-    fireEvent.click(screen.getByText("Clear"));
-    expect(mockHookReturnValue.handleClearPlayerSelection).toHaveBeenCalled();
 
     // Click specific positive action chip "Goal"
     fireEvent.click(screen.getByText("Goal"));

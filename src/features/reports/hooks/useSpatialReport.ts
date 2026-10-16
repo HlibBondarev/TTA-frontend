@@ -263,13 +263,6 @@ export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
   const handleSelectAllPlayers = useCallback(() => {
     setFilters((prev) => ({
       ...prev,
-      selectedLineupIds: teamLineups.map((l) => l.id),
-    }));
-  }, [teamLineups]);
-
-  const handleClearPlayerSelection = useCallback(() => {
-    setFilters((prev) => ({
-      ...prev,
       selectedLineupIds: [],
     }));
   }, []);
@@ -326,7 +319,6 @@ export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
     togglePeriodFilter,
     togglePlayerSelection,
     handleSelectAllPlayers,
-    handleClearPlayerSelection,
     toggleActiveTab,
     togglePositiveDefSelection,
     toggleNegativeDefSelection,
