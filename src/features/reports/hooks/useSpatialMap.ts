@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { GameEventResponse } from "../../../services/reportService";
 import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
 
@@ -18,6 +18,7 @@ export interface RenderableSpatialPoint {
   shortCode: string;
   isSelected: boolean;
   isHovered: boolean;
+  isGoal: boolean;
 }
 
 export interface UseSpatialMapParams {
@@ -37,10 +38,39 @@ export const useSpatialMap = ({
 }: UseSpatialMapParams) => {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
+  const autoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
-  const handleMarkerClick = useCallback((eventId: string) => {
-    setSelectedEventId((prev) => (prev === eventId ? null : eventId));
+  const clearAutoDismissTimer = useCallback(() => {
+    if (autoDismissTimerRef.current !== null) {
+      clearTimeout(autoDismissTimerRef.current);
+      autoDismissTimerRef.current = null;
+    }
   }, []);
+
+  const handleClearActiveEvent = useCallback(() => {
+    clearAutoDismissTimer();
+    setSelectedEventId(null);
+    setHoveredEventId(null);
+  }, [clearAutoDismissTimer]);
+
+  const handleMarkerClick = useCallback(
+    (eventId: string) => {
+      clearAutoDismissTimer();
+      setSelectedEventId((prev) => {
+        const next = prev === eventId ? null : eventId;
+        if (next) {
+          // Auto-dismiss selected tooltip after 3.5 seconds
+          autoDismissTimerRef.current = setTimeout(() => {
+            setSelectedEventId(null);
+          }, 3500);
+        }
+        return next;
+      });
+    },
+    [clearAutoDismissTimer],
+  );
 
   const handleMarkerMouseEnter = useCallback((eventId: string) => {
     setHoveredEventId(eventId);
@@ -50,10 +80,22 @@ export const useSpatialMap = ({
     setHoveredEventId(null);
   }, []);
 
-  const handleClearActiveEvent = useCallback(() => {
-    setSelectedEventId(null);
-    setHoveredEventId(null);
-  }, []);
+  useEffect(() => {
+    return () => {
+      clearAutoDismissTimer();
+    };
+  }, [clearAutoDismissTimer]);
+
+  // Set of definition IDs strictly representing "Goal" events
+  const goalDefinitionIds = useMemo(() => {
+    const goalIds = new Set<string>();
+    eventDefinitionsMap.forEach((def, id) => {
+      if (def.name?.trim().toLowerCase() === "goal") {
+        goalIds.add(id);
+      }
+    });
+    return goalIds;
+  }, [eventDefinitionsMap]);
 
   // Currently active event for tooltip (hovered event takes precedence over selected)
   const activeEvent = useMemo(() => {
@@ -74,6 +116,10 @@ export const useSpatialMap = ({
         const shortCode =
           def?.shortName || e.eventName?.slice(0, 3).toUpperCase() || "TTA";
 
+        const isGoal = Boolean(
+          e.eventDefinitionId && goalDefinitionIds.has(e.eventDefinitionId),
+        );
+
         return {
           event: e,
           cx,
@@ -81,11 +127,13 @@ export const useSpatialMap = ({
           shortCode,
           isSelected: selectedEventId === e.id,
           isHovered: hoveredEventId === e.id,
+          isGoal,
         };
       });
   }, [
     events,
     eventDefinitionsMap,
+    goalDefinitionIds,
     selectedEventId,
     hoveredEventId,
     viewBoxWidth,
@@ -98,7 +146,7 @@ export const useSpatialMap = ({
     const leadEvents = events.filter(
       (e) =>
         Boolean(e.isLeadToGoal) &&
-        !e.eventName?.toLowerCase().includes("goal") &&
+        (!e.eventDefinitionId || !goalDefinitionIds.has(e.eventDefinitionId)) &&
         e.locationX != null &&
         e.locationY != null &&
         e.id != null,
@@ -109,8 +157,8 @@ export const useSpatialMap = ({
 
     const goalEvents = searchList.filter(
       (e) =>
-        e.eventName?.toLowerCase().includes("goal") &&
-        !e.eventName?.toLowerCase().includes("missed") &&
+        e.eventDefinitionId &&
+        goalDefinitionIds.has(e.eventDefinitionId) &&
         e.locationX != null &&
         e.locationY != null &&
         e.id != null,
@@ -175,7 +223,7 @@ export const useSpatialMap = ({
         isPositive: isPositiveLead,
       };
     });
-  }, [events, allEvents, viewBoxWidth, viewBoxHeight]);
+  }, [events, allEvents, goalDefinitionIds, viewBoxWidth, viewBoxHeight]);
 
   return {
     activeEvent,

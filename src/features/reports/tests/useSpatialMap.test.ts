@@ -1,5 +1,5 @@
 import { renderHook, act } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { useSpatialMap } from "../hooks/useSpatialMap";
 import type { GameEventResponse } from "../../../services/reportService";
 import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
@@ -14,6 +14,26 @@ describe("useSpatialMap Custom Hook", () => {
         name: "Assist",
         shortName: "AST",
         isPositive: true,
+      },
+    ],
+    [
+      "def-goal",
+      {
+        id: "def-goal",
+        sportId: "sport-1",
+        name: "Goal",
+        shortName: "GOA",
+        isPositive: true,
+      },
+    ],
+    [
+      "def-goal-conceded",
+      {
+        id: "def-goal-conceded",
+        sportId: "sport-1",
+        name: "Goal",
+        shortName: "GOA",
+        isPositive: false,
       },
     ],
   ]);
@@ -38,7 +58,7 @@ describe("useSpatialMap Custom Hook", () => {
     {
       id: "event-2",
       matchLineupId: "lineup-2",
-      eventDefinitionId: "def-2",
+      eventDefinitionId: "def-goal",
       eventName: "Goal",
       isPositive: true,
       periodNumber: 1,
@@ -64,7 +84,7 @@ describe("useSpatialMap Custom Hook", () => {
     },
   ];
 
-  it("calculates renderablePoints correctly from percentage coordinates", () => {
+  it("calculates renderablePoints correctly from percentage coordinates and identifies isGoal strictly by eventDefinitionId", () => {
     const { result } = renderHook(() =>
       useSpatialMap({
         events: mockEvents,
@@ -82,11 +102,38 @@ describe("useSpatialMap Custom Hook", () => {
     expect(firstPoint.shortCode).toBe("AST");
     expect(firstPoint.isSelected).toBe(false);
     expect(firstPoint.isHovered).toBe(false);
+    expect(firstPoint.isGoal).toBe(false);
 
     const secondPoint = result.current.renderablePoints[1];
     expect(secondPoint.cx).toBe(900);
     expect(secondPoint.cy).toBe(240);
     expect(secondPoint.shortCode).toBe("GOA");
+    expect(secondPoint.isGoal).toBe(true);
+  });
+
+  it("auto-dismisses selected event after 3.5 seconds", () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: mockEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+      }),
+    );
+
+    act(() => {
+      result.current.handleMarkerClick("event-1");
+    });
+
+    expect(result.current.selectedEventId).toBe("event-1");
+
+    act(() => {
+      vi.advanceTimersByTime(3500);
+    });
+
+    expect(result.current.selectedEventId).toBeNull();
+
+    vi.useRealTimers();
   });
 
   it("calculates goalLeadVectors connecting lead events directly to nearest subsequent Goal in the same period matching positivity", () => {
@@ -115,7 +162,7 @@ describe("useSpatialMap Custom Hook", () => {
       {
         id: "foul-1",
         matchLineupId: "lineup-1",
-        eventDefinitionId: "def-foul",
+        eventDefinitionId: "def-1",
         eventName: "Exclusion",
         isPositive: false,
         periodNumber: 1,
@@ -207,7 +254,7 @@ describe("useSpatialMap Custom Hook", () => {
       {
         id: "goal-q1",
         matchLineupId: "lineup-2",
-        eventDefinitionId: "def-2",
+        eventDefinitionId: "def-goal",
         eventName: "Goal",
         isPositive: true,
         periodNumber: 1,

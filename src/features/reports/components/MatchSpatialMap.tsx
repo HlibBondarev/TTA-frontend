@@ -17,15 +17,15 @@ const getTooltipPositionClass = (
   locationY: number,
 ): string => {
   let xClass = "-translate-x-1/2";
-  if (locationX > 65) {
+  if (locationX > 75) {
     xClass = "-translate-x-full -ml-1";
-  } else if (locationX < 35) {
+  } else if (locationX < 25) {
     xClass = "translate-x-0 ml-1";
   }
 
   // Y axis: 0 = top, 100 = bottom.
-  // Tooltip height is ~30% of field height. If Y < 38%, shift DOWN below marker to avoid top clipping.
-  const yClass = locationY < 38 ? "translate-y-4" : "-translate-y-full -mt-4";
+  // Tooltip height is ~30% of field height. If Y < 35%, shift DOWN below marker to avoid top clipping.
+  const yClass = locationY < 35 ? "translate-y-4" : "-translate-y-full -mt-4";
 
   return `transform ${xClass} ${yClass}`;
 };
@@ -50,6 +50,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
     handleMarkerClick,
     handleMarkerMouseEnter,
     handleMarkerMouseLeave,
+    handleClearActiveEvent,
   } = useSpatialMap({ events, allEvents, eventDefinitionsMap });
 
   const safeSvg = useMemo(
@@ -227,6 +228,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
         viewBox="0 0 1000 600"
         className="absolute inset-0 w-full h-full"
         aria-label="Match Spatial Event Map"
+        onClick={handleClearActiveEvent}
       >
         <defs>
           <marker
@@ -296,7 +298,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
 
         {/* Action Event Point Markers */}
         {renderablePoints.map(
-          ({ event, cx, cy, shortCode, isSelected, isHovered }) => {
+          ({ event, cx, cy, shortCode, isSelected, isHovered, isGoal }) => {
             if (!event.id) return null;
             const eventId = event.id;
             const isHighlighted = isSelected || isHovered;
@@ -305,7 +307,10 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
               <g
                 key={eventId}
                 transform={`translate(${cx}, ${cy})`}
-                onClick={() => handleMarkerClick(eventId)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleMarkerClick(eventId);
+                }}
                 onMouseEnter={() => handleMarkerMouseEnter(eventId)}
                 onMouseLeave={handleMarkerMouseLeave}
                 className="cursor-pointer"
@@ -314,30 +319,74 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
                   <circle
                     cx={0}
                     cy={0}
-                    r={isHighlighted ? 22 : 18}
+                    r={isHighlighted ? 24 : 20}
                     className="fill-none stroke-amber-400 stroke-2 animate-ping opacity-75"
                   />
                 )}
-                <circle
-                  cx={0}
-                  cy={0}
-                  r={isHighlighted ? 17 : 13}
-                  className={`${
-                    event.isPositive
-                      ? "fill-emerald-500 stroke-emerald-300"
-                      : "fill-rose-600 stroke-rose-300"
-                  } stroke-2 shadow-lg transition-all duration-150`}
-                />
-                <text
-                  x={0}
-                  y={4}
-                  textAnchor="middle"
-                  className="fill-white font-mono font-black text-[10px] pointer-events-none select-none"
-                >
-                  {event.playerNumber != null
-                    ? `#${event.playerNumber}`
-                    : shortCode}
-                </text>
+
+                {isGoal ? (
+                  /* Custom Water Polo Goal Ball Marker */
+                  <g>
+                    {/* Outer Positivity Status Ring (Green for Scored Goal, Red for Conceded) */}
+                    <circle
+                      cx={0}
+                      cy={0}
+                      r={isHighlighted ? 20 : 16}
+                      className={`${
+                        event.isPositive
+                          ? "fill-emerald-950/80 stroke-emerald-400"
+                          : "fill-rose-950/80 stroke-rose-500"
+                      } stroke-3 shadow-xl transition-all duration-150`}
+                    />
+                    {/* Inner Yellow Ball Body */}
+                    <circle
+                      cx={0}
+                      cy={0}
+                      r={isHighlighted ? 14 : 11}
+                      className="fill-amber-400 stroke-amber-600 stroke-1"
+                    />
+                    {/* Ball Seam Lines */}
+                    <path
+                      d="M -9 0 Q 0 -6 9 0 M -9 0 Q 0 6 9 0 M 0 -9 Q -6 0 0 9 M 0 -9 Q 6 0 0 9"
+                      className="fill-none stroke-gray-950/80 stroke-[1.2]"
+                    />
+                    {/* Player Number in Bold Black Text */}
+                    <text
+                      x={0}
+                      y={3.5}
+                      textAnchor="middle"
+                      className="fill-gray-950 font-mono font-black text-[9px] pointer-events-none select-none"
+                    >
+                      {event.playerNumber != null
+                        ? `#${event.playerNumber}`
+                        : shortCode}
+                    </text>
+                  </g>
+                ) : (
+                  /* Standard Event Point Marker */
+                  <g>
+                    <circle
+                      cx={0}
+                      cy={0}
+                      r={isHighlighted ? 17 : 13}
+                      className={`${
+                        event.isPositive
+                          ? "fill-emerald-500 stroke-emerald-300"
+                          : "fill-rose-600 stroke-rose-300"
+                      } stroke-2 shadow-lg transition-all duration-150`}
+                    />
+                    <text
+                      x={0}
+                      y={4}
+                      textAnchor="middle"
+                      className="fill-white font-mono font-black text-[10px] pointer-events-none select-none"
+                    >
+                      {event.playerNumber != null
+                        ? `#${event.playerNumber}`
+                        : shortCode}
+                    </text>
+                  </g>
+                )}
               </g>
             );
           },
@@ -347,21 +396,25 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
       {/* Active Event Hover / Selection Tooltip */}
       {activeEvent?.locationX != null && activeEvent?.locationY != null && (
         <div
-          className={`absolute z-20 min-w-40 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-none transition-all duration-150 ${getTooltipPositionClass(
+          className={`absolute z-20 min-w-40 max-w-55 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-none transition-all duration-150 ${getTooltipPositionClass(
             Number(activeEvent.locationX),
             Number(activeEvent.locationY),
           )}`}
           style={{
-            left: `${Math.max(2, Math.min(98, Number(activeEvent.locationX)))}%`,
-            top: `${Math.max(2, Math.min(98, Number(activeEvent.locationY)))}%`,
+            left: `${Math.max(10, Math.min(90, Number(activeEvent.locationX)))}%`,
+            top: `${Math.max(5, Math.min(95, Number(activeEvent.locationY)))}%`,
           }}
         >
-          <div className="flex items-center space-x-1.5 font-bold text-emerald-400 border-b border-gray-800 pb-1 mb-1 whitespace-nowrap">
+          <div
+            className={`flex items-center space-x-1.5 font-bold border-b border-gray-800 pb-1 mb-1 whitespace-nowrap ${
+              activeEvent.isPositive ? "text-emerald-400" : "text-rose-400"
+            }`}
+          >
             <span>#{activeEvent.playerNumber ?? "-"}</span>
             <span>{activeEvent.playerName || "Player"}</span>
           </div>
           <div className="space-y-0.5 text-gray-300">
-            <div className="whitespace-nowrap">
+            <div className="wrap-break-word">
               <span className="text-gray-400">Action: </span>
               <span className="font-semibold text-white">
                 {activeEvent.eventName || "Action"}
