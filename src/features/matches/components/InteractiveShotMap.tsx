@@ -29,12 +29,12 @@ export const InteractiveShotMap: React.FC<InteractiveShotMapProps> = ({
 
   const dimensions = useMemo(() => parseSvgDimensions(shotMap), [shotMap]);
 
-  if (!safeSvg || !dimensions) {
-    return null;
-  }
-
   const hasCoordinates =
     typeof shotLocationX === "number" && typeof shotLocationY === "number";
+
+  if (!hasCoordinates && (!safeSvg || !dimensions)) {
+    return null;
+  }
 
   const handleGoalClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (disabled) return;
@@ -119,41 +119,43 @@ export const InteractiveShotMap: React.FC<InteractiveShotMapProps> = ({
         )}
       </div>
 
-      <div className="w-full relative">
-        <div className="w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900/80 shadow-inner relative touch-pan-y">
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={handleGoalClick}
-            onKeyDown={handleKeyDown}
-            aria-label="Goal Shot Location Map"
-            className={`w-full relative flex justify-center items-center select-none border-0 p-0 bg-transparent ${
-              disabled ? "cursor-not-allowed opacity-60" : "cursor-crosshair"
-            }`}
-            style={{ aspectRatio: dimensions.aspectRatio }}
-          >
-            <div
-              className="w-full h-auto max-w-full pointer-events-none flex items-center justify-center [&>svg]:w-full [&>svg]:h-auto [&>svg]:block"
-              dangerouslySetInnerHTML={{ __html: safeSvg }}
-            />
-
-            {hasCoordinates && (
+      {safeSvg && dimensions && (
+        <div className="w-full relative">
+          <div className="w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900/80 shadow-inner relative touch-pan-y">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={handleGoalClick}
+              onKeyDown={handleKeyDown}
+              aria-label="Goal Shot Location Map"
+              className={`w-full relative flex justify-center items-center select-none border-0 p-0 bg-transparent ${
+                disabled ? "cursor-not-allowed opacity-60" : "cursor-crosshair"
+              }`}
+              style={{ aspectRatio: dimensions.aspectRatio }}
+            >
               <div
-                style={{
-                  left: `${shotLocationX}%`,
-                  top: `${100 - shotLocationY}%`,
-                }}
-                className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none z-10 transition-all duration-150 ease-out"
-              >
-                <span className="absolute -inset-1.5 rounded-full bg-amber-400/40 animate-ping" />
-                <div className="relative w-4 h-4 rounded-full bg-amber-400 border-2 border-slate-950 shadow-lg flex items-center justify-center">
-                  <div className="w-1.5 h-1.5 rounded-full bg-slate-950" />
+                className="w-full h-auto max-w-full pointer-events-none flex items-center justify-center [&>svg]:w-full [&>svg]:h-auto [&>svg]:block"
+                dangerouslySetInnerHTML={{ __html: safeSvg }}
+              />
+
+              {hasCoordinates && (
+                <div
+                  style={{
+                    left: `${shotLocationX}%`,
+                    top: `${100 - shotLocationY}%`,
+                  }}
+                  className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none z-10 transition-all duration-150 ease-out"
+                >
+                  <span className="absolute -inset-1.5 rounded-full bg-amber-400/40 animate-ping" />
+                  <div className="relative w-4 h-4 rounded-full bg-amber-400 border-2 border-slate-950 shadow-lg flex items-center justify-center">
+                    <div className="w-1.5 h-1.5 rounded-full bg-slate-950" />
+                  </div>
                 </div>
-              </div>
-            )}
-          </button>
+              )}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

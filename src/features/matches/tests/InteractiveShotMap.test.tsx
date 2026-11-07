@@ -306,4 +306,29 @@ describe("InteractiveShotMap Component", () => {
 
     expect(handleShotLocationSelect).not.toHaveBeenCalled();
   });
+
+  it("renders coordinates badge and Clear button even when shotMap is null", () => {
+    const handleShotLocationSelect = vi.fn();
+    render(
+      <InteractiveShotMap
+        shotMap={null}
+        shotLocationX={40}
+        shotLocationY={60}
+        onShotLocationSelect={handleShotLocationSelect}
+      />,
+    );
+
+    expect(screen.getByText("Goal Shot Map")).toBeInTheDocument();
+    expect(screen.getByText("X: 40% | Y: 60%")).toBeInTheDocument();
+
+    const clearButton = screen.getByRole("button", { name: /clear/i });
+    expect(clearButton).toBeInTheDocument();
+
+    fireEvent.click(clearButton);
+    expect(handleShotLocationSelect).toHaveBeenCalledWith(null, null);
+
+    expect(
+      screen.queryByLabelText("Goal Shot Location Map"),
+    ).not.toBeInTheDocument();
+  });
 });
