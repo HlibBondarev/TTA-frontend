@@ -51,6 +51,7 @@ export const useShotMap = ({
     (eventId: string) => {
       clearAutoDismissTimer();
       setSelectedEventId((prev) => (prev === eventId ? null : eventId));
+      setHoveredEventId(null);
     },
     [clearAutoDismissTimer],
   );

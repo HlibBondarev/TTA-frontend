@@ -236,4 +236,66 @@ describe("MatchShotMap Component", () => {
     fireEvent.keyDown(markerBtn10, { key: " " });
     expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
   });
+
+  it("allows pointer selection of overlapping edge markers on small viewBox maps even when one is hovered", () => {
+    const smallSvg = `<svg viewBox="0 0 10 10" width="10" height="10"><rect width="10" height="10" fill="blue"/></svg>`;
+    const edgeEvents: GameEventResponse[] = [
+      {
+        id: "edge-event-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 100,
+        shotLocationY: 50,
+        playerNumber: 7,
+        playerName: "Player Seven",
+        eventName: "Goal",
+        periodNumber: 1,
+      },
+      {
+        id: "edge-event-2",
+        eventDefinitionId: sogDefId,
+        isPositive: true,
+        shotLocationX: 100,
+        shotLocationY: 50,
+        playerNumber: 9,
+        playerName: "Player Nine",
+        eventName: "Shot on Goal",
+        periodNumber: 1,
+      },
+    ];
+
+    render(
+      <MatchShotMap
+        events={edgeEvents}
+        eventDefinitionsMap={mockDefinitionsMap}
+        shotMap={smallSvg}
+      />,
+    );
+
+    const marker1 = screen.getByRole("button", {
+      name: /Player #7/,
+    });
+    const marker2 = screen.getByRole("button", {
+      name: /Player #9/,
+    });
+
+    expect(marker1).toBeInTheDocument();
+    expect(marker2).toBeInTheDocument();
+
+    // Hover marker 2
+    fireEvent.mouseEnter(marker2);
+    expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
+
+    // Move pointer from marker 2 to marker 1 and click marker 1
+    fireEvent.mouseLeave(marker2);
+    fireEvent.mouseEnter(marker1);
+    fireEvent.click(marker1);
+    expect(screen.getByText("Goal")).toBeInTheDocument();
+
+    // Move pointer from marker 1 to marker 2 and click marker 2
+    fireEvent.mouseLeave(marker1);
+    fireEvent.mouseEnter(marker2);
+    fireEvent.click(marker2);
+    expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
+  });
 });

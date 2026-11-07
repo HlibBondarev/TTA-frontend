@@ -17,10 +17,11 @@ const formatMatchTime = (timeStr?: string): string => {
 
 const ShotMarker: React.FC<{
   point: RenderableShotPoint;
+  dimensions: { width: number; height: number };
   onMarkerClick: (id: string) => void;
   onMouseEnter: (id: string) => void;
   onMouseLeave: () => void;
-}> = ({ point, onMarkerClick, onMouseEnter, onMouseLeave }) => {
+}> = ({ point, dimensions, onMarkerClick, onMouseEnter, onMouseLeave }) => {
   const { event, cx, cy, shortCode, isSelected, isHovered, shotCategory } =
     point;
   if (!event.id) return null;
@@ -60,6 +61,11 @@ const ShotMarker: React.FC<{
     }
   };
 
+  const minDim = Math.min(dimensions.width, dimensions.height);
+  const baseRadius = Math.min(8, minDim * 0.032);
+  const hoverRadius = Math.min(11, minDim * 0.044);
+  const radius = isHighlighted ? hoverRadius : baseRadius;
+
   return (
     <g
       role="button"
@@ -78,7 +84,7 @@ const ShotMarker: React.FC<{
       <circle
         cx={0}
         cy={0}
-        r={isHighlighted ? 11 : 8}
+        r={radius}
         className={`${colorClasses} stroke-2 shadow-md transition-all duration-150`}
       />
       <text
@@ -223,6 +229,7 @@ export const MatchShotMap: React.FC<MatchShotMapProps> = ({
           <ShotMarker
             key={point.event.id}
             point={point}
+            dimensions={dimensions}
             onMarkerClick={handleMarkerClick}
             onMouseEnter={handleMarkerMouseEnter}
             onMouseLeave={handleMarkerMouseLeave}
