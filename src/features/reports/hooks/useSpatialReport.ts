@@ -91,7 +91,7 @@ async function loadLineups(
   return lineups;
 }
 
-// Helper to fetch and enrich event definitions map
+// Helper to fetch and enrich event definitions map with uncached shot detection fallback
 async function loadDefinitionsMap(
   fetchedEvents: GameEventResponse[],
 ): Promise<Map<string, EventDefinitionLookup>> {
@@ -105,6 +105,9 @@ async function loadDefinitionsMap(
   fetchedEvents.forEach((ev) => {
     if (ev.eventDefinitionId) {
       const existing = definitionsMap.get(ev.eventDefinitionId);
+      const hasShotCoordinates =
+        ev.shotLocationX != null && ev.shotLocationY != null;
+
       definitionsMap.set(ev.eventDefinitionId, {
         id: ev.eventDefinitionId,
         sportId: existing?.sportId ?? "",
@@ -113,7 +116,8 @@ async function loadDefinitionsMap(
           ? ev.eventName.substring(0, 4).toUpperCase()
           : existing?.shortName || "ACT",
         isPositive: ev.isPositive ?? existing?.isPositive ?? true,
-        isShot: existing?.isShot ?? false,
+        // Mark uncached events with shot coordinates as isShot=true upstream
+        isShot: existing ? existing.isShot : hasShotCoordinates,
       });
     }
   });
@@ -205,7 +209,8 @@ function matchesShotMode(
   const def = ev.eventDefinitionId
     ? eventDefinitionsMap.get(ev.eventDefinitionId)
     : undefined;
-  return def?.isShot === true;
+  // Allow uncached definitions with shot coordinates to pass upstream shot filtering
+  return def ? def.isShot === true : true;
 }
 
 function matchesDefinitionFilter(

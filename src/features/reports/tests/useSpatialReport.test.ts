@@ -446,4 +446,36 @@ describe("useSpatialReport Custom Hook", () => {
 
     expect(result.current.error).toBe("Failed to load spatial analytics data.");
   });
+
+  it("includes uncached event definitions with valid shot coordinates in spatial shot report calculations", async () => {
+    const uncachedShotEvent: GameEventResponse = {
+      id: "spatial-uncached-1",
+      eventDefinitionId: "def-uncached-spatial-id",
+      isPositive: true,
+      shotLocationX: 60,
+      shotLocationY: 70,
+      playerNumber: 14,
+      eventName: "Uncached Drive Shot",
+    };
+
+    vi.mocked(reportService.getMatchEvents).mockResolvedValueOnce([
+      uncachedShotEvent,
+    ]);
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([]);
+
+    const { result } = renderHook(() =>
+      useSpatialReport({ matchId: "m-uncached" }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    act(() => {
+      result.current.toggleMapMode("shot");
+    });
+
+    expect(result.current.filteredEvents).toHaveLength(1);
+    expect(result.current.filteredEvents[0].id).toBe("spatial-uncached-1");
+  });
 });
