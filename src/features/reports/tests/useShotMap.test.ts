@@ -333,4 +333,32 @@ describe("useShotMap hook", () => {
     expect(result.current.hoveredEventId).toBeNull();
     expect(result.current.activeEvent).toBeNull();
   });
+
+  it("renders shot event on Shot Map when eventDefinitionId is uncached but valid shot coordinates exist", () => {
+    const uncachedEvents: GameEventResponse[] = [
+      {
+        id: "uncached-event-1",
+        eventDefinitionId: "def-unknown-id",
+        isPositive: true,
+        shotLocationX: 45,
+        shotLocationY: 55,
+        playerNumber: 12,
+        eventName: "Unknown Shot",
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useShotMap({
+        events: uncachedEvents,
+        eventDefinitionsMap: new Map(),
+        shotMap: defaultShotMap,
+      }),
+    );
+
+    expect(result.current.renderablePoints).toHaveLength(1);
+    expect(result.current.renderablePoints[0].event.id).toBe(
+      "uncached-event-1",
+    );
+    expect(result.current.renderablePoints[0].shortCode).toBe("UNK");
+  });
 });

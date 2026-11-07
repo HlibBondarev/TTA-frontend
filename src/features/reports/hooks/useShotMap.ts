@@ -51,6 +51,8 @@ export const useShotMap = ({
     (eventId: string) => {
       clearAutoDismissTimer();
       setSelectedEventId((prev) => (prev === eventId ? null : eventId));
+      // Reset hovered event on click so selectedEvent takes precedence
+      // and the 3.5s auto-dismiss timer can properly clear activeEvent
       setHoveredEventId(null);
     },
     [clearAutoDismissTimer],
@@ -100,7 +102,8 @@ export const useShotMap = ({
       const def = e.eventDefinitionId
         ? eventDefinitionsMap.get(e.eventDefinitionId)
         : undefined;
-      return def?.isShot === true;
+      // Allow uncached definitions to fall back to true if shot coordinates are present
+      return def ? def.isShot === true : true;
     });
 
     const coordGroups = new Map<string, number>();

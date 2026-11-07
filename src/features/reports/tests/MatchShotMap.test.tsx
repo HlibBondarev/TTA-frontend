@@ -395,4 +395,27 @@ describe("MatchShotMap Component", () => {
     fireEvent.click(marker2);
     expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
   });
+
+  it("renders markers for uncached event definitions when valid shot coordinates are present", () => {
+    const uncachedEvents: GameEventResponse[] = [
+      {
+        id: "uncached-event-1",
+        eventDefinitionId: "def-unknown-id",
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+        playerNumber: 88,
+      },
+    ];
+
+    render(
+      <MatchShotMap
+        events={uncachedEvents}
+        eventDefinitionsMap={new Map()}
+        shotMap={defaultSvgLayout}
+      />,
+    );
+
+    expect(screen.getByText("88")).toBeInTheDocument();
+  });
 });
