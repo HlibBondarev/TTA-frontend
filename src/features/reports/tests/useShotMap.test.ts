@@ -281,4 +281,42 @@ describe("useShotMap hook", () => {
     expect(result.current.hoveredEventId).toBeNull();
     expect(result.current.activeEvent).toBeNull();
   });
+
+  it("keeps overlapping markers at map boundary (shotLocationX = 100) within viewBox bounds and distinct", () => {
+    const boundaryEvents: GameEventResponse[] = [
+      {
+        id: "edge-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 100,
+        shotLocationY: 50,
+        playerNumber: 7,
+      },
+      {
+        id: "edge-2",
+        eventDefinitionId: sogDefId,
+        isPositive: true,
+        shotLocationX: 100,
+        shotLocationY: 50,
+        playerNumber: 9,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useShotMap({
+        events: boundaryEvents,
+        eventDefinitionsMap: mockDefinitionsMap,
+        shotMap: '<svg viewBox="0 0 615 248"></svg>',
+      }),
+    );
+
+    expect(result.current.renderablePoints).toHaveLength(2);
+    const [p1, p2] = result.current.renderablePoints;
+
+    expect(p1.cx).not.toBe(p2.cx);
+    expect(p1.cx).toBeLessThanOrEqual(615);
+    expect(p1.cx).toBeGreaterThanOrEqual(0);
+    expect(p2.cx).toBeLessThanOrEqual(615);
+    expect(p2.cx).toBeGreaterThanOrEqual(0);
+  });
 });

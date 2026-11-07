@@ -110,6 +110,9 @@ export const useShotMap = ({
 
     const coordIndices = new Map<string, number>();
 
+    const minPadding = 8;
+    const offsetRadius = 7;
+
     return validShotEvents.map((e) => {
       const baseCx = (Number(e.shotLocationX) / 100) * dimensions.width;
       const baseCy =
@@ -120,14 +123,47 @@ export const useShotMap = ({
       const groupIndex = coordIndices.get(key) || 0;
       coordIndices.set(key, groupIndex + 1);
 
-      let cx = baseCx;
-      let cy = baseCy;
+      let cx: number;
+      let cy: number;
 
       if (totalInGroup > 1) {
-        const offsetRadius = 7;
+        const safeRadiusX = Math.min(
+          dimensions.width / 2,
+          minPadding + offsetRadius,
+        );
+        const safeRadiusY = Math.min(
+          dimensions.height / 2,
+          minPadding + offsetRadius,
+        );
+
+        const centerCx = Math.max(
+          safeRadiusX,
+          Math.min(dimensions.width - safeRadiusX, baseCx),
+        );
+        const centerCy = Math.max(
+          safeRadiusY,
+          Math.min(dimensions.height - safeRadiusY, baseCy),
+        );
+
         const angle = (groupIndex * 2 * Math.PI) / totalInGroup;
-        cx = Number((baseCx + Math.cos(angle) * offsetRadius).toFixed(2));
-        cy = Number((baseCy + Math.sin(angle) * offsetRadius).toFixed(2));
+        cx = Number((centerCx + Math.cos(angle) * offsetRadius).toFixed(2));
+        cy = Number((centerCy + Math.sin(angle) * offsetRadius).toFixed(2));
+      } else {
+        const paddingX = Math.min(dimensions.width / 2, minPadding);
+        const paddingY = Math.min(dimensions.height / 2, minPadding);
+
+        cx = Number(
+          Math.max(
+            paddingX,
+            Math.min(dimensions.width - paddingX, baseCx),
+          ).toFixed(2),
+        );
+        cy = Number(
+          Math.max(
+            paddingY,
+            Math.min(dimensions.height - paddingY, baseCy),
+          ).toFixed(2),
+        );
       }
 
       const def = e.eventDefinitionId
