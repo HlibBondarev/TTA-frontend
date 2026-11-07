@@ -485,6 +485,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
 
       {hasTooltip && (
         <SpatialTooltip
+          key={activeEvent!.id}
           activeEvent={activeEvent!}
           eventDefinitionsMap={eventDefinitionsMap}
           shotMap={shotMap}

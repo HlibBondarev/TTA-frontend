@@ -235,6 +235,34 @@ describe("MatchSpatialMap Component", () => {
     expect(screen.getByText("Action:")).toBeInTheDocument();
   });
 
+  it("resets tooltip mode back to Info when switching active events", () => {
+    render(
+      <MatchSpatialMap
+        events={mockEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+        shotMap={defaultShotMap}
+      />,
+    );
+
+    // 1. Hover shot event (#9) and toggle mode to "Shot"
+    const shotMarker = screen.getByText("9");
+    fireEvent.mouseEnter(shotMarker);
+
+    const shotButton = screen.getByRole("button", { name: "Shot" });
+    fireEvent.click(shotButton);
+    expect(screen.getByText("Goal Target")).toBeInTheDocument();
+
+    // 2. Hover non-shot event (#4) - state should reset to "Info" and show action info
+    const nonShotMarker = screen.getByText("4");
+    fireEvent.mouseEnter(nonShotMarker);
+
+    expect(screen.getByText("Alex Smith")).toBeInTheDocument();
+    expect(screen.getByText("Action:")).toBeInTheDocument();
+    expect(screen.getByText("Foul")).toBeInTheDocument();
+    expect(screen.queryByText("Goal Target")).not.toBeInTheDocument();
+  });
+
   it("displays and closes interactive tooltip when clicking action markers or map background", () => {
     const { container } = render(
       <MatchSpatialMap
