@@ -447,35 +447,66 @@ describe("useSpatialReport Custom Hook", () => {
     expect(result.current.error).toBe("Failed to load spatial analytics data.");
   });
 
-  it("includes uncached event definitions with valid shot coordinates in spatial shot report calculations", async () => {
-    const uncachedShotEvent: GameEventResponse = {
-      id: "spatial-uncached-1",
-      eventDefinitionId: "def-uncached-spatial-id",
+  it("includes uncached event definitions in spatial shot report regardless of event order", async () => {
+    const uncachedNonShotFirst: GameEventResponse = {
+      id: "ev-non-shot-1",
+      eventDefinitionId: "def-uncached-order-1",
+      isPositive: true,
+      playerNumber: 10,
+      eventName: "Uncached Pass",
+    };
+    const uncachedShotSecond: GameEventResponse = {
+      id: "ev-shot-2",
+      eventDefinitionId: "def-uncached-order-1",
       isPositive: true,
       shotLocationX: 60,
       shotLocationY: 70,
-      playerNumber: 14,
+      playerNumber: 10,
       eventName: "Uncached Drive Shot",
     };
 
+    // Order A: Non-shot event first, shot event second
     vi.mocked(reportService.getMatchEvents).mockResolvedValueOnce([
-      uncachedShotEvent,
+      uncachedNonShotFirst,
+      uncachedShotSecond,
     ]);
     vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([]);
 
-    const { result } = renderHook(() =>
-      useSpatialReport({ matchId: "m-uncached" }),
+    const { result: resultA } = renderHook(() =>
+      useSpatialReport({ matchId: "m-order-a" }),
     );
 
     await waitFor(() => {
-      expect(result.current.isLoading).toBe(false);
+      expect(resultA.current.isLoading).toBe(false);
     });
 
     act(() => {
-      result.current.toggleMapMode("shot");
+      resultA.current.toggleMapMode("shot");
     });
 
-    expect(result.current.filteredEvents).toHaveLength(1);
-    expect(result.current.filteredEvents[0].id).toBe("spatial-uncached-1");
+    expect(resultA.current.filteredEvents).toHaveLength(1);
+    expect(resultA.current.filteredEvents[0].id).toBe("ev-shot-2");
+
+    // Order B: Shot event first, non-shot event second
+    vi.mocked(reportService.getMatchEvents).mockResolvedValueOnce([
+      uncachedShotSecond,
+      uncachedNonShotFirst,
+    ]);
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([]);
+
+    const { result: resultB } = renderHook(() =>
+      useSpatialReport({ matchId: "m-order-b" }),
+    );
+
+    await waitFor(() => {
+      expect(resultB.current.isLoading).toBe(false);
+    });
+
+    act(() => {
+      resultB.current.toggleMapMode("shot");
+    });
+
+    expect(resultB.current.filteredEvents).toHaveLength(1);
+    expect(resultB.current.filteredEvents[0].id).toBe("ev-shot-2");
   });
 });

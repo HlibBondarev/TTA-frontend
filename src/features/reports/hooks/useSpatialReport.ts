@@ -92,6 +92,7 @@ async function loadLineups(
 }
 
 // Helper to fetch and enrich event definitions map with uncached shot detection fallback
+// Helper to fetch and enrich event definitions map with uncached shot detection fallback
 async function loadDefinitionsMap(
   fetchedEvents: GameEventResponse[],
 ): Promise<Map<string, EventDefinitionLookup>> {
@@ -99,26 +100,34 @@ async function loadDefinitionsMap(
     .toArray()
     .catch(() => []);
 
+  const dbDefsMap = new Map<string, EventDefinitionLookup>();
+  defs.forEach((d) => dbDefsMap.set(d.id, d));
+
   const definitionsMap = new Map<string, EventDefinitionLookup>();
   defs.forEach((d) => definitionsMap.set(d.id, d));
 
   fetchedEvents.forEach((ev) => {
     if (ev.eventDefinitionId) {
-      const existing = definitionsMap.get(ev.eventDefinitionId);
+      const cachedInDb = dbDefsMap.get(ev.eventDefinitionId);
+      const currentInMap = definitionsMap.get(ev.eventDefinitionId);
       const hasShotCoordinates =
         ev.shotLocationX != null && ev.shotLocationY != null;
 
-      definitionsMap.set(ev.eventDefinitionId, {
-        id: ev.eventDefinitionId,
-        sportId: existing?.sportId ?? "",
-        name: ev.eventName || existing?.name || "Action",
-        shortName: ev.eventName
-          ? ev.eventName.substring(0, 4).toUpperCase()
-          : existing?.shortName || "ACT",
-        isPositive: ev.isPositive ?? existing?.isPositive ?? true,
-        // Mark uncached events with shot coordinates as isShot=true upstream
-        isShot: existing ? existing.isShot : hasShotCoordinates,
-      });
+      if (cachedInDb) {
+        definitionsMap.set(ev.eventDefinitionId, cachedInDb);
+      } else {
+        definitionsMap.set(ev.eventDefinitionId, {
+          id: ev.eventDefinitionId,
+          sportId: "",
+          name: ev.eventName || currentInMap?.name || "Action",
+          shortName: ev.eventName
+            ? ev.eventName.substring(0, 4).toUpperCase()
+            : currentInMap?.shortName || "ACT",
+          isPositive: ev.isPositive ?? currentInMap?.isPositive ?? true,
+          // Aggregate coordinate evidence across all events for uncached definitions
+          isShot: Boolean(currentInMap?.isShot || hasShotCoordinates),
+        });
+      }
     }
   });
 
