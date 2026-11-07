@@ -399,4 +399,72 @@ describe("MatchShotMap Component", () => {
       document.elementFromPoint = originalElementFromPoint;
     }
   });
+
+  it("renders distinct scaled hit targets and handles pointer events for overlapping edge markers on a 1x1 map", () => {
+    const microSvg = `<svg viewBox="0 0 1 1" width="100" height="100"><rect width="1" height="1" fill="blue"/></svg>`;
+    const microEdgeEvents: GameEventResponse[] = [
+      {
+        id: "micro-edge-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 100,
+        shotLocationY: 50,
+        playerNumber: 7,
+        playerName: "Player Seven",
+        eventName: "Goal",
+        periodNumber: 1,
+      },
+      {
+        id: "micro-edge-2",
+        eventDefinitionId: sogDefId,
+        isPositive: true,
+        shotLocationX: 100,
+        shotLocationY: 50,
+        playerNumber: 9,
+        playerName: "Player Nine",
+        eventName: "Shot on Goal",
+        periodNumber: 1,
+      },
+    ];
+
+    render(
+      <MatchShotMap
+        events={microEdgeEvents}
+        eventDefinitionsMap={mockDefinitionsMap}
+        shotMap={microSvg}
+      />,
+    );
+
+    const marker1 = screen.getByRole("button", { name: /Player #7/ });
+    const marker2 = screen.getByRole("button", { name: /Player #9/ });
+
+    // Verify markers are rendered at distinct translated center coordinates (cx = 0.75 vs cx = 0.25)
+    expect(marker1).toHaveAttribute("transform", "translate(0.75, 0.5)");
+    expect(marker2).toHaveAttribute("transform", "translate(0.25, 0.5)");
+
+    // Verify micro-scaled circle radii and non-scaling strokes to prevent hit target coverage
+    const circle1 = marker1.querySelector("circle");
+    const circle2 = marker2.querySelector("circle");
+
+    expect(circle1).toHaveAttribute("r", "0.032");
+    expect(circle2).toHaveAttribute("r", "0.032");
+    expect(circle1).toHaveAttribute("stroke-width", "0.01");
+    expect(circle2).toHaveAttribute("stroke-width", "0.01");
+    expect(circle1).toHaveStyle({ vectorEffect: "non-scaling-stroke" });
+    expect(circle2).toHaveStyle({ vectorEffect: "non-scaling-stroke" });
+
+    // Verify independent pointer event interactions
+    fireEvent.mouseEnter(marker2);
+    expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
+
+    fireEvent.mouseLeave(marker2);
+    fireEvent.mouseEnter(marker1);
+    fireEvent.click(marker1);
+    expect(screen.getByText("Goal")).toBeInTheDocument();
+
+    fireEvent.mouseLeave(marker1);
+    fireEvent.mouseEnter(marker2);
+    fireEvent.click(marker2);
+    expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
+  });
 });
