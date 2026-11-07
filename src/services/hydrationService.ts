@@ -248,6 +248,23 @@ export const getMatchRecoveryState = async (
           if (config?.activePlayersLimit) {
             activePlayersLimit = config.activePlayersLimit;
           }
+
+          // If cached config is missing or lacks shotMap SVG, attempt non-blocking API refresh when online
+          if (tournament.sportId && (!config || !config.shotMap)) {
+            try {
+              const configs = await sportService.getSportConfigurations(
+                tournament.sportId,
+              );
+              const freshConfig = configs.find(
+                (c) => c.id === tournament.configurationId,
+              );
+              if (freshConfig) {
+                await db.sportconfigurations.put(freshConfig);
+              }
+            } catch {
+              // Ignore network errors to ensure offline match recovery is never blocked
+            }
+          }
         }
       }
     }

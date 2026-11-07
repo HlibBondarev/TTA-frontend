@@ -2123,4 +2123,110 @@ describe("Hydration Service", () => {
     expect(db.syncQueue.bulkDelete).not.toHaveBeenCalledWith([99]);
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
+
+  it("should attempt to fetch missing shotMap from API and save to IndexedDB during getMatchRecoveryState", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ periodNumber: 1 }]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      sportId: "sport-1",
+      configurationId: "cfg-1",
+    } as never);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      activePlayersLimit: 6,
+      shotMap: null,
+    } as never);
+
+    const mockFreshConfig = {
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 6,
+      shotMap: "<svg>Goal SVG</svg>",
+    };
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      mockFreshConfig as never,
+    ]);
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+
+    expect(recoveryState).toEqual({
+      recoveredPeriod: 1,
+      activePlayersLimit: 6,
+    });
+    expect(sportService.getSportConfigurations).toHaveBeenCalledWith("sport-1");
+    expect(db.sportconfigurations.put).toHaveBeenCalledWith(mockFreshConfig);
+  });
+
+  it("should ignore API errors during shotMap refresh in getMatchRecoveryState and complete recovery", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      sportId: "sport-1",
+      configurationId: "cfg-1",
+    } as never);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      activePlayersLimit: 7,
+      shotMap: null,
+    } as never);
+
+    vi.mocked(sportService.getSportConfigurations).mockRejectedValueOnce(
+      new Error("Network Error"),
+    );
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+
+    expect(recoveryState).toEqual({
+      recoveredPeriod: 1,
+      activePlayersLimit: 7,
+    });
+    expect(db.sportconfigurations.put).not.toHaveBeenCalled();
+  });
+
+  it("should not call API for shotMap refresh if cached config already has shotMap", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      sportId: "sport-1",
+      configurationId: "cfg-1",
+    } as never);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      activePlayersLimit: 6,
+      shotMap: "<svg>Existing SVG</svg>",
+    } as never);
+
+    await getMatchRecoveryState(matchId);
+
+    expect(sportService.getSportConfigurations).not.toHaveBeenCalled();
+    expect(db.sportconfigurations.put).not.toHaveBeenCalled();
+  });
 });
