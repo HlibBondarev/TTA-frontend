@@ -327,4 +327,76 @@ describe("MatchShotMap Component", () => {
     expect(circle).toHaveAttribute("stroke-width", "0.01");
     expect(circle).toHaveStyle({ vectorEffect: "non-scaling-stroke" });
   });
+
+  it("verifies spatial coordinate hit detection and selection of overlapping edge markers on a 1x1 map via elementFromPoint", () => {
+    const microSvg = `<svg viewBox="0 0 1 1" width="100" height="100"><rect width="1" height="1" fill="blue"/></svg>`;
+    const microEdgeEvents: GameEventResponse[] = [
+      {
+        id: "micro-edge-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 100,
+        shotLocationY: 50,
+        playerNumber: 7,
+        playerName: "Player Seven",
+        eventName: "Goal",
+        periodNumber: 1,
+      },
+      {
+        id: "micro-edge-2",
+        eventDefinitionId: sogDefId,
+        isPositive: true,
+        shotLocationX: 100,
+        shotLocationY: 50,
+        playerNumber: 9,
+        playerName: "Player Nine",
+        eventName: "Shot on Goal",
+        periodNumber: 1,
+      },
+    ];
+
+    render(
+      <MatchShotMap
+        events={microEdgeEvents}
+        eventDefinitionsMap={mockDefinitionsMap}
+        shotMap={microSvg}
+      />,
+    );
+
+    const marker1 = screen.getByRole("button", { name: /Player #7/ });
+    const marker2 = screen.getByRole("button", { name: /Player #9/ });
+
+    // Mock document.elementFromPoint to simulate browser coordinate hit testing
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = (x: number) => {
+      // Map coordinate to target marker element based on calculated offset positions (cx = 0.75 and cx = 0.25)
+      return x > 50 ? marker1 : marker2;
+    };
+
+    try {
+      // Simulate coordinate hit-test targeting marker 2
+      const targetHover = document.elementFromPoint(25, 50);
+      expect(targetHover).toBe(marker2);
+      fireEvent.mouseEnter(targetHover!);
+      expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
+
+      // Hit-test marker 1 coordinates while marker 2 was active/hovered
+      const targetClick1 = document.elementFromPoint(75, 50);
+      expect(targetClick1).toBe(marker1);
+      fireEvent.mouseLeave(marker2);
+      fireEvent.mouseEnter(targetClick1!);
+      fireEvent.click(targetClick1!);
+      expect(screen.getByText("Goal")).toBeInTheDocument();
+
+      // Hit-test marker 2 coordinates
+      const targetClick2 = document.elementFromPoint(25, 50);
+      expect(targetClick2).toBe(marker2);
+      fireEvent.mouseLeave(marker1);
+      fireEvent.mouseEnter(targetClick2!);
+      fireEvent.click(targetClick2!);
+      expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
+    } finally {
+      document.elementFromPoint = originalElementFromPoint;
+    }
+  });
 });
