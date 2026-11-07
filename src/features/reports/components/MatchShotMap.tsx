@@ -188,8 +188,16 @@ export const MatchShotMap: React.FC<MatchShotMapProps> = ({
     shotMap,
   });
 
-  if (!safeSvg || !dimensions) {
+  if (!safeSvg) {
     return null;
+  }
+
+  if (!dimensions) {
+    return (
+      <div className="w-full p-4 bg-gray-900/80 border border-gray-800 rounded-xl text-center text-xs text-gray-400">
+        Shot map scheme unavailable
+      </div>
+    );
   }
 
   const hasTooltip =

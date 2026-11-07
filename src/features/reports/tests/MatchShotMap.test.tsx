@@ -106,6 +106,20 @@ describe("MatchShotMap Component", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it("renders fallback unavailable message when safeSvg is non-empty but dimensions are missing", () => {
+    const invalidDimensionsSvg = `<svg><rect width="100" height="50" /></svg>`;
+
+    render(
+      <MatchShotMap
+        events={mockEvents}
+        eventDefinitionsMap={mockDefinitionsMap}
+        shotMap={invalidDimensionsSvg}
+      />,
+    );
+
+    expect(screen.getByText("Shot map scheme unavailable")).toBeInTheDocument();
+  });
+
   it("renders shotMap layout SVG and player number markers when shotMap is provided", () => {
     render(
       <MatchShotMap
