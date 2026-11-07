@@ -286,7 +286,7 @@ const SpatialTooltip: React.FC<{
 
   return (
     <div
-      role="dialog"
+      role="tooltip"
       aria-label="Event Details"
       className={`absolute z-20 min-w-44 max-w-60 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-auto transition-all duration-150 ${getTooltipPositionClass(
         locX,
