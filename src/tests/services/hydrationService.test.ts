@@ -2124,7 +2124,7 @@ describe("Hydration Service", () => {
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 
-  it("should attempt to fetch missing shotMap from API and save to IndexedDB during getMatchRecoveryState", async () => {
+  it("should trigger background shotMap refresh without blocking match recovery resolution", async () => {
     vi.mocked(db.timeanchors.where).mockReturnValueOnce({
       equals: vi.fn().mockReturnValueOnce({
         toArray: vi.fn().mockResolvedValueOnce([{ periodNumber: 1 }]),
@@ -2146,24 +2146,37 @@ describe("Hydration Service", () => {
       shotMap: null,
     } as never);
 
-    const mockFreshConfig = {
-      id: "cfg-1",
-      sportId: "sport-1",
-      activePlayersLimit: 6,
-      shotMap: "<svg>Goal SVG</svg>",
-    };
+    let resolveApiCall!: (value: unknown) => void;
+    const pendingPromise = new Promise((resolve) => {
+      resolveApiCall = resolve;
+    });
 
-    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
-      mockFreshConfig as never,
-    ]);
+    vi.mocked(sportService.getSportConfigurations).mockReturnValueOnce(
+      pendingPromise as never,
+    );
 
-    const recoveryState = await getMatchRecoveryState(matchId);
+    // Verify recovery state resolves immediately despite pending API call
+    const recoveryStatePromise = getMatchRecoveryState(matchId);
+    const recoveryState = await recoveryStatePromise;
 
     expect(recoveryState).toEqual({
       recoveredPeriod: 1,
       activePlayersLimit: 6,
     });
     expect(sportService.getSportConfigurations).toHaveBeenCalledWith("sport-1");
+    expect(db.sportconfigurations.put).not.toHaveBeenCalled();
+
+    // Resolve API promise and verify IndexedDB background update
+    const mockFreshConfig = {
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 6,
+      shotMap: "<svg>Goal SVG</svg>",
+    };
+    resolveApiCall([mockFreshConfig]);
+    await pendingPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
     expect(db.sportconfigurations.put).toHaveBeenCalledWith(mockFreshConfig);
   });
 

@@ -249,21 +249,21 @@ export const getMatchRecoveryState = async (
             activePlayersLimit = config.activePlayersLimit;
           }
 
-          // If cached config is missing or lacks shotMap SVG, attempt non-blocking API refresh when online
+          // Trigger true background refresh without awaiting, so recovery state returns instantly
           if (tournament.sportId && (!config || !config.shotMap)) {
-            try {
-              const configs = await sportService.getSportConfigurations(
-                tournament.sportId,
-              );
-              const freshConfig = configs.find(
-                (c) => c.id === tournament.configurationId,
-              );
-              if (freshConfig) {
-                await db.sportconfigurations.put(freshConfig);
-              }
-            } catch {
-              // Ignore network errors to ensure offline match recovery is never blocked
-            }
+            void sportService
+              .getSportConfigurations(tournament.sportId)
+              .then(async (configs) => {
+                const freshConfig = configs.find(
+                  (c) => c.id === tournament.configurationId,
+                );
+                if (freshConfig) {
+                  await db.sportconfigurations.put(freshConfig);
+                }
+              })
+              .catch(() => {
+                // Ignore network errors in background
+              });
           }
         }
       }
