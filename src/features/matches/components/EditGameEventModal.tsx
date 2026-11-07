@@ -43,6 +43,53 @@ const EditGameEventModalContent: React.FC<{
     handleSave,
   } = useEditGameEventModal({ action, matchId, onClose });
 
+  const renderTabContent = () => {
+    if (activeTab === "shots") {
+      return (
+        <InteractiveShotMap
+          shotMap={shotMap}
+          shotLocationX={shotLocationX}
+          shotLocationY={shotLocationY}
+          onShotLocationSelect={handleShotLocationSelect}
+        />
+      );
+    }
+
+    if (activeTab === "map") {
+      return (
+        <InteractivePlayground
+          playground={playground}
+          locationX={locationX}
+          locationY={locationY}
+          onLocationSelect={handleLocationSelect}
+        />
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-1">
+        {displayedActions.map((def) => {
+          const isSelected =
+            Boolean(def.id) && selectedEventDefinitionId === def.id;
+          return (
+            <button
+              key={def.id || def.name}
+              type="button"
+              onClick={() => handleActionSelect(def)}
+              className={`p-2 min-h-10 rounded text-[11px] font-medium transition-all ${
+                isSelected
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+              }`}
+            >
+              {def.name}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <ModalDialog
       isOpen={true}
@@ -144,42 +191,7 @@ const EditGameEventModalContent: React.FC<{
             )}
           </div>
 
-          {activeTab === "shots" ? (
-            <InteractiveShotMap
-              shotMap={shotMap}
-              shotLocationX={shotLocationX}
-              shotLocationY={shotLocationY}
-              onShotLocationSelect={handleShotLocationSelect}
-            />
-          ) : activeTab === "map" ? (
-            <InteractivePlayground
-              playground={playground}
-              locationX={locationX}
-              locationY={locationY}
-              onLocationSelect={handleLocationSelect}
-            />
-          ) : (
-            <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-1">
-              {displayedActions.map((def) => {
-                const isSelected =
-                  Boolean(def.id) && selectedEventDefinitionId === def.id;
-                return (
-                  <button
-                    key={def.id || def.name}
-                    type="button"
-                    onClick={() => handleActionSelect(def)}
-                    className={`p-2 min-h-10 rounded text-[11px] font-medium transition-all ${
-                      isSelected
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-800 text-gray-300 hover:bg-gray-700"
-                    }`}
-                  >
-                    {def.name}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          {renderTabContent()}
         </div>
       </div>
 
