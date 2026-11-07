@@ -161,11 +161,11 @@ async function fetchSportConfiguration(configId: string, sportId: string) {
 // Helper to resolve missing playground and shot map SVGs from IndexedDB or Backend API
 async function resolveSportSvgs(
   matchId: string,
-  initialPlayground?: string | null,
-  initialShotMap?: string | null,
+  initialPlayground: string | null = null,
+  initialShotMap: string | null = null,
 ): Promise<{ playground: string | null; shotMap: string | null }> {
-  let pg = initialPlayground ?? null;
-  let sm = initialShotMap ?? null;
+  let pg = initialPlayground;
+  let sm = initialShotMap;
 
   if (pg && sm) {
     return { playground: pg, shotMap: sm };
