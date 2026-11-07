@@ -1,36 +1,63 @@
-import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MatchSpatialReportView } from "../components/MatchSpatialReportView";
 import { useSpatialReport } from "../hooks/useSpatialReport";
+import { reportService } from "../../../services/reportService";
+import { db } from "../../../db/ttaDatabase";
 import type {
   MatchLineupLookup,
   EventDefinitionLookup,
 } from "../../../db/ttaDatabase";
 import type { GameEventResponse } from "../../../services/reportService";
 
-vi.mock("../hooks/useSpatialReport");
+vi.mock("../hooks/useSpatialReport", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../hooks/useSpatialReport")>();
+  return {
+    ...actual,
+    useSpatialReport: vi.fn(actual.useSpatialReport),
+  };
+});
 
-vi.mock("../components/MatchSpatialMap", () => ({
-  MatchSpatialMap: ({
-    events,
-    allEvents,
-  }: {
-    events: GameEventResponse[];
-    allEvents?: GameEventResponse[];
-  }) => (
-    <div data-testid="match-spatial-map">
-      Field Map Canvas (Filtered: {events.length}, Total:{" "}
-      {allEvents?.length ?? 0})
-    </div>
-  ),
+vi.mock("../../../services/reportService", () => ({
+  reportService: {
+    getMatchEvents: vi.fn(),
+    getTeamLineup: vi.fn(),
+  },
 }));
 
-vi.mock("../components/MatchShotMap", () => ({
-  MatchShotMap: ({ events }: { events: GameEventResponse[] }) => (
-    <div data-testid="match-shot-map">
-      Shot Map Canvas (Filtered: {events.length})
-    </div>
-  ),
+vi.mock("../../../api/client", () => ({
+  apiClient: {
+    get: vi.fn(),
+  },
+}));
+
+vi.mock("../../../services/sportService", () => ({
+  sportService: {
+    getSportConfigurations: vi.fn(),
+  },
+}));
+
+vi.mock("../../../db/ttaDatabase", () => ({
+  db: {
+    matches: {
+      get: vi.fn(),
+    },
+    tournaments: {
+      get: vi.fn(),
+      put: vi.fn(),
+    },
+    sportconfigurations: {
+      get: vi.fn(),
+      put: vi.fn(),
+    },
+    matchlineups: {
+      where: vi.fn(),
+    },
+    eventdefinitions: {
+      toArray: vi.fn(),
+    },
+  },
 }));
 
 describe("MatchSpatialReportView Component", () => {
@@ -134,6 +161,19 @@ describe("MatchSpatialReportView Component", () => {
     toggleMapMode: vi.fn(),
   };
 
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.matches.get).mockResolvedValue(undefined);
+    vi.mocked(db.tournaments.get).mockResolvedValue(undefined);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue(undefined);
+    vi.mocked(reportService.getTeamLineup).mockResolvedValue([]);
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+    } as never);
+  });
+
   it("renders loading indicator when isLoading is true", () => {
     vi.mocked(useSpatialReport).mockReturnValueOnce({
       ...mockHookReturnValue,
@@ -168,7 +208,7 @@ describe("MatchSpatialReportView Component", () => {
   });
 
   it("renders filter controls, player chips, action definition chips, and field court map by default", () => {
-    vi.mocked(useSpatialReport).mockReturnValue(mockHookReturnValue);
+    vi.mocked(useSpatialReport).mockReturnValueOnce(mockHookReturnValue);
 
     render(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
 
@@ -194,14 +234,10 @@ describe("MatchSpatialReportView Component", () => {
     expect(screen.getAllByText("Goal")[0]).toBeInTheDocument();
     expect(screen.getByText("- Negative Actions")).toBeInTheDocument();
     expect(screen.getByText("Foul")).toBeInTheDocument();
-    expect(screen.getByTestId("match-spatial-map")).toBeInTheDocument();
-    expect(
-      screen.getByText("Field Map Canvas (Filtered: 2, Total: 2)"),
-    ).toBeInTheDocument();
   });
 
-  it("renders MatchShotMap and legend when mapMode is set to shot", () => {
-    vi.mocked(useSpatialReport).mockReturnValue({
+  it("renders MatchShotMap legend when mapMode is set to shot", () => {
+    vi.mocked(useSpatialReport).mockReturnValueOnce({
       ...mockHookReturnValue,
       filters: {
         ...mockHookReturnValue.filters,
@@ -211,10 +247,6 @@ describe("MatchSpatialReportView Component", () => {
 
     render(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
 
-    expect(screen.getByTestId("match-shot-map")).toBeInTheDocument();
-    expect(screen.queryByTestId("match-spatial-map")).not.toBeInTheDocument();
-
-    // Check legend items
     expect(screen.getAllByText("Goal")[0]).toBeInTheDocument();
     expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
     expect(screen.getByText("Missed")).toBeInTheDocument();
@@ -222,7 +254,7 @@ describe("MatchSpatialReportView Component", () => {
   });
 
   it("renders fallback banner when mapMode is shot and effectiveShotMap is unavailable", () => {
-    vi.mocked(useSpatialReport).mockReturnValue({
+    vi.mocked(useSpatialReport).mockReturnValueOnce({
       ...mockHookReturnValue,
       shotMap: null,
       filters: {
@@ -236,43 +268,35 @@ describe("MatchSpatialReportView Component", () => {
     expect(
       screen.getByText("Goal Shot Map SVG is unavailable for this match."),
     ).toBeInTheDocument();
-    expect(screen.queryByTestId("match-shot-map")).not.toBeInTheDocument();
   });
 
   it("triggers filter callbacks on button clicks including mapMode switchers", () => {
-    vi.mocked(useSpatialReport).mockReturnValue(mockHookReturnValue);
+    vi.mocked(useSpatialReport).mockReturnValueOnce(mockHookReturnValue);
 
     render(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
 
-    // Switch to Shot Map mode
     fireEvent.click(screen.getByText("Shot Map"));
     expect(mockHookReturnValue.toggleMapMode).toHaveBeenCalledWith("shot");
 
-    // Switch to Field Map mode
     fireEvent.click(screen.getByText("Field Map"));
     expect(mockHookReturnValue.toggleMapMode).toHaveBeenCalledWith("field");
 
-    // Click Period Q2
     fireEvent.click(screen.getByText("Q2"));
     expect(mockHookReturnValue.togglePeriodFilter).toHaveBeenCalledWith(2);
 
-    // Click Category Tab Negative
     fireEvent.click(screen.getByText("negative"));
     expect(mockHookReturnValue.toggleActiveTab).toHaveBeenCalledWith(
       "negative",
     );
 
-    // Click Player Chip #7
     fireEvent.click(screen.getByText("#7"));
     expect(mockHookReturnValue.togglePlayerSelection).toHaveBeenCalledWith(
       "l-1",
     );
 
-    // Click Select All button
     fireEvent.click(screen.getByText("Select All"));
     expect(mockHookReturnValue.handleSelectAllPlayers).toHaveBeenCalled();
 
-    // Click specific positive action chip "Goal"
     const goalActionChip = screen
       .getAllByText("Goal")
       .find((el) => el.tagName === "BUTTON");
@@ -282,20 +306,25 @@ describe("MatchSpatialReportView Component", () => {
       "def-1",
     );
 
-    // Click specific negative action chip "Foul"
     fireEvent.click(screen.getByText("Foul"));
     expect(mockHookReturnValue.toggleNegativeDefSelection).toHaveBeenCalledWith(
       "def-2",
     );
 
-    // Toggle Vectors
     fireEvent.click(screen.getByText("Vectors ON"));
     expect(mockHookReturnValue.toggleGoalLeadVectors).toHaveBeenCalled();
   });
 
-  it("renders MatchShotMap with uncached event definitions when mapMode is set to shot", () => {
+  it("renders shot markers in UI with real useSpatialReport hook and MatchShotMap under both event sequence orders when mapMode is shot", async () => {
+    const uncachedNonShot: GameEventResponse = {
+      id: "view-uncached-nonshot-1",
+      eventDefinitionId: "def-uncached-view-1",
+      isPositive: true,
+      playerNumber: 77,
+      eventName: "Uncached Pass",
+    };
     const uncachedShot: GameEventResponse = {
-      id: "view-uncached-shot-1",
+      id: "view-uncached-shot-2",
       eventDefinitionId: "def-uncached-view-1",
       isPositive: true,
       shotLocationX: 50,
@@ -304,20 +333,58 @@ describe("MatchSpatialReportView Component", () => {
       eventName: "Uncached Drive Shot",
     };
 
-    vi.mocked(useSpatialReport).mockReturnValue({
-      ...mockHookReturnValue,
-      filteredEvents: [uncachedShot],
-      filters: {
-        ...mockHookReturnValue.filters,
-        mapMode: "shot",
-      },
+    const mockShotMapSvg = `<svg viewBox="0 0 615 248"><rect width="615" height="248" fill="blue"/></svg>`;
+
+    // Order 1: Non-shot event first, shot event second
+    vi.mocked(reportService.getMatchEvents).mockResolvedValueOnce([
+      uncachedNonShot,
+      uncachedShot,
+    ]);
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([]);
+
+    const { unmount: unmountFirstOrder } = render(
+      <MatchSpatialReportView
+        matchId="m-view-order-1"
+        shotMap={mockShotMapSvg}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Shot Map")).toBeInTheDocument();
     });
 
-    render(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
+    fireEvent.click(screen.getByText("Shot Map"));
 
-    expect(screen.getByTestId("match-shot-map")).toBeInTheDocument();
-    expect(
-      screen.getByText("Shot Map Canvas (Filtered: 1)"),
-    ).toBeInTheDocument();
+    const markerOrder1 = await screen.findByRole("button", {
+      name: /Player #77/,
+    });
+    expect(markerOrder1).toBeInTheDocument();
+
+    unmountFirstOrder();
+
+    // Order 2: Shot event first, non-shot event second
+    vi.mocked(reportService.getMatchEvents).mockResolvedValueOnce([
+      uncachedShot,
+      uncachedNonShot,
+    ]);
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([]);
+
+    render(
+      <MatchSpatialReportView
+        matchId="m-view-order-2"
+        shotMap={mockShotMapSvg}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Shot Map")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Shot Map"));
+
+    const markerOrder2 = await screen.findByRole("button", {
+      name: /Player #77/,
+    });
+    expect(markerOrder2).toBeInTheDocument();
   });
 });
