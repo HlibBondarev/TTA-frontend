@@ -145,7 +145,7 @@ describe("useAppSession Custom Hook", () => {
       expect.any(Function),
     );
 
-    expect(store.getState().presence.activePlayersLimit).toBe(7);
+    expect((store.getState() as RootState).presence.activePlayersLimit).toBe(7);
     expect(store.getState().match.activeMatchId).toBe("match-99");
     expect(store.getState().match.activeTeamId).toBe("team-home-1");
   });
@@ -251,8 +251,8 @@ describe("useAppSession Custom Hook", () => {
     expect(getMatchRecoveryState).toHaveBeenCalledWith("match-resumed");
     expect(recoverRecentActions).toHaveBeenCalledWith("match-resumed");
 
-    expect(store.getState().presence.currentPeriod).toBe(2);
-    expect(store.getState().presence.activePlayersLimit).toBe(6);
+    expect((store.getState() as RootState).presence.currentPeriod).toBe(2);
+    expect((store.getState() as RootState).presence.activePlayersLimit).toBe(6);
     expect(store.getState().match.activeMatchId).toBe("match-resumed");
     expect(store.getState().match.activeTeamId).toBe("team-guest-2");
     expect(store.getState().match.recentActions).toEqual(mockActions);
