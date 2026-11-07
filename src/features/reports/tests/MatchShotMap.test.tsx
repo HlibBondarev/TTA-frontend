@@ -298,4 +298,33 @@ describe("MatchShotMap Component", () => {
     fireEvent.click(marker2);
     expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
   });
+
+  it("scales marker stroke width dynamically and applies non-scaling-stroke for micro viewBox maps", () => {
+    const microSvg = `<svg viewBox="0 0 1 1" width="1" height="1"><rect width="1" height="1" fill="blue"/></svg>`;
+    const microEvents: GameEventResponse[] = [
+      {
+        id: "micro-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 100,
+        shotLocationY: 50,
+        playerNumber: 7,
+      },
+    ];
+
+    render(
+      <MatchShotMap
+        events={microEvents}
+        eventDefinitionsMap={mockDefinitionsMap}
+        shotMap={microSvg}
+      />,
+    );
+
+    const markerBtn = screen.getByRole("button", { name: /Player #7/ });
+    const circle = markerBtn.querySelector("circle");
+
+    expect(circle).toBeInTheDocument();
+    expect(circle).toHaveAttribute("stroke-width", "0.01");
+    expect(circle).toHaveStyle({ vectorEffect: "non-scaling-stroke" });
+  });
 });

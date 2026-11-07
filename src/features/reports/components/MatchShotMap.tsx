@@ -65,6 +65,7 @@ const ShotMarker: React.FC<{
   const baseRadius = Math.min(8, minDim * 0.032);
   const hoverRadius = Math.min(11, minDim * 0.044);
   const radius = isHighlighted ? hoverRadius : baseRadius;
+  const strokeWidth = Math.min(2, minDim * 0.01);
 
   return (
     <g
@@ -85,7 +86,9 @@ const ShotMarker: React.FC<{
         cx={0}
         cy={0}
         r={radius}
-        className={`${colorClasses} stroke-2 shadow-md transition-all duration-150`}
+        strokeWidth={strokeWidth}
+        style={{ vectorEffect: "non-scaling-stroke" }}
+        className={`${colorClasses} shadow-md transition-all duration-150`}
       />
       <text
         x={0}
