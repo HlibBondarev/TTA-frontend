@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import DOMPurify from "dompurify";
 import type { GameEventResponse } from "../../../services/reportService";
 import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
@@ -249,7 +249,15 @@ const SpatialTooltip: React.FC<{
   activeEvent: GameEventResponse;
   eventDefinitionsMap: Map<string, EventDefinitionLookup>;
   shotMap?: string | null;
-}> = ({ activeEvent, eventDefinitionsMap, shotMap }) => {
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+}> = ({
+  activeEvent,
+  eventDefinitionsMap,
+  shotMap,
+  onMouseEnter,
+  onMouseLeave,
+}) => {
   const [tooltipMode, setTooltipMode] = useState<"info" | "shot">("info");
 
   const safeShotMap = useMemo(
@@ -288,6 +296,8 @@ const SpatialTooltip: React.FC<{
     <div
       role="tooltip"
       aria-label="Event Details"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       className={`absolute z-20 min-w-44 max-w-60 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-auto transition-all duration-150 ${getTooltipPositionClass(
         locX,
       )}`}
@@ -405,6 +415,35 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
     viewBoxHeight,
   });
 
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (leaveTimerRef.current) {
+        clearTimeout(leaveTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleMouseEnterWithDelay = (id?: string) => {
+    if (!id) return;
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+    handleMarkerMouseEnter(id);
+  };
+
+  const handleMouseLeaveWithDelay = () => {
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+    }
+    leaveTimerRef.current = setTimeout(() => {
+      handleMarkerMouseLeave();
+      leaveTimerRef.current = null;
+    }, 150);
+  };
+
   const safeSvg = useMemo(
     () =>
       playground
@@ -424,7 +463,9 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
   }
 
   const hasTooltip =
-    activeEvent?.locationX != null && activeEvent?.locationY != null;
+    activeEvent?.id != null &&
+    activeEvent?.locationX != null &&
+    activeEvent?.locationY != null;
 
   return (
     <div
@@ -477,18 +518,20 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
             key={point.event.id}
             point={point}
             onMarkerClick={handleMarkerClick}
-            onMouseEnter={handleMarkerMouseEnter}
-            onMouseLeave={handleMarkerMouseLeave}
+            onMouseEnter={handleMouseEnterWithDelay}
+            onMouseLeave={handleMouseLeaveWithDelay}
           />
         ))}
       </svg>
 
       {hasTooltip && (
         <SpatialTooltip
-          key={activeEvent!.id}
-          activeEvent={activeEvent!}
+          key={activeEvent.id}
+          activeEvent={activeEvent}
           eventDefinitionsMap={eventDefinitionsMap}
           shotMap={shotMap}
+          onMouseEnter={() => handleMouseEnterWithDelay(activeEvent.id)}
+          onMouseLeave={handleMouseLeaveWithDelay}
         />
       )}
     </div>

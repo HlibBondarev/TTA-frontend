@@ -1,5 +1,5 @@
-import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { render, screen, fireEvent, act } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
 import { MatchSpatialMap } from "../components/MatchSpatialMap";
 import type { GameEventResponse } from "../../../services/reportService";
 import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
@@ -261,6 +261,46 @@ describe("MatchSpatialMap Component", () => {
     expect(screen.getByText("Action:")).toBeInTheDocument();
     expect(screen.getByText("Foul")).toBeInTheDocument();
     expect(screen.queryByText("Goal Target")).not.toBeInTheDocument();
+  });
+
+  it("keeps tooltip open when pointer moves from marker onto the tooltip", () => {
+    vi.useFakeTimers();
+    render(
+      <MatchSpatialMap
+        events={mockEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+        shotMap={defaultShotMap}
+      />,
+    );
+
+    const shotMarker = screen.getByText("9");
+    fireEvent.mouseEnter(shotMarker);
+
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    // Move mouse off marker
+    fireEvent.mouseLeave(shotMarker);
+
+    // Move mouse onto tooltip container
+    const tooltip = screen.getByRole("tooltip");
+    fireEvent.mouseEnter(tooltip);
+
+    // Fast-forward past leave grace delay
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    // Tooltip remains visible and active
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    // User can click Shot button without tooltip unmounting
+    const shotButton = screen.getByRole("button", { name: "Shot" });
+    fireEvent.click(shotButton);
+
+    expect(screen.getByText("Goal Target")).toBeInTheDocument();
+
+    vi.useRealTimers();
   });
 
   it("displays and closes interactive tooltip when clicking action markers or map background", () => {
