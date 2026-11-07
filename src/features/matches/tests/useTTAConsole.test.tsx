@@ -109,7 +109,7 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     act(() => {
-      result.current.handleActionSelect("Shot", true, "def-shot-1");
+      result.current.handleActionSelect("Shot", true, "def-shot-1", true);
     });
 
     expect(result.current.pendingAction).toEqual({
@@ -117,6 +117,32 @@ describe("useTTAConsole Custom Hook", () => {
       isPositive: true,
       eventDefinitionId: "def-shot-1",
     });
+  });
+
+  it("should clear pendingShotLocation when a non-shot action is selected", () => {
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+    });
+
+    const { result } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.handleActionSelect("Goal", true, "def-goal-1", true);
+      result.current.handleShotLocationSelect(30.0, 40.0);
+    });
+
+    expect(result.current.pendingShotLocation).toEqual({
+      shotLocationX: 30.0,
+      shotLocationY: 40.0,
+    });
+
+    act(() => {
+      result.current.handleActionSelect("Pass", true, "def-pass-1", false);
+    });
+
+    expect(result.current.pendingShotLocation).toBeNull();
   });
 
   it("should ignore action selection if eventDefinitionId is missing", () => {
@@ -199,7 +225,7 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     act(() => {
-      result.current.handleActionSelect("Shot", true, "def-shot-1");
+      result.current.handleActionSelect("Shot", true, "def-shot-1", true);
       result.current.handleLocationSelect(10.0, 20.0);
       result.current.handleShotLocationSelect(30.0, 40.0);
       result.current.setSelectedPlayerId("player-7");
@@ -234,7 +260,7 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     act(() => {
-      result.current.handleActionSelect("Goal", true, "def-goal-1");
+      result.current.handleActionSelect("Goal", true, "def-goal-1", true);
       result.current.setSelectedPlayerId("player-7");
     });
 
@@ -270,7 +296,7 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     act(() => {
-      result.current.handleActionSelect("Goal", true, "def-goal-1");
+      result.current.handleActionSelect("Goal", true, "def-goal-1", true);
       result.current.handleLocationSelect(50.0, 50.0);
       result.current.handleShotLocationSelect(25.0, 75.0);
       result.current.setSelectedPlayerId("player-7");
@@ -312,7 +338,7 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     act(() => {
-      result.current.handleActionSelect("Foul", false, "def-foul-1");
+      result.current.handleActionSelect("Foul", false, "def-foul-1", false);
       result.current.setSelectedPlayerId("player-4");
     });
 
@@ -333,7 +359,7 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     act(() => {
-      result.current.handleActionSelect("Goal", true, "def-goal-1");
+      result.current.handleActionSelect("Goal", true, "def-goal-1", true);
       result.current.handleLocationSelect(30.0, 40.0);
       result.current.handleShotLocationSelect(15.0, 85.0);
       result.current.setSelectedPlayerId("player-7");

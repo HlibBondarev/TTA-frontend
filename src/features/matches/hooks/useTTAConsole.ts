@@ -124,10 +124,14 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     name: string,
     isPositive: boolean,
     eventDefinitionId?: string,
+    isShot?: boolean,
   ) => {
     setConsoleError(null);
     if (!eventDefinitionId) return;
     setPendingAction({ name, isPositive, eventDefinitionId });
+    if (!isShot) {
+      setPendingShotLocation(null);
+    }
   };
 
   return {
