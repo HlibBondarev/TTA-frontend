@@ -147,6 +147,42 @@ describe("useShotMap hook", () => {
     expect(point.cy).toBe(49.6); // ((100 - 80) / 100) * 248
   });
 
+  it("visually separates markers with identical shot target coordinates", () => {
+    const overlappingEvents: GameEventResponse[] = [
+      {
+        id: "overlap-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+        playerNumber: 7,
+      },
+      {
+        id: "overlap-2",
+        eventDefinitionId: sogDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+        playerNumber: 9,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useShotMap({
+        events: overlappingEvents,
+        eventDefinitionsMap: mockDefinitionsMap,
+        shotMap: defaultShotMap,
+      }),
+    );
+
+    expect(result.current.renderablePoints).toHaveLength(2);
+    const [p1, p2] = result.current.renderablePoints;
+
+    expect(p1.cx).not.toBe(p2.cx);
+    expect(p1.event.shotLocationX).toBe(50);
+    expect(p2.event.shotLocationX).toBe(50);
+  });
+
   it("classifies shot events into 4 distinct colors/categories", () => {
     const { result } = renderHook(() =>
       useShotMap({

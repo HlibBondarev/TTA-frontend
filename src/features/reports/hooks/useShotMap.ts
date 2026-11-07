@@ -92,47 +92,71 @@ export const useShotMap = ({
   const renderablePoints = useMemo<RenderableShotPoint[]>(() => {
     if (!dimensions) return [];
 
-    return events
-      .filter((e) => {
-        if (e.shotLocationX == null || e.shotLocationY == null || !e.id) {
-          return false;
-        }
-        const def = e.eventDefinitionId
-          ? eventDefinitionsMap.get(e.eventDefinitionId)
-          : undefined;
-        return def?.isShot === true;
-      })
-      .map((e) => {
-        const cx = (Number(e.shotLocationX) / 100) * dimensions.width;
-        const cy = ((100 - Number(e.shotLocationY)) / 100) * dimensions.height;
+    const validShotEvents = events.filter((e) => {
+      if (e.shotLocationX == null || e.shotLocationY == null || !e.id) {
+        return false;
+      }
+      const def = e.eventDefinitionId
+        ? eventDefinitionsMap.get(e.eventDefinitionId)
+        : undefined;
+      return def?.isShot === true;
+    });
 
-        const def = e.eventDefinitionId
-          ? eventDefinitionsMap.get(e.eventDefinitionId)
-          : undefined;
-        const shortCode =
-          def?.shortName || e.eventName?.slice(0, 3).toUpperCase() || "SHT";
+    const coordGroups = new Map<string, number>();
+    validShotEvents.forEach((e) => {
+      const key = `${e.shotLocationX}_${e.shotLocationY}`;
+      coordGroups.set(key, (coordGroups.get(key) || 0) + 1);
+    });
 
-        const isGoalEvent = Boolean(
-          e.eventDefinitionId && goalDefinitionIds.has(e.eventDefinitionId),
-        );
+    const coordIndices = new Map<string, number>();
 
-        let shotCategory: ShotCategory;
-        if (e.isPositive) {
-          shotCategory = isGoalEvent ? "goal" : "shot_on_goal";
-        } else {
-          shotCategory = isGoalEvent ? "conceded_goal" : "miss";
-        }
+    return validShotEvents.map((e) => {
+      const baseCx = (Number(e.shotLocationX) / 100) * dimensions.width;
+      const baseCy =
+        ((100 - Number(e.shotLocationY)) / 100) * dimensions.height;
 
-        return {
-          event: e,
-          cx,
-          cy,
-          shortCode,
-          isSelected: selectedEventId === e.id,
-          isHovered: hoveredEventId === e.id,
-          shotCategory,
-        };
-      });
+      const key = `${e.shotLocationX}_${e.shotLocationY}`;
+      const totalInGroup = coordGroups.get(key) || 1;
+      const groupIndex = coordIndices.get(key) || 0;
+      coordIndices.set(key, groupIndex + 1);
+
+      let cx = baseCx;
+      let cy = baseCy;
+
+      if (totalInGroup > 1) {
+        const offsetRadius = 7;
+        const angle = (groupIndex * 2 * Math.PI) / totalInGroup;
+        cx = Number((baseCx + Math.cos(angle) * offsetRadius).toFixed(2));
+        cy = Number((baseCy + Math.sin(angle) * offsetRadius).toFixed(2));
+      }
+
+      const def = e.eventDefinitionId
+        ? eventDefinitionsMap.get(e.eventDefinitionId)
+        : undefined;
+      const shortCode =
+        def?.shortName || e.eventName?.slice(0, 3).toUpperCase() || "SHT";
+
+      const isGoalEvent = Boolean(
+        e.eventDefinitionId && goalDefinitionIds.has(e.eventDefinitionId),
+      );
+
+      let shotCategory: ShotCategory;
+      if (e.isPositive) {
+        shotCategory = isGoalEvent ? "goal" : "shot_on_goal";
+      } else {
+        shotCategory = isGoalEvent ? "conceded_goal" : "miss";
+      }
+
+      return {
+        event: e,
+        cx,
+        cy,
+        shortCode,
+        isSelected: selectedEventId === e.id,
+        isHovered: hoveredEventId === e.id,
+        shotCategory,
+      };
+    });
   }, [
     events,
     eventDefinitionsMap,
