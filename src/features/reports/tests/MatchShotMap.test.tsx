@@ -194,4 +194,32 @@ describe("MatchShotMap Component", () => {
 
     expect(tooltipHeader.closest(".invisible")).toBeInTheDocument();
   });
+
+  it("supports keyboard navigation (Enter and Space) and ARIA attributes on markers", () => {
+    render(
+      <MatchShotMap
+        events={mockEvents}
+        eventDefinitionsMap={mockDefinitionsMap}
+        shotMap={defaultSvgLayout}
+      />,
+    );
+
+    const markerBtn = screen.getByRole("button", {
+      name: "Player #7 (Forward): Goal, Q1 02:15",
+    });
+
+    expect(markerBtn).toBeInTheDocument();
+    expect(markerBtn).toHaveAttribute("tabindex", "0");
+
+    // Enter key opens tooltip
+    fireEvent.keyDown(markerBtn, { key: "Enter" });
+    expect(screen.getByText("Q1 02:15")).toBeInTheDocument();
+
+    // Space key opens tooltip and prevents default scroll
+    const markerBtn10 = screen.getByRole("button", {
+      name: "Player #10 (Driver): Shot on Goal, Q2",
+    });
+    fireEvent.keyDown(markerBtn10, { key: " " });
+    expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
+  });
 });

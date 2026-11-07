@@ -40,16 +40,40 @@ const ShotMarker: React.FC<{
   const label =
     event.playerNumber != null ? `${event.playerNumber}` : shortCode;
 
+  const playerPart =
+    event.playerNumber != null
+      ? `Player #${event.playerNumber}${event.playerName ? ` (${event.playerName})` : ""}`
+      : "Player";
+  const actionPart = event.eventName || "Shot";
+  const periodPart = event.periodNumber ? `, Q${event.periodNumber}` : "";
+  const timePart = event.normalizedMatchTime
+    ? ` ${formatMatchTime(event.normalizedMatchTime)}`
+    : "";
+
+  const ariaLabel = `${playerPart}: ${actionPart}${periodPart}${timePart}`;
+
+  const handleKeyDown = (e: React.KeyboardEvent<SVGGElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      e.stopPropagation();
+      onMarkerClick(eventId);
+    }
+  };
+
   return (
     <g
+      role="button"
+      tabIndex={0}
+      aria-label={ariaLabel}
       transform={`translate(${cx}, ${cy})`}
       onClick={(e) => {
         e.stopPropagation();
         onMarkerClick(eventId);
       }}
+      onKeyDown={handleKeyDown}
       onMouseEnter={() => onMouseEnter(eventId)}
       onMouseLeave={onMouseLeave}
-      className="cursor-pointer"
+      className="cursor-pointer focus:outline-none"
     >
       <circle
         cx={0}
