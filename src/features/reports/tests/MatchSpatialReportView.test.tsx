@@ -292,4 +292,32 @@ describe("MatchSpatialReportView Component", () => {
     fireEvent.click(screen.getByText("Vectors ON"));
     expect(mockHookReturnValue.toggleGoalLeadVectors).toHaveBeenCalled();
   });
+
+  it("renders MatchShotMap with uncached event definitions when mapMode is set to shot", () => {
+    const uncachedShot: GameEventResponse = {
+      id: "view-uncached-shot-1",
+      eventDefinitionId: "def-uncached-view-1",
+      isPositive: true,
+      shotLocationX: 50,
+      shotLocationY: 50,
+      playerNumber: 77,
+      eventName: "Uncached Drive Shot",
+    };
+
+    vi.mocked(useSpatialReport).mockReturnValue({
+      ...mockHookReturnValue,
+      filteredEvents: [uncachedShot],
+      filters: {
+        ...mockHookReturnValue.filters,
+        mapMode: "shot",
+      },
+    });
+
+    render(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
+
+    expect(screen.getByTestId("match-shot-map")).toBeInTheDocument();
+    expect(
+      screen.getByText("Shot Map Canvas (Filtered: 1)"),
+    ).toBeInTheDocument();
+  });
 });
