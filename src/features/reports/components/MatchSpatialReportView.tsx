@@ -84,6 +84,36 @@ export const MatchSpatialReportView: React.FC<MatchSpatialReportViewProps> = ({
     ),
   );
 
+  const renderMapContent = () => {
+    if (filters.mapMode === "shot") {
+      if (effectiveShotMap) {
+        return (
+          <MatchShotMap
+            events={filteredEvents}
+            eventDefinitionsMap={eventDefinitionsMap}
+            shotMap={effectiveShotMap}
+          />
+        );
+      }
+      return (
+        <div className="w-full p-4 text-center text-xs text-slate-400 bg-gray-950/80 border border-gray-800 rounded-2xl">
+          Goal Shot Map SVG is unavailable for this match.
+        </div>
+      );
+    }
+
+    return (
+      <MatchSpatialMap
+        events={filteredEvents}
+        allEvents={events}
+        eventDefinitionsMap={eventDefinitionsMap}
+        playground={effectivePlayground}
+        shotMap={effectiveShotMap}
+        showGoalLeadVectors={filters.showGoalLeadVectors}
+      />
+    );
+  };
+
   return (
     <div className="flex flex-col space-y-2 text-white text-xs">
       {/* Top Header Actions Count & Controls */}
@@ -312,28 +342,7 @@ export const MatchSpatialReportView: React.FC<MatchSpatialReportViewProps> = ({
       </div>
 
       {/* Render Field Map vs Shot Map Component */}
-      {filters.mapMode === "shot" ? (
-        effectiveShotMap ? (
-          <MatchShotMap
-            events={filteredEvents}
-            eventDefinitionsMap={eventDefinitionsMap}
-            shotMap={effectiveShotMap}
-          />
-        ) : (
-          <div className="w-full p-4 text-center text-xs text-slate-400 bg-gray-950/80 border border-gray-800 rounded-2xl">
-            Goal Shot Map SVG is unavailable for this match.
-          </div>
-        )
-      ) : (
-        <MatchSpatialMap
-          events={filteredEvents}
-          allEvents={events}
-          eventDefinitionsMap={eventDefinitionsMap}
-          playground={effectivePlayground}
-          shotMap={effectiveShotMap}
-          showGoalLeadVectors={filters.showGoalLeadVectors}
-        />
-      )}
+      {renderMapContent()}
     </div>
   );
 };
