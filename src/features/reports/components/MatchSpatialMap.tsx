@@ -58,6 +58,7 @@ const SpatialTooltipGoalPreview: React.FC<{
       <svg
         viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
         className="absolute inset-0 w-full h-full pointer-events-none"
+        aria-hidden="true"
       >
         <circle
           cx={cx}
@@ -199,13 +200,22 @@ const SpatialMapMarker: React.FC<SpatialMapMarkerProps> = ({
   return (
     <g
       transform={`translate(${cx}, ${cy})`}
+      role="button"
+      tabIndex={0}
+      aria-label={`${event.playerName || "Player"} #${event.playerNumber ?? ""} ${shortCode}`}
       onClick={(e) => {
         e.stopPropagation();
         onMarkerClick(eventId);
       }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.stopPropagation();
+          onMarkerClick(eventId);
+        }
+      }}
       onMouseEnter={() => onMouseEnter(eventId)}
       onMouseLeave={onMouseLeave}
-      className="cursor-pointer"
+      className="cursor-pointer focus:outline-none"
     >
       {event.isLeadToGoal && (
         <circle
@@ -276,7 +286,8 @@ const SpatialTooltip: React.FC<{
 
   return (
     <div
-      onClick={(e) => e.stopPropagation()}
+      role="dialog"
+      aria-label="Event Details"
       className={`absolute z-20 min-w-44 max-w-60 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-auto transition-all duration-150 ${getTooltipPositionClass(
         locX,
       )}`}
