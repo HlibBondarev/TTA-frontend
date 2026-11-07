@@ -224,6 +224,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
     });
 
     expect(result.current.selectedMatchLineupId).toBe("lineup-1");
@@ -263,6 +264,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
     });
 
     await act(async () => {
@@ -287,6 +289,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
     });
 
     act(() => {
@@ -316,6 +319,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
     });
 
     expect(result.current.displayedActions.every((d) => d.isPositive)).toBe(
@@ -342,6 +346,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
     });
 
     expect(result.current.isShotSelected).toBe(true);
@@ -376,6 +381,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
     });
 
     act(() => {
@@ -409,6 +415,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
     });
 
     act(() => {
@@ -439,6 +446,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
     });
 
     act(() => {
@@ -461,6 +469,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
     });
 
     act(() => {
@@ -484,6 +493,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
     });
 
     act(() => {
@@ -526,6 +536,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
     });
 
     await act(async () => {
@@ -548,6 +559,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
     });
 
     act(() => {
@@ -601,7 +613,7 @@ describe("useEditGameEventModal Custom Hook", () => {
     });
   });
 
-  it("should handle error when loading match details fails", async () => {
+  it("should handle error when loading match details fails and block handleSave", async () => {
     vi.mocked(db.matches.get).mockRejectedValueOnce(
       new Error("Match read error"),
     );
@@ -619,6 +631,61 @@ describe("useEditGameEventModal Custom Hook", () => {
         "Failed to load match or sport definitions.",
       );
     });
+
+    expect(result.current.isDefinitionsLoaded).toBe(false);
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockUpdateGameEvent).not.toHaveBeenCalled();
+  });
+
+  it("should block handleSave until event definitions are loaded and resolved", async () => {
+    let resolveMatchDetails!: (value: unknown) => void;
+    const matchDetailsPromise = new Promise((resolve) => {
+      resolveMatchDetails = resolve;
+    });
+
+    vi.mocked(db.matches.get).mockReturnValueOnce(matchDetailsPromise as never);
+
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: { ...sampleAction, eventDefinitionId: "def-2" },
+        matchId: "match-1",
+        onClose: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+    });
+
+    expect(result.current.isDefinitionsLoaded).toBe(false);
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockUpdateGameEvent).not.toHaveBeenCalled();
+
+    resolveMatchDetails({ id: "match-1", tournamentId: "tour-1" });
+
+    await waitFor(() => {
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockUpdateGameEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventId: "action-123",
+        shotLocationX: 12.0,
+        shotLocationY: 80.0,
+      }),
+    );
   });
 
   it("should handle non-Error generic exception during handleSave", async () => {
@@ -634,6 +701,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
     });
 
     await act(async () => {

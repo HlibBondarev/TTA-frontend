@@ -163,6 +163,7 @@ export function useEditGameEventModal({
   const [shotLocationX, setShotLocationX] = useState<number | null>(null);
   const [shotLocationY, setShotLocationY] = useState<number | null>(null);
   const [isLocationLoaded, setIsLocationLoaded] = useState(false);
+  const [isDefinitionsLoaded, setIsDefinitionsLoaded] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -207,8 +208,12 @@ export function useEditGameEventModal({
         if (details.eventDefinitions.length > 0) {
           setEventDefinitions(details.eventDefinitions);
         }
+        setIsDefinitionsLoaded(true);
       } catch {
-        if (isMounted) setError("Failed to load match or sport definitions.");
+        if (isMounted) {
+          setError("Failed to load match or sport definitions.");
+          setIsDefinitionsLoaded(false);
+        }
       }
     };
 
@@ -291,7 +296,9 @@ export function useEditGameEventModal({
       !effectiveActionName ||
       !selectedEventDefinitionId ||
       isSaving ||
-      !isLocationLoaded
+      !isLocationLoaded ||
+      !isDefinitionsLoaded ||
+      !selectedEventDef
     )
       return;
 
@@ -341,6 +348,7 @@ export function useEditGameEventModal({
     hasShotLocation,
     isShotSelected,
     isLocationLoaded,
+    isDefinitionsLoaded,
     isSaving,
     error,
     setSelectedMatchLineupId,
