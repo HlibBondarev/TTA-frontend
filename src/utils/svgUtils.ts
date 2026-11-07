@@ -14,8 +14,8 @@ export const parseSvgDimensions = (
       /viewBox=["']\s*([\d.-]+)[\s,]+([\d.-]+)[\s,]+([\d.-]+)[\s,]+([\d.-]+)\s*["']/i,
     );
     if (match && match[3] && match[4]) {
-      const width = parseFloat(match[3]);
-      const height = parseFloat(match[4]);
+      const width = Number.parseFloat(match[3]);
+      const height = Number.parseFloat(match[4]);
       if (width > 0 && height > 0) {
         return {
           width,
