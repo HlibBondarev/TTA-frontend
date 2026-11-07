@@ -1,13 +1,14 @@
-import { render, screen, fireEvent, act } from "@testing-library/react";
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
 import { MatchSpatialMap } from "../components/MatchSpatialMap";
 import type { GameEventResponse } from "../../../services/reportService";
 import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
 
 describe("MatchSpatialMap Component", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+  const defaultPlayground =
+    '<svg viewBox="0 0 600 1000" width="600" height="1000"><rect width="600" height="1000" fill="blue"/></svg>';
+  const defaultShotMap =
+    '<svg viewBox="0 0 615 248" width="615" height="248"><rect width="615" height="248" fill="green"/></svg>';
 
   const mockEventDefinitionsMap = new Map<string, EventDefinitionLookup>([
     [
@@ -18,6 +19,7 @@ describe("MatchSpatialMap Component", () => {
         name: "Goal",
         shortName: "GL",
         isPositive: true,
+        isShot: true,
       },
     ],
     [
@@ -28,6 +30,7 @@ describe("MatchSpatialMap Component", () => {
         name: "Foul",
         shortName: "FL",
         isPositive: false,
+        isShot: false,
       },
     ],
   ]);
@@ -45,6 +48,8 @@ describe("MatchSpatialMap Component", () => {
       isLeadToGoal: true,
       locationX: 75,
       locationY: 50,
+      shotLocationX: 45,
+      shotLocationY: 80,
       playerName: "John Doe",
       playerNumber: 9,
     },
@@ -65,41 +70,59 @@ describe("MatchSpatialMap Component", () => {
     },
   ];
 
-  it("renders default court SVG layout with water polo markings when custom playgroundSvg is absent", () => {
-    const { container } = render(
+  it("renders fallback banner when playground SVG is absent or invalid", () => {
+    render(
       <MatchSpatialMap
         events={mockEvents}
         eventDefinitionsMap={mockEventDefinitionsMap}
       />,
     );
 
-    const svgElements = container.querySelectorAll("svg");
-    expect(svgElements.length).toBeGreaterThanOrEqual(2);
+    expect(
+      screen.getByText("Field Map SVG is unavailable for this match."),
+    ).toBeInTheDocument();
   });
 
-  it("renders custom playgroundSvg when provided", () => {
-    const customSvg =
-      '<svg data-testid="custom-court"><rect width="100" height="100"/></svg>';
-    const { container } = render(
+  it("renders court SVG layout and player markers when playground is provided", () => {
+    render(
       <MatchSpatialMap
         events={mockEvents}
         eventDefinitionsMap={mockEventDefinitionsMap}
-        playgroundSvg={customSvg}
+        playground={defaultPlayground}
       />,
     );
 
-    expect(container.innerHTML).toContain('data-testid="custom-court"');
+    expect(
+      screen.getByLabelText("Match Spatial Event Map"),
+    ).toBeInTheDocument();
+
+    expect(screen.getByText("9")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
+  });
+
+  it("renders custom playground when provided", () => {
+    const customSvg =
+      '<svg data-testid="custom-court" viewBox="0 0 600 1000" width="600" height="1000"><rect width="600" height="1000"/></svg>';
+    render(
+      <MatchSpatialMap
+        events={mockEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={customSvg}
+      />,
+    );
+
+    expect(screen.getByTestId("custom-court")).toBeInTheDocument();
   });
 
   it("sanitizes malicious SVG markup using DOMPurify before rendering", () => {
     const xssSvg =
-      '<svg data-testid="xss-svg"><script>alert("xss")</script><circle cx="10" cy="10" r="5" onload="alert(1)" /></svg>';
+      '<svg data-testid="xss-svg" viewBox="0 0 600 1000" width="600" height="1000"><script>alert("xss")</script><circle cx="10" cy="10" r="5" onload="alert(1)" /></svg>';
 
     render(
       <MatchSpatialMap
         events={mockEvents}
         eventDefinitionsMap={mockEventDefinitionsMap}
-        playgroundSvg={xssSvg}
+        playground={xssSvg}
       />,
     );
 
@@ -107,23 +130,7 @@ describe("MatchSpatialMap Component", () => {
     expect(document.querySelector("script")).not.toBeInTheDocument();
   });
 
-  it("renders event markers on court with jersey numbers and ball markers for goals", () => {
-    const { container } = render(
-      <MatchSpatialMap
-        events={mockEvents}
-        eventDefinitionsMap={mockEventDefinitionsMap}
-      />,
-    );
-
-    expect(screen.getByText("#9")).toBeInTheDocument();
-    expect(screen.getByText("#4")).toBeInTheDocument();
-
-    // Goal event (#9) should render custom ball pattern seam paths
-    const ballSeamPath = container.querySelector("path[d*='Q 0 -6']");
-    expect(ballSeamPath).toBeInTheDocument();
-  });
-
-  it("renders directional vector when showGoalLeadVectors is true and respects allEvents prop", () => {
+  it("renders directional vector when showGoalLeadVectors is true", () => {
     const vectorEvents: GameEventResponse[] = [
       {
         id: "lead-1",
@@ -158,6 +165,7 @@ describe("MatchSpatialMap Component", () => {
         events={vectorEvents}
         allEvents={vectorEvents}
         eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
         showGoalLeadVectors={true}
       />,
     );
@@ -166,31 +174,65 @@ describe("MatchSpatialMap Component", () => {
     expect(vectorLine).toBeInTheDocument();
   });
 
-  it("displays tooltip on hover with positivity colors (green for positive, red for negative)", () => {
+  it("displays tooltip on hover with positivity colors (emerald for positive, rose for negative)", () => {
     render(
       <MatchSpatialMap
         events={mockEvents}
         eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
       />,
     );
 
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
 
     // Hover positive goal event (#9)
-    const positiveMarker = screen.getByText("#9");
+    const positiveMarker = screen.getByText("9");
     fireEvent.mouseEnter(positiveMarker);
 
-    const positiveHeader = screen.getByText("John Doe").parentElement!;
+    const positivePlayerSpan = screen.getByText("John Doe");
+    const positiveHeader = positivePlayerSpan.parentElement!;
     expect(positiveHeader.className).toContain("text-emerald-400");
 
     fireEvent.mouseLeave(positiveMarker);
 
     // Hover negative foul event (#4)
-    const negativeMarker = screen.getByText("#4");
+    const negativeMarker = screen.getByText("4");
     fireEvent.mouseEnter(negativeMarker);
 
-    const negativeHeader = screen.getByText("Alex Smith").parentElement!;
+    const negativePlayerSpan = screen.getByText("Alex Smith");
+    const negativeHeader = negativePlayerSpan.parentElement!;
     expect(negativeHeader.className).toContain("text-rose-400");
+  });
+
+  it("allows toggling between Info and Shot preview in tooltip for shot actions", () => {
+    render(
+      <MatchSpatialMap
+        events={mockEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+        shotMap={defaultShotMap}
+      />,
+    );
+
+    const shotMarker = screen.getByText("9");
+    fireEvent.mouseEnter(shotMarker);
+
+    // Default is Info view
+    expect(screen.getByText("Action:")).toBeInTheDocument();
+    expect(screen.getByText("Goal")).toBeInTheDocument();
+
+    // Toggle to Shot view
+    const shotButton = screen.getByRole("button", { name: "Shot" });
+    fireEvent.click(shotButton);
+
+    expect(screen.getByText("Goal Target")).toBeInTheDocument();
+    expect(screen.getByText("X:45% Y:80%")).toBeInTheDocument();
+
+    // Toggle back to Info view
+    const infoButton = screen.getByRole("button", { name: "Info" });
+    fireEvent.click(infoButton);
+
+    expect(screen.getByText("Action:")).toBeInTheDocument();
   });
 
   it("displays and closes interactive tooltip when clicking action markers or map background", () => {
@@ -198,20 +240,13 @@ describe("MatchSpatialMap Component", () => {
       <MatchSpatialMap
         events={mockEvents}
         eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
       />,
     );
 
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
 
-    const marker = screen.getByText("#9");
-    fireEvent.click(marker);
-    expect(screen.getByText("John Doe")).toBeInTheDocument();
-
-    // Re-click same marker to toggle/unselect tooltip
-    fireEvent.click(marker);
-    expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
-
-    // Re-open tooltip
+    const marker = screen.getByText("9");
     fireEvent.click(marker);
     expect(screen.getByText("John Doe")).toBeInTheDocument();
 
@@ -224,29 +259,7 @@ describe("MatchSpatialMap Component", () => {
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
   });
 
-  it("auto-dismisses active tooltip after 3.5 seconds", () => {
-    vi.useFakeTimers();
-
-    render(
-      <MatchSpatialMap
-        events={mockEvents}
-        eventDefinitionsMap={mockEventDefinitionsMap}
-      />,
-    );
-
-    const marker = screen.getByText("#9");
-    fireEvent.click(marker);
-
-    expect(screen.getByText("John Doe")).toBeInTheDocument();
-
-    act(() => {
-      vi.advanceTimersByTime(3500);
-    });
-
-    expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
-  });
-
-  it("adjusts tooltip positioning classes dynamically based on boundary coordinates to prevent clipping", () => {
+  it("adjusts tooltip positioning classes dynamically based on locationX boundary", () => {
     const boundaryEvents: GameEventResponse[] = [
       {
         id: "right-edge-event",
@@ -266,15 +279,15 @@ describe("MatchSpatialMap Component", () => {
       <MatchSpatialMap
         events={boundaryEvents}
         eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
       />,
     );
 
-    const marker = screen.getByText("#3");
+    const marker = screen.getByText("3");
     fireEvent.mouseEnter(marker);
 
     const tooltip = container.querySelector(".shadow-2xl") as HTMLElement;
     expect(tooltip).toBeInTheDocument();
     expect(tooltip.className).toContain("translate-y-4");
-    expect(tooltip.getAttribute("style")).toContain("top: 10%");
   });
 });

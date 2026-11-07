@@ -23,6 +23,7 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({
     isRecordingEnabled,
     pendingAction,
     pendingLocation,
+    pendingShotLocation,
     selectedPlayerId,
     setSelectedPlayerId,
     consoleError,
@@ -31,6 +32,7 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({
     handleEnter,
     handleActionSelect,
     handleLocationSelect,
+    handleShotLocationSelect,
     clearPendingAction,
   } = useTTAConsole({ onCompleteMatch });
 
@@ -55,11 +57,23 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({
           <div className="flex-1 overflow-y-auto w-full px-2 space-y-2">
             <MatchLifecyclePanel onFinalizeSuccess={handleFinalizeSuccess} />
 
+            {/* Field Location Badge */}
             {pendingLocation && (
               <div className="flex items-center justify-between bg-gray-950 border border-gray-800 rounded px-2 py-1 text-[10px] text-gray-400">
-                <span className="uppercase font-bold">Coordinates:</span>
+                <span className="uppercase font-bold">Field Pos:</span>
                 <span className="font-mono text-blue-400 font-bold">
                   [{pendingLocation.locationX}%, {pendingLocation.locationY}%]
+                </span>
+              </div>
+            )}
+
+            {/* Goal Target Badge */}
+            {pendingShotLocation && (
+              <div className="flex items-center justify-between bg-gray-950 border border-gray-800 rounded px-2 py-1 text-[10px] text-amber-400">
+                <span className="uppercase font-bold">Goal Target:</span>
+                <span className="font-mono text-amber-400 font-bold">
+                  [{pendingShotLocation.shotLocationX}%,{" "}
+                  {pendingShotLocation.shotLocationY}%]
                 </span>
               </div>
             )}
@@ -79,8 +93,10 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({
                 pendingAction?.eventDefinitionId || null
               }
               pendingLocation={pendingLocation}
+              pendingShotLocation={pendingShotLocation}
               onActionSelect={handleActionSelect}
               onLocationSelect={handleLocationSelect}
+              onShotLocationSelect={handleShotLocationSelect}
               onTabChange={clearPendingAction}
               userId={userId}
             />

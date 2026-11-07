@@ -34,6 +34,7 @@ export const EventDefinitionsConfigurator: React.FC<
     newName,
     newShortName,
     newIsPositive,
+    newIsShot,
     isLocked,
     activeCategoryDefs,
     activePositiveCount,
@@ -44,6 +45,7 @@ export const EventDefinitionsConfigurator: React.FC<
     setNewName,
     setNewShortName,
     setNewIsPositive,
+    setNewIsShot,
     setCreating,
     handleToggleEnabled,
     handleMove,
@@ -181,6 +183,11 @@ export const EventDefinitionsConfigurator: React.FC<
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-mono">
                       {def.shortName}
                     </span>
+                    {def.isShot && (
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-amber-950 border border-amber-800 text-amber-300">
+                        Shot
+                      </span>
+                    )}
                     {def.isCustom && (
                       <span className="text-[9px] px-1 py-0.2 rounded bg-amber-950 border border-amber-800 text-amber-300">
                         Custom
@@ -328,20 +335,38 @@ export const EventDefinitionsConfigurator: React.FC<
                 />
               </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="isPositiveCheck"
-                  checked={newIsPositive}
-                  onChange={(e) => setNewIsPositive(e.target.checked)}
-                  className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"
-                />
-                <label
-                  htmlFor="isPositiveCheck"
-                  className="text-xs text-gray-300 cursor-pointer"
-                >
-                  Positive action (Green indicator)
-                </label>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="isPositiveCheck"
+                    checked={newIsPositive}
+                    onChange={(e) => setNewIsPositive(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"
+                  />
+                  <label
+                    htmlFor="isPositiveCheck"
+                    className="text-xs text-gray-300 cursor-pointer"
+                  >
+                    Positive action (Green indicator)
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="isShotCheck"
+                    checked={newIsShot}
+                    onChange={(e) => setNewIsShot(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"
+                  />
+                  <label
+                    htmlFor="isShotCheck"
+                    className="text-xs text-amber-300 cursor-pointer"
+                  >
+                    Shot action (Goal target map enabled)
+                  </label>
+                </div>
               </div>
 
               <div className="flex gap-2 pt-2">

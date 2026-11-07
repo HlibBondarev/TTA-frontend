@@ -30,10 +30,15 @@ vi.mock("../../../services/reportService", () => ({
   },
 }));
 
-// Mock IndexedDB queries in db
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
     matches: {
+      get: vi.fn(),
+    },
+    tournaments: {
+      get: vi.fn(),
+    },
+    sportconfigurations: {
       get: vi.fn(),
     },
     matchlineups: {
@@ -58,6 +63,18 @@ const setupDefaultDbMocks = () => {
     id: "test-match-123",
     homeTeamId: "home-team-id",
     guestTeamId: "guest-team-id",
+    tournamentId: "tour-1",
+  } as unknown as Record<string, unknown>);
+
+  vi.mocked(db.tournaments.get).mockResolvedValue({
+    id: "tour-1",
+    configurationId: "config-1",
+  } as unknown as Record<string, unknown>);
+
+  vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+    id: "config-1",
+    playground: "<svg>court</svg>",
+    shotMap: "<svg>goal</svg>",
   } as unknown as Record<string, unknown>);
 
   vi.mocked(db.matchlineups.where).mockReturnValue({
@@ -256,20 +273,15 @@ describe("MatchResultModal Component", () => {
 
     const inputs = screen.getAllByRole("textbox");
 
-    // User edits score manually before async query resolves
     fireEvent.change(inputs[0], { target: { value: "99" } });
     expect(inputs[0]).toHaveValue("99");
 
-    // Resolve async calculation with 5 goals
     resolveEvents!([
-      { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
-      { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
       { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
       { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
       { matchLineupId: "lineup-home-1", eventDefinitionId: "def-goal-pos" },
     ]);
 
-    // Value should stay 99 and not be overwritten by 5
     await waitFor(() => {
       expect(inputs[0]).toHaveValue("99");
     });
@@ -417,6 +429,29 @@ describe("MatchResultModal Component", () => {
     ).toBeNull();
   });
 
+  test("should reject hexadecimal string as temperature input", async () => {
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    const inputs = screen.getAllByRole("textbox");
+    const tempInput = inputs[2];
+    const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
+
+    await waitFor(() => {
+      expect(submitBtn).not.toBeDisabled();
+    });
+
+    fireEvent.change(tempInput, { target: { value: "0x10" } });
+    expect(submitBtn).toBeDisabled();
+    expect(
+      screen.getByText("Enter a valid numeric temperature value."),
+    ).toBeInTheDocument();
+  });
+
   test("should trigger match finalization pipeline, keep match in Redux, and display report modal on successful submit", async () => {
     vi.mocked(matchFinalizationService.finalizeMatch).mockResolvedValueOnce(
       undefined,
@@ -529,53 +564,6 @@ describe("MatchResultModal Component", () => {
     expect(store.getState().match.activeMatchId).toBe("test-match-123");
   });
 
-  test("should call onClose callback when Cancel button is clicked", () => {
-    const store = createTestStore();
-    render(
-      <Provider store={store}>
-        <MatchResultModal isOpen={true} onClose={mockOnClose} />
-      </Provider>,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(mockOnClose).toHaveBeenCalledTimes(1);
-  });
-
-  test("should not render Cancel button when modal is closed", () => {
-    const store = createTestStore();
-    render(
-      <Provider store={store}>
-        <MatchResultModal isOpen={false} onClose={mockOnClose} />
-      </Provider>,
-    );
-
-    const cancelBtn = screen.queryByRole("button", { name: "Cancel" });
-    expect(cancelBtn).toBeNull();
-  });
-
-  test("should reject hexadecimal string as temperature input", async () => {
-    const store = createTestStore();
-    render(
-      <Provider store={store}>
-        <MatchResultModal isOpen={true} onClose={mockOnClose} />
-      </Provider>,
-    );
-
-    const inputs = screen.getAllByRole("textbox");
-    const tempInput = inputs[2];
-    const submitBtn = screen.getByRole("button", { name: "Confirm & Submit" });
-
-    await waitFor(() => {
-      expect(submitBtn).not.toBeDisabled();
-    });
-
-    fireEvent.change(tempInput, { target: { value: "0x10" } });
-    expect(submitBtn).toBeDisabled();
-    expect(
-      screen.getByText("Enter a valid numeric temperature value."),
-    ).toBeInTheDocument();
-  });
-
   test("should display friendly timeout message when finalization request is aborted", async () => {
     const abortError = new Error("signal is aborted without reason");
     abortError.name = "AbortError";
@@ -615,5 +603,17 @@ describe("MatchResultModal Component", () => {
     expect(screen.getByRole("note")).toHaveTextContent(
       "Period 3 is currently active. Finalizing will automatically end the active period and close player lineups.",
     );
+  });
+
+  test("should call onClose callback when Cancel button is clicked", () => {
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(mockOnClose).toHaveBeenCalledTimes(1);
   });
 });

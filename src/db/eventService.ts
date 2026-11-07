@@ -82,6 +82,7 @@ export const replaceSportEventDefinitionsInDb = async (
     name: def.name,
     shortName: def.shortName,
     isPositive: def.isPositive,
+    isShot: def.isShot,
     isCustom: def.isCustom,
     ownerId: def.ownerId ?? (def.isCustom ? (normalizedUserId ?? null) : null),
   }));
@@ -260,6 +261,8 @@ export interface CreateGameEventParams {
   isLeadToGoal: boolean;
   locationX?: number | null;
   locationY?: number | null;
+  shotLocationX?: number | null;
+  shotLocationY?: number | null;
 }
 
 export interface UpdateGameEventParams {
@@ -270,6 +273,8 @@ export interface UpdateGameEventParams {
   isLeadToGoal: boolean;
   locationX?: number | null;
   locationY?: number | null;
+  shotLocationX?: number | null;
+  shotLocationY?: number | null;
   userId?: string;
 }
 
@@ -293,6 +298,8 @@ const processQueueItemUpdate = async (
       isLeadToGoal: params.isLeadToGoal,
       locationX: params.locationX ?? null,
       locationY: params.locationY ?? null,
+      shotLocationX: params.shotLocationX ?? null,
+      shotLocationY: params.shotLocationY ?? null,
     };
 
     await db.syncQueue.update(item.id!, {
@@ -469,6 +476,8 @@ export const createGameEventTx = async (
         isLeadToGoal: params.isLeadToGoal,
         locationX: params.locationX ?? null,
         locationY: params.locationY ?? null,
+        shotLocationX: params.shotLocationX ?? null,
+        shotLocationY: params.shotLocationY ?? null,
         createdAt: new Date().toISOString(),
         sequenceNumber: nextSeq,
         isSynced: 0,
@@ -486,6 +495,8 @@ export const createGameEventTx = async (
           eventTimestamp: params.eventTimestamp,
           locationX: createdEvent.locationX,
           locationY: createdEvent.locationY,
+          shotLocationX: createdEvent.shotLocationX,
+          shotLocationY: createdEvent.shotLocationY,
         },
       ]);
 
@@ -548,6 +559,14 @@ export const updateGameEventTx = async (
         params.locationY === undefined
           ? (existing.locationY ?? null)
           : params.locationY;
+      const shotLocationX =
+        params.shotLocationX === undefined
+          ? (existing.shotLocationX ?? null)
+          : params.shotLocationX;
+      const shotLocationY =
+        params.shotLocationY === undefined
+          ? (existing.shotLocationY ?? null)
+          : params.shotLocationY;
 
       updatedEvent = {
         ...existing,
@@ -556,11 +575,19 @@ export const updateGameEventTx = async (
         isLeadToGoal: params.isLeadToGoal,
         locationX,
         locationY,
+        shotLocationX,
+        shotLocationY,
       };
 
       await db.gameevents.put(updatedEvent);
 
-      await updateSyncQueueForEvent({ ...params, locationX, locationY });
+      await updateSyncQueueForEvent({
+        ...params,
+        locationX,
+        locationY,
+        shotLocationX,
+        shotLocationY,
+      });
     },
   );
 

@@ -5,6 +5,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import { MyMatchesView } from "../components/MyMatchesView";
 import navigationReducer from "../../../store/slices/navigationSlice";
 import { userMatchService } from "../../../services/userMatchService";
+import { db } from "../../../db/ttaDatabase";
 
 vi.mock("../../../services/userMatchService", () => ({
   userMatchService: {
@@ -14,19 +15,41 @@ vi.mock("../../../services/userMatchService", () => ({
   },
 }));
 
+vi.mock("../../../db/ttaDatabase", () => ({
+  db: {
+    matches: {
+      bulkPut: vi.fn().mockResolvedValue([]),
+      get: vi.fn(),
+      delete: vi.fn().mockResolvedValue(undefined),
+    },
+    tournaments: {
+      get: vi.fn(),
+    },
+    sportconfigurations: {
+      get: vi.fn(),
+    },
+  },
+}));
+
 vi.mock("../components/MatchReportModal", () => ({
   MatchReportModal: ({
     isOpen,
     teamId,
     guestTeamId,
+    playground,
+    shotMap,
   }: {
     isOpen: boolean;
     teamId?: string;
     guestTeamId?: string;
+    playground?: string | null;
+    shotMap?: string | null;
   }) =>
     isOpen ? (
       <div data-testid="report-modal">
         Mock Report Modal (team: {teamId}, guest: {guestTeamId})
+        {playground && <span>Playground: {playground}</span>}
+        {shotMap && <span>ShotMap: {shotMap}</span>}
       </div>
     ) : null,
 }));
@@ -62,9 +85,12 @@ describe("MyMatchesView Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(db.matches.bulkPut).mockResolvedValue([] as never);
+    vi.mocked(db.matches.delete).mockResolvedValue(undefined as never);
+    vi.mocked(db.matches.get).mockResolvedValue(undefined as never);
   });
 
-  it("should fetch and render catched matches list for finalized matches", async () => {
+  it("should fetch, render catched matches list, and sync to IndexedDB for finalized matches", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
@@ -82,9 +108,21 @@ describe("MyMatchesView Component", () => {
     expect(await screen.findByText("Dolphins")).toBeDefined();
     expect(screen.getByText("Sharks")).toBeDefined();
     expect(screen.getByText("8 : 6")).toBeDefined();
+
+    await waitFor(() => {
+      expect(db.matches.bulkPut).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "match-101",
+            homeScore: 8,
+            guestScore: 6,
+          }),
+        ]),
+      );
+    });
   });
 
-  it("should filter out unfinalized, omitted, or non-numeric score matches and render only completed matches", async () => {
+  it("should filter out unfinalized or invalid score matches and render only completed matches", async () => {
     const mixedMatches = [
       ...mockMatches,
       {
@@ -174,7 +212,43 @@ describe("MyMatchesView Component", () => {
     expect(screen.queryByText("No tracked matches found.")).toBeNull();
   });
 
-  it("should handle uncatch/delete action using trackedTeamId and update list", async () => {
+  it("should open report modal and pass SVGs fetched from IndexedDB configuration", async () => {
+    vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
+      mockMatches,
+    );
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "tourn-1",
+      configurationId: "config-100",
+    } as never);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "config-100",
+      playground: "<svg>Waterpolo Pool</svg>",
+      shotMap: "<svg>Waterpolo Goal</svg>",
+    } as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MyMatchesView />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Dolphins")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /View Report/i }));
+
+    const reportModal = await screen.findByTestId("report-modal");
+    expect(reportModal).toBeDefined();
+    expect(
+      screen.getByText("Playground: <svg>Waterpolo Pool</svg>"),
+    ).toBeDefined();
+    expect(
+      screen.getByText("ShotMap: <svg>Waterpolo Goal</svg>"),
+    ).toBeDefined();
+  });
+
+  it("should handle uncatch/delete action using trackedTeamId, delete from Dexie, and update list", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
@@ -197,6 +271,7 @@ describe("MyMatchesView Component", () => {
         "match-101",
         "guest-team-2",
       );
+      expect(db.matches.delete).toHaveBeenCalledWith("match-101");
       expect(screen.queryByText("Dolphins")).toBeNull();
     });
   });

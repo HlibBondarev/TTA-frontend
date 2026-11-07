@@ -11,6 +11,7 @@ import type { RootState } from "../../../store";
 
 export interface UseTTAPanelOptions {
   userId?: string;
+  selectedActionDefinitionId?: string | null;
 }
 
 const checkIsPositive = (def: EventDefinitionLookup): boolean => {
@@ -28,10 +29,13 @@ async function getMatchSportAndConfig(tournamentId?: string | null) {
   };
 }
 
-async function getPlaygroundSvg(targetConfigId: string | null) {
-  if (!targetConfigId) return null;
+async function getSvgs(targetConfigId: string | null) {
+  if (!targetConfigId) return { playground: null, shotMap: null };
   const sportConfig = await db.sportconfigurations.get(targetConfigId);
-  return sportConfig?.playground || null;
+  return {
+    playground: sportConfig?.playground || null,
+    shotMap: sportConfig?.shotMap ?? null,
+  };
 }
 
 async function fetchDefaultSportDefinitions(
@@ -58,7 +62,6 @@ async function getEventDefinitionsForSport(
     .where({ userId: normalizedUserId, sportId: targetSportId })
     .toArray();
 
-  // Fallback if user has no saved presets for this sport
   if (presets.length === 0) {
     return fetchDefaultSportDefinitions(targetSportId);
   }
@@ -98,13 +101,14 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
   );
   const currentUserId = options?.userId?.trim() || auth0UserId || reduxUserId;
 
-  const [activeTab, setActiveTab] = useState<"positive" | "negative" | "map">(
-    "positive",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "positive" | "negative" | "map" | "shots"
+  >("positive");
   const [eventDefinitions, setEventDefinitions] = useState<
     EventDefinitionLookup[]
   >([]);
-  const [playgroundSvg, setPlaygroundSvg] = useState<string | null>(null);
+  const [playground, setPlayground] = useState<string | null>(null);
+  const [shotMap, setShotMap] = useState<string | null>(null);
   const [prevActiveMatchId, setPrevActiveMatchId] = useState(activeMatchId);
   const [prevUserId, setPrevUserId] = useState(currentUserId);
 
@@ -112,13 +116,18 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
     setPrevActiveMatchId(activeMatchId);
     setPrevUserId(currentUserId);
     setEventDefinitions([]);
-    setPlaygroundSvg(null);
+    setPlayground(null);
+    setShotMap(null);
     clearEventDefinitionsCache();
   }
 
   useEffect(() => {
     const subscription = liveQuery(async () => {
-      const emptyResult = { definitions: [], playgroundSvg: null };
+      const emptyResult = {
+        definitions: [],
+        playground: null,
+        shotMap: null,
+      };
       if (!activeMatchId) return emptyResult;
 
       const normalizedUserId = currentUserId?.trim();
@@ -134,14 +143,19 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
       );
       if (!targetSportId) return emptyResult;
 
-      const loadedPlaygroundSvg = await getPlaygroundSvg(targetConfigId);
+      const { playground: loadedPlayground, shotMap: loadedShotMap } =
+        await getSvgs(targetConfigId);
 
       const isHydrated = await isSportHydratedForUser(
         targetSportId,
         normalizedUserId,
       );
       if (!isHydrated) {
-        return { definitions: [], playgroundSvg: loadedPlaygroundSvg };
+        return {
+          definitions: [],
+          playground: loadedPlayground,
+          shotMap: loadedShotMap,
+        };
       }
 
       const loadedDefinitions = await getEventDefinitionsForSport(
@@ -151,17 +165,20 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
 
       return {
         definitions: loadedDefinitions,
-        playgroundSvg: loadedPlaygroundSvg,
+        playground: loadedPlayground,
+        shotMap: loadedShotMap,
       };
     }).subscribe({
       next: (data) => {
         setEventDefinitions(data?.definitions || []);
-        setPlaygroundSvg(data?.playgroundSvg || null);
+        setPlayground(data?.playground || null);
+        setShotMap(data?.shotMap || null);
       },
       error: (err) => {
         console.error("Failed to load event definitions from Dexie:", err);
         setEventDefinitions([]);
-        setPlaygroundSvg(null);
+        setPlayground(null);
+        setShotMap(null);
       },
     });
 
@@ -169,6 +186,20 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
       subscription.unsubscribe();
     };
   }, [activeMatchId, currentUserId, hydrationVersion]);
+
+  const selectedActionDef = eventDefinitions.find(
+    (def) => def.id === options?.selectedActionDefinitionId,
+  );
+  const isShotSelected = Boolean(selectedActionDef?.isShot);
+
+  // Switch away from "shots" tab during render if current action is no longer a shot
+  if (activeTab === "shots" && !isShotSelected) {
+    const fallbackTab =
+      selectedActionDef && !checkIsPositive(selectedActionDef)
+        ? "negative"
+        : "positive";
+    setActiveTab(fallbackTab);
+  }
 
   const positiveActions = eventDefinitions.filter((def) =>
     checkIsPositive(def),
@@ -185,6 +216,8 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
     setActiveTab,
     displayedActions,
     checkIsPositive,
-    playgroundSvg,
+    playground,
+    shotMap,
+    isShotSelected,
   };
 }

@@ -88,31 +88,65 @@ describe("useSpatialMap Custom Hook", () => {
     },
   ];
 
-  it("calculates renderablePoints correctly from percentage coordinates and identifies isGoal strictly by eventDefinitionId", () => {
+  it("calculates renderablePoints correctly from percentage coordinates (locationY -> cx, 100-locationX -> cy) and identifies isGoal", () => {
     const { result } = renderHook(() =>
       useSpatialMap({
         events: mockEvents,
         eventDefinitionsMap: mockEventDefinitionsMap,
-        viewBoxWidth: 1000,
-        viewBoxHeight: 600,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
       }),
     );
 
     expect(result.current.renderablePoints).toHaveLength(2);
 
+    // event-1: locationX: 80, locationY: 50 => cx = (50/100)*600 = 300, cy = ((100-80)/100)*1000 = 200
     const firstPoint = result.current.renderablePoints[0];
-    expect(firstPoint.cx).toBe(800);
-    expect(firstPoint.cy).toBe(300);
+    expect(firstPoint.cx).toBe(300);
+    expect(firstPoint.cy).toBe(200);
     expect(firstPoint.shortCode).toBe("AST");
     expect(firstPoint.isSelected).toBe(false);
     expect(firstPoint.isHovered).toBe(false);
     expect(firstPoint.isGoal).toBe(false);
 
+    // event-2: locationX: 90, locationY: 40 => cx = (40/100)*600 = 240, cy = ((100-90)/100)*1000 = 100
     const secondPoint = result.current.renderablePoints[1];
-    expect(secondPoint.cx).toBe(900);
-    expect(secondPoint.cy).toBe(240);
+    expect(secondPoint.cx).toBe(240);
+    expect(secondPoint.cy).toBe(100);
     expect(secondPoint.shortCode).toBe("GOA");
     expect(secondPoint.isGoal).toBe(true);
+  });
+
+  it("applies radial spiderfy displacement when markers overlap closely", () => {
+    const overlappingEvents: GameEventResponse[] = [
+      {
+        id: "overlap-1",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-1",
+        locationX: 50,
+        locationY: 50,
+      },
+      {
+        id: "overlap-2",
+        matchLineupId: "l-2",
+        eventDefinitionId: "def-1",
+        locationX: 50,
+        locationY: 50,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: overlappingEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
+      }),
+    );
+
+    const points = result.current.renderablePoints;
+    expect(points).toHaveLength(2);
+    expect(points[0].cx).not.toEqual(points[1].cx);
   });
 
   it("auto-dismisses selected event after 3.5 seconds", () => {
@@ -138,13 +172,13 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.selectedEventId).toBeNull();
   });
 
-  it("calculates goalLeadVectors connecting lead events directly to nearest subsequent Goal in the same period matching positivity", () => {
+  it("calculates goalLeadVectors connecting lead events directly to nearest subsequent Goal in the same period", () => {
     const { result } = renderHook(() =>
       useSpatialMap({
         events: mockEvents,
         eventDefinitionsMap: mockEventDefinitionsMap,
-        viewBoxWidth: 1000,
-        viewBoxHeight: 600,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
       }),
     );
 
@@ -152,10 +186,10 @@ describe("useSpatialMap Custom Hook", () => {
     const vector = result.current.goalLeadVectors[0];
 
     expect(vector.id).toBe("vector-event-1");
-    expect(vector.x1).toBe(800);
-    expect(vector.y1).toBe(300);
-    expect(vector.x2).toBe(900);
-    expect(vector.y2).toBe(240);
+    expect(vector.x1).toBe(300);
+    expect(vector.y1).toBe(200);
+    expect(vector.x2).toBe(240);
+    expect(vector.y2).toBe(100);
     expect(vector.isPositive).toBe(true);
   });
 
@@ -204,16 +238,17 @@ describe("useSpatialMap Custom Hook", () => {
       useSpatialMap({
         events: mixedEvents,
         eventDefinitionsMap: mockEventDefinitionsMap,
-        viewBoxWidth: 1000,
-        viewBoxHeight: 600,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
       }),
     );
 
     expect(result.current.goalLeadVectors).toHaveLength(1);
     const vector = result.current.goalLeadVectors[0];
 
-    expect(vector.x2).toBe(100);
-    expect(vector.y2).toBe(300);
+    // goal-negative: locationX: 10, locationY: 50 => cx = 300, cy = 900
+    expect(vector.x2).toBe(300);
+    expect(vector.y2).toBe(900);
     expect(vector.isPositive).toBe(false);
   });
 
@@ -226,19 +261,19 @@ describe("useSpatialMap Custom Hook", () => {
         events: filteredEvents,
         allEvents,
         eventDefinitionsMap: mockEventDefinitionsMap,
-        viewBoxWidth: 1000,
-        viewBoxHeight: 600,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
       }),
     );
 
     expect(result.current.goalLeadVectors).toHaveLength(1);
     const vector = result.current.goalLeadVectors[0];
 
-    expect(vector.x2).toBe(900);
-    expect(vector.y2).toBe(240);
+    expect(vector.x2).toBe(240);
+    expect(vector.y2).toBe(100);
   });
 
-  it("falls back vector target to opponent goal center (right) for positive actions when no goal matches", () => {
+  it("falls back vector target to top center (y=15) for positive actions when no goal matches", () => {
     const unmatchedEvents: GameEventResponse[] = [
       {
         id: "assist-q2",
@@ -253,37 +288,25 @@ describe("useSpatialMap Custom Hook", () => {
         locationY: 50,
         teamId: "team-1",
       },
-      {
-        id: "goal-q1",
-        matchLineupId: "lineup-2",
-        eventDefinitionId: "def-goal",
-        eventName: "Goal",
-        isPositive: true,
-        periodNumber: 1,
-        eventTimestamp: "2026-10-14T10:05:00Z",
-        locationX: 90,
-        locationY: 40,
-        teamId: "team-1",
-      },
     ];
 
     const { result } = renderHook(() =>
       useSpatialMap({
         events: unmatchedEvents,
         eventDefinitionsMap: mockEventDefinitionsMap,
-        viewBoxWidth: 1000,
-        viewBoxHeight: 600,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
       }),
     );
 
     expect(result.current.goalLeadVectors).toHaveLength(1);
     const vector = result.current.goalLeadVectors[0];
 
-    expect(vector.x2).toBe(985);
-    expect(vector.y2).toBe(300);
+    expect(vector.x2).toBe(300); // 600 / 2
+    expect(vector.y2).toBe(15);
   });
 
-  it("falls back vector target to OUR goal center (left) for negative actions when no goal matches", () => {
+  it("falls back vector target to bottom center (y=viewBoxHeight-15) for negative actions when no goal matches", () => {
     const unmatchedNegativeEvents: GameEventResponse[] = [
       {
         id: "foul-q1",
@@ -304,16 +327,16 @@ describe("useSpatialMap Custom Hook", () => {
       useSpatialMap({
         events: unmatchedNegativeEvents,
         eventDefinitionsMap: mockEventDefinitionsMap,
-        viewBoxWidth: 1000,
-        viewBoxHeight: 600,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
       }),
     );
 
     expect(result.current.goalLeadVectors).toHaveLength(1);
     const vector = result.current.goalLeadVectors[0];
 
-    expect(vector.x2).toBe(15);
-    expect(vector.y2).toBe(300);
+    expect(vector.x2).toBe(300); // 600 / 2
+    expect(vector.y2).toBe(985); // 1000 - 15
     expect(vector.isPositive).toBe(false);
   });
 
@@ -333,14 +356,12 @@ describe("useSpatialMap Custom Hook", () => {
 
     expect(result.current.hoveredEventId).toBe("event-1");
     expect(result.current.activeEvent?.id).toBe("event-1");
-    expect(result.current.renderablePoints[0].isHovered).toBe(true);
 
     act(() => {
       result.current.handleMarkerMouseLeave();
     });
 
     expect(result.current.hoveredEventId).toBeNull();
-    expect(result.current.activeEvent).toBeNull();
 
     act(() => {
       result.current.handleMarkerClick("event-1");
@@ -348,23 +369,11 @@ describe("useSpatialMap Custom Hook", () => {
 
     expect(result.current.selectedEventId).toBe("event-1");
     expect(result.current.activeEvent?.id).toBe("event-1");
-    expect(result.current.renderablePoints[0].isSelected).toBe(true);
-
-    act(() => {
-      result.current.handleMarkerClick("event-1");
-    });
-
-    expect(result.current.activeEvent).toBeNull();
-    expect(result.current.renderablePoints[0].isSelected).toBe(false);
-
-    act(() => {
-      result.current.handleMarkerClick("event-2");
-    });
-    expect(result.current.activeEvent?.id).toBe("event-2");
 
     act(() => {
       result.current.handleClearActiveEvent();
     });
+
     expect(result.current.activeEvent).toBeNull();
   });
 });

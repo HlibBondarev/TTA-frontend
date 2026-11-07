@@ -1,6 +1,7 @@
 import React from "react";
 import { useTTAPanel, type UseTTAPanelOptions } from "../hooks/useTTAPanel";
 import { InteractivePlayground } from "./InteractivePlayground";
+import { InteractiveShotMap } from "./InteractiveShotMap";
 
 export interface TTAPanelProps extends UseTTAPanelOptions {
   onActionSelect: (
@@ -13,6 +14,8 @@ export interface TTAPanelProps extends UseTTAPanelOptions {
   disabled: boolean;
   pendingLocation?: { locationX: number; locationY: number } | null;
   onLocationSelect?: (x: number | null, y: number | null) => void;
+  pendingShotLocation?: { shotLocationX: number; shotLocationY: number } | null;
+  onShotLocationSelect?: (x: number | null, y: number | null) => void;
 }
 
 export const TTAPanel: React.FC<TTAPanelProps> = ({
@@ -23,18 +26,21 @@ export const TTAPanel: React.FC<TTAPanelProps> = ({
   userId,
   pendingLocation,
   onLocationSelect,
+  pendingShotLocation,
+  onShotLocationSelect,
 }) => {
   const {
     activeTab,
     setActiveTab,
     displayedActions,
     checkIsPositive,
-    playgroundSvg,
-  } = useTTAPanel({ userId });
+    playground,
+    shotMap,
+    isShotSelected,
+  } = useTTAPanel({ userId, selectedActionDefinitionId });
 
-  const handleTabClick = (tab: "positive" | "negative" | "map") => {
+  const handleTabClick = (tab: "positive" | "negative" | "map" | "shots") => {
     if (activeTab !== tab) {
-      // Reset action ONLY when switching between Positive and Negative
       const isCategorySwitch =
         (activeTab === "positive" && tab === "negative") ||
         (activeTab === "negative" && tab === "positive");
@@ -93,11 +99,38 @@ export const TTAPanel: React.FC<TTAPanelProps> = ({
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
           )}
         </button>
+
+        {/* Dynamic 4th tab: SHOTS */}
+        {isShotSelected && (
+          <button
+            type="button"
+            onClick={() => handleTabClick("shots")}
+            disabled={disabled}
+            className={`flex-1 py-2 min-h-11 text-xs font-bold uppercase transition-all disabled:cursor-not-allowed flex items-center justify-center space-x-1 ${
+              activeTab === "shots"
+                ? "text-amber-400 border-b-2 border-amber-400"
+                : "text-gray-500"
+            }`}
+          >
+            <span>SHOTS</span>
+            {pendingShotLocation && (
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+            )}
+          </button>
+        )}
       </div>
 
-      {activeTab === "map" ? (
+      {activeTab === "shots" ? (
+        <InteractiveShotMap
+          shotMap={shotMap}
+          shotLocationX={pendingShotLocation?.shotLocationX ?? null}
+          shotLocationY={pendingShotLocation?.shotLocationY ?? null}
+          disabled={disabled}
+          onShotLocationSelect={onShotLocationSelect ?? (() => {})}
+        />
+      ) : activeTab === "map" ? (
         <InteractivePlayground
-          playgroundSvg={playgroundSvg}
+          playground={playground}
           locationX={pendingLocation?.locationX ?? null}
           locationY={pendingLocation?.locationY ?? null}
           disabled={disabled}

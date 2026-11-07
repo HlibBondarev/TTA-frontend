@@ -8,7 +8,10 @@ import {
   db,
   type MatchLineupLookup,
   type EventDefinitionLookup,
+  type TournamentLookup,
 } from "../../../db/ttaDatabase";
+import { sportService } from "../../../services/sportService";
+import { apiClient } from "../../../api/client";
 
 export interface SpatialReportFilters {
   periodNumber: number | null; // null = All
@@ -18,11 +21,14 @@ export interface SpatialReportFilters {
   activeTab: "all" | "positive" | "negative";
   displayMode: "scatter" | "heatmap";
   showGoalLeadVectors: boolean;
+  mapMode: "field" | "shot";
 }
 
 export interface UseSpatialReportProps {
   matchId: string;
   teamId?: string;
+  playground?: string | null;
+  shotMap?: string | null;
 }
 
 // Helper to load and normalize team lineups with fallbacks
@@ -53,7 +59,6 @@ async function loadLineups(
     }
   }
 
-  // Only query local IndexedDB for match lineups when no specific teamId is active
   if (!teamId && lineups.length === 0) {
     try {
       lineups = await db.matchlineups
@@ -65,7 +70,6 @@ async function loadLineups(
     }
   }
 
-  // FALLBACK: If local DB and API return empty, dynamically construct roster from server event payload
   if (lineups.length === 0 && teamEvents.length > 0) {
     const lineupMap = new Map<string, MatchLineupLookup>();
     teamEvents.forEach((ev) => {
@@ -98,7 +102,6 @@ async function loadDefinitionsMap(
   const definitionsMap = new Map<string, EventDefinitionLookup>();
   defs.forEach((d) => definitionsMap.set(d.id, d));
 
-  // SUPPLEMENT & OVERRIDE: Always enrich/override definitions map with server event metadata
   fetchedEvents.forEach((ev) => {
     if (ev.eventDefinitionId) {
       const existing = definitionsMap.get(ev.eventDefinitionId);
@@ -110,6 +113,7 @@ async function loadDefinitionsMap(
           ? ev.eventName.substring(0, 4).toUpperCase()
           : existing?.shortName || "ACT",
         isPositive: ev.isPositive ?? existing?.isPositive ?? true,
+        isShot: existing?.isShot ?? false,
       });
     }
   });
@@ -117,12 +121,89 @@ async function loadDefinitionsMap(
   return definitionsMap;
 }
 
-export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
+// Helper to resolve missing playground and shot map SVGs from IndexedDB or Backend API
+async function resolveSportSvgs(
+  matchId: string,
+  initialPlayground?: string | null,
+  initialShotMap?: string | null,
+): Promise<{ playground: string | null; shotMap: string | null }> {
+  let pg = initialPlayground ?? null;
+  let sm = initialShotMap ?? null;
+
+  if (pg && sm) {
+    return { playground: pg, shotMap: sm };
+  }
+
+  try {
+    const matchDb = await db.matches.get(matchId);
+    const tournamentId = matchDb?.tournamentId;
+
+    if (tournamentId) {
+      let tournament = await db.tournaments.get(tournamentId);
+
+      if (!tournament) {
+        try {
+          tournament = await apiClient.get<TournamentLookup>(
+            `/Tournaments/${tournamentId}`,
+          );
+          if (tournament) {
+            await db.tournaments.put(tournament);
+          }
+        } catch {
+          // Ignore API fetch errors for missing tournament
+        }
+      }
+
+      if (tournament?.configurationId && tournament?.sportId) {
+        let config = await db.sportconfigurations.get(
+          tournament.configurationId,
+        );
+
+        if (!config) {
+          try {
+            const configs = await sportService.getSportConfigurations(
+              tournament.sportId,
+            );
+            config = configs.find((c) => c.id === tournament.configurationId);
+            if (config) {
+              await db.sportconfigurations.put(config);
+            }
+          } catch {
+            // Ignore API fetch errors for sport configurations
+          }
+        }
+
+        if (config) {
+          if (!pg) pg = config.playground ?? null;
+          if (!sm) sm = config.shotMap ?? null;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load sport configuration SVGs in hook:", err);
+  }
+
+  return { playground: pg, shotMap: sm };
+}
+
+export function useSpatialReport({
+  matchId,
+  teamId,
+  playground,
+  shotMap,
+}: UseSpatialReportProps) {
   const [events, setEvents] = useState<GameEventResponse[]>([]);
   const [teamLineups, setTeamLineups] = useState<MatchLineupLookup[]>([]);
   const [eventDefinitionsMap, setEventDefinitionsMap] = useState<
     Map<string, EventDefinitionLookup>
   >(new Map());
+
+  const [effectivePlayground, setEffectivePlayground] = useState<string | null>(
+    playground ?? null,
+  );
+  const [effectiveShotMap, setEffectiveShotMap] = useState<string | null>(
+    shotMap ?? null,
+  );
 
   const [filters, setFilters] = useState<SpatialReportFilters>({
     periodNumber: null,
@@ -132,11 +213,34 @@ export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
     activeTab: "all",
     displayMode: "scatter",
     showGoalLeadVectors: true,
+    mapMode: "field",
   });
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Dedicated effect for resolving SVGs independently without triggering event re-fetches
+  useEffect(() => {
+    if (!matchId) return;
+
+    let isMounted = true;
+
+    const resolveSvgs = async () => {
+      const svgs = await resolveSportSvgs(matchId, playground, shotMap);
+      if (isMounted) {
+        setEffectivePlayground(svgs.playground);
+        setEffectiveShotMap(svgs.shotMap);
+      }
+    };
+
+    void resolveSvgs();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [matchId, playground, shotMap]);
+
+  // Main effect for fetching match events, team lineups, and definitions
   useEffect(() => {
     if (!matchId) return;
 
@@ -147,17 +251,14 @@ export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
       setError(null);
 
       try {
-        // 1. Fetch match events from server API
         const fetchedEvents = await reportService.getMatchEvents(matchId);
 
         if (!isMounted) return;
 
-        // 2. Filter events for active team (if teamId is provided)
         const teamEvents = teamId
           ? fetchedEvents.filter((ev) => ev.teamId === teamId)
           : fetchedEvents;
 
-        // 3 & 4. Concurrently load lineups and event definitions via helper functions
         const [lineups, definitionsMap] = await Promise.all([
           loadLineups(matchId, teamId, teamEvents),
           loadDefinitionsMap(fetchedEvents),
@@ -167,7 +268,6 @@ export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
           setEvents(teamEvents);
           setTeamLineups(lineups);
           setEventDefinitionsMap(definitionsMap);
-          // Reset player and action definition filters when changing active team
           setFilters((prev) => ({
             ...prev,
             selectedLineupIds: [],
@@ -194,10 +294,20 @@ export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
     };
   }, [matchId, teamId]);
 
-  // Compute filtered events based on active filters
   const filteredEvents = useMemo(() => {
     return events.filter((ev) => {
-      // Filter by period number (null = All)
+      if (filters.mapMode === "shot") {
+        if (ev.shotLocationX == null || ev.shotLocationY == null) {
+          return false;
+        }
+        const def = ev.eventDefinitionId
+          ? eventDefinitionsMap.get(ev.eventDefinitionId)
+          : undefined;
+        if (def?.isShot !== true) {
+          return false;
+        }
+      }
+
       if (
         filters.periodNumber !== null &&
         ev.periodNumber !== filters.periodNumber
@@ -205,7 +315,6 @@ export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
         return false;
       }
 
-      // Filter by selected player lineup IDs
       if (
         filters.selectedLineupIds.length > 0 &&
         (!ev.matchLineupId ||
@@ -214,11 +323,9 @@ export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
         return false;
       }
 
-      // Filter by active category tab (Positive / Negative / All)
       if (filters.activeTab === "positive" && !ev.isPositive) return false;
       if (filters.activeTab === "negative" && ev.isPositive) return false;
 
-      // Filter by specific event definition IDs
       if (
         filters.selectedPositiveDefIds.length > 0 &&
         ev.isPositive &&
@@ -239,7 +346,7 @@ export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
 
       return true;
     });
-  }, [events, filters]);
+  }, [events, filters, eventDefinitionsMap]);
 
   const togglePeriodFilter = useCallback((period: number | null) => {
     setFilters((prev) => ({
@@ -308,11 +415,20 @@ export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
     }));
   }, []);
 
+  const toggleMapMode = useCallback((mode?: "field" | "shot") => {
+    setFilters((prev) => ({
+      ...prev,
+      mapMode: mode ?? (prev.mapMode === "field" ? "shot" : "field"),
+    }));
+  }, []);
+
   return {
     events,
     filteredEvents,
     teamLineups,
     eventDefinitionsMap,
+    playground: effectivePlayground,
+    shotMap: effectiveShotMap,
     filters,
     isLoading,
     error,
@@ -323,5 +439,6 @@ export function useSpatialReport({ matchId, teamId }: UseSpatialReportProps) {
     togglePositiveDefSelection,
     toggleNegativeDefSelection,
     toggleGoalLeadVectors,
+    toggleMapMode,
   };
 }

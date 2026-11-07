@@ -184,8 +184,8 @@ describe("Hydration Service", () => {
 
   it("fetches event definitions from /Matches/{matchId}/event-definitions and persists them to IndexedDB", async () => {
     const mockDefinitions = [
-      { id: "def-1", name: "Goal", isPositive: true },
-      { id: "def-2", name: "Turnover", isPositive: false },
+      { id: "def-1", name: "Goal", isPositive: true, isShot: true },
+      { id: "def-2", name: "Turnover", isPositive: false, isShot: false },
     ];
 
     const tournamentId = "t-1";
@@ -224,6 +224,7 @@ describe("Hydration Service", () => {
         name: "Goal",
         shortName: "",
         isPositive: true,
+        isShot: true,
         isCustom: undefined,
         ownerId: null,
       },
@@ -233,6 +234,7 @@ describe("Hydration Service", () => {
         name: "Turnover",
         shortName: "",
         isPositive: false,
+        isShot: false,
         isCustom: undefined,
         ownerId: null,
       },

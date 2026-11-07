@@ -24,6 +24,10 @@ interface MockPresenceProps {
 let mockPeriodActive = true;
 let mockPeriodNumber = 1;
 let mockPendingLocation: { locationX: number; locationY: number } | null = null;
+let mockPendingShotLocation: {
+  shotLocationX: number;
+  shotLocationY: number;
+} | null = null;
 
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
@@ -49,6 +53,7 @@ vi.mock("../hooks/useMatchLifecycle", () => ({
 
 const mockRecordGameEvent = vi.fn();
 const mockHandleLocationSelect = vi.fn();
+const mockHandleShotLocationSelect = vi.fn();
 
 vi.mock("../hooks/useTTAConsole", async (importOriginal) => {
   const actual =
@@ -60,7 +65,9 @@ vi.mock("../hooks/useTTAConsole", async (importOriginal) => {
       return {
         ...result,
         pendingLocation: mockPendingLocation,
+        pendingShotLocation: mockPendingShotLocation,
         handleLocationSelect: mockHandleLocationSelect,
+        handleShotLocationSelect: mockHandleShotLocationSelect,
       };
     },
   };
@@ -96,6 +103,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
     tournaments: {
       get: vi.fn(),
     },
+    sportconfigurations: {
+      get: vi.fn(),
+    },
     matchlineups: {
       get: vi.fn(),
       where: vi.fn().mockReturnValue({
@@ -107,11 +117,24 @@ vi.mock("../../../db/ttaDatabase", () => ({
     playerrosters: {
       get: vi.fn(),
     },
+    usereventpresets: {
+      where: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+    },
     eventdefinitions: {
       toArray: vi.fn(),
+      bulkGet: vi.fn().mockResolvedValue([]),
       where: vi.fn(() => ({
         equals: mockWhereEqualsToArray,
       })),
+    },
+    gameevents: {
+      where: vi.fn().mockReturnValue({
+        anyOf: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      }),
     },
   },
 }));
@@ -184,6 +207,7 @@ describe("TTAConsole Component", () => {
     mockPeriodActive = true;
     mockPeriodNumber = 1;
     mockPendingLocation = null;
+    mockPendingShotLocation = null;
 
     vi.mocked(db.matches.get).mockResolvedValue({
       id: "test-id",
@@ -254,7 +278,7 @@ describe("TTAConsole Component", () => {
     expect(screen.getByText(/TTA Match Recorder/i)).toBeDefined();
   });
 
-  test("displays selected spatial coordinates when pendingLocation is set", () => {
+  test("displays selected field position coordinates when pendingLocation is set", () => {
     mockPendingLocation = { locationX: 45.5, locationY: 80.0 };
 
     const store = configureStore({
@@ -274,8 +298,32 @@ describe("TTAConsole Component", () => {
       </Provider>,
     );
 
-    expect(screen.getByText("Coordinates:")).toBeInTheDocument();
+    expect(screen.getByText(/Field Pos:/i)).toBeInTheDocument();
     expect(screen.getByText("[45.5%, 80%]")).toBeInTheDocument();
+  });
+
+  test("displays selected goal target coordinates when pendingShotLocation is set", () => {
+    mockPendingShotLocation = { shotLocationX: 30.0, shotLocationY: 70.0 };
+
+    const store = configureStore({
+      reducer: rootReducer,
+      preloadedState: {
+        match: {
+          ...initialMatchState,
+          activeMatchId: "test-id",
+          activeTeamId: "team-123",
+        },
+      } as unknown as RootState,
+    });
+
+    render(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    expect(screen.getByText(/Goal Target:/i)).toBeInTheDocument();
+    expect(screen.getByText("[30%, 70%]")).toBeInTheDocument();
   });
 
   test("resets action selection when switching tabs between POSITIVE and NEGATIVE", async () => {

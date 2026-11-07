@@ -33,8 +33,8 @@ export const useSpatialMap = ({
   events,
   allEvents,
   eventDefinitionsMap,
-  viewBoxWidth = 1000,
-  viewBoxHeight = 600,
+  viewBoxWidth = 600,
+  viewBoxHeight = 1000,
 }: UseSpatialMapParams) => {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
@@ -93,39 +93,94 @@ export const useSpatialMap = ({
     return goalIds;
   }, [eventDefinitionsMap]);
 
-  // Currently active event for tooltip (hovered event takes precedence over selected)
+  // Currently active event for tooltip display
   const activeEvent = useMemo(() => {
     const activeId = hoveredEventId ?? selectedEventId;
     return events.find((e) => e.id === activeId) ?? null;
   }, [events, hoveredEventId, selectedEventId]);
 
-  // Convert percentages to SVG canvas coordinates
+  // Convert percentages to SVG canvas coordinates and apply collision offset for overlapping markers
   const renderablePoints = useMemo<RenderableSpatialPoint[]>(() => {
-    return events
-      .filter((e) => e.locationX != null && e.locationY != null && e.id != null)
-      .map((e) => {
-        const cx = (Number(e.locationX) / 100) * viewBoxWidth;
-        const cy = (Number(e.locationY) / 100) * viewBoxHeight;
-        const def = e.eventDefinitionId
-          ? eventDefinitionsMap.get(e.eventDefinitionId)
-          : undefined;
-        const shortCode =
-          def?.shortName || e.eventName?.slice(0, 3).toUpperCase() || "TTA";
+    const validEvents = events.filter(
+      (e) => e.locationX != null && e.locationY != null && e.id != null,
+    );
 
-        const isGoal = Boolean(
-          e.eventDefinitionId && goalDefinitionIds.has(e.eventDefinitionId),
+    // Calculate raw canvas coordinates for portrait pitch layout
+    const basePoints = validEvents.map((e) => {
+      const baseCx = (Number(e.locationY) / 100) * viewBoxWidth;
+      const baseCy = ((100 - Number(e.locationX)) / 100) * viewBoxHeight;
+      const def = e.eventDefinitionId
+        ? eventDefinitionsMap.get(e.eventDefinitionId)
+        : undefined;
+      const shortCode =
+        def?.shortName || e.eventName?.slice(0, 3).toUpperCase() || "TTA";
+
+      const isGoal = Boolean(
+        e.eventDefinitionId && goalDefinitionIds.has(e.eventDefinitionId),
+      );
+
+      return {
+        event: e,
+        baseCx,
+        baseCy,
+        shortCode,
+        isGoal,
+      };
+    });
+
+    // Group overlapping points within collision distance threshold (14px)
+    const clusterGroups: (typeof basePoints)[] = [];
+    const collisionThreshold = 14;
+
+    basePoints.forEach((point) => {
+      let groupFound = false;
+      for (const group of clusterGroups) {
+        const center = group[0];
+        const dist = Math.hypot(
+          point.baseCx - center.baseCx,
+          point.baseCy - center.baseCy,
         );
+        if (dist < collisionThreshold) {
+          group.push(point);
+          groupFound = true;
+          break;
+        }
+      }
 
-        return {
-          event: e,
-          cx,
-          cy,
-          shortCode,
-          isSelected: selectedEventId === e.id,
-          isHovered: hoveredEventId === e.id,
-          isGoal,
-        };
+      if (!groupFound) {
+        clusterGroups.push([point]);
+      }
+    });
+
+    // Apply radial spiderfy displacement for clustered overlapping markers
+    const finalRenderablePoints: RenderableSpatialPoint[] = [];
+
+    clusterGroups.forEach((group) => {
+      const count = group.length;
+      group.forEach((pt, idx) => {
+        let finalCx = pt.baseCx;
+        let finalCy = pt.baseCy;
+
+        if (count > 1) {
+          const offsetRadius = 14;
+          const angle = (idx / count) * 2 * Math.PI;
+          finalCx = pt.baseCx + offsetRadius * Math.cos(angle);
+          finalCy = pt.baseCy + offsetRadius * Math.sin(angle);
+        }
+
+        finalRenderablePoints.push({
+          event: pt.event,
+          cx: finalCx,
+          cy: finalCy,
+          shortCode: pt.shortCode,
+          isSelected: selectedEventId === pt.event.id,
+          isHovered: hoveredEventId === pt.event.id,
+          isGoal: pt.isGoal,
+        });
       });
+    });
+
+    return finalRenderablePoints;
   }, [
     events,
     eventDefinitionsMap,
@@ -136,9 +191,8 @@ export const useSpatialMap = ({
     viewBoxHeight,
   ]);
 
-  // Calculate directional vectors connecting Lead events directly to Goal events matching positivity
+  // Calculate directional vectors connecting Lead events directly to Goal events
   const goalLeadVectors = useMemo<GoalLeadVector[]>(() => {
-    // Strictly rely on isLeadToGoal flag
     const leadEvents = events.filter(
       (e) =>
         Boolean(e.isLeadToGoal) &&
@@ -148,7 +202,6 @@ export const useSpatialMap = ({
         e.id != null,
     );
 
-    // Use full unfiltered allEvents array for target search if present
     const searchList = allEvents && allEvents.length > 0 ? allEvents : events;
 
     const goalEvents = searchList.filter(
@@ -161,8 +214,8 @@ export const useSpatialMap = ({
     );
 
     return leadEvents.map((leadEv) => {
-      const x1 = (Number(leadEv.locationX) / 100) * viewBoxWidth;
-      const y1 = (Number(leadEv.locationY) / 100) * viewBoxHeight;
+      const x1 = (Number(leadEv.locationY) / 100) * viewBoxWidth;
+      const y1 = ((100 - Number(leadEv.locationX)) / 100) * viewBoxHeight;
 
       const leadTimestamp =
         leadEv.eventTimestamp == null
@@ -171,7 +224,6 @@ export const useSpatialMap = ({
 
       const isPositiveLead = leadEv.isPositive ?? true;
 
-      // Strictly find nearest subsequent Goal event matching period, team AND positivity
       const candidateGoals = goalEvents
         .map((goal) => ({
           goal,
@@ -200,14 +252,11 @@ export const useSpatialMap = ({
       let y2: number;
 
       if (matchingGoal) {
-        x2 = (Number(matchingGoal.locationX) / 100) * viewBoxWidth;
-        y2 = (Number(matchingGoal.locationY) / 100) * viewBoxHeight;
+        x2 = (Number(matchingGoal.locationY) / 100) * viewBoxWidth;
+        y2 = ((100 - Number(matchingGoal.locationX)) / 100) * viewBoxHeight;
       } else {
-        // Standard convention for Reports in TTA:
-        // - Our Goal is ALWAYS on the LEFT (x = 15)
-        // - Opponent Goal is ALWAYS on the RIGHT (x = viewBoxWidth - 15 = 985)
-        x2 = isPositiveLead ? viewBoxWidth - 15 : 15;
-        y2 = viewBoxHeight / 2;
+        x2 = viewBoxWidth / 2;
+        y2 = isPositiveLead ? 15 : viewBoxHeight - 15;
       }
 
       return {

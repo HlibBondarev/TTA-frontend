@@ -86,15 +86,19 @@ describe("useTTAPanel Custom Hook", () => {
     {
       id: "def-1",
       sportId: "sport-wp",
-      name: "Goal",
+      name: "Goal Shot",
+      shortName: "GS",
       isPositive: true,
+      isShot: true,
       sortOrder: 1,
     },
     {
       id: "def-2",
       sportId: "sport-wp",
       name: "Foul",
+      shortName: "FL",
       isPositive: false,
+      isShot: false,
       sortOrder: 2,
     },
   ];
@@ -133,6 +137,7 @@ describe("useTTAPanel Custom Hook", () => {
     vi.mocked(db.sportconfigurations.get).mockResolvedValue({
       id: "config-1",
       playground: "<svg>Pool</svg>",
+      shotMap: "<svg>Goal Frame</svg>",
     } as unknown as Awaited<ReturnType<typeof db.sportconfigurations.get>>);
     mockWhereEqualsToArray.mockReturnValue({
       toArray: vi.fn().mockResolvedValue(mockDefinitions),
@@ -143,7 +148,7 @@ describe("useTTAPanel Custom Hook", () => {
     mockEventDefinitionsBulkGet.mockResolvedValue(mockDefinitions);
   });
 
-  it("should initialize with default positive tab and load action definitions from Dexie", async () => {
+  it("should initialize with default positive tab and load action definitions, playground, and shotMap SVGs", async () => {
     const store = createTestStore({
       match: { activeMatchId: "match-123" },
     });
@@ -156,9 +161,78 @@ describe("useTTAPanel Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.displayedActions).toHaveLength(1);
-      expect(result.current.displayedActions[0].name).toBe("Goal");
-      expect(result.current.playgroundSvg).toBe("<svg>Pool</svg>");
+      expect(result.current.displayedActions[0].name).toBe("Goal Shot");
+      expect(result.current.playground).toBe("<svg>Pool</svg>");
+      expect(result.current.shotMap).toBe("<svg>Goal Frame</svg>");
     });
+  });
+
+  it("should detect when a shot action is selected via selectedActionDefinitionId", async () => {
+    const store = createTestStore({
+      match: { activeMatchId: "match-123" },
+    });
+
+    const { result, rerender } = renderHook((props) => useTTAPanel(props), {
+      wrapper: createWrapper(store),
+      initialProps: { selectedActionDefinitionId: "def-2" }, // Foul (isShot: false)
+    });
+
+    await waitFor(() => {
+      expect(result.current.displayedActions).toHaveLength(1);
+    });
+
+    expect(result.current.isShotSelected).toBe(false);
+
+    rerender({ selectedActionDefinitionId: "def-1" }); // Goal Shot (isShot: true)
+
+    expect(result.current.isShotSelected).toBe(true);
+  });
+
+  it("should allow switching to 'shots' tab when a shot action is selected", async () => {
+    const store = createTestStore({
+      match: { activeMatchId: "match-123" },
+    });
+
+    const { result } = renderHook(
+      () => useTTAPanel({ selectedActionDefinitionId: "def-1" }),
+      { wrapper: createWrapper(store) },
+    );
+
+    await waitFor(() => {
+      expect(result.current.isShotSelected).toBe(true);
+    });
+
+    act(() => {
+      result.current.setActiveTab("shots");
+    });
+
+    expect(result.current.activeTab).toBe("shots");
+  });
+
+  it("should automatically fall back from 'shots' tab to category tab when action is changed to non-shot", async () => {
+    const store = createTestStore({
+      match: { activeMatchId: "match-123" },
+    });
+
+    const { result, rerender } = renderHook((props) => useTTAPanel(props), {
+      wrapper: createWrapper(store),
+      initialProps: { selectedActionDefinitionId: "def-1" },
+    });
+
+    await waitFor(() => {
+      expect(result.current.isShotSelected).toBe(true);
+    });
+
+    act(() => {
+      result.current.setActiveTab("shots");
+    });
+    expect(result.current.activeTab).toBe("shots");
+
+    // Change action to Foul (isShot: false, isPositive: false)
+    rerender({ selectedActionDefinitionId: "def-2" });
+
+    expect(result.current.isShotSelected).toBe(false);
+    expect(result.current.activeTab).toBe("negative");
   });
 
   it("should fall back to default system definitions sorted by sortOrder ASC when user has no presets", async () => {
@@ -171,30 +245,26 @@ describe("useTTAPanel Custom Hook", () => {
         id: "def-3",
         sportId: "sport-wp",
         name: "Steal",
+        shortName: "ST",
         isPositive: true,
         sortOrder: 3,
       },
       {
         id: "def-1",
         sportId: "sport-wp",
-        name: "Goal",
+        name: "Goal Shot",
+        shortName: "GS",
         isPositive: true,
+        isShot: true,
         sortOrder: 1,
       },
       {
         id: "def-2",
         sportId: "sport-wp",
         name: "Pass",
+        shortName: "PS",
         isPositive: true,
         sortOrder: 2,
-      },
-      {
-        id: "def-custom",
-        sportId: "sport-wp",
-        name: "Custom User Action",
-        isPositive: true,
-        ownerId: "auth0|user-123",
-        sortOrder: 4,
       },
     ];
 
@@ -213,9 +283,9 @@ describe("useTTAPanel Custom Hook", () => {
     await waitFor(() => {
       expect(result.current.displayedActions).toHaveLength(3);
       expect(result.current.displayedActions.map((d) => d.id)).toEqual([
-        "def-1", // sortOrder: 1
-        "def-2", // sortOrder: 2
-        "def-3", // sortOrder: 3
+        "def-1",
+        "def-2",
+        "def-3",
       ]);
     });
   });
@@ -278,7 +348,7 @@ describe("useTTAPanel Custom Hook", () => {
     });
   });
 
-  it("should return empty actions array if sport is not hydrated for the current user", async () => {
+  it("should return empty definitions when sport is not yet hydrated for user", async () => {
     vi.mocked(isSportHydratedForUser).mockResolvedValueOnce(false);
 
     const store = createTestStore({
@@ -290,6 +360,8 @@ describe("useTTAPanel Custom Hook", () => {
     });
 
     await waitFor(() => {
+      expect(result.current.playground).toBe("<svg>Pool</svg>");
+      expect(result.current.shotMap).toBe("<svg>Goal Frame</svg>");
       expect(result.current.displayedActions).toEqual([]);
     });
   });

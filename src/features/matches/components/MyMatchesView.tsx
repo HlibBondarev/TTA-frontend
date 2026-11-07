@@ -6,6 +6,7 @@ import {
   type MatchWithDetailsResponse,
 } from "../../../services/userMatchService";
 import { MatchReportModal } from "./MatchReportModal";
+import { db } from "../../../db/ttaDatabase";
 
 export const MyMatchesView: React.FC = () => {
   const dispatch = useDispatch();
@@ -21,6 +22,8 @@ export const MyMatchesView: React.FC = () => {
     teamName?: string;
     guestTeamId?: string;
     guestTeamName?: string;
+    playground?: string | null;
+    shotMap?: string | null;
   } | null>(null);
 
   // Modal State for Sharing
@@ -47,6 +50,30 @@ export const MyMatchesView: React.FC = () => {
               Number.isFinite(m.guestScore),
           );
           setMatches(finalizedMatches);
+
+          try {
+            await db.matches.bulkPut(
+              finalizedMatches.map((m) => ({
+                id: m.id,
+                tournamentId: m.tournamentId,
+                homeTeamId: m.homeTeamId,
+                guestTeamId: m.guestTeamId,
+                scheduledAt: m.scheduledAt,
+                matchNumber: m.matchNumber ?? null,
+                venue: m.venue ?? null,
+                temperature: m.temperature ?? null,
+                homeScore: m.homeScore ?? null,
+                guestScore: m.guestScore ?? null,
+                createdAt:
+                  (m as { createdAt?: string }).createdAt ??
+                  m.scheduledAt ??
+                  new Date().toISOString(),
+                trackedTeamId: m.trackedTeamId,
+              })),
+            );
+          } catch (dbErr) {
+            console.error("Failed to sync matches to IndexedDB:", dbErr);
+          }
         }
       } catch (err) {
         if (isMounted) {
@@ -70,10 +97,48 @@ export const MyMatchesView: React.FC = () => {
     };
   }, []);
 
+  const handleOpenReport = async (match: MatchWithDetailsResponse) => {
+    let playground: string | null = null;
+    let shotMap: string | null = null;
+
+    try {
+      const tournamentId =
+        match.tournamentId || (await db.matches.get(match.id))?.tournamentId;
+
+      if (tournamentId) {
+        const tournament = await db.tournaments.get(tournamentId);
+        if (tournament?.configurationId) {
+          const config = await db.sportconfigurations.get(
+            tournament.configurationId,
+          );
+          if (config) {
+            playground = config.playground ?? null;
+            shotMap = config.shotMap ?? null;
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load sport config SVGs for report:", err);
+    }
+
+    const isTrackedHome = match.trackedTeamId === match.homeTeamId;
+
+    setActiveReportContext({
+      matchId: match.id,
+      teamId: match.trackedTeamId,
+      teamName: isTrackedHome ? match.homeTeamName : match.guestTeamName,
+      guestTeamId: isTrackedHome ? match.guestTeamId : match.homeTeamId,
+      guestTeamName: isTrackedHome ? match.guestTeamName : match.homeTeamName,
+      playground,
+      shotMap,
+    });
+  };
+
   const handleUncatch = async (matchId: string, teamId: string) => {
     try {
       await userMatchService.uncatchMatch(matchId, teamId);
       setMatches((prev) => prev.filter((m) => m.id !== matchId));
+      await db.matches.delete(matchId).catch(() => {});
     } catch (err) {
       setErrorMessage(
         err instanceof Error
@@ -154,12 +219,6 @@ export const MyMatchesView: React.FC = () => {
       <div className="space-y-3 flex-1 overflow-y-auto pr-0.5">
         {matches.map((match) => {
           const isTrackedHome = match.trackedTeamId === match.homeTeamId;
-          const trackedTeamName = isTrackedHome
-            ? match.homeTeamName
-            : match.guestTeamName;
-          const opposingTeamName = isTrackedHome
-            ? match.guestTeamName
-            : match.homeTeamName;
 
           return (
             <div
@@ -174,7 +233,7 @@ export const MyMatchesView: React.FC = () => {
                 </span>
               </div>
 
-              {/* Teams Display with Tracked Context Highlight */}
+              {/* Teams Display */}
               <div className="grid grid-cols-2 gap-2 text-xs font-bold text-center">
                 <div
                   className={`p-1.5 bg-black/30 rounded border truncate ${
@@ -206,17 +265,7 @@ export const MyMatchesView: React.FC = () => {
               <div className="flex items-center gap-1.5 pt-1">
                 <button
                   type="button"
-                  onClick={() =>
-                    setActiveReportContext({
-                      matchId: match.id,
-                      teamId: match.trackedTeamId,
-                      teamName: trackedTeamName,
-                      guestTeamId: isTrackedHome
-                        ? match.guestTeamId
-                        : match.homeTeamId,
-                      guestTeamName: opposingTeamName,
-                    })
-                  }
+                  onClick={() => void handleOpenReport(match)}
                   className="flex-1 py-1.5 bg-emerald-700/80 hover:bg-emerald-600 text-white font-bold text-[11px] rounded transition-colors"
                 >
                   View Report
@@ -339,6 +388,8 @@ export const MyMatchesView: React.FC = () => {
           teamName={activeReportContext.teamName}
           guestTeamId={activeReportContext.guestTeamId}
           guestTeamName={activeReportContext.guestTeamName}
+          playground={activeReportContext.playground}
+          shotMap={activeReportContext.shotMap}
           onClose={() => setActiveReportContext(null)}
         />
       )}

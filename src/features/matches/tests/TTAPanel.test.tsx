@@ -35,6 +35,20 @@ vi.mock("../components/InteractivePlayground", () => ({
   ),
 }));
 
+vi.mock("../components/InteractiveShotMap", () => ({
+  InteractiveShotMap: ({
+    onShotLocationSelect,
+  }: {
+    onShotLocationSelect: (x: number | null, y: number | null) => void;
+  }) => (
+    <div data-testid="interactive-shotMap">
+      <button type="button" onClick={() => onShotLocationSelect(75, 45)}>
+        Select Shot Target
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock("../../../db/eventService", () => ({
   clearEventDefinitionsCache: vi.fn(),
   isSportHydratedForUser: vi.fn().mockResolvedValue(true),
@@ -47,6 +61,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
       get: vi.fn(),
     },
     tournaments: {
+      get: vi.fn(),
+    },
+    sportconfigurations: {
       get: vi.fn(),
     },
     eventdefinitions: {
@@ -117,6 +134,7 @@ describe("TTAPanel Component", () => {
       name: "Goal",
       shortName: "GL",
       isPositive: true,
+      isShot: true,
       createdAt: "",
     },
     {
@@ -125,6 +143,7 @@ describe("TTAPanel Component", () => {
       name: "Pass",
       shortName: "PS",
       isPositive: true,
+      isShot: false,
       createdAt: "",
     },
     {
@@ -133,6 +152,7 @@ describe("TTAPanel Component", () => {
       name: "Turnover",
       shortName: "TO",
       isPositive: false,
+      isShot: false,
       createdAt: "",
     },
     {
@@ -224,6 +244,12 @@ describe("TTAPanel Component", () => {
     vi.mocked(db.tournaments.get).mockResolvedValue({
       id: "tour-1",
       sportId: "s1",
+      configurationId: "config-1",
+    } as never);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "config-1",
+      playground: "<svg>Playground</svg>",
+      shotMap: "<svg>Goal Frame</svg>",
     } as never);
 
     mockUserPresetsWhere.mockReturnValue({
@@ -326,6 +352,84 @@ describe("TTAPanel Component", () => {
 
     fireEvent.click(screen.getByText("Select Position"));
     expect(mockOnLocationSelect).toHaveBeenCalledWith(40, 60);
+  });
+
+  it("hides SHOTS tab by default when no action is selected or a non-shot action is selected", async () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="2" // Pass (isShot: false)
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+    expect(screen.queryByText("SHOTS")).not.toBeInTheDocument();
+  });
+
+  it("shows SHOTS tab when an action with isShot === true is selected", async () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="1" // Goal (isShot: true)
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+    expect(screen.getByText("SHOTS")).toBeInTheDocument();
+  });
+
+  it("allows switching to SHOTS tab and interacting with InteractiveShotMap", async () => {
+    const mockOnShotLocationSelect = vi.fn();
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          onShotLocationSelect={mockOnShotLocationSelect}
+          selectedActionDefinitionId="1" // Goal (isShot: true)
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+
+    fireEvent.click(screen.getByText("SHOTS"));
+
+    expect(screen.getByTestId("interactive-shotMap")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Select Shot Target"));
+    expect(mockOnShotLocationSelect).toHaveBeenCalledWith(75, 45);
+  });
+
+  it("renders a pulse indicator on SHOTS tab when pendingShotLocation is present", async () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="1"
+          pendingShotLocation={{ shotLocationX: 80, shotLocationY: 50 }}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+    const shotsTab = screen.getByRole("button", { name: /SHOTS/i });
+    expect(shotsTab.querySelector(".animate-pulse")).toBeInTheDocument();
   });
 
   it("applies selected styling strictly based on selectedActionDefinitionId", async () => {

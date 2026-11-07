@@ -245,6 +245,7 @@ describe("Event Database Service (eventService)", () => {
         name: "New Goal",
         shortName: "NG",
         isPositive: true,
+        isShot: undefined,
         isCustom: undefined,
         ownerId: "user-1",
       },
@@ -350,6 +351,7 @@ describe("Event Database Service (eventService)", () => {
         name: "Goal Updated",
         shortName: "GL",
         isPositive: true,
+        isShot: undefined,
         isCustom: undefined,
         ownerId: "user-1",
       },
@@ -359,6 +361,7 @@ describe("Event Database Service (eventService)", () => {
         name: "New Goal",
         shortName: "NG",
         isPositive: true,
+        isShot: undefined,
         isCustom: undefined,
         ownerId: "user-1",
       },
@@ -413,7 +416,7 @@ describe("Event Database Service (eventService)", () => {
     };
 
     await expect(createGameEventTx(params)).rejects.toThrow(
-      `Cannot create event: match ${"match-123"} is locked for finalization.`,
+      `Cannot create event: match match-123 is locked for finalization.`,
     );
 
     expect(db.transaction).not.toHaveBeenCalled();
@@ -441,6 +444,8 @@ describe("Event Database Service (eventService)", () => {
       isLeadToGoal: false,
       locationX: null,
       locationY: null,
+      shotLocationX: null,
+      shotLocationY: null,
       createdAt: expect.any(String),
       sequenceNumber: 5,
       isSynced: 0,
@@ -454,7 +459,7 @@ describe("Event Database Service (eventService)", () => {
     expect(db.gameevents.add).toHaveBeenCalledWith(createdEvent);
   });
 
-  it("should store locationX and locationY in created GameEvent and syncQueue payload when coordinates are provided", async () => {
+  it("should store spatial coordinates and goal shot locations in created GameEvent and syncQueue payload when provided", async () => {
     const params = {
       matchId: "match-123",
       teamId: "team-456",
@@ -465,12 +470,16 @@ describe("Event Database Service (eventService)", () => {
       isLeadToGoal: false,
       locationX: 45.5,
       locationY: 82.25,
+      shotLocationX: 30.0,
+      shotLocationY: 70.0,
     };
 
     const createdEvent = await createGameEventTx(params);
 
     expect(createdEvent.locationX).toBe(45.5);
     expect(createdEvent.locationY).toBe(82.25);
+    expect(createdEvent.shotLocationX).toBe(30.0);
+    expect(createdEvent.shotLocationY).toBe(70.0);
     expect(db.syncQueue.add).toHaveBeenCalledWith(
       expect.objectContaining({
         payload: expect.stringContaining('"locationX":45.5'),
@@ -478,12 +487,12 @@ describe("Event Database Service (eventService)", () => {
     );
     expect(db.syncQueue.add).toHaveBeenCalledWith(
       expect.objectContaining({
-        payload: expect.stringContaining('"locationY":82.25'),
+        payload: expect.stringContaining('"shotLocationX":30'),
       }),
     );
   });
 
-  it("should update an unsynchronized GameEvent entity and its syncQueue payload", async () => {
+  it("should update an unsynchronized GameEvent entity and its syncQueue payload with shot locations", async () => {
     const existingEvent = {
       id: "event-1",
       matchLineupId: "lineup-1",
@@ -493,6 +502,8 @@ describe("Event Database Service (eventService)", () => {
       isLeadToGoal: false,
       locationX: null,
       locationY: null,
+      shotLocationX: null,
+      shotLocationY: null,
       createdAt: "2026-07-22T12:00:00.000Z",
       sequenceNumber: 1,
       isSynced: 0,
@@ -510,7 +521,7 @@ describe("Event Database Service (eventService)", () => {
         { id: 99, endpoint: "/other", payload: "invalid-json" },
         {
           id: 10,
-          endpoint: `/Matches/${"match-123"}/teams/${"team-456"}/events`,
+          endpoint: `/Matches/match-123/teams/team-456/events`,
           payload: JSON.stringify([
             { id: "event-1", matchLineupId: "lineup-1" },
           ]),
@@ -525,6 +536,8 @@ describe("Event Database Service (eventService)", () => {
       isLeadToGoal: true,
       locationX: 15.25,
       locationY: 30.5,
+      shotLocationX: 40.0,
+      shotLocationY: 60.0,
     });
 
     expect(updated.matchLineupId).toBe("lineup-2");
@@ -532,9 +545,11 @@ describe("Event Database Service (eventService)", () => {
     expect(updated.isLeadToGoal).toBe(true);
     expect(updated.locationX).toBe(15.25);
     expect(updated.locationY).toBe(30.5);
+    expect(updated.shotLocationX).toBe(40.0);
+    expect(updated.shotLocationY).toBe(60.0);
     expect(mockGameEventsPut).toHaveBeenCalledWith(updated);
     expect(mockSyncQueueUpdate).toHaveBeenCalledWith(10, {
-      payload: expect.stringContaining('"locationX":15.25'),
+      payload: expect.stringContaining('"shotLocationX":40'),
     });
   });
 
@@ -563,7 +578,7 @@ describe("Event Database Service (eventService)", () => {
         isLeadToGoal: false,
       }),
     ).rejects.toThrow(
-      `Cannot update event: match ${"match-123"} is locked for finalization.`,
+      `Cannot update event: match match-123 is locked for finalization.`,
     );
   });
 
@@ -636,7 +651,7 @@ describe("Event Database Service (eventService)", () => {
       toArray: vi.fn().mockResolvedValue([
         {
           id: 20,
-          endpoint: `/Matches/${"match-123"}/teams/${"team-456"}/events`,
+          endpoint: `/Matches/match-123/teams/team-456/events`,
           payload: JSON.stringify([
             { id: "event-del-1" },
             { id: "event-del-2" },
@@ -670,7 +685,7 @@ describe("Event Database Service (eventService)", () => {
     matchLockService.lockMatchForFinalization("match-123");
 
     await expect(deleteGameEventTx("event-1")).rejects.toThrow(
-      `Cannot delete event: match ${"match-123"} is locked for finalization.`,
+      `Cannot delete event: match match-123 is locked for finalization.`,
     );
   });
 
@@ -684,7 +699,7 @@ describe("Event Database Service (eventService)", () => {
       toArray: vi.fn().mockResolvedValue([
         {
           id: 15,
-          endpoint: `/Matches/${"match-123"}/teams/${"team-456"}/events`,
+          endpoint: `/Matches/match-123/teams/team-456/events`,
           payload: JSON.stringify([{ id: "event-del" }]),
         },
       ]),
@@ -831,7 +846,7 @@ describe("Event Database Service (eventService)", () => {
         isLeadToGoal: false,
       }),
     ).rejects.toThrow(
-      `Lineup ${"lineup-B"} does not belong to event match: ${"match-A"}`,
+      `Lineup lineup-B does not belong to event match: match-A`,
     );
   });
 
@@ -860,7 +875,7 @@ describe("Event Database Service (eventService)", () => {
         isLeadToGoal: false,
         userId: "user-attacker",
       }),
-    ).rejects.toThrow(`Event ${"event-1"} belongs to another user.`);
+    ).rejects.toThrow(`Event event-1 belongs to another user.`);
   });
 
   it("should throw error in updateGameEventTx if target lineup is missing", async () => {
@@ -884,7 +899,7 @@ describe("Event Database Service (eventService)", () => {
         eventDefinitionId: "def-1",
         isLeadToGoal: false,
       }),
-    ).rejects.toThrow(`Target lineup record not found: ${"lineup-missing"}`);
+    ).rejects.toThrow(`Target lineup record not found: lineup-missing`);
   });
 
   it("should throw error in updateGameEventTx if existing lineup is missing", async () => {
@@ -909,7 +924,7 @@ describe("Event Database Service (eventService)", () => {
         isLeadToGoal: false,
       }),
     ).rejects.toThrow(
-      `Existing lineup record not found: ${"lineup-missing-existing"}`,
+      `Existing lineup record not found: lineup-missing-existing`,
     );
   });
 
@@ -972,7 +987,7 @@ describe("Event Database Service (eventService)", () => {
       toArray: vi.fn().mockResolvedValue([
         {
           id: 10,
-          endpoint: `/Matches/${"match-123"}/teams/${"team-456"}/events`,
+          endpoint: `/Matches/match-123/teams/team-456/events`,
           payload: JSON.stringify([
             { id: "event-1", matchLineupId: "lineup-1" },
           ]),
@@ -1024,7 +1039,7 @@ describe("Event Database Service (eventService)", () => {
       toArray: vi.fn().mockResolvedValue([
         {
           id: 10,
-          endpoint: `/Matches/${"match-123"}/teams/${"team-456"}/events`,
+          endpoint: `/Matches/match-123/teams/team-456/events`,
           payload: JSON.stringify([
             { id: "event-1", matchLineupId: "lineup-1" },
           ]),
@@ -1077,7 +1092,7 @@ describe("Event Database Service (eventService)", () => {
         isLeadToGoal: false,
       }),
     ).rejects.toThrow(
-      `Event definition ${"def-basketball-pass"} does not belong to sport: ${"sport-waterpolo"}`,
+      `Event definition def-basketball-pass does not belong to sport: sport-waterpolo`,
     );
   });
 
@@ -1121,6 +1136,7 @@ describe("Event Database Service (eventService)", () => {
         name: "System Goal",
         shortName: "SG",
         isPositive: true,
+        isShot: undefined,
         isCustom: false,
         ownerId: null,
       },
@@ -1130,6 +1146,7 @@ describe("Event Database Service (eventService)", () => {
         name: "Custom Action",
         shortName: "CA",
         isPositive: true,
+        isShot: undefined,
         isCustom: true,
         ownerId: "user-1",
       },
@@ -1164,7 +1181,7 @@ describe("Event Database Service (eventService)", () => {
     expect(db.eventdefinitions.bulkPut).toHaveBeenCalledTimes(2);
   });
 
-  it("should preserve existing locationX and locationY when parameters are undefined during updateGameEventTx", async () => {
+  it("should preserve existing locationX, locationY, shotLocationX, and shotLocationY when parameters are undefined during updateGameEventTx", async () => {
     const existingEvent = {
       id: "event-coords-1",
       matchLineupId: "lineup-1",
@@ -1174,6 +1191,8 @@ describe("Event Database Service (eventService)", () => {
       isLeadToGoal: false,
       locationX: 42.5,
       locationY: 85.0,
+      shotLocationX: 15.0,
+      shotLocationY: 80.0,
       createdAt: "2026-07-22T12:00:00.000Z",
       sequenceNumber: 1,
       isSynced: 0,
@@ -1206,9 +1225,13 @@ describe("Event Database Service (eventService)", () => {
       isLeadToGoal: false,
       locationX: undefined,
       locationY: undefined,
+      shotLocationX: undefined,
+      shotLocationY: undefined,
     });
 
     expect(updated.locationX).toBe(42.5);
     expect(updated.locationY).toBe(85.0);
+    expect(updated.shotLocationX).toBe(15.0);
+    expect(updated.shotLocationY).toBe(80.0);
   });
 });

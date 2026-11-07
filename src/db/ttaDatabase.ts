@@ -60,6 +60,7 @@ export interface SportConfigurationLookup {
   lineupLimit: number;
   activePlayersLimit: number;
   playground?: string | null;
+  shotMap?: string | null;
   fieldLength?: number;
   fieldWidth?: number;
 }
@@ -100,6 +101,7 @@ export interface EventDefinitionLookup {
   name: string;
   shortName: string;
   isPositive: boolean;
+  isShot?: boolean;
   isCustom?: boolean;
   ownerId?: string | null;
   sortOrder?: number;
@@ -123,6 +125,8 @@ export interface GameEvent {
   isLeadToGoal: boolean;
   locationX?: number | null;
   locationY?: number | null;
+  shotLocationX?: number | null;
+  shotLocationY?: number | null;
   createdAt: string;
   sequenceNumber: number;
   isSynced: number;

@@ -19,7 +19,16 @@ vi.mock("../components/MatchSpatialMap", () => ({
     allEvents?: GameEventResponse[];
   }) => (
     <div data-testid="match-spatial-map">
-      Map Canvas (Filtered: {events.length}, Total: {allEvents?.length ?? 0})
+      Field Map Canvas (Filtered: {events.length}, Total:{" "}
+      {allEvents?.length ?? 0})
+    </div>
+  ),
+}));
+
+vi.mock("../components/MatchShotMap", () => ({
+  MatchShotMap: ({ events }: { events: GameEventResponse[] }) => (
+    <div data-testid="match-shot-map">
+      Shot Map Canvas (Filtered: {events.length})
     </div>
   ),
 }));
@@ -54,6 +63,8 @@ describe("MatchSpatialReportView Component", () => {
       isLeadToGoal: true,
       locationX: 80,
       locationY: 50,
+      shotLocationX: 50,
+      shotLocationY: 80,
     },
     {
       id: "ev-2",
@@ -78,6 +89,7 @@ describe("MatchSpatialReportView Component", () => {
         name: "Goal",
         shortName: "GL",
         isPositive: true,
+        isShot: true,
       },
     ],
     [
@@ -88,6 +100,7 @@ describe("MatchSpatialReportView Component", () => {
         name: "Foul",
         shortName: "FL",
         isPositive: false,
+        isShot: false,
       },
     ],
   ]);
@@ -97,6 +110,8 @@ describe("MatchSpatialReportView Component", () => {
     filteredEvents: mockEvents,
     teamLineups: mockTeamLineups,
     eventDefinitionsMap: mockDefinitionsMap,
+    playground: "<svg>Playground</svg>",
+    shotMap: "<svg>ShotMap</svg>",
     filters: {
       periodNumber: null,
       selectedLineupIds: [],
@@ -105,6 +120,7 @@ describe("MatchSpatialReportView Component", () => {
       activeTab: "all" as const,
       displayMode: "scatter" as const,
       showGoalLeadVectors: true,
+      mapMode: "field" as const,
     },
     isLoading: false,
     error: null,
@@ -115,6 +131,7 @@ describe("MatchSpatialReportView Component", () => {
     handleSelectAllPlayers: vi.fn(),
     togglePositiveDefSelection: vi.fn(),
     toggleNegativeDefSelection: vi.fn(),
+    toggleMapMode: vi.fn(),
   };
 
   it("renders loading indicator when isLoading is true", () => {
@@ -150,7 +167,7 @@ describe("MatchSpatialReportView Component", () => {
     expect(mockOnBack).toHaveBeenCalledTimes(1);
   });
 
-  it("renders filter controls, player chips, action definition chips, and court map with allEvents passed", () => {
+  it("renders filter controls, player chips, action definition chips, and field court map by default", () => {
     vi.mocked(useSpatialReport).mockReturnValue(mockHookReturnValue);
 
     render(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
@@ -167,24 +184,73 @@ describe("MatchSpatialReportView Component", () => {
       }),
     ).toBeInTheDocument();
 
+    expect(screen.getByText("Field Map")).toBeInTheDocument();
+    expect(screen.getByText("Shot Map")).toBeInTheDocument();
     expect(screen.getByText("All")).toBeInTheDocument();
     expect(screen.getByText("Q1")).toBeInTheDocument();
     expect(screen.getByText("#7")).toBeInTheDocument();
     expect(screen.getByText("#4")).toBeInTheDocument();
     expect(screen.getByText("+ Positive Actions")).toBeInTheDocument();
-    expect(screen.getByText("Goal")).toBeInTheDocument();
+    expect(screen.getAllByText("Goal")[0]).toBeInTheDocument();
     expect(screen.getByText("- Negative Actions")).toBeInTheDocument();
     expect(screen.getByText("Foul")).toBeInTheDocument();
     expect(screen.getByTestId("match-spatial-map")).toBeInTheDocument();
     expect(
-      screen.getByText("Map Canvas (Filtered: 2, Total: 2)"),
+      screen.getByText("Field Map Canvas (Filtered: 2, Total: 2)"),
     ).toBeInTheDocument();
   });
 
-  it("triggers filter callbacks on button clicks including specific definition chips", () => {
+  it("renders MatchShotMap and legend when mapMode is set to shot", () => {
+    vi.mocked(useSpatialReport).mockReturnValue({
+      ...mockHookReturnValue,
+      filters: {
+        ...mockHookReturnValue.filters,
+        mapMode: "shot",
+      },
+    });
+
+    render(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
+
+    expect(screen.getByTestId("match-shot-map")).toBeInTheDocument();
+    expect(screen.queryByTestId("match-spatial-map")).not.toBeInTheDocument();
+
+    // Check legend items
+    expect(screen.getAllByText("Goal")[0]).toBeInTheDocument();
+    expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
+    expect(screen.getByText("Missed")).toBeInTheDocument();
+    expect(screen.getByText("Conceded")).toBeInTheDocument();
+  });
+
+  it("renders fallback banner when mapMode is shot and effectiveShotMap is unavailable", () => {
+    vi.mocked(useSpatialReport).mockReturnValue({
+      ...mockHookReturnValue,
+      shotMap: null,
+      filters: {
+        ...mockHookReturnValue.filters,
+        mapMode: "shot",
+      },
+    });
+
+    render(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
+
+    expect(
+      screen.getByText("Goal Shot Map SVG is unavailable for this match."),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("match-shot-map")).not.toBeInTheDocument();
+  });
+
+  it("triggers filter callbacks on button clicks including mapMode switchers", () => {
     vi.mocked(useSpatialReport).mockReturnValue(mockHookReturnValue);
 
     render(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
+
+    // Switch to Shot Map mode
+    fireEvent.click(screen.getByText("Shot Map"));
+    expect(mockHookReturnValue.toggleMapMode).toHaveBeenCalledWith("shot");
+
+    // Switch to Field Map mode
+    fireEvent.click(screen.getByText("Field Map"));
+    expect(mockHookReturnValue.toggleMapMode).toHaveBeenCalledWith("field");
 
     // Click Period Q2
     fireEvent.click(screen.getByText("Q2"));
@@ -207,7 +273,11 @@ describe("MatchSpatialReportView Component", () => {
     expect(mockHookReturnValue.handleSelectAllPlayers).toHaveBeenCalled();
 
     // Click specific positive action chip "Goal"
-    fireEvent.click(screen.getByText("Goal"));
+    const goalActionChip = screen
+      .getAllByText("Goal")
+      .find((el) => el.tagName === "BUTTON");
+    expect(goalActionChip).toBeDefined();
+    fireEvent.click(goalActionChip!);
     expect(mockHookReturnValue.togglePositiveDefSelection).toHaveBeenCalledWith(
       "def-1",
     );

@@ -12,8 +12,31 @@ vi.mock("../../../services/reportService", () => ({
   },
 }));
 
+vi.mock("../../../api/client", () => ({
+  apiClient: {
+    get: vi.fn(),
+  },
+}));
+
+vi.mock("../../../services/sportService", () => ({
+  sportService: {
+    getSportConfigurations: vi.fn(),
+  },
+}));
+
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
+    matches: {
+      get: vi.fn(),
+    },
+    tournaments: {
+      get: vi.fn(),
+      put: vi.fn(),
+    },
+    sportconfigurations: {
+      get: vi.fn(),
+      put: vi.fn(),
+    },
     matchlineups: {
       where: vi.fn(),
     },
@@ -36,6 +59,8 @@ describe("useSpatialReport Custom Hook", () => {
       isLeadToGoal: true,
       locationX: 80,
       locationY: 50,
+      shotLocationX: 45,
+      shotLocationY: 80,
       teamId: "t-1",
       playerNumber: 7,
     },
@@ -79,6 +104,7 @@ describe("useSpatialReport Custom Hook", () => {
       name: "Goal",
       shortName: "GL",
       isPositive: true,
+      isShot: true,
     },
     {
       id: "def-2",
@@ -86,6 +112,7 @@ describe("useSpatialReport Custom Hook", () => {
       name: "Foul",
       shortName: "FL",
       isPositive: false,
+      isShot: false,
     },
   ];
 
@@ -94,6 +121,10 @@ describe("useSpatialReport Custom Hook", () => {
 
     vi.mocked(reportService.getMatchEvents).mockResolvedValue(mockEvents);
     vi.mocked(reportService.getTeamLineup).mockResolvedValue(mockLineups);
+
+    vi.mocked(db.matches.get).mockResolvedValue(undefined);
+    vi.mocked(db.tournaments.get).mockResolvedValue(undefined);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue(undefined);
 
     vi.mocked(db.matchlineups.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
@@ -118,6 +149,52 @@ describe("useSpatialReport Custom Hook", () => {
     expect(result.current.teamLineups).toHaveLength(2);
     expect(result.current.eventDefinitionsMap.size).toBe(2);
     expect(result.current.error).toBeNull();
+  });
+
+  it("uses playground and shotMap passed directly in props", async () => {
+    const customPlayground = "<svg id='pg'></svg>";
+    const customShotMap = "<svg id='sm'></svg>";
+
+    const { result } = renderHook(() =>
+      useSpatialReport({
+        matchId: "m-1",
+        playground: customPlayground,
+        shotMap: customShotMap,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.playground).toBe(customPlayground);
+    expect(result.current.shotMap).toBe(customShotMap);
+  });
+
+  it("resolves sport SVGs from tournament and sport configuration when missing in props", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "m-1",
+      tournamentId: "tourn-1",
+    } as never);
+
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "tourn-1",
+      sportId: "waterpolo",
+      configurationId: "cfg-1",
+    } as never);
+
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      playground: "<svg id='db-pg'></svg>",
+      shotMap: "<svg id='db-sm'></svg>",
+    } as never);
+
+    const { result } = renderHook(() => useSpatialReport({ matchId: "m-1" }));
+
+    await waitFor(() => {
+      expect(result.current.playground).toBe("<svg id='db-pg'></svg>");
+      expect(result.current.shotMap).toBe("<svg id='db-sm'></svg>");
+    });
   });
 
   it("normalizes missing playerRosterId and positionId to null when loading team lineups", async () => {
@@ -215,6 +292,35 @@ describe("useSpatialReport Custom Hook", () => {
 
     expect(result.current.eventDefinitionsMap.size).toBe(2);
     expect(result.current.eventDefinitionsMap.get("def-1")?.name).toBe("Goal");
+  });
+
+  it("toggles map mode and filters events accordingly when switching to shot map", async () => {
+    const { result } = renderHook(() =>
+      useSpatialReport({ matchId: "m-1", teamId: "t-1" }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.filters.mapMode).toBe("field");
+    expect(result.current.filteredEvents).toHaveLength(2);
+
+    act(() => {
+      result.current.toggleMapMode("shot");
+    });
+
+    expect(result.current.filters.mapMode).toBe("shot");
+    // Only ev-1 is a shot event (isShot: true and shotLocation coordinates exist)
+    expect(result.current.filteredEvents).toHaveLength(1);
+    expect(result.current.filteredEvents[0].id).toBe("ev-1");
+
+    act(() => {
+      result.current.toggleMapMode();
+    });
+
+    expect(result.current.filters.mapMode).toBe("field");
+    expect(result.current.filteredEvents).toHaveLength(2);
   });
 
   it("filters events by period number", async () => {

@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import DOMPurify from "dompurify";
 
 export interface InteractivePlaygroundProps {
-  playgroundSvg?: string | null;
+  playground?: string | null;
   locationX?: number | null;
   locationY?: number | null;
   disabled?: boolean;
@@ -10,7 +10,7 @@ export interface InteractivePlaygroundProps {
 }
 
 export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
-  playgroundSvg,
+  playground,
   locationX,
   locationY,
   disabled = false,
@@ -18,12 +18,12 @@ export const InteractivePlayground: React.FC<InteractivePlaygroundProps> = ({
 }) => {
   const safeSvg = useMemo(
     () =>
-      playgroundSvg
-        ? DOMPurify.sanitize(playgroundSvg, {
+      playground
+        ? DOMPurify.sanitize(playground, {
             USE_PROFILES: { svg: true, svgFilters: true },
           })
         : null,
-    [playgroundSvg],
+    [playground],
   );
 
   const hasCoordinates =

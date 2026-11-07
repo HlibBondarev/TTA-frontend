@@ -101,7 +101,8 @@ export function useEditGameEventModal({
   const [eventDefinitions, setEventDefinitions] = useState<
     EventDefinitionLookup[]
   >([]);
-  const [playgroundSvg, setPlaygroundSvg] = useState<string | null>(null);
+  const [playground, setPlayground] = useState<string | null>(null);
+  const [shotMap, setShotMap] = useState<string | null>(null);
 
   const [selectedMatchLineupId, setSelectedMatchLineupId] = useState<string>(
     action.matchLineupId,
@@ -112,12 +113,14 @@ export function useEditGameEventModal({
   const [selectedEventDefinitionId, setSelectedEventDefinitionId] =
     useState<string>(action.eventDefinitionId);
   const [isPositive, setIsPositive] = useState<boolean>(action.isPositive);
-  const [activeTab, setActiveTab] = useState<"positive" | "negative" | "map">(
-    action.isPositive ? "positive" : "negative",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "positive" | "negative" | "map" | "shots"
+  >(action.isPositive ? "positive" : "negative");
 
   const [locationX, setLocationX] = useState<number | null>(null);
   const [locationY, setLocationY] = useState<number | null>(null);
+  const [shotLocationX, setShotLocationX] = useState<number | null>(null);
+  const [shotLocationY, setShotLocationY] = useState<number | null>(null);
   const [isLocationLoaded, setIsLocationLoaded] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
@@ -126,7 +129,7 @@ export function useEditGameEventModal({
   useEffect(() => {
     let isMounted = true;
 
-    // Load existing event spatial coordinates from Dexie DB
+    // Load existing event spatial and shot target coordinates from Dexie DB
     db.gameevents
       .get(action.id)
       .then((evt) => {
@@ -134,6 +137,10 @@ export function useEditGameEventModal({
         if (evt) {
           if (typeof evt.locationX === "number") setLocationX(evt.locationX);
           if (typeof evt.locationY === "number") setLocationY(evt.locationY);
+          if (typeof evt.shotLocationX === "number")
+            setShotLocationX(evt.shotLocationX);
+          if (typeof evt.shotLocationY === "number")
+            setShotLocationY(evt.shotLocationY);
         }
         setIsLocationLoaded(true);
       })
@@ -144,7 +151,7 @@ export function useEditGameEventModal({
         }
       });
 
-    // Load match, tournament, sport configuration, playground SVG and active event definitions
+    // Load match, tournament, sport configuration, SVGs and active event definitions
     const loadMatchData = async () => {
       try {
         const m = await db.matches.get(matchId);
@@ -155,8 +162,9 @@ export function useEditGameEventModal({
 
         if (tour.configurationId) {
           const config = await db.sportconfigurations.get(tour.configurationId);
-          if (isMounted && config?.playground) {
-            setPlaygroundSvg(config.playground);
+          if (isMounted && config) {
+            if (config.playground) setPlayground(config.playground);
+            if (config.shotMap) setShotMap(config.shotMap);
           }
         }
 
@@ -195,6 +203,16 @@ export function useEditGameEventModal({
     };
   }, [action.id, action.eventDefinitionId, matchId, currentUserId]);
 
+  const selectedEventDef = eventDefinitions.find(
+    (def) => def.id === selectedEventDefinitionId,
+  );
+  const isShotSelected = Boolean(selectedEventDef?.isShot);
+
+  // Fallback away from "shots" tab if action is changed or definition lacks isShot
+  if (activeTab === "shots" && !isShotSelected) {
+    setActiveTab(isPositive ? "positive" : "negative");
+  }
+
   const positiveActions = eventDefinitions.filter((def) =>
     checkIsPositive(def),
   );
@@ -204,16 +222,25 @@ export function useEditGameEventModal({
   const displayedActions =
     activeTab === "positive" ? positiveActions : negativeActions;
 
-  const isGoalAction = selectedActionName.trim().toLowerCase() === "goal";
+  const effectiveActionName = selectedEventDef?.name ?? selectedActionName;
+  const isGoalAction = effectiveActionName.trim().toLowerCase() === "goal";
 
   const handleActionSelect = (def: EventDefinitionLookup) => {
     const isPos = checkIsPositive(def);
     setSelectedActionName(def.name);
     setSelectedEventDefinitionId(def.id);
     setIsPositive(isPos);
+
+    if (!def.isShot) {
+      setShotLocationX(null);
+      setShotLocationY(null);
+      if (activeTab === "shots") {
+        setActiveTab(isPos ? "positive" : "negative");
+      }
+    }
   };
 
-  const handleTabClick = (tab: "positive" | "negative" | "map") => {
+  const handleTabClick = (tab: "positive" | "negative" | "map" | "shots") => {
     if (activeTab !== tab) {
       setActiveTab(tab);
     }
@@ -224,10 +251,15 @@ export function useEditGameEventModal({
     setLocationY(y);
   };
 
+  const handleShotLocationSelect = (x: number | null, y: number | null) => {
+    setShotLocationX(x);
+    setShotLocationY(y);
+  };
+
   const handleSave = async () => {
     if (
       !selectedMatchLineupId ||
-      !selectedActionName ||
+      !effectiveActionName ||
       !selectedEventDefinitionId ||
       isSaving ||
       !isLocationLoaded
@@ -241,12 +273,14 @@ export function useEditGameEventModal({
       await updateGameEvent({
         eventId: action.id,
         selectedPlayerId: selectedMatchLineupId,
-        actionName: selectedActionName,
+        actionName: effectiveActionName,
         eventDefinitionId: selectedEventDefinitionId,
         isPositive,
         isLeadToGoal: isGoalAction ? false : action.isLeadToGoal,
         locationX,
         locationY,
+        shotLocationX: isShotSelected ? shotLocationX : null,
+        shotLocationY: isShotSelected ? shotLocationY : null,
       });
       onClose();
     } catch (err: unknown) {
@@ -259,16 +293,24 @@ export function useEditGameEventModal({
   const hasLocation =
     typeof locationX === "number" && typeof locationY === "number";
 
+  const hasShotLocation =
+    typeof shotLocationX === "number" && typeof shotLocationY === "number";
+
   return {
     lineups,
     displayedActions,
-    playgroundSvg,
+    playground,
+    shotMap,
     selectedMatchLineupId,
     selectedEventDefinitionId,
     activeTab,
     locationX,
     locationY,
+    shotLocationX,
+    shotLocationY,
     hasLocation,
+    hasShotLocation,
+    isShotSelected,
     isLocationLoaded,
     isSaving,
     error,
@@ -276,6 +318,7 @@ export function useEditGameEventModal({
     handleActionSelect,
     handleTabClick,
     handleLocationSelect,
+    handleShotLocationSelect,
     handleSave,
   };
 }
