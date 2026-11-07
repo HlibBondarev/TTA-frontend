@@ -21,6 +21,31 @@ export interface MatchReportModalProps {
   onClose: () => void;
 }
 
+async function loadSportConfigFromDb(matchId: string): Promise<{
+  playground: string | null;
+  shotMap: string | null;
+}> {
+  if (!matchId) return { playground: null, shotMap: null };
+
+  try {
+    const matchDb = await db.matches.get(matchId);
+    if (!matchDb?.tournamentId) return { playground: null, shotMap: null };
+
+    const tournament = await db.tournaments.get(matchDb.tournamentId);
+    if (!tournament?.configurationId)
+      return { playground: null, shotMap: null };
+
+    const config = await db.sportconfigurations.get(tournament.configurationId);
+    return {
+      playground: config?.playground ?? null,
+      shotMap: config?.shotMap ?? null,
+    };
+  } catch (err) {
+    console.error("Failed to load sport configuration SVGs in modal:", err);
+    return { playground: null, shotMap: null };
+  }
+}
+
 export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   isOpen,
   matchId,
@@ -87,38 +112,15 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
 
   // Fallback SVG configuration loader from IndexedDB if props are missing
   useEffect(() => {
-    if (!isOpen) return;
-    if (effectivePlayground && effectiveShotMap) return;
+    if (!isOpen || (effectivePlayground && effectiveShotMap)) return;
 
     let isMounted = true;
 
     const fetchSvgConfig = async () => {
-      let pg = effectivePlayground;
-      let sm = effectiveShotMap;
-
-      try {
-        if (matchId) {
-          const matchDb = await db.matches.get(matchId);
-          if (matchDb?.tournamentId) {
-            const tournament = await db.tournaments.get(matchDb.tournamentId);
-            if (tournament?.configurationId) {
-              const config = await db.sportconfigurations.get(
-                tournament.configurationId,
-              );
-              if (config) {
-                if (!pg) pg = config.playground ?? null;
-                if (!sm) sm = config.shotMap ?? null;
-              }
-            }
-          }
-        }
-
-        if (isMounted) {
-          setFetchedPlayground(pg);
-          setFetchedShotMap(sm);
-        }
-      } catch (err) {
-        console.error("Failed to load sport configuration SVGs in modal:", err);
+      const dbConfig = await loadSportConfigFromDb(matchId);
+      if (isMounted) {
+        setFetchedPlayground((prev) => prev ?? dbConfig.playground);
+        setFetchedShotMap((prev) => prev ?? dbConfig.shotMap);
       }
     };
 
