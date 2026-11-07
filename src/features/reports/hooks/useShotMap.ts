@@ -110,8 +110,9 @@ export const useShotMap = ({
 
     const coordIndices = new Map<string, number>();
 
-    const minPadding = 8;
-    const offsetRadius = 7;
+    const minDim = Math.min(dimensions.width, dimensions.height);
+    const offsetRadius = Math.min(7, minDim * 0.25);
+    const minPadding = Math.min(8, minDim * 0.25);
 
     return validShotEvents.map((e) => {
       const baseCx = (Number(e.shotLocationX) / 100) * dimensions.width;
@@ -146,8 +147,11 @@ export const useShotMap = ({
         );
 
         const angle = (groupIndex * 2 * Math.PI) / totalInGroup;
-        cx = Number((centerCx + Math.cos(angle) * offsetRadius).toFixed(2));
-        cy = Number((centerCy + Math.sin(angle) * offsetRadius).toFixed(2));
+        const rawCx = centerCx + Math.cos(angle) * offsetRadius;
+        const rawCy = centerCy + Math.sin(angle) * offsetRadius;
+
+        cx = Number(Math.max(0, Math.min(dimensions.width, rawCx)).toFixed(2));
+        cy = Number(Math.max(0, Math.min(dimensions.height, rawCy)).toFixed(2));
       } else {
         const paddingX = Math.min(dimensions.width / 2, minPadding);
         const paddingY = Math.min(dimensions.height / 2, minPadding);
