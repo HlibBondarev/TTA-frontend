@@ -73,6 +73,47 @@ async function loadSportDefinitions(
   return defs;
 }
 
+interface MatchSportDetails {
+  playground: string | null;
+  shotMap: string | null;
+  eventDefinitions: EventDefinitionLookup[];
+}
+
+async function fetchMatchSportDetails(
+  matchId: string,
+  currentUserId?: string,
+  currentEventDefId?: string,
+): Promise<MatchSportDetails> {
+  const match = await db.matches.get(matchId);
+  if (!match?.tournamentId) {
+    return { playground: null, shotMap: null, eventDefinitions: [] };
+  }
+
+  const tournament = await db.tournaments.get(match.tournamentId);
+  if (!tournament) {
+    return { playground: null, shotMap: null, eventDefinitions: [] };
+  }
+
+  let playground: string | null = null;
+  let shotMap: string | null = null;
+  if (tournament.configurationId) {
+    const config = await db.sportconfigurations.get(tournament.configurationId);
+    playground = config?.playground ?? null;
+    shotMap = config?.shotMap ?? null;
+  }
+
+  let eventDefinitions: EventDefinitionLookup[] = [];
+  if (tournament.sportId) {
+    eventDefinitions = await loadSportDefinitions(
+      tournament.sportId,
+      currentUserId,
+      currentEventDefId,
+    );
+  }
+
+  return { playground, shotMap, eventDefinitions };
+}
+
 export function useEditGameEventModal({
   action,
   matchId,
@@ -154,29 +195,17 @@ export function useEditGameEventModal({
     // Load match, tournament, sport configuration, SVGs and active event definitions
     const loadMatchData = async () => {
       try {
-        const m = await db.matches.get(matchId);
-        if (!isMounted || !m?.tournamentId) return;
+        const details = await fetchMatchSportDetails(
+          matchId,
+          currentUserId,
+          action.eventDefinitionId,
+        );
+        if (!isMounted) return;
 
-        const tour = await db.tournaments.get(m.tournamentId);
-        if (!isMounted || !tour) return;
-
-        if (tour.configurationId) {
-          const config = await db.sportconfigurations.get(tour.configurationId);
-          if (isMounted && config) {
-            if (config.playground) setPlayground(config.playground);
-            if (config.shotMap) setShotMap(config.shotMap);
-          }
-        }
-
-        if (tour.sportId) {
-          const defs = await loadSportDefinitions(
-            tour.sportId,
-            currentUserId,
-            action.eventDefinitionId,
-          );
-          if (isMounted) {
-            setEventDefinitions(defs);
-          }
+        if (details.playground) setPlayground(details.playground);
+        if (details.shotMap) setShotMap(details.shotMap);
+        if (details.eventDefinitions.length > 0) {
+          setEventDefinitions(details.eventDefinitions);
         }
       } catch {
         if (isMounted) setError("Failed to load match or sport definitions.");
