@@ -121,6 +121,43 @@ async function loadDefinitionsMap(
   return definitionsMap;
 }
 
+async function fetchTournament(
+  tournamentId: string,
+): Promise<TournamentLookup | null> {
+  const localTournament = await db.tournaments.get(tournamentId);
+  if (localTournament) return localTournament;
+
+  try {
+    const remoteTournament = await apiClient.get<TournamentLookup>(
+      `/Tournaments/${tournamentId}`,
+    );
+    if (remoteTournament) {
+      await db.tournaments.put(remoteTournament);
+      return remoteTournament;
+    }
+  } catch {
+    // Ignore API fetch errors for missing tournament
+  }
+  return null;
+}
+
+async function fetchSportConfiguration(configId: string, sportId: string) {
+  const localConfig = await db.sportconfigurations.get(configId);
+  if (localConfig) return localConfig;
+
+  try {
+    const configs = await sportService.getSportConfigurations(sportId);
+    const remoteConfig = configs.find((c) => c.id === configId);
+    if (remoteConfig) {
+      await db.sportconfigurations.put(remoteConfig);
+      return remoteConfig;
+    }
+  } catch {
+    // Ignore API fetch errors for sport configurations
+  }
+  return null;
+}
+
 // Helper to resolve missing playground and shot map SVGs from IndexedDB or Backend API
 async function resolveSportSvgs(
   matchId: string,
@@ -136,54 +173,85 @@ async function resolveSportSvgs(
 
   try {
     const matchDb = await db.matches.get(matchId);
-    const tournamentId = matchDb?.tournamentId;
+    if (!matchDb?.tournamentId) return { playground: pg, shotMap: sm };
 
-    if (tournamentId) {
-      let tournament = await db.tournaments.get(tournamentId);
+    const tournament = await fetchTournament(matchDb.tournamentId);
+    if (!tournament?.configurationId || !tournament.sportId) {
+      return { playground: pg, shotMap: sm };
+    }
 
-      if (!tournament) {
-        try {
-          tournament = await apiClient.get<TournamentLookup>(
-            `/Tournaments/${tournamentId}`,
-          );
-          if (tournament) {
-            await db.tournaments.put(tournament);
-          }
-        } catch {
-          // Ignore API fetch errors for missing tournament
-        }
-      }
-
-      if (tournament?.configurationId && tournament?.sportId) {
-        let config = await db.sportconfigurations.get(
-          tournament.configurationId,
-        );
-
-        if (!config) {
-          try {
-            const configs = await sportService.getSportConfigurations(
-              tournament.sportId,
-            );
-            config = configs.find((c) => c.id === tournament.configurationId);
-            if (config) {
-              await db.sportconfigurations.put(config);
-            }
-          } catch {
-            // Ignore API fetch errors for sport configurations
-          }
-        }
-
-        if (config) {
-          if (!pg) pg = config.playground ?? null;
-          if (!sm) sm = config.shotMap ?? null;
-        }
-      }
+    const config = await fetchSportConfiguration(
+      tournament.configurationId,
+      tournament.sportId,
+    );
+    if (config) {
+      pg = pg ?? config.playground ?? null;
+      sm = sm ?? config.shotMap ?? null;
     }
   } catch (err) {
     console.error("Failed to load sport configuration SVGs in hook:", err);
   }
 
   return { playground: pg, shotMap: sm };
+}
+
+function matchesShotMode(
+  ev: GameEventResponse,
+  mapMode: "field" | "shot",
+  eventDefinitionsMap: Map<string, EventDefinitionLookup>,
+): boolean {
+  if (mapMode !== "shot") return true;
+  if (ev.shotLocationX == null || ev.shotLocationY == null) return false;
+  const def = ev.eventDefinitionId
+    ? eventDefinitionsMap.get(ev.eventDefinitionId)
+    : undefined;
+  return def?.isShot === true;
+}
+
+function matchesDefinitionFilter(
+  ev: GameEventResponse,
+  positiveDefIds: string[],
+  negativeDefIds: string[],
+): boolean {
+  if (!ev.eventDefinitionId) return true;
+  if (ev.isPositive && positiveDefIds.length > 0) {
+    return positiveDefIds.includes(ev.eventDefinitionId);
+  }
+  if (!ev.isPositive && negativeDefIds.length > 0) {
+    return negativeDefIds.includes(ev.eventDefinitionId);
+  }
+  return true;
+}
+
+function isEventMatchingFilters(
+  ev: GameEventResponse,
+  filters: SpatialReportFilters,
+  eventDefinitionsMap: Map<string, EventDefinitionLookup>,
+): boolean {
+  if (!matchesShotMode(ev, filters.mapMode, eventDefinitionsMap)) return false;
+
+  if (
+    filters.periodNumber !== null &&
+    ev.periodNumber !== filters.periodNumber
+  ) {
+    return false;
+  }
+
+  if (
+    filters.selectedLineupIds.length > 0 &&
+    (!ev.matchLineupId || !filters.selectedLineupIds.includes(ev.matchLineupId))
+  ) {
+    return false;
+  }
+
+  if (filters.activeTab === "positive" && !ev.isPositive) return false;
+  if (filters.activeTab === "negative" && ev.isPositive) return false;
+
+  return matchesDefinitionFilter(
+    ev,
+    filters.selectedPositiveDefIds,
+    filters.selectedNegativeDefIds,
+  );
 }
 
 export function useSpatialReport({
@@ -295,57 +363,9 @@ export function useSpatialReport({
   }, [matchId, teamId]);
 
   const filteredEvents = useMemo(() => {
-    return events.filter((ev) => {
-      if (filters.mapMode === "shot") {
-        if (ev.shotLocationX == null || ev.shotLocationY == null) {
-          return false;
-        }
-        const def = ev.eventDefinitionId
-          ? eventDefinitionsMap.get(ev.eventDefinitionId)
-          : undefined;
-        if (def?.isShot !== true) {
-          return false;
-        }
-      }
-
-      if (
-        filters.periodNumber !== null &&
-        ev.periodNumber !== filters.periodNumber
-      ) {
-        return false;
-      }
-
-      if (
-        filters.selectedLineupIds.length > 0 &&
-        (!ev.matchLineupId ||
-          !filters.selectedLineupIds.includes(ev.matchLineupId))
-      ) {
-        return false;
-      }
-
-      if (filters.activeTab === "positive" && !ev.isPositive) return false;
-      if (filters.activeTab === "negative" && ev.isPositive) return false;
-
-      if (
-        filters.selectedPositiveDefIds.length > 0 &&
-        ev.isPositive &&
-        ev.eventDefinitionId &&
-        !filters.selectedPositiveDefIds.includes(ev.eventDefinitionId)
-      ) {
-        return false;
-      }
-
-      if (
-        filters.selectedNegativeDefIds.length > 0 &&
-        !ev.isPositive &&
-        ev.eventDefinitionId &&
-        !filters.selectedNegativeDefIds.includes(ev.eventDefinitionId)
-      ) {
-        return false;
-      }
-
-      return true;
-    });
+    return events.filter((ev) =>
+      isEventMatchingFilters(ev, filters, eventDefinitionsMap),
+    );
   }, [events, filters, eventDefinitionsMap]);
 
   const togglePeriodFilter = useCallback((period: number | null) => {
