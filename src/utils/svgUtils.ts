@@ -5,11 +5,11 @@ export interface SvgDimensions {
 }
 
 // Number pattern supporting integers, decimals, and scientific/exponent notation (e.g., 1e2, -1.5e-3)
-const NUM_PATTERN = "[-+]?(?:\\d*\\.?\\d+|\\d+)(?:[eE][-+]?\\d+)?";
+const NUM_PATTERN = String.raw`[-+]?(?:\d*\.?\d+|\d+)(?:[eE][-+]?\d+)?`;
 
 // Regex matching viewBox attribute with optional whitespace around '=' and exponential numbers
 const VIEWBOX_REGEX = new RegExp(
-  `viewBox\\s*=\\s*["']\\s*(${NUM_PATTERN})[\\s,]+(${NUM_PATTERN})[\\s,]+(${NUM_PATTERN})[\\s,]+(${NUM_PATTERN})\\s*["']`,
+  String.raw`viewBox\s*=\s*["']\s*(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})\s*["']`,
   "i",
 );
 
