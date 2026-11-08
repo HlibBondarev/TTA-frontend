@@ -297,8 +297,70 @@ describe("useSpatialReport Custom Hook", () => {
   });
 
   it("toggles map mode and filters events accordingly when switching to shot map", async () => {
+    const shotModeEvents: GameEventResponse[] = [
+      {
+        id: "ev-valid-shot",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1", // isShot: true
+        eventName: "Goal",
+        isPositive: true,
+        periodNumber: 1,
+        shotLocationX: 45,
+        shotLocationY: 80,
+        teamId: "t-1",
+      },
+      {
+        id: "ev-non-shot-with-coords",
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-2", // isShot: false
+        eventName: "Foul",
+        isPositive: false,
+        periodNumber: 1,
+        shotLocationX: 30,
+        shotLocationY: 40,
+        teamId: "t-1",
+      },
+      {
+        id: "ev-shot-missing-x",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1", // isShot: true
+        eventName: "Goal",
+        isPositive: true,
+        periodNumber: 1,
+        shotLocationX: undefined,
+        shotLocationY: 80,
+        teamId: "t-1",
+      },
+      {
+        id: "ev-shot-missing-y",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1", // isShot: true
+        eventName: "Goal",
+        isPositive: true,
+        periodNumber: 1,
+        shotLocationX: 45,
+        shotLocationY: undefined,
+        teamId: "t-1",
+      },
+      {
+        id: "ev-shot-missing-both",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1", // isShot: true
+        eventName: "Goal",
+        isPositive: true,
+        periodNumber: 1,
+        shotLocationX: undefined,
+        shotLocationY: undefined,
+        teamId: "t-1",
+      },
+    ];
+
+    vi.mocked(reportService.getMatchEvents).mockResolvedValueOnce(
+      shotModeEvents,
+    );
+
     const { result } = renderHook(() =>
-      useSpatialReport({ matchId: "m-1", teamId: "t-1" }),
+      useSpatialReport({ matchId: "m-shot-mode-test", teamId: "t-1" }),
     );
 
     await waitFor(() => {
@@ -306,7 +368,7 @@ describe("useSpatialReport Custom Hook", () => {
     });
 
     expect(result.current.filters.mapMode).toBe("field");
-    expect(result.current.filteredEvents).toHaveLength(2);
+    expect(result.current.filteredEvents).toHaveLength(5);
 
     act(() => {
       result.current.toggleMapMode("shot");
@@ -314,14 +376,14 @@ describe("useSpatialReport Custom Hook", () => {
 
     expect(result.current.filters.mapMode).toBe("shot");
     expect(result.current.filteredEvents).toHaveLength(1);
-    expect(result.current.filteredEvents[0].id).toBe("ev-1");
+    expect(result.current.filteredEvents[0].id).toBe("ev-valid-shot");
 
     act(() => {
       result.current.toggleMapMode();
     });
 
     expect(result.current.filters.mapMode).toBe("field");
-    expect(result.current.filteredEvents).toHaveLength(2);
+    expect(result.current.filteredEvents).toHaveLength(5);
   });
 
   it("filters events by period number", async () => {
