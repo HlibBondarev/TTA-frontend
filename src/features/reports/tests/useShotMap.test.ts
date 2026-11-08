@@ -361,4 +361,50 @@ describe("useShotMap hook", () => {
     );
     expect(result.current.renderablePoints[0].shortCode).toBe("UNK");
   });
+
+  it("groups and disperses nearby shots with differing numeric representation into distinct pointer-selectable coordinates", () => {
+    const nearbyEvents: GameEventResponse[] = [
+      {
+        id: "nearby-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 80,
+        playerNumber: 7,
+      },
+      {
+        id: "nearby-2",
+        eventDefinitionId: sogDefId,
+        isPositive: true,
+        shotLocationX: 50.02,
+        shotLocationY: 80.01,
+        playerNumber: 10,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useShotMap({
+        events: nearbyEvents,
+        eventDefinitionsMap: mockDefinitionsMap,
+        shotMap: defaultShotMap,
+      }),
+    );
+
+    expect(result.current.renderablePoints).toHaveLength(2);
+    const [p1, p2] = result.current.renderablePoints;
+
+    // Both points are grouped into cluster and rendered at distinct cx coordinates
+    expect(p1.cx).not.toBe(p2.cx);
+
+    // Verify pointer selection for both nearby markers
+    act(() => {
+      result.current.handleMarkerClick("nearby-1");
+    });
+    expect(result.current.activeEvent?.id).toBe("nearby-1");
+
+    act(() => {
+      result.current.handleMarkerClick("nearby-2");
+    });
+    expect(result.current.activeEvent?.id).toBe("nearby-2");
+  });
 });

@@ -51,8 +51,6 @@ export const useShotMap = ({
     (eventId: string) => {
       clearAutoDismissTimer();
       setSelectedEventId((prev) => (prev === eventId ? null : eventId));
-      // Reset hovered event on click so selectedEvent takes precedence
-      // and the 3.5s auto-dismiss timer can properly clear activeEvent
       setHoveredEventId(null);
     },
     [clearAutoDismissTimer],
@@ -102,13 +100,15 @@ export const useShotMap = ({
       const def = e.eventDefinitionId
         ? eventDefinitionsMap.get(e.eventDefinitionId)
         : undefined;
-      // Allow uncached definitions to fall back to true if shot coordinates are present
       return def ? def.isShot === true : true;
     });
 
+    const getCoordKey = (x: number | string, y: number | string) =>
+      `${Number(x).toFixed(1)}_${Number(y).toFixed(1)}`;
+
     const coordGroups = new Map<string, number>();
     validShotEvents.forEach((e) => {
-      const key = `${e.shotLocationX}_${e.shotLocationY}`;
+      const key = getCoordKey(e.shotLocationX!, e.shotLocationY!);
       coordGroups.set(key, (coordGroups.get(key) || 0) + 1);
     });
 
@@ -123,7 +123,7 @@ export const useShotMap = ({
       const baseCy =
         ((100 - Number(e.shotLocationY)) / 100) * dimensions.height;
 
-      const key = `${e.shotLocationX}_${e.shotLocationY}`;
+      const key = getCoordKey(e.shotLocationX!, e.shotLocationY!);
       const totalInGroup = coordGroups.get(key) || 1;
       const groupIndex = coordIndices.get(key) || 0;
       coordIndices.set(key, groupIndex + 1);
