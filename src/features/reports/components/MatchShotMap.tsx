@@ -70,6 +70,8 @@ const ShotMarker: React.FC<{
   const hoverRadius = Math.min(11, minDim * 0.044);
   const radius = isHighlighted ? hoverRadius : baseRadius;
   const strokeWidth = Math.min(2, minDim * 0.01);
+  const fontSize = Math.min(9, minDim * 0.036);
+  const textY = Math.min(3, minDim * 0.012);
 
   return (
     <g
@@ -96,9 +98,10 @@ const ShotMarker: React.FC<{
       />
       <text
         x={0}
-        y={3}
+        y={textY}
+        fontSize={fontSize}
         textAnchor="middle"
-        className="fill-slate-950 font-mono font-black text-[9px] pointer-events-none select-none"
+        className="fill-slate-950 font-mono font-black pointer-events-none select-none"
       >
         {label}
       </text>

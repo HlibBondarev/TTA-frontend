@@ -427,4 +427,30 @@ describe("MatchShotMap Component", () => {
 
     expect(screen.getByText("88")).toBeInTheDocument();
   });
+
+  it("scales shot label font size and baseline offset proportionally with map dimensions", () => {
+    const microSvg = `<svg viewBox="0 0 1 1" width="1" height="1"><rect width="1" height="1" fill="blue"/></svg>`;
+    const microEvents: GameEventResponse[] = [
+      {
+        id: "micro-label-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+        playerNumber: 7,
+      },
+    ];
+
+    render(
+      <MatchShotMap
+        events={microEvents}
+        eventDefinitionsMap={mockDefinitionsMap}
+        shotMap={microSvg}
+      />,
+    );
+
+    const labelText = screen.getByText("7");
+    expect(labelText).toHaveAttribute("font-size", "0.036");
+    expect(labelText).toHaveAttribute("y", "0.012");
+  });
 });
