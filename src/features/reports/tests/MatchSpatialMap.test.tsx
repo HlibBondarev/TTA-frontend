@@ -221,6 +221,11 @@ describe("MatchSpatialMap Component", () => {
     expect(screen.getByText("Action:")).toBeInTheDocument();
     expect(screen.getByText("Goal")).toBeInTheDocument();
 
+    // Move pointer from marker into tooltip
+    fireEvent.mouseLeave(shotMarker);
+    const tooltip = screen.getByRole("tooltip");
+    fireEvent.mouseEnter(tooltip);
+
     // Toggle to Shot view
     const shotButton = screen.getByRole("button", { name: "Shot" });
     fireEvent.click(shotButton);
