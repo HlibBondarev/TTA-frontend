@@ -42,7 +42,7 @@ export const InteractiveShotMap: React.FC<InteractiveShotMapProps> = ({
     onShotLocationSelect(null, null);
   };
 
-  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (disabled) return;
 
     const rect = e.currentTarget.getBoundingClientRect();
@@ -60,7 +60,7 @@ export const InteractiveShotMap: React.FC<InteractiveShotMapProps> = ({
     onShotLocationSelect(clampedX, clampedY);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
     if (disabled) return;
 
     if (e.key === "Enter" || e.key === " ") {
@@ -121,13 +121,13 @@ export const InteractiveShotMap: React.FC<InteractiveShotMapProps> = ({
       </div>
 
       {isMapValid && (
-        <div
-          role="button"
-          tabIndex={disabled ? -1 : 0}
+        <button
+          type="button"
+          disabled={disabled}
           aria-label="Goal Shot Location Map"
           onClick={handleClick}
           onKeyDown={handleKeyDown}
-          className={`relative w-full rounded border border-gray-800 overflow-hidden bg-sky-950/90 select-none outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
+          className={`relative block w-full p-0 text-left rounded border border-gray-800 overflow-hidden bg-sky-950/90 select-none outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
             disabled ? "opacity-50 cursor-not-allowed" : "cursor-crosshair"
           }`}
           style={{ aspectRatio: dimensions!.aspectRatio }}
@@ -146,7 +146,7 @@ export const InteractiveShotMap: React.FC<InteractiveShotMapProps> = ({
               }}
             />
           )}
-        </div>
+        </button>
       )}
     </div>
   );
