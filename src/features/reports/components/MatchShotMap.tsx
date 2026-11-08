@@ -41,10 +41,14 @@ const ShotMarker: React.FC<{
   const label =
     event.playerNumber != null ? `${event.playerNumber}` : shortCode;
 
-  const playerPart =
-    event.playerNumber != null
-      ? `Player #${event.playerNumber}${event.playerName ? ` (${event.playerName})` : ""}`
-      : "Player";
+  let playerPart = "Player";
+  if (event.playerNumber != null) {
+    playerPart = `Player #${event.playerNumber}`;
+    if (event.playerName) {
+      playerPart += ` (${event.playerName})`;
+    }
+  }
+
   const actionPart = event.eventName || "Shot";
   const periodPart = event.periodNumber ? `, Q${event.periodNumber}` : "";
   const timePart = event.normalizedMatchTime
