@@ -232,7 +232,7 @@ describe("MatchShotMap Component", () => {
     expect(markerBtn).toHaveAttribute("tabindex", "0");
 
     const circle = markerBtn.querySelector("circle");
-    expect(circle).toHaveClass("group-focus-visible:stroke-amber-400");
+    expect(circle).toHaveClass("group-focus-visible:stroke-white");
 
     // Enter key opens tooltip
     fireEvent.keyDown(markerBtn, { key: "Enter" });
