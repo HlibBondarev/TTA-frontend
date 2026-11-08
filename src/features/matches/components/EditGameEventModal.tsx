@@ -33,6 +33,7 @@ const EditGameEventModalContent: React.FC<{
     hasShotLocation,
     isShotSelected,
     isLocationLoaded,
+    isDefinitionsLoaded,
     isSaving,
     error,
     setSelectedMatchLineupId,
@@ -68,24 +69,30 @@ const EditGameEventModalContent: React.FC<{
 
     return (
       <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-1">
-        {displayedActions.map((def) => {
-          const isSelected =
-            Boolean(def.id) && selectedEventDefinitionId === def.id;
-          return (
-            <button
-              key={def.id || def.name}
-              type="button"
-              onClick={() => handleActionSelect(def)}
-              className={`p-2 min-h-10 rounded text-[11px] font-medium transition-all ${
-                isSelected
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-800 text-gray-300 hover:bg-gray-700"
-              }`}
-            >
-              {def.name}
-            </button>
-          );
-        })}
+        {!isDefinitionsLoaded ? (
+          <div className="col-span-3 p-4 text-center text-xs text-gray-400 italic">
+            Loading action definitions...
+          </div>
+        ) : (
+          displayedActions.map((def) => {
+            const isSelected =
+              Boolean(def.id) && selectedEventDefinitionId === def.id;
+            return (
+              <button
+                key={def.id || def.name}
+                type="button"
+                onClick={() => handleActionSelect(def)}
+                className={`p-2 min-h-10 rounded text-[11px] font-medium transition-all ${
+                  isSelected
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                }`}
+              >
+                {def.name}
+              </button>
+            );
+          })
+        )}
       </div>
     );
   };
@@ -210,6 +217,7 @@ const EditGameEventModalContent: React.FC<{
           disabled={
             isSaving ||
             !isLocationLoaded ||
+            !isDefinitionsLoaded ||
             !selectedMatchLineupId ||
             !selectedEventDefinitionId
           }

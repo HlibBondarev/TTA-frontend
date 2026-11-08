@@ -742,4 +742,46 @@ describe("EditGameEventModal Component", () => {
       );
     });
   });
+
+  it("disables Save button and displays loading message while definitions loading is pending", async () => {
+    let resolveMatch: (value: unknown) => void;
+    const pendingMatchPromise = new Promise((resolve) => {
+      resolveMatch = resolve;
+    });
+
+    vi.mocked(db.matches.get).mockReturnValueOnce(
+      pendingMatchPromise as unknown as ReturnType<typeof db.matches.get>,
+    );
+
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction}
+          matchId="match-1"
+          onClose={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    expect(
+      screen.getByText("Loading action definitions..."),
+    ).toBeInTheDocument();
+
+    const saveBtn = screen.getByRole("button", { name: /Save/i });
+    expect(saveBtn).toBeDisabled();
+
+    await act(async () => {
+      resolveMatch!({
+        id: "match-1",
+        tournamentId: "tour-1",
+      });
+    });
+
+    await waitFor(() => {
+      expect(saveBtn).not.toBeDisabled();
+    });
+  });
 });
