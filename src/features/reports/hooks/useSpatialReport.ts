@@ -156,19 +156,30 @@ async function fetchTournament(
 
 async function fetchSportConfiguration(configId: string, sportId: string) {
   const localConfig = await db.sportconfigurations.get(configId);
-  if (localConfig) return localConfig;
+
+  // Return immediately if local cache contains both playground and shotMap SVGs
+  if (localConfig?.playground && localConfig?.shotMap) {
+    return localConfig;
+  }
 
   try {
     const configs = await sportService.getSportConfigurations(sportId);
     const remoteConfig = configs.find((c) => c.id === configId);
     if (remoteConfig) {
-      await db.sportconfigurations.put(remoteConfig);
-      return remoteConfig;
+      const updatedConfig = {
+        ...localConfig,
+        ...remoteConfig,
+        playground: remoteConfig.playground ?? localConfig?.playground ?? null,
+        shotMap: remoteConfig.shotMap ?? localConfig?.shotMap ?? null,
+      };
+      await db.sportconfigurations.put(updatedConfig);
+      return updatedConfig;
     }
   } catch {
-    // Ignore API fetch errors for sport configurations
+    // Retain and return available local data on network failure
   }
-  return null;
+
+  return localConfig ?? null;
 }
 
 // Helper to resolve missing playground and shot map SVGs from IndexedDB or Backend API

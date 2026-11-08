@@ -5,6 +5,7 @@ import { reportService } from "../../../services/reportService";
 import { db } from "../../../db/ttaDatabase";
 import type { GameEventResponse } from "../../../services/reportService";
 import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
+import { sportService } from "../../../services/sportService";
 
 vi.mock("../../../services/reportService", () => ({
   reportService: {
@@ -551,6 +552,52 @@ describe("useSpatialReport Custom Hook", () => {
     expect(result.current.filteredEvents).toHaveLength(0);
     expect(result.current.eventDefinitionsMap.get("def-foul-1")?.isShot).toBe(
       false,
+    );
+  });
+
+  it("fetches remote sport configuration when local cached config is missing shotMap", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "m-1",
+      tournamentId: "tourn-1",
+    } as never);
+
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "tourn-1",
+      sportId: "waterpolo",
+      configurationId: "cfg-1",
+    } as never);
+
+    // Local cache contains playground but lacks shotMap
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      playground: "<svg id='local-pg'></svg>",
+      shotMap: undefined,
+    } as never);
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      {
+        id: "cfg-1",
+        sportId: "waterpolo",
+        usesCleanTime: true,
+        periodsCount: 4,
+        periodDurationMinutes: 8,
+        fieldSize: "30x20",
+        rosterLimit: 13,
+        lineupLimit: 13,
+        activePlayersLimit: 7,
+        playground: "<svg id='remote-pg'></svg>",
+        shotMap: "<svg id='remote-sm'></svg>",
+      },
+    ]);
+
+    const { result } = renderHook(() => useSpatialReport({ matchId: "m-1" }));
+
+    await waitFor(() => {
+      expect(result.current.shotMap).toBe("<svg id='remote-sm'></svg>");
+    });
+
+    expect(sportService.getSportConfigurations).toHaveBeenCalledWith(
+      "waterpolo",
     );
   });
 });
