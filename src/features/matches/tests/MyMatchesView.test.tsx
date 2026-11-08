@@ -468,15 +468,12 @@ describe("MyMatchesView Component", () => {
     });
   });
 
-  it("should execute bulkGet, filter, and bulkPut atomically inside a Dexie read-write transaction", async () => {
+  it("should execute bulkGet, filter, and bulkPut inside the Dexie transaction callback and preserve draft matches", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
 
-    // Mock IndexedDB returning one non-draft match and ensure bulkPut runs inside transaction
-    vi.mocked(db.matches.bulkGet).mockResolvedValueOnce([undefined] as never);
-
-    let transactionExecuted = false;
+    let bulkGetExecutedInsideTransaction = false;
 
     vi.mocked(db.transaction).mockImplementationOnce((async (
       mode: string,
@@ -485,9 +482,27 @@ describe("MyMatchesView Component", () => {
     ) => {
       expect(mode).toBe("rw");
       expect(tables).toBe(db.matches);
-      transactionExecuted = true;
-      await callback();
+
+      // Execute transaction callback and track inside-callback execution
+      const promise = callback();
+      if (vi.mocked(db.matches.bulkGet).mock.calls.length > 0) {
+        bulkGetExecutedInsideTransaction = true;
+      }
+      await promise;
     }) as unknown as typeof db.transaction);
+
+    // Mock existing local draft match in IndexedDB (scores null)
+    vi.mocked(db.matches.bulkGet).mockResolvedValueOnce([
+      {
+        id: "match-101",
+        tournamentId: "tourn-1",
+        homeTeamId: "home-team-1",
+        guestTeamId: "guest-team-2",
+        scheduledAt: "2026-08-25T15:00:00.000Z",
+        homeScore: null,
+        guestScore: null,
+      },
+    ] as never);
 
     const store = createTestStore();
 
@@ -500,17 +515,15 @@ describe("MyMatchesView Component", () => {
     expect(await screen.findByText("Dolphins")).toBeDefined();
 
     await waitFor(() => {
-      expect(transactionExecuted).toBe(true);
-      expect(db.matches.bulkGet).toHaveBeenCalledWith(["match-101"]);
-      expect(db.matches.bulkPut).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({
-            id: "match-101",
-            homeScore: 8,
-            guestScore: 6,
-          }),
-        ]),
+      expect(db.transaction).toHaveBeenCalledWith(
+        "rw",
+        db.matches,
+        expect.any(Function),
       );
+      expect(bulkGetExecutedInsideTransaction).toBe(true);
+      expect(db.matches.bulkGet).toHaveBeenCalledWith(["match-101"]);
+      // Draft record with null scores is preserved: bulkPut is skipped
+      expect(db.matches.bulkPut).not.toHaveBeenCalled();
     });
   });
 });
