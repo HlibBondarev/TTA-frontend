@@ -17,6 +17,7 @@ vi.mock("../../../services/userMatchService", () => ({
 
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
+    transaction: vi.fn(),
     matches: {
       bulkPut: vi.fn().mockResolvedValue([]),
       bulkGet: vi.fn().mockResolvedValue([]),
@@ -86,13 +87,22 @@ describe("MyMatchesView Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(db.transaction)
+      .mockReset()
+      .mockImplementation((async (
+        _mode: string,
+        _tables: unknown,
+        callback: () => Promise<void>,
+      ) => {
+        await callback();
+      }) as unknown as typeof db.transaction);
     vi.mocked(db.matches.bulkPut).mockResolvedValue([] as never);
     vi.mocked(db.matches.bulkGet).mockResolvedValue([] as never);
     vi.mocked(db.matches.delete).mockResolvedValue(undefined as never);
     vi.mocked(db.matches.get).mockResolvedValue(undefined as never);
   });
 
-  it("should fetch, render catched matches list, and sync to IndexedDB for finalized matches", async () => {
+  it("should fetch, render catched matches list, and sync to IndexedDB for finalized matches inside a transaction", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
@@ -112,6 +122,11 @@ describe("MyMatchesView Component", () => {
     expect(screen.getByText("8 : 6")).toBeDefined();
 
     await waitFor(() => {
+      expect(db.transaction).toHaveBeenCalledWith(
+        "rw",
+        db.matches,
+        expect.any(Function),
+      );
       expect(db.matches.bulkPut).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
@@ -449,6 +464,61 @@ describe("MyMatchesView Component", () => {
     await waitFor(() => {
       expect(db.matches.bulkGet).toHaveBeenCalledWith(["match-101"]);
       // bulkPut should NOT be called since the record is an unfinished local draft
+      expect(db.matches.bulkPut).not.toHaveBeenCalled();
+    });
+  });
+
+  it("should execute bulkGet, filter, and bulkPut atomically inside a Dexie read-write transaction", async () => {
+    vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
+      mockMatches,
+    );
+
+    let draftCreatedConcurrently = false;
+
+    vi.mocked(db.transaction).mockImplementationOnce((async (
+      mode: string,
+      tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      expect(mode).toBe("rw");
+      expect(tables).toBe(db.matches);
+
+      // Simulate draft presence checked inside transaction scope
+      if (!draftCreatedConcurrently) {
+        vi.mocked(db.matches.bulkGet).mockResolvedValueOnce([
+          {
+            id: "match-101",
+            tournamentId: "tourn-1",
+            homeTeamId: "home-team-1",
+            guestTeamId: "guest-team-2",
+            scheduledAt: "2026-08-25T15:00:00.000Z",
+            homeScore: null,
+            guestScore: null,
+          },
+        ] as never);
+        draftCreatedConcurrently = true;
+      }
+
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MyMatchesView />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Dolphins")).toBeDefined();
+
+    await waitFor(() => {
+      expect(db.transaction).toHaveBeenCalledWith(
+        "rw",
+        db.matches,
+        expect.any(Function),
+      );
+      expect(db.matches.bulkGet).toHaveBeenCalledWith(["match-101"]);
       expect(db.matches.bulkPut).not.toHaveBeenCalled();
     });
   });

@@ -52,41 +52,44 @@ export const MyMatchesView: React.FC = () => {
           setMatches(finalizedMatches);
 
           try {
-            // Fetch existing local records to preserve unfinished drafts
-            const existingMatches = await db.matches.bulkGet(
-              finalizedMatches.map((m) => m.id),
-            );
-
-            // Filter out records that are active local drafts with null scores
-            const matchesToPut = finalizedMatches.filter((_, index) => {
-              const existing = existingMatches[index];
-              if (!existing) return true;
-              const isLocalDraft =
-                existing.homeScore === null || existing.guestScore === null;
-              return !isLocalDraft;
-            });
-
-            if (matchesToPut.length > 0) {
-              await db.matches.bulkPut(
-                matchesToPut.map((m) => ({
-                  id: m.id,
-                  tournamentId: m.tournamentId,
-                  homeTeamId: m.homeTeamId,
-                  guestTeamId: m.guestTeamId,
-                  scheduledAt: m.scheduledAt,
-                  matchNumber: m.matchNumber ?? null,
-                  venue: m.venue ?? null,
-                  temperature: m.temperature ?? null,
-                  homeScore: m.homeScore ?? null,
-                  guestScore: m.guestScore ?? null,
-                  createdAt:
-                    (m as { createdAt?: string }).createdAt ??
-                    m.scheduledAt ??
-                    new Date().toISOString(),
-                  trackedTeamId: m.trackedTeamId,
-                })),
+            // Execute bulk read, filter, and write inside an atomic read-write Dexie transaction to avoid race conditions
+            await db.transaction("rw", db.matches, async () => {
+              // Fetch existing local records to preserve unfinished drafts
+              const existingMatches = await db.matches.bulkGet(
+                finalizedMatches.map((m) => m.id),
               );
-            }
+
+              // Filter out records that are active local drafts with null scores
+              const matchesToPut = finalizedMatches.filter((_, index) => {
+                const existing = existingMatches[index];
+                if (!existing) return true;
+                const isLocalDraft =
+                  existing.homeScore === null || existing.guestScore === null;
+                return !isLocalDraft;
+              });
+
+              if (matchesToPut.length > 0) {
+                await db.matches.bulkPut(
+                  matchesToPut.map((m) => ({
+                    id: m.id,
+                    tournamentId: m.tournamentId,
+                    homeTeamId: m.homeTeamId,
+                    guestTeamId: m.guestTeamId,
+                    scheduledAt: m.scheduledAt,
+                    matchNumber: m.matchNumber ?? null,
+                    venue: m.venue ?? null,
+                    temperature: m.temperature ?? null,
+                    homeScore: m.homeScore ?? null,
+                    guestScore: m.guestScore ?? null,
+                    createdAt:
+                      (m as { createdAt?: string }).createdAt ??
+                      m.scheduledAt ??
+                      new Date().toISOString(),
+                    trackedTeamId: m.trackedTeamId,
+                  })),
+                );
+              }
+            });
           } catch (dbErr) {
             console.error("Failed to sync matches to IndexedDB:", dbErr);
           }
