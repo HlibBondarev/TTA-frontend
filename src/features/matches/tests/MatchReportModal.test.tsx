@@ -164,6 +164,14 @@ describe("MatchReportModal Component", () => {
       expect(db.tournaments.get).toHaveBeenCalledWith("tour-1");
       expect(db.sportconfigurations.get).toHaveBeenCalledWith("config-1");
     });
+
+    const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
+    fireEvent.click(spatialTab);
+
+    expect(screen.getByText("SVG: <svg>Court SVG</svg>")).toBeInTheDocument();
+    expect(
+      screen.getByText("SHOT_SVG: <svg>Goal SVG</svg>"),
+    ).toBeInTheDocument();
   });
 
   it("auto-selects guest team tab when home team report has zero recorded actions and guest team has actions", async () => {
