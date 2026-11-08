@@ -230,6 +230,7 @@ describe("MatchShotMap Component", () => {
 
     expect(markerBtn).toBeInTheDocument();
     expect(markerBtn).toHaveAttribute("tabindex", "0");
+    expect(markerBtn).toHaveClass("cursor-pointer", "focus-visible:ring-2");
 
     // Enter key opens tooltip
     fireEvent.keyDown(markerBtn, { key: "Enter" });

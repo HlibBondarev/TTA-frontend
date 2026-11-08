@@ -84,7 +84,7 @@ const ShotMarker: React.FC<{
       onKeyDown={handleKeyDown}
       onMouseEnter={() => onMouseEnter(eventId)}
       onMouseLeave={onMouseLeave}
-      className="cursor-pointer focus:outline-none"
+      className="cursor-pointer focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 rounded-full"
     >
       <circle
         cx={0}
