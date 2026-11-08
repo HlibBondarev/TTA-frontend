@@ -286,13 +286,38 @@ describe("TTAPanel Component", () => {
     expect(await screen.findByText("Goal")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Pass"));
-    expect(mockOnActionSelect).toHaveBeenCalledWith("Pass", true, "2");
+    expect(mockOnActionSelect).toHaveBeenCalledWith("Pass", true, "2", false);
 
     fireEvent.click(screen.getByText("Negative"));
     expect(await screen.findByText("Turnover")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Foul"));
-    expect(mockOnActionSelect).toHaveBeenCalledWith("Foul", false, "4");
+    expect(mockOnActionSelect).toHaveBeenCalledWith(
+      "Foul",
+      false,
+      "4",
+      undefined,
+    );
+  });
+
+  it("forwards action name, isPositive, eventDefinitionId, and isShot when an action button is clicked", async () => {
+    const mockOnActionSelect = vi.fn();
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={mockOnActionSelect}
+          selectedActionDefinitionId={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    const goalButton = await screen.findByText("Goal");
+    fireEvent.click(goalButton);
+
+    expect(mockOnActionSelect).toHaveBeenCalledWith("Goal", true, "1", true);
   });
 
   it("triggers onTabChange callback ONLY when switching between POSITIVE and NEGATIVE tabs", async () => {

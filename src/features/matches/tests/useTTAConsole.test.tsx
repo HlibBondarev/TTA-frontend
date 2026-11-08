@@ -400,4 +400,36 @@ describe("useTTAConsole Custom Hook", () => {
     expect(store.getState().match.activeMatchId).toBeNull();
     expect(onCompleteMatch).toHaveBeenCalled();
   });
+
+  it("should preserve pendingShotLocation when re-selecting a shot action with isShot=true", () => {
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+    });
+
+    const { result } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    // Select shot action and set shot target coordinates
+    act(() => {
+      result.current.handleActionSelect("Shot", true, "def-shot-1", true);
+      result.current.handleShotLocationSelect(40.0, 80.0);
+    });
+
+    expect(result.current.pendingShotLocation).toEqual({
+      shotLocationX: 40.0,
+      shotLocationY: 80.0,
+    });
+
+    // Re-select the shot action (e.g. from TTAPanel) with isShot=true
+    act(() => {
+      result.current.handleActionSelect("Shot", true, "def-shot-1", true);
+    });
+
+    // Pending shot target location must be preserved intact
+    expect(result.current.pendingShotLocation).toEqual({
+      shotLocationX: 40.0,
+      shotLocationY: 80.0,
+    });
+  });
 });
