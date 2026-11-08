@@ -84,7 +84,7 @@ const ShotMarker: React.FC<{
       onKeyDown={handleKeyDown}
       onMouseEnter={() => onMouseEnter(eventId)}
       onMouseLeave={onMouseLeave}
-      className="cursor-pointer focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 rounded-full"
+      className="group cursor-pointer focus:outline-none focus-visible:outline-none"
     >
       <circle
         cx={0}
@@ -92,7 +92,7 @@ const ShotMarker: React.FC<{
         r={radius}
         strokeWidth={strokeWidth}
         style={{ vectorEffect: "non-scaling-stroke" }}
-        className={`${colorClasses} shadow-md transition-all duration-150`}
+        className={`${colorClasses} shadow-md transition-all duration-150 group-focus-visible:stroke-amber-400 group-focus-visible:stroke-[3px]`}
       />
       <text
         x={0}
