@@ -475,6 +475,7 @@ describe("MyMatchesView Component", () => {
 
     let isInsideTransaction = false;
     let bulkGetCalledInsideCallback = false;
+    let bulkPutCalledInsideCallback = false;
 
     vi.mocked(db.transaction).mockImplementationOnce((async (
       _mode: string,
@@ -496,6 +497,13 @@ describe("MyMatchesView Component", () => {
       return [];
     }) as unknown as typeof db.matches.bulkGet);
 
+    vi.mocked(db.matches.bulkPut).mockImplementation((async () => {
+      if (isInsideTransaction) {
+        bulkPutCalledInsideCallback = true;
+      }
+      return [];
+    }) as unknown as typeof db.matches.bulkPut);
+
     const store = createTestStore();
 
     render(
@@ -513,6 +521,7 @@ describe("MyMatchesView Component", () => {
         expect.any(Function),
       );
       expect(bulkGetCalledInsideCallback).toBe(true);
+      expect(bulkPutCalledInsideCallback).toBe(true);
       expect(db.matches.bulkPut).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
