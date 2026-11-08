@@ -139,7 +139,7 @@ describe("MatchShotMap Component", () => {
   });
 
   it("renders sanitized custom shotMap SVG elements", () => {
-    const customSvg = `<svg viewBox="0 0 615 248"><rect data-testid="custom-rect" width="615" height="248" fill="blue"/></svg>`;
+    const customSvg = `<svg viewBox="0 0 615 248" onload="alert('xss')"><rect data-testid="custom-rect" width="615" height="248" fill="blue" onload="alert('xss2')"/></svg>`;
 
     render(
       <MatchShotMap
@@ -149,7 +149,13 @@ describe("MatchShotMap Component", () => {
       />,
     );
 
-    expect(screen.getByTestId("custom-rect")).toBeInTheDocument();
+    const rect = screen.getByTestId("custom-rect");
+    const svgElement = rect.closest("svg");
+
+    expect(rect).toBeInTheDocument();
+    expect(rect).not.toHaveAttribute("onload");
+    expect(svgElement).toBeInTheDocument();
+    expect(svgElement).not.toHaveAttribute("onload");
   });
 
   it("shows tooltip with player name, period/time, and action details when a marker is clicked", () => {
