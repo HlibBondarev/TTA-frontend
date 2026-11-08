@@ -113,10 +113,13 @@ async function loadDefinitionsMap(
         ev.shotLocationX != null && ev.shotLocationY != null;
 
       if (cachedInDb) {
-        // Strictly honor authoritative cached definitions from IndexedDB
-        definitionsMap.set(ev.eventDefinitionId, cachedInDb);
+        // Strictly honor authoritative cached definitions from IndexedDB based on isShot flag
+        definitionsMap.set(ev.eventDefinitionId, {
+          ...cachedInDb,
+          isShot: cachedInDb.isShot === true,
+        });
       } else {
-        // Aggregate coordinate evidence across all events for uncached definitions
+        // Aggregate coordinate evidence strictly across events for uncached definitions
         definitionsMap.set(ev.eventDefinitionId, {
           id: ev.eventDefinitionId,
           sportId: "",
@@ -218,7 +221,6 @@ function matchesShotMode(
   const def = ev.eventDefinitionId
     ? eventDefinitionsMap.get(ev.eventDefinitionId)
     : undefined;
-  // Allow uncached definitions with shot coordinates to pass upstream shot filtering
   return def ? def.isShot === true : true;
 }
 

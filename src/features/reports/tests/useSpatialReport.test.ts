@@ -453,7 +453,7 @@ describe("useSpatialReport Custom Hook", () => {
       eventDefinitionId: "def-uncached-order-1",
       isPositive: true,
       playerNumber: 10,
-      eventName: "Uncached Pass",
+      eventName: "Uncached Action",
     };
     const uncachedShotSecond: GameEventResponse = {
       id: "ev-shot-2",
@@ -462,10 +462,10 @@ describe("useSpatialReport Custom Hook", () => {
       shotLocationX: 60,
       shotLocationY: 70,
       playerNumber: 10,
-      eventName: "Uncached Drive Shot",
+      eventName: "Uncached Action",
     };
 
-    // Order A: Non-shot event first, shot event second
+    // Order A: Event without shot coordinates first, event with shot coordinates second
     vi.mocked(reportService.getMatchEvents).mockResolvedValueOnce([
       uncachedNonShotFirst,
       uncachedShotSecond,
@@ -487,7 +487,7 @@ describe("useSpatialReport Custom Hook", () => {
     expect(resultA.current.filteredEvents).toHaveLength(1);
     expect(resultA.current.filteredEvents[0].id).toBe("ev-shot-2");
 
-    // Order B: Shot event first, non-shot event second
+    // Order B: Event with shot coordinates first, event without shot coordinates second
     vi.mocked(reportService.getMatchEvents).mockResolvedValueOnce([
       uncachedShotSecond,
       uncachedNonShotFirst,
