@@ -408,7 +408,7 @@ describe("useShotMap hook", () => {
     expect(result.current.activeEvent?.id).toBe("nearby-2");
   });
 
-  it("groups 5 adjacent shots into a single cluster, disperses them radially, and cycles selection on repeated clicks", () => {
+  it("groups 5 adjacent shots into a single cluster and continuously wraps selection cycling when starting from the last marker", () => {
     const fiveShots: GameEventResponse[] = [
       {
         id: "shot-1",
@@ -446,8 +446,8 @@ describe("useShotMap hook", () => {
         id: "shot-5",
         eventDefinitionId: missDefId,
         isPositive: false,
-        shotLocationX: 50.5,
-        shotLocationY: 49.5,
+        shotLocationX: 50,
+        shotLocationY: 49,
         playerNumber: 5,
       },
     ];
@@ -469,35 +469,41 @@ describe("useShotMap hook", () => {
     const uniqueCoordinates = new Set(centerCoordinates);
     expect(uniqueCoordinates.size).toBe(5);
 
-    // Verify click cycling through cluster
+    // Start cycling directly from the last marker (shot-5)
     act(() => {
-      result.current.handleMarkerClick("shot-1");
+      result.current.handleMarkerClick("shot-5");
+    });
+    expect(result.current.selectedEventId).toBe("shot-5");
+
+    // Click again: must wrap around to shot-1 instead of deselecting to null
+    act(() => {
+      result.current.handleMarkerClick("shot-5");
     });
     expect(result.current.selectedEventId).toBe("shot-1");
 
     act(() => {
-      result.current.handleMarkerClick("shot-1");
+      result.current.handleMarkerClick("shot-5");
     });
     expect(result.current.selectedEventId).toBe("shot-2");
 
     act(() => {
-      result.current.handleMarkerClick("shot-1");
+      result.current.handleMarkerClick("shot-5");
     });
     expect(result.current.selectedEventId).toBe("shot-3");
 
     act(() => {
-      result.current.handleMarkerClick("shot-1");
+      result.current.handleMarkerClick("shot-5");
     });
     expect(result.current.selectedEventId).toBe("shot-4");
 
     act(() => {
-      result.current.handleMarkerClick("shot-1");
+      result.current.handleMarkerClick("shot-5");
     });
     expect(result.current.selectedEventId).toBe("shot-5");
 
     act(() => {
-      result.current.handleMarkerClick("shot-1");
+      result.current.handleMarkerClick("shot-5");
     });
-    expect(result.current.selectedEventId).toBeNull();
+    expect(result.current.selectedEventId).toBe("shot-1");
   });
 });

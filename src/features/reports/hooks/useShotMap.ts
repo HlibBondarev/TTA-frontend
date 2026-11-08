@@ -76,11 +76,8 @@ export const useShotMap = ({
           (e) => e.id === prevSelectedId,
         );
         if (currentClusterIdx !== -1) {
-          const nextIdx = currentClusterIdx + 1;
-          if (nextIdx < cluster.length) {
-            return cluster[nextIdx].id ?? null;
-          }
-          return null;
+          const nextIdx = (currentClusterIdx + 1) % cluster.length;
+          return cluster[nextIdx].id ?? null;
         }
 
         return eventId;
