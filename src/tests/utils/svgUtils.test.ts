@@ -31,6 +31,38 @@ describe("parseSvgDimensions", () => {
     });
   });
 
+  it("supports optional whitespace around the equals sign", () => {
+    const svgWithSpaces = `<svg viewBox = "0 0 800 600"></svg>`;
+    expect(parseSvgDimensions(svgWithSpaces)).toEqual({
+      width: 800,
+      height: 600,
+      aspectRatio: "800 / 600",
+    });
+
+    const svgSpaceBefore = `<svg viewBox = '0 0 500 400'></svg>`;
+    expect(parseSvgDimensions(svgSpaceBefore)).toEqual({
+      width: 500,
+      height: 400,
+      aspectRatio: "500 / 400",
+    });
+  });
+
+  it("correctly parses numbers in exponent/scientific notation", () => {
+    const svgScientific = `<svg viewBox="0 0 1e3 5e2"></svg>`;
+    expect(parseSvgDimensions(svgScientific)).toEqual({
+      width: 1000,
+      height: 500,
+      aspectRatio: "1000 / 500",
+    });
+
+    const svgScientificDecimals = `<svg viewBox="0 0 1.5e2 2.5E2"></svg>`;
+    expect(parseSvgDimensions(svgScientificDecimals)).toEqual({
+      width: 150,
+      height: 250,
+      aspectRatio: "150 / 250",
+    });
+  });
+
   it("supports comma separators and arbitrary whitespace in viewBox", () => {
     const svgWithCommas = `<svg viewBox="0, 0, 1000, 500"></svg>`;
     expect(parseSvgDimensions(svgWithCommas)).toEqual({

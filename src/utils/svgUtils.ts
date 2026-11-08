@@ -4,8 +4,14 @@ export interface SvgDimensions {
   aspectRatio: string;
 }
 
-const VIEWBOX_REGEX =
-  /viewBox=["']\s*([\d.-]+)[\s,]+([\d.-]+)[\s,]+([\d.-]+)[\s,]+([\d.-]+)\s*["']/i;
+// Number pattern supporting integers, decimals, and scientific/exponent notation (e.g., 1e2, -1.5e-3)
+const NUM_PATTERN = "[-+]?(?:\\d*\\.?\\d+|\\d+)(?:[eE][-+]?\\d+)?";
+
+// Regex matching viewBox attribute with optional whitespace around '=' and exponential numbers
+const VIEWBOX_REGEX = new RegExp(
+  `viewBox\\s*=\\s*["']\\s*(${NUM_PATTERN})[\\s,]+(${NUM_PATTERN})[\\s,]+(${NUM_PATTERN})[\\s,]+(${NUM_PATTERN})\\s*["']`,
+  "i",
+);
 
 export const parseSvgDimensions = (
   svgString?: string | null,
