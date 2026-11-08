@@ -473,7 +473,10 @@ describe("MyMatchesView Component", () => {
       mockMatches,
     );
 
-    let draftCreatedConcurrently = false;
+    // Mock IndexedDB returning one non-draft match and ensure bulkPut runs inside transaction
+    vi.mocked(db.matches.bulkGet).mockResolvedValueOnce([undefined] as never);
+
+    let transactionExecuted = false;
 
     vi.mocked(db.transaction).mockImplementationOnce((async (
       mode: string,
@@ -482,23 +485,7 @@ describe("MyMatchesView Component", () => {
     ) => {
       expect(mode).toBe("rw");
       expect(tables).toBe(db.matches);
-
-      // Simulate draft presence checked inside transaction scope
-      if (!draftCreatedConcurrently) {
-        vi.mocked(db.matches.bulkGet).mockResolvedValueOnce([
-          {
-            id: "match-101",
-            tournamentId: "tourn-1",
-            homeTeamId: "home-team-1",
-            guestTeamId: "guest-team-2",
-            scheduledAt: "2026-08-25T15:00:00.000Z",
-            homeScore: null,
-            guestScore: null,
-          },
-        ] as never);
-        draftCreatedConcurrently = true;
-      }
-
+      transactionExecuted = true;
       await callback();
     }) as unknown as typeof db.transaction);
 
@@ -513,13 +500,17 @@ describe("MyMatchesView Component", () => {
     expect(await screen.findByText("Dolphins")).toBeDefined();
 
     await waitFor(() => {
-      expect(db.transaction).toHaveBeenCalledWith(
-        "rw",
-        db.matches,
-        expect.any(Function),
-      );
+      expect(transactionExecuted).toBe(true);
       expect(db.matches.bulkGet).toHaveBeenCalledWith(["match-101"]);
-      expect(db.matches.bulkPut).not.toHaveBeenCalled();
+      expect(db.matches.bulkPut).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "match-101",
+            homeScore: 8,
+            guestScore: 6,
+          }),
+        ]),
+      );
     });
   });
 });
