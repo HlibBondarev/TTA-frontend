@@ -266,7 +266,7 @@ const recoverActivePlayersLimit = async (
 
   const config = await db.sportconfigurations.get(tournament.configurationId);
 
-  if (tournament.sportId && (!config || !config.shotMap)) {
+  if (tournament.sportId && !config?.shotMap) {
     refreshShotMapBackground(tournament.sportId, tournament.configurationId);
   }
 
