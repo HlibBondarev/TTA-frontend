@@ -712,4 +712,127 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     expect(result.current.error).toBe("Failed to update action.");
   });
+
+  it("should fallback to default definitions ordered by sortOrder when user has no presets", async () => {
+    vi.mocked(db.usereventpresets.where).mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([]),
+    } as unknown as ReturnType<typeof db.usereventpresets.where>);
+
+    vi.mocked(db.eventdefinitions.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "def-b",
+            name: "Block",
+            isPositive: true,
+            sortOrder: 10,
+            sportId: "sport-1",
+          },
+          {
+            id: "def-a",
+            name: "Assist",
+            isPositive: true,
+            sortOrder: 2,
+            sportId: "sport-1",
+          },
+          {
+            id: "def-custom",
+            name: "Custom",
+            isPositive: true,
+            sortOrder: 1,
+            ownerId: "user-99",
+            sportId: "sport-1",
+          },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.eventdefinitions.where>);
+
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: { ...sampleAction, eventDefinitionId: "def-a" },
+        matchId: "match-1",
+        onClose: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    expect(result.current.displayedActions.map((d) => d.id)).toEqual([
+      "def-a",
+      "def-b",
+    ]);
+  });
+
+  it("should filter out disabled presets and preserve defined sortOrder", async () => {
+    vi.mocked(db.usereventpresets.where).mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([
+        { eventDefinitionId: "def-enabled-2", isEnabled: true, sortOrder: 2 },
+        { eventDefinitionId: "def-disabled", isEnabled: false, sortOrder: 1 },
+        { eventDefinitionId: "def-enabled-1", isEnabled: true, sortOrder: 1 },
+      ]),
+    } as unknown as ReturnType<typeof db.usereventpresets.where>);
+
+    vi.mocked(db.eventdefinitions.bulkGet).mockResolvedValueOnce([
+      { id: "def-enabled-1", name: "Steal", isPositive: true, isShot: false },
+      { id: "def-enabled-2", name: "Goal", isPositive: true, isShot: true },
+    ] as never);
+
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: { ...sampleAction, eventDefinitionId: "def-enabled-1" },
+        matchId: "match-1",
+        onClose: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    expect(db.eventdefinitions.bulkGet).toHaveBeenCalledWith([
+      "def-enabled-1",
+      "def-enabled-2",
+    ]);
+  });
+
+  it("should retain recorded current event definition when it is absent from user presets", async () => {
+    vi.mocked(db.usereventpresets.where).mockReturnValueOnce({
+      toArray: vi
+        .fn()
+        .mockResolvedValue([
+          { eventDefinitionId: "def-preset-1", isEnabled: true, sortOrder: 1 },
+        ]),
+    } as unknown as ReturnType<typeof db.usereventpresets.where>);
+
+    vi.mocked(db.eventdefinitions.bulkGet).mockResolvedValueOnce([
+      { id: "def-preset-1", name: "Pass", isPositive: true, isShot: false },
+    ] as never);
+
+    vi.mocked(db.eventdefinitions.get).mockResolvedValueOnce({
+      id: "def-legacy-recorded",
+      name: "Legacy Special Action",
+      isPositive: true,
+      isShot: false,
+    } as never);
+
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: { ...sampleAction, eventDefinitionId: "def-legacy-recorded" },
+        matchId: "match-1",
+        onClose: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    expect(
+      result.current.displayedActions.some(
+        (d) => d.id === "def-legacy-recorded",
+      ),
+    ).toBe(true);
+  });
 });
