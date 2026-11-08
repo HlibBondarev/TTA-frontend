@@ -113,11 +113,8 @@ async function loadDefinitionsMap(
         ev.shotLocationX != null && ev.shotLocationY != null;
 
       if (cachedInDb) {
-        // Strictly honor authoritative cached definitions from IndexedDB based on isShot flag
-        definitionsMap.set(ev.eventDefinitionId, {
-          ...cachedInDb,
-          isShot: cachedInDb.isShot === true,
-        });
+        // Strictly honor authoritative cached definition (isShot is guaranteed boolean)
+        definitionsMap.set(ev.eventDefinitionId, cachedInDb);
       } else {
         // Aggregate coordinate evidence strictly across events for uncached definitions
         definitionsMap.set(ev.eventDefinitionId, {

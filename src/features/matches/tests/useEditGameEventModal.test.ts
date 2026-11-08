@@ -192,6 +192,7 @@ describe("useEditGameEventModal Custom Hook", () => {
         name: "Pass",
         shortName: "PS",
         isPositive: true,
+        isShot: false,
       }),
     ).toBe(true);
 
@@ -209,6 +210,7 @@ describe("useEditGameEventModal Custom Hook", () => {
         name: "Foul",
         shortName: "FL",
         isPositive: false,
+        isShot: false,
       }),
     ).toBe(false);
   });

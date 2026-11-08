@@ -82,7 +82,7 @@ export const replaceSportEventDefinitionsInDb = async (
     name: def.name,
     shortName: def.shortName,
     isPositive: def.isPositive,
-    isShot: def.isShot,
+    isShot: def.isShot ?? false,
     isCustom: def.isCustom,
     ownerId: def.ownerId ?? (def.isCustom ? (normalizedUserId ?? null) : null),
   }));

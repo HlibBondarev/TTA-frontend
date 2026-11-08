@@ -4,6 +4,7 @@ import { useSpatialReport } from "../hooks/useSpatialReport";
 import { reportService } from "../../../services/reportService";
 import { db } from "../../../db/ttaDatabase";
 import type { GameEventResponse } from "../../../services/reportService";
+import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
 
 vi.mock("../../../services/reportService", () => ({
   reportService: {
@@ -97,7 +98,7 @@ describe("useSpatialReport Custom Hook", () => {
     },
   ];
 
-  const mockDefinitions = [
+  const mockDefinitions: EventDefinitionLookup[] = [
     {
       id: "def-1",
       sportId: "s-1",
@@ -311,7 +312,6 @@ describe("useSpatialReport Custom Hook", () => {
     });
 
     expect(result.current.filters.mapMode).toBe("shot");
-    // Only ev-1 is a shot event (isShot: true and shotLocation coordinates exist)
     expect(result.current.filteredEvents).toHaveLength(1);
     expect(result.current.filteredEvents[0].id).toBe("ev-1");
 
@@ -465,7 +465,6 @@ describe("useSpatialReport Custom Hook", () => {
       eventName: "Uncached Action",
     };
 
-    // Order A: Event without shot coordinates first, event with shot coordinates second
     vi.mocked(reportService.getMatchEvents).mockResolvedValueOnce([
       uncachedNonShotFirst,
       uncachedShotSecond,
@@ -487,7 +486,6 @@ describe("useSpatialReport Custom Hook", () => {
     expect(resultA.current.filteredEvents).toHaveLength(1);
     expect(resultA.current.filteredEvents[0].id).toBe("ev-shot-2");
 
-    // Order B: Event with shot coordinates first, event without shot coordinates second
     vi.mocked(reportService.getMatchEvents).mockResolvedValueOnce([
       uncachedShotSecond,
       uncachedNonShotFirst,
@@ -520,7 +518,7 @@ describe("useSpatialReport Custom Hook", () => {
       locationX: 30,
       locationY: 40,
       shotLocationX: 50,
-      shotLocationY: 50, // Extraneous shot coordinates on a non-shot action
+      shotLocationY: 50,
     };
 
     vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([
@@ -530,7 +528,7 @@ describe("useSpatialReport Custom Hook", () => {
         name: "Foul",
         shortName: "FL",
         isPositive: false,
-        isShot: false, // Confirmed non-shot in DB
+        isShot: false,
       },
     ]);
 
@@ -550,7 +548,6 @@ describe("useSpatialReport Custom Hook", () => {
       result.current.toggleMapMode("shot");
     });
 
-    // Confirmed non-shot event must be excluded from Shot Map despite having shot coordinates
     expect(result.current.filteredEvents).toHaveLength(0);
     expect(result.current.eventDefinitionsMap.get("def-foul-1")?.isShot).toBe(
       false,

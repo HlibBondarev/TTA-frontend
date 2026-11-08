@@ -101,7 +101,7 @@ export interface EventDefinitionLookup {
   name: string;
   shortName: string;
   isPositive: boolean;
-  isShot?: boolean;
+  isShot: boolean;
   isCustom?: boolean;
   ownerId?: string | null;
   sortOrder?: number;

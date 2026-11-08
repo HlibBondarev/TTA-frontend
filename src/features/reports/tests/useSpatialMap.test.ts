@@ -18,6 +18,7 @@ describe("useSpatialMap Custom Hook", () => {
         name: "Assist",
         shortName: "AST",
         isPositive: true,
+        isShot: false,
       },
     ],
     [
@@ -28,6 +29,7 @@ describe("useSpatialMap Custom Hook", () => {
         name: "Goal",
         shortName: "GOA",
         isPositive: true,
+        isShot: false,
       },
     ],
     [
@@ -38,6 +40,7 @@ describe("useSpatialMap Custom Hook", () => {
         name: "Goal",
         shortName: "GOA",
         isPositive: false,
+        isShot: false,
       },
     ],
   ]);
