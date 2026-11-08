@@ -152,21 +152,71 @@ export const useSpatialMap = ({
       }
     });
 
-    // Apply radial spiderfy displacement for clustered overlapping markers
+    // Apply radial spiderfy displacement for clustered overlapping markers with boundary safety
     const finalRenderablePoints: RenderableSpatialPoint[] = [];
+    const minDim = Math.min(viewBoxWidth, viewBoxHeight);
+    const offsetRadius = Math.min(14, minDim * 0.15);
+    const minPadding = Math.min(12, minDim * 0.05);
 
     clusterGroups.forEach((group) => {
       const count = group.length;
-      group.forEach((pt, idx) => {
-        let finalCx = pt.baseCx;
-        let finalCy = pt.baseCy;
 
-        if (count > 1) {
-          const offsetRadius = 14;
+      if (count > 1) {
+        const safeRadiusX = Math.min(
+          viewBoxWidth / 2,
+          minPadding + offsetRadius,
+        );
+        const safeRadiusY = Math.min(
+          viewBoxHeight / 2,
+          minPadding + offsetRadius,
+        );
+
+        const centerCx = Math.max(
+          safeRadiusX,
+          Math.min(viewBoxWidth - safeRadiusX, group[0].baseCx),
+        );
+        const centerCy = Math.max(
+          safeRadiusY,
+          Math.min(viewBoxHeight - safeRadiusY, group[0].baseCy),
+        );
+
+        group.forEach((pt, idx) => {
           const angle = (idx / count) * 2 * Math.PI;
-          finalCx = pt.baseCx + offsetRadius * Math.cos(angle);
-          finalCy = pt.baseCy + offsetRadius * Math.sin(angle);
-        }
+          const rawCx = centerCx + offsetRadius * Math.cos(angle);
+          const rawCy = centerCy + offsetRadius * Math.sin(angle);
+
+          const finalCx = Math.max(
+            minPadding,
+            Math.min(viewBoxWidth - minPadding, rawCx),
+          );
+          const finalCy = Math.max(
+            minPadding,
+            Math.min(viewBoxHeight - minPadding, rawCy),
+          );
+
+          finalRenderablePoints.push({
+            event: pt.event,
+            cx: finalCx,
+            cy: finalCy,
+            shortCode: pt.shortCode,
+            isSelected: selectedEventId === pt.event.id,
+            isHovered: hoveredEventId === pt.event.id,
+            isGoal: pt.isGoal,
+          });
+        });
+      } else {
+        const pt = group[0];
+        const paddingX = Math.min(viewBoxWidth / 2, minPadding);
+        const paddingY = Math.min(viewBoxHeight / 2, minPadding);
+
+        const finalCx = Math.max(
+          paddingX,
+          Math.min(viewBoxWidth - paddingX, pt.baseCx),
+        );
+        const finalCy = Math.max(
+          paddingY,
+          Math.min(viewBoxHeight - paddingY, pt.baseCy),
+        );
 
         finalRenderablePoints.push({
           event: pt.event,
@@ -177,7 +227,7 @@ export const useSpatialMap = ({
           isHovered: hoveredEventId === pt.event.id,
           isGoal: pt.isGoal,
         });
-      });
+      }
     });
 
     return finalRenderablePoints;

@@ -100,7 +100,6 @@ describe("useSpatialMap Custom Hook", () => {
 
     expect(result.current.renderablePoints).toHaveLength(2);
 
-    // event-1: locationX: 80, locationY: 50 => cx = (50/100)*600 = 300, cy = ((100-80)/100)*1000 = 200
     const firstPoint = result.current.renderablePoints[0];
     expect(firstPoint.cx).toBe(300);
     expect(firstPoint.cy).toBe(200);
@@ -109,7 +108,6 @@ describe("useSpatialMap Custom Hook", () => {
     expect(firstPoint.isHovered).toBe(false);
     expect(firstPoint.isGoal).toBe(false);
 
-    // event-2: locationX: 90, locationY: 40 => cx = (40/100)*600 = 240, cy = ((100-90)/100)*1000 = 100
     const secondPoint = result.current.renderablePoints[1];
     expect(secondPoint.cx).toBe(240);
     expect(secondPoint.cy).toBe(100);
@@ -147,6 +145,45 @@ describe("useSpatialMap Custom Hook", () => {
     const points = result.current.renderablePoints;
     expect(points).toHaveLength(2);
     expect(points[0].cx).not.toEqual(points[1].cx);
+  });
+
+  it("keeps spiderfied overlapping markers near field-map boundaries strictly within viewBox bounds", () => {
+    const edgeOverlappingEvents: GameEventResponse[] = [
+      {
+        id: "edge-overlap-1",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-1",
+        locationX: 100,
+        locationY: 0,
+      },
+      {
+        id: "edge-overlap-2",
+        matchLineupId: "l-2",
+        eventDefinitionId: "def-1",
+        locationX: 100,
+        locationY: 0,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: edgeOverlappingEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
+      }),
+    );
+
+    const points = result.current.renderablePoints;
+    expect(points).toHaveLength(2);
+
+    expect(points[0].cx).not.toEqual(points[1].cx);
+    points.forEach((point) => {
+      expect(point.cx).toBeGreaterThanOrEqual(12);
+      expect(point.cx).toBeLessThanOrEqual(588);
+      expect(point.cy).toBeGreaterThanOrEqual(12);
+      expect(point.cy).toBeLessThanOrEqual(988);
+    });
   });
 
   it("auto-dismisses selected event after 3.5 seconds", () => {
@@ -246,7 +283,6 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.goalLeadVectors).toHaveLength(1);
     const vector = result.current.goalLeadVectors[0];
 
-    // goal-negative: locationX: 10, locationY: 50 => cx = 300, cy = 900
     expect(vector.x2).toBe(300);
     expect(vector.y2).toBe(900);
     expect(vector.isPositive).toBe(false);
@@ -302,7 +338,7 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.goalLeadVectors).toHaveLength(1);
     const vector = result.current.goalLeadVectors[0];
 
-    expect(vector.x2).toBe(300); // 600 / 2
+    expect(vector.x2).toBe(300);
     expect(vector.y2).toBe(15);
   });
 
@@ -335,8 +371,8 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.goalLeadVectors).toHaveLength(1);
     const vector = result.current.goalLeadVectors[0];
 
-    expect(vector.x2).toBe(300); // 600 / 2
-    expect(vector.y2).toBe(985); // 1000 - 15
+    expect(vector.x2).toBe(300);
+    expect(vector.y2).toBe(985);
     expect(vector.isPositive).toBe(false);
   });
 
