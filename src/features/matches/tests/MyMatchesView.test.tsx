@@ -19,6 +19,7 @@ vi.mock("../../../db/ttaDatabase", () => ({
   db: {
     matches: {
       bulkPut: vi.fn().mockResolvedValue([]),
+      bulkGet: vi.fn().mockResolvedValue([]),
       get: vi.fn(),
       delete: vi.fn().mockResolvedValue(undefined),
     },
@@ -86,6 +87,7 @@ describe("MyMatchesView Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(db.matches.bulkPut).mockResolvedValue([] as never);
+    vi.mocked(db.matches.bulkGet).mockResolvedValue([] as never);
     vi.mocked(db.matches.delete).mockResolvedValue(undefined as never);
     vi.mocked(db.matches.get).mockResolvedValue(undefined as never);
   });
@@ -414,5 +416,40 @@ describe("MyMatchesView Component", () => {
     );
 
     expect(store.getState().navigation.currentView).toBe("HUB");
+  });
+
+  it("should skip overwriting existing local unfinished drafts when caching API matches", async () => {
+    vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
+      mockMatches,
+    );
+
+    // Mock existing local match in IndexedDB as an unfinished draft (scores null)
+    vi.mocked(db.matches.bulkGet).mockResolvedValueOnce([
+      {
+        id: "match-101",
+        tournamentId: "tourn-1",
+        homeTeamId: "home-team-1",
+        guestTeamId: "guest-team-2",
+        scheduledAt: "2026-08-25T15:00:00.000Z",
+        homeScore: null,
+        guestScore: null,
+      },
+    ] as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MyMatchesView />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Dolphins")).toBeDefined();
+
+    await waitFor(() => {
+      expect(db.matches.bulkGet).toHaveBeenCalledWith(["match-101"]);
+      // bulkPut should NOT be called since the record is an unfinished local draft
+      expect(db.matches.bulkPut).not.toHaveBeenCalled();
+    });
   });
 });
