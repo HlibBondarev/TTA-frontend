@@ -50,10 +50,43 @@ export const useShotMap = ({
   const handleMarkerClick = useCallback(
     (eventId: string) => {
       clearAutoDismissTimer();
-      setSelectedEventId((prev) => (prev === eventId ? null : eventId));
       setHoveredEventId(null);
+
+      setSelectedEventId((prevSelectedId): string | null => {
+        const clickedEvt = events.find((e) => e.id === eventId);
+        if (!clickedEvt) return prevSelectedId === eventId ? null : eventId;
+
+        const cluster = events.filter((e) => {
+          if (e.shotLocationX == null || e.shotLocationY == null || !e.id) {
+            return false;
+          }
+          return (
+            Math.hypot(
+              Number(e.shotLocationX) - Number(clickedEvt.shotLocationX),
+              Number(e.shotLocationY) - Number(clickedEvt.shotLocationY),
+            ) <= 3.5
+          );
+        });
+
+        if (cluster.length <= 1) {
+          return prevSelectedId === eventId ? null : eventId;
+        }
+
+        const currentClusterIdx = cluster.findIndex(
+          (e) => e.id === prevSelectedId,
+        );
+        if (currentClusterIdx !== -1) {
+          const nextIdx = currentClusterIdx + 1;
+          if (nextIdx < cluster.length) {
+            return cluster[nextIdx].id ?? null;
+          }
+          return null;
+        }
+
+        return eventId;
+      });
     },
-    [clearAutoDismissTimer],
+    [clearAutoDismissTimer, events],
   );
 
   const handleMarkerMouseEnter = useCallback((eventId: string) => {
@@ -103,35 +136,48 @@ export const useShotMap = ({
       return def ? def.isShot === true : true;
     });
 
-    const getCoordKey = (x: number | string, y: number | string) =>
-      `${Number(x).toFixed(1)}_${Number(y).toFixed(1)}`;
-
-    const coordGroups = new Map<string, number>();
-    validShotEvents.forEach((e) => {
-      const key = getCoordKey(e.shotLocationX!, e.shotLocationY!);
-      coordGroups.set(key, (coordGroups.get(key) || 0) + 1);
+    const clusters: GameEventResponse[][] = [];
+    validShotEvents.forEach((evt) => {
+      let added = false;
+      for (const cluster of clusters) {
+        const ref = cluster[0];
+        const dist = Math.hypot(
+          Number(evt.shotLocationX) - Number(ref.shotLocationX),
+          Number(evt.shotLocationY) - Number(ref.shotLocationY),
+        );
+        if (dist <= 3.5) {
+          cluster.push(evt);
+          added = true;
+          break;
+        }
+      }
+      if (!added) {
+        clusters.push([evt]);
+      }
     });
 
-    const coordIndices = new Map<string, number>();
-
     const minDim = Math.min(dimensions.width, dimensions.height);
-    const offsetRadius = Math.min(7, minDim * 0.25);
     const minPadding = Math.min(8, minDim * 0.25);
 
-    return validShotEvents.map((e) => {
+    const points = validShotEvents.map((e) => {
       const baseCx = (Number(e.shotLocationX) / 100) * dimensions.width;
       const baseCy =
         ((100 - Number(e.shotLocationY)) / 100) * dimensions.height;
 
-      const key = getCoordKey(e.shotLocationX!, e.shotLocationY!);
-      const totalInGroup = coordGroups.get(key) || 1;
-      const groupIndex = coordIndices.get(key) || 0;
-      coordIndices.set(key, groupIndex + 1);
+      const cluster = clusters.find((c) =>
+        c.some((item) => item.id === e.id),
+      ) || [e];
+      const totalInGroup = cluster.length;
+      const groupIndex = cluster.findIndex((item) => item.id === e.id);
 
       let cx: number;
       let cy: number;
 
       if (totalInGroup > 1) {
+        const offsetRadius = Math.min(
+          Math.max(7, Math.sqrt(totalInGroup) * 3.5),
+          minDim * 0.25,
+        );
         const safeRadiusX = Math.min(
           dimensions.width / 2,
           minPadding + offsetRadius,
@@ -200,6 +246,13 @@ export const useShotMap = ({
         isHovered: hoveredEventId === e.id,
         shotCategory,
       };
+    });
+
+    // Bring active (selected or hovered) marker to the top in SVG DOM order
+    return points.sort((a, b) => {
+      const aActive = a.isSelected || a.isHovered ? 1 : 0;
+      const bActive = b.isSelected || b.isHovered ? 1 : 0;
+      return aActive - bActive;
     });
   }, [
     events,

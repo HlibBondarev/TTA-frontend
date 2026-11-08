@@ -407,4 +407,97 @@ describe("useShotMap hook", () => {
     });
     expect(result.current.activeEvent?.id).toBe("nearby-2");
   });
+
+  it("groups 5 adjacent shots into a single cluster, disperses them radially, and cycles selection on repeated clicks", () => {
+    const fiveShots: GameEventResponse[] = [
+      {
+        id: "shot-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+        playerNumber: 1,
+      },
+      {
+        id: "shot-2",
+        eventDefinitionId: sogDefId,
+        isPositive: true,
+        shotLocationX: 49,
+        shotLocationY: 50,
+        playerNumber: 2,
+      },
+      {
+        id: "shot-3",
+        eventDefinitionId: sogDefId,
+        isPositive: true,
+        shotLocationX: 51,
+        shotLocationY: 50,
+        playerNumber: 3,
+      },
+      {
+        id: "shot-4",
+        eventDefinitionId: sogDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 51,
+        playerNumber: 4,
+      },
+      {
+        id: "shot-5",
+        eventDefinitionId: missDefId,
+        isPositive: false,
+        shotLocationX: 50.5,
+        shotLocationY: 49.5,
+        playerNumber: 5,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useShotMap({
+        events: fiveShots,
+        eventDefinitionsMap: mockDefinitionsMap,
+        shotMap: defaultShotMap,
+      }),
+    );
+
+    expect(result.current.renderablePoints).toHaveLength(5);
+
+    // Verify all 5 markers have distinct center coordinates
+    const centerCoordinates = result.current.renderablePoints.map(
+      (p) => `${p.cx}_${p.cy}`,
+    );
+    const uniqueCoordinates = new Set(centerCoordinates);
+    expect(uniqueCoordinates.size).toBe(5);
+
+    // Verify click cycling through cluster
+    act(() => {
+      result.current.handleMarkerClick("shot-1");
+    });
+    expect(result.current.selectedEventId).toBe("shot-1");
+
+    act(() => {
+      result.current.handleMarkerClick("shot-1");
+    });
+    expect(result.current.selectedEventId).toBe("shot-2");
+
+    act(() => {
+      result.current.handleMarkerClick("shot-1");
+    });
+    expect(result.current.selectedEventId).toBe("shot-3");
+
+    act(() => {
+      result.current.handleMarkerClick("shot-1");
+    });
+    expect(result.current.selectedEventId).toBe("shot-4");
+
+    act(() => {
+      result.current.handleMarkerClick("shot-1");
+    });
+    expect(result.current.selectedEventId).toBe("shot-5");
+
+    act(() => {
+      result.current.handleMarkerClick("shot-1");
+    });
+    expect(result.current.selectedEventId).toBeNull();
+  });
 });
