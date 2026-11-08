@@ -209,13 +209,14 @@ const SpatialMapMarker: React.FC<SpatialMapMarkerProps> = ({
       }}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
           e.stopPropagation();
           onMarkerClick(eventId);
         }
       }}
       onMouseEnter={() => onMouseEnter(eventId)}
       onMouseLeave={onMouseLeave}
-      className="cursor-pointer focus:outline-none"
+      className="cursor-pointer outline-none focus-visible:[&_circle]:stroke-white"
     >
       {event.isLeadToGoal && (
         <circle

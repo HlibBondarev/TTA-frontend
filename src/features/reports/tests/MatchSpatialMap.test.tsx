@@ -358,4 +358,32 @@ describe("MatchSpatialMap Component", () => {
     expect(tooltip).toBeInTheDocument();
     expect(tooltip.className).toContain("translate-y-4");
   });
+
+  it("triggers marker selection on Enter and Space keypress while preventing default behavior", () => {
+    render(
+      <MatchSpatialMap
+        events={mockEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+      />,
+    );
+
+    const markerGroup = screen.getByRole("button", {
+      name: "John Doe #9 GL",
+    });
+
+    // Enter key navigation
+    fireEvent.keyDown(markerGroup, { key: "Enter" });
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    // Reset by clicking SVG background
+    const overlaySvg = screen.getByLabelText("Match Spatial Event Map");
+    fireEvent.click(overlaySvg);
+    expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
+
+    // Space key navigation with preventDefault check
+    const spaceEvent = fireEvent.keyDown(markerGroup, { key: " " });
+    expect(spaceEvent).toBe(false);
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+  });
 });
