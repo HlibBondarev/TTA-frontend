@@ -509,4 +509,75 @@ describe("useSpatialReport Custom Hook", () => {
     expect(resultB.current.filteredEvents).toHaveLength(1);
     expect(resultB.current.filteredEvents[0].id).toBe("ev-shot-2");
   });
+
+  it("overrides stale cached definition with isShot: false when match event has valid shot coordinates, while preserving confirmed non-shots", async () => {
+    const staleCachedDefShotEvent: GameEventResponse = {
+      id: "ev-stale-cache-1",
+      eventDefinitionId: "def-stale-1",
+      isPositive: true,
+      shotLocationX: 55,
+      shotLocationY: 65,
+      playerNumber: 9,
+      eventName: "Shot On Goal",
+    };
+
+    const confirmedNonShotEvent: GameEventResponse = {
+      id: "ev-foul-1",
+      eventDefinitionId: "def-foul-1",
+      isPositive: false,
+      playerNumber: 4,
+      eventName: "Foul",
+      locationX: 30,
+      locationY: 40,
+    };
+
+    // IndexedDB contains stale definition (isShot: false) for def-stale-1 and confirmed non-shot (isShot: false) for def-foul-1
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([
+      {
+        id: "def-stale-1",
+        sportId: "s-1",
+        name: "Shot On Goal",
+        shortName: "SOG",
+        isPositive: true,
+        isShot: false, // Stale cache in IndexedDB
+      },
+      {
+        id: "def-foul-1",
+        sportId: "s-1",
+        name: "Foul",
+        shortName: "FL",
+        isPositive: false,
+        isShot: false, // Confirmed non-shot
+      },
+    ]);
+
+    vi.mocked(reportService.getMatchEvents).mockResolvedValueOnce([
+      staleCachedDefShotEvent,
+      confirmedNonShotEvent,
+    ]);
+
+    const { result } = renderHook(() =>
+      useSpatialReport({ matchId: "m-stale-cache-test" }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    act(() => {
+      result.current.toggleMapMode("shot");
+    });
+
+    // The shot event is included despite stale isShot: false in local IndexedDB cache
+    expect(result.current.filteredEvents).toHaveLength(1);
+    expect(result.current.filteredEvents[0].id).toBe("ev-stale-cache-1");
+
+    // Verify definitions map updated isShot to true for def-stale-1, while preserving isShot: false for def-foul-1
+    expect(result.current.eventDefinitionsMap.get("def-stale-1")?.isShot).toBe(
+      true,
+    );
+    expect(result.current.eventDefinitionsMap.get("def-foul-1")?.isShot).toBe(
+      false,
+    );
+  });
 });
