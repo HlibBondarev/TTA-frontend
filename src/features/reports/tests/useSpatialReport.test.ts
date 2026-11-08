@@ -510,54 +510,36 @@ describe("useSpatialReport Custom Hook", () => {
     expect(resultB.current.filteredEvents[0].id).toBe("ev-shot-2");
   });
 
-  it("overrides stale cached definition with isShot: false when match event has valid shot coordinates, while preserving confirmed non-shots", async () => {
-    const staleCachedDefShotEvent: GameEventResponse = {
-      id: "ev-stale-cache-1",
-      eventDefinitionId: "def-stale-1",
-      isPositive: true,
-      shotLocationX: 55,
-      shotLocationY: 65,
-      playerNumber: 9,
-      eventName: "Shot On Goal",
-    };
-
-    const confirmedNonShotEvent: GameEventResponse = {
-      id: "ev-foul-1",
+  it("excludes non-shot events with extraneous shot coordinates on Shot Map when definition is confirmed as non-shot in DB", async () => {
+    const foulWithShotCoords: GameEventResponse = {
+      id: "ev-foul-extraneous-coords",
       eventDefinitionId: "def-foul-1",
       isPositive: false,
       playerNumber: 4,
       eventName: "Foul",
       locationX: 30,
       locationY: 40,
+      shotLocationX: 50,
+      shotLocationY: 50, // Extraneous shot coordinates on a non-shot action
     };
 
-    // IndexedDB contains stale definition (isShot: false) for def-stale-1 and confirmed non-shot (isShot: false) for def-foul-1
     vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([
-      {
-        id: "def-stale-1",
-        sportId: "s-1",
-        name: "Shot On Goal",
-        shortName: "SOG",
-        isPositive: true,
-        isShot: false, // Stale cache in IndexedDB
-      },
       {
         id: "def-foul-1",
         sportId: "s-1",
         name: "Foul",
         shortName: "FL",
         isPositive: false,
-        isShot: false, // Confirmed non-shot
+        isShot: false, // Confirmed non-shot in DB
       },
     ]);
 
     vi.mocked(reportService.getMatchEvents).mockResolvedValueOnce([
-      staleCachedDefShotEvent,
-      confirmedNonShotEvent,
+      foulWithShotCoords,
     ]);
 
     const { result } = renderHook(() =>
-      useSpatialReport({ matchId: "m-stale-cache-test" }),
+      useSpatialReport({ matchId: "m-extraneous-coords-test" }),
     );
 
     await waitFor(() => {
@@ -568,14 +550,8 @@ describe("useSpatialReport Custom Hook", () => {
       result.current.toggleMapMode("shot");
     });
 
-    // The shot event is included despite stale isShot: false in local IndexedDB cache
-    expect(result.current.filteredEvents).toHaveLength(1);
-    expect(result.current.filteredEvents[0].id).toBe("ev-stale-cache-1");
-
-    // Verify definitions map updated isShot to true for def-stale-1, while preserving isShot: false for def-foul-1
-    expect(result.current.eventDefinitionsMap.get("def-stale-1")?.isShot).toBe(
-      true,
-    );
+    // Confirmed non-shot event must be excluded from Shot Map despite having shot coordinates
+    expect(result.current.filteredEvents).toHaveLength(0);
     expect(result.current.eventDefinitionsMap.get("def-foul-1")?.isShot).toBe(
       false,
     );

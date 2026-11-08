@@ -91,7 +91,7 @@ async function loadLineups(
   return lineups;
 }
 
-// Helper to fetch and enrich event definitions map with uncached/stale shot detection fallback
+// Helper to fetch and enrich event definitions map with uncached shot detection fallback
 async function loadDefinitionsMap(
   fetchedEvents: GameEventResponse[],
 ): Promise<Map<string, EventDefinitionLookup>> {
@@ -113,14 +113,10 @@ async function loadDefinitionsMap(
         ev.shotLocationX != null && ev.shotLocationY != null;
 
       if (cachedInDb) {
-        definitionsMap.set(ev.eventDefinitionId, {
-          ...cachedInDb,
-          // Enrich cached definition if isShot is missing/false in IndexedDB but event has shot coordinates
-          isShot: Boolean(
-            cachedInDb.isShot || currentInMap?.isShot || hasShotCoordinates,
-          ),
-        });
+        // Strictly honor authoritative cached definitions from IndexedDB
+        definitionsMap.set(ev.eventDefinitionId, cachedInDb);
       } else {
+        // Aggregate coordinate evidence across all events for uncached definitions
         definitionsMap.set(ev.eventDefinitionId, {
           id: ev.eventDefinitionId,
           sportId: "",
@@ -129,7 +125,6 @@ async function loadDefinitionsMap(
             ? ev.eventName.substring(0, 4).toUpperCase()
             : currentInMap?.shortName || "ACT",
           isPositive: ev.isPositive ?? currentInMap?.isPositive ?? true,
-          // Aggregate coordinate evidence across all events for uncached definitions
           isShot: Boolean(currentInMap?.isShot || hasShotCoordinates),
         });
       }
