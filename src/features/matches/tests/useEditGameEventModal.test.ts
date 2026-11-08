@@ -863,4 +863,53 @@ describe("useEditGameEventModal Custom Hook", () => {
     );
     expect(mockUpdateGameEvent).not.toHaveBeenCalled();
   });
+
+  it("should preserve user selected coordinates if user edits location while Dexie read is pending", async () => {
+    let resolveGameEvent!: (value: unknown) => void;
+    const gameEventPromise = new Promise((resolve) => {
+      resolveGameEvent = resolve;
+    });
+
+    vi.mocked(db.gameevents.get).mockReturnValueOnce(gameEventPromise as never);
+
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: sampleAction,
+        matchId: "match-1",
+        onClose: vi.fn(),
+      }),
+    );
+
+    expect(result.current.isLocationLoaded).toBe(false);
+
+    // User edits coordinates while DB read is pending
+    act(() => {
+      result.current.handleLocationSelect(88.0, 99.0);
+      result.current.handleShotLocationSelect(44.0, 55.0);
+    });
+
+    expect(result.current.locationX).toBe(88.0);
+    expect(result.current.locationY).toBe(99.0);
+    expect(result.current.shotLocationX).toBe(44.0);
+    expect(result.current.shotLocationY).toBe(55.0);
+
+    // DB read resolves with initial DB values
+    resolveGameEvent({
+      id: "action-123",
+      locationX: 10.0,
+      locationY: 20.0,
+      shotLocationX: 30.0,
+      shotLocationY: 40.0,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+    });
+
+    // User's pre-completion edits are preserved instead of being overwritten by DB values
+    expect(result.current.locationX).toBe(88.0);
+    expect(result.current.locationY).toBe(99.0);
+    expect(result.current.shotLocationX).toBe(44.0);
+    expect(result.current.shotLocationY).toBe(55.0);
+  });
 });

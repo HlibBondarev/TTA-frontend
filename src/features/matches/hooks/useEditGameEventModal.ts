@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useSelector } from "react-redux";
 import {
@@ -165,11 +165,16 @@ export function useEditGameEventModal({
   const [isLocationLoaded, setIsLocationLoaded] = useState(false);
   const [isDefinitionsLoaded, setIsDefinitionsLoaded] = useState(false);
 
+  const isLocationEditedRef = useRef(false);
+  const isShotLocationEditedRef = useRef(false);
+
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
+    isLocationEditedRef.current = false;
+    isShotLocationEditedRef.current = false;
 
     // Load existing event spatial and shot target coordinates from Dexie DB
     db.gameevents
@@ -177,12 +182,16 @@ export function useEditGameEventModal({
       .then((evt) => {
         if (!isMounted) return;
         if (evt) {
-          if (typeof evt.locationX === "number") setLocationX(evt.locationX);
-          if (typeof evt.locationY === "number") setLocationY(evt.locationY);
-          if (typeof evt.shotLocationX === "number")
-            setShotLocationX(evt.shotLocationX);
-          if (typeof evt.shotLocationY === "number")
-            setShotLocationY(evt.shotLocationY);
+          if (!isLocationEditedRef.current) {
+            if (typeof evt.locationX === "number") setLocationX(evt.locationX);
+            if (typeof evt.locationY === "number") setLocationY(evt.locationY);
+          }
+          if (!isShotLocationEditedRef.current) {
+            if (typeof evt.shotLocationX === "number")
+              setShotLocationX(evt.shotLocationX);
+            if (typeof evt.shotLocationY === "number")
+              setShotLocationY(evt.shotLocationY);
+          }
         }
         setIsLocationLoaded(true);
       })
@@ -266,6 +275,7 @@ export function useEditGameEventModal({
     setIsPositive(isPos);
 
     if (!def.isShot) {
+      isShotLocationEditedRef.current = true;
       setShotLocationX(null);
       setShotLocationY(null);
       if (activeTab === "shots") {
@@ -281,11 +291,13 @@ export function useEditGameEventModal({
   };
 
   const handleLocationSelect = (x: number | null, y: number | null) => {
+    isLocationEditedRef.current = true;
     setLocationX(x);
     setLocationY(y);
   };
 
   const handleShotLocationSelect = (x: number | null, y: number | null) => {
+    isShotLocationEditedRef.current = true;
     setShotLocationX(x);
     setShotLocationY(y);
   };
