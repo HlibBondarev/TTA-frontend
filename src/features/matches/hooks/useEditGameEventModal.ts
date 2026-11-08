@@ -297,10 +297,15 @@ export function useEditGameEventModal({
       !selectedEventDefinitionId ||
       isSaving ||
       !isLocationLoaded ||
-      !isDefinitionsLoaded ||
-      !selectedEventDef
+      !isDefinitionsLoaded
     )
       return;
+
+    // Set explicit error if definitions have loaded but the selected definition is missing
+    if (!selectedEventDef) {
+      setError("Selected action definition was not found.");
+      return;
+    }
 
     setIsSaving(true);
     setError(null);

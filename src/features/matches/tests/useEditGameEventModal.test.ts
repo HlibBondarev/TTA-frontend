@@ -835,4 +835,32 @@ describe("useEditGameEventModal Custom Hook", () => {
       ),
     ).toBe(true);
   });
+
+  it("should set error state when definitions are loaded but selectedEventDef is missing during handleSave", async () => {
+    vi.mocked(db.eventdefinitions.get).mockResolvedValueOnce(
+      undefined as never,
+    );
+
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: { ...sampleAction, eventDefinitionId: "def-missing-999" },
+        matchId: "match-1",
+        onClose: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(result.current.error).toBe(
+      "Selected action definition was not found.",
+    );
+    expect(mockUpdateGameEvent).not.toHaveBeenCalled();
+  });
 });
