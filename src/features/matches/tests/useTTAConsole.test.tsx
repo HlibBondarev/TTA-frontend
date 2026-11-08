@@ -432,4 +432,52 @@ describe("useTTAConsole Custom Hook", () => {
       shotLocationY: 80.0,
     });
   });
+
+  it("should prevent updating shot location when isSubmitting is true", async () => {
+    let resolveRecord: (value: unknown) => void;
+    const pendingRecordPromise = new Promise((resolve) => {
+      resolveRecord = resolve;
+    });
+
+    mockRecordGameEvent.mockReturnValueOnce(pendingRecordPromise);
+
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+    });
+
+    const { result } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.handleActionSelect("Shot", true, "def-shot-1", true);
+      result.current.handleShotLocationSelect(10.0, 20.0);
+      result.current.setSelectedPlayerId("player-1");
+    });
+
+    let enterPromise: Promise<void>;
+    act(() => {
+      enterPromise = result.current.handleEnter();
+    });
+
+    expect(result.current.isSubmitting).toBe(true);
+
+    // Attempt to change shot location while submission is in progress
+    act(() => {
+      result.current.handleShotLocationSelect(50.0, 60.0);
+    });
+
+    // Target coordinates must remain unchanged (10.0, 20.0) while submitting
+    expect(result.current.pendingShotLocation).toEqual({
+      shotLocationX: 10.0,
+      shotLocationY: 20.0,
+    });
+
+    await act(async () => {
+      resolveRecord!(undefined);
+      await enterPromise;
+    });
+
+    expect(result.current.isSubmitting).toBe(false);
+  });
 });
