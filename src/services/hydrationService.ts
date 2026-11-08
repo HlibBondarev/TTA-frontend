@@ -220,6 +220,59 @@ export const checkUnfinishedMatch = async (
   };
 };
 
+const recoverPeriodFromAnchors = async (
+  matchId: string,
+): Promise<number | null> => {
+  if (!db?.timeanchors) return null;
+  const anchors = await db.timeanchors
+    .where("matchId")
+    .equals(matchId)
+    .toArray();
+
+  return anchors.length > 0
+    ? Math.max(...anchors.map((a) => a.periodNumber))
+    : null;
+};
+
+const refreshShotMapBackground = (
+  sportId?: string,
+  configurationId?: string,
+): void => {
+  if (!sportId || !configurationId) return;
+
+  void sportService
+    .getSportConfigurations(sportId)
+    .then(async (configs) => {
+      const freshConfig = configs.find((c) => c.id === configurationId);
+      if (freshConfig) {
+        await db.sportconfigurations.put(freshConfig);
+      }
+    })
+    .catch(() => {
+      // Ignore network errors in background
+    });
+};
+
+const recoverActivePlayersLimit = async (
+  matchId: string,
+): Promise<number | null> => {
+  if (!db?.matches || !db?.tournaments || !db?.sportconfigurations) return null;
+
+  const match = await db.matches.get(matchId);
+  if (!match?.tournamentId) return null;
+
+  const tournament = await db.tournaments.get(match.tournamentId);
+  if (!tournament?.configurationId) return null;
+
+  const config = await db.sportconfigurations.get(tournament.configurationId);
+
+  if (tournament.sportId && (!config || !config.shotMap)) {
+    refreshShotMapBackground(tournament.sportId, tournament.configurationId);
+  }
+
+  return config?.activePlayersLimit ?? null;
+};
+
 export const getMatchRecoveryState = async (
   matchId: string,
 ): Promise<{ recoveredPeriod: number; activePlayersLimit: number }> => {
@@ -227,47 +280,13 @@ export const getMatchRecoveryState = async (
   let activePlayersLimit = 7;
 
   try {
-    if (db?.timeanchors) {
-      const anchors = await db.timeanchors
-        .where("matchId")
-        .equals(matchId)
-        .toArray();
-      if (anchors.length > 0) {
-        recoveredPeriod = Math.max(...anchors.map((a) => a.periodNumber));
-      }
-    }
+    const [period, limit] = await Promise.all([
+      recoverPeriodFromAnchors(matchId),
+      recoverActivePlayersLimit(matchId),
+    ]);
 
-    if (db?.matches && db?.tournaments && db?.sportconfigurations) {
-      const match = await db.matches.get(matchId);
-      if (match?.tournamentId) {
-        const tournament = await db.tournaments.get(match.tournamentId);
-        if (tournament?.configurationId) {
-          const config = await db.sportconfigurations.get(
-            tournament.configurationId,
-          );
-          if (config?.activePlayersLimit) {
-            activePlayersLimit = config.activePlayersLimit;
-          }
-
-          // Trigger true background refresh without awaiting, so recovery state returns instantly
-          if (tournament.sportId && (!config || !config.shotMap)) {
-            void sportService
-              .getSportConfigurations(tournament.sportId)
-              .then(async (configs) => {
-                const freshConfig = configs.find(
-                  (c) => c.id === tournament.configurationId,
-                );
-                if (freshConfig) {
-                  await db.sportconfigurations.put(freshConfig);
-                }
-              })
-              .catch(() => {
-                // Ignore network errors in background
-              });
-          }
-        }
-      }
-    }
+    if (period !== null) recoveredPeriod = period;
+    if (limit !== null) activePlayersLimit = limit;
   } catch (err) {
     console.error("Failed to calculate match recovery state:", err);
   }
