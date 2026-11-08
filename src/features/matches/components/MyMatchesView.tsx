@@ -59,12 +59,12 @@ export const MyMatchesView: React.FC = () => {
                 finalizedMatches.map((m) => m.id),
               );
 
-              // Filter out records that are active local drafts with null scores
+              // Filter out records that are active local drafts with null or undefined scores
               const matchesToPut = finalizedMatches.filter((_, index) => {
                 const existing = existingMatches[index];
                 if (!existing) return true;
                 const isLocalDraft =
-                  existing.homeScore === null || existing.guestScore === null;
+                  existing.homeScore == null || existing.guestScore == null;
                 return !isLocalDraft;
               });
 

@@ -438,7 +438,7 @@ describe("MyMatchesView Component", () => {
       mockMatches,
     );
 
-    // Mock existing local match in IndexedDB as an unfinished draft (scores null)
+    // Mock existing local match in IndexedDB as an unfinished draft (scores null or undefined)
     vi.mocked(db.matches.bulkGet).mockResolvedValueOnce([
       {
         id: "match-101",
@@ -446,7 +446,7 @@ describe("MyMatchesView Component", () => {
         homeTeamId: "home-team-1",
         guestTeamId: "guest-team-2",
         scheduledAt: "2026-08-25T15:00:00.000Z",
-        homeScore: null,
+        homeScore: undefined,
         guestScore: null,
       },
     ] as never);
