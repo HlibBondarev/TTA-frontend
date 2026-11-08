@@ -594,4 +594,66 @@ describe("MyMatchesView Component", () => {
       expect(db.matches.bulkPut).not.toHaveBeenCalled();
     });
   });
+
+  it("should ignore stale report-opening requests if a newer report request is triggered concurrently", async () => {
+    vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce([
+      {
+        ...mockMatches[0],
+        id: "match-slow-1",
+        homeTeamName: "Slow Team 1",
+      },
+      {
+        ...mockMatches[0],
+        id: "match-fast-2",
+        homeTeamName: "Fast Team 2",
+        trackedTeamId: "home-team-1",
+      },
+    ]);
+
+    let resolveSlowGet: (value: unknown) => void;
+    const slowPromise = new Promise((resolve) => {
+      resolveSlowGet = resolve;
+    });
+
+    vi.mocked(db.matches.get).mockImplementation(((id: string) => {
+      if (id === "match-slow-1") {
+        return slowPromise as never;
+      }
+      return Promise.resolve(undefined) as never;
+    }) as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MyMatchesView />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Slow Team 1")).toBeDefined();
+
+    const viewReportButtons = screen.getAllByRole("button", {
+      name: /View Report/i,
+    });
+
+    // Trigger report opening for the first match (pending slow async Dexie lookup)
+    fireEvent.click(viewReportButtons[0]);
+
+    // Immediately trigger report opening for the second match
+    fireEvent.click(viewReportButtons[1]);
+
+    // Fast match resolves modal first
+    const reportModal = await screen.findByTestId("report-modal");
+    expect(reportModal).toHaveTextContent("team: home-team-1");
+
+    // Now resolve the initial slow match lookup
+    resolveSlowGet!({ id: "match-slow-1", tournamentId: "tourn-1" });
+
+    // Verify modal state was not overwritten by the stale initial request
+    await waitFor(() => {
+      expect(screen.getByTestId("report-modal")).toHaveTextContent(
+        "team: home-team-1",
+      );
+    });
+  });
 });

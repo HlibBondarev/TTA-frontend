@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
 import { navigateToHub } from "../../../store/slices/navigationSlice";
 import {
@@ -14,6 +14,8 @@ export const MyMatchesView: React.FC = () => {
   const [matches, setMatches] = useState<MatchWithDetailsResponse[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const reportRequestIdRef = useRef<number>(0);
 
   // Modal State for Reports
   const [activeReportContext, setActiveReportContext] = useState<{
@@ -117,6 +119,7 @@ export const MyMatchesView: React.FC = () => {
   }, []);
 
   const handleOpenReport = async (match: MatchWithDetailsResponse) => {
+    const requestId = ++reportRequestIdRef.current;
     let playground: string | null = null;
     let shotMap: string | null = null;
 
@@ -138,6 +141,10 @@ export const MyMatchesView: React.FC = () => {
       }
     } catch (err) {
       console.error("Failed to load sport config SVGs for report:", err);
+    }
+
+    if (requestId !== reportRequestIdRef.current) {
+      return;
     }
 
     const isTrackedHome = match.trackedTeamId === match.homeTeamId;
