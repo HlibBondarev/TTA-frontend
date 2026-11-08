@@ -468,41 +468,33 @@ describe("MyMatchesView Component", () => {
     });
   });
 
-  it("should execute bulkGet, filter, and bulkPut inside the Dexie transaction callback and preserve draft matches", async () => {
+  it("should execute bulkGet, filter, and bulkPut strictly inside the Dexie transaction callback", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
 
-    let bulkGetExecutedInsideTransaction = false;
+    let isInsideTransaction = false;
+    let bulkGetCalledInsideCallback = false;
 
     vi.mocked(db.transaction).mockImplementationOnce((async (
-      mode: string,
-      tables: unknown,
+      _mode: string,
+      _tables: unknown,
       callback: () => Promise<void>,
     ) => {
-      expect(mode).toBe("rw");
-      expect(tables).toBe(db.matches);
-
-      // Execute transaction callback and track inside-callback execution
-      const promise = callback();
-      if (vi.mocked(db.matches.bulkGet).mock.calls.length > 0) {
-        bulkGetExecutedInsideTransaction = true;
+      isInsideTransaction = true;
+      try {
+        await callback();
+      } finally {
+        isInsideTransaction = false;
       }
-      await promise;
     }) as unknown as typeof db.transaction);
 
-    // Mock existing local draft match in IndexedDB (scores null)
-    vi.mocked(db.matches.bulkGet).mockResolvedValueOnce([
-      {
-        id: "match-101",
-        tournamentId: "tourn-1",
-        homeTeamId: "home-team-1",
-        guestTeamId: "guest-team-2",
-        scheduledAt: "2026-08-25T15:00:00.000Z",
-        homeScore: null,
-        guestScore: null,
-      },
-    ] as never);
+    vi.mocked(db.matches.bulkGet).mockImplementation((async () => {
+      if (isInsideTransaction) {
+        bulkGetCalledInsideCallback = true;
+      }
+      return [];
+    }) as unknown as typeof db.matches.bulkGet);
 
     const store = createTestStore();
 
@@ -520,9 +512,76 @@ describe("MyMatchesView Component", () => {
         db.matches,
         expect.any(Function),
       );
-      expect(bulkGetExecutedInsideTransaction).toBe(true);
+      expect(bulkGetCalledInsideCallback).toBe(true);
+      expect(db.matches.bulkPut).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "match-101",
+            homeScore: 8,
+            guestScore: 6,
+          }),
+        ]),
+      );
+    });
+  });
+
+  it("should handle competing write transactions by reading updated draft state inside transaction and preserving the draft", async () => {
+    vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
+      mockMatches,
+    );
+
+    let competingDraftWritten = false;
+
+    vi.mocked(db.transaction).mockImplementationOnce((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      // Competing tab/process writes an unfinished draft to IndexedDB right before transaction read completes
+      competingDraftWritten = true;
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    vi.mocked(db.matches.bulkGet).mockImplementation((async (ids: string[]) => {
+      if (competingDraftWritten) {
+        // Return active local draft written concurrently by competing process
+        return [
+          {
+            id: ids[0],
+            tournamentId: "tourn-1",
+            homeTeamId: "home-team-1",
+            guestTeamId: "guest-team-2",
+            scheduledAt: "2026-08-25T15:00:00.000Z",
+            matchNumber: "1",
+            venue: "Pool 1",
+            temperature: 25,
+            homeScore: null,
+            guestScore: null,
+            createdAt: "2026-08-25T14:00:00.000Z",
+          },
+        ];
+      }
+      return [];
+    }) as unknown as typeof db.matches.bulkGet);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MyMatchesView />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Dolphins")).toBeDefined();
+
+    await waitFor(() => {
+      expect(db.transaction).toHaveBeenCalledWith(
+        "rw",
+        db.matches,
+        expect.any(Function),
+      );
       expect(db.matches.bulkGet).toHaveBeenCalledWith(["match-101"]);
-      // Draft record with null scores is preserved: bulkPut is skipped
+      // Draft record created by competing transaction is preserved: bulkPut is skipped
       expect(db.matches.bulkPut).not.toHaveBeenCalled();
     });
   });
