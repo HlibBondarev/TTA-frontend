@@ -156,4 +156,18 @@ describe("parseSvgDimensions", () => {
       aspectRatio: "800 / 600",
     });
   });
+
+  it("returns null when viewBox text appears inside another attribute value of root SVG element", () => {
+    const svgWithNestedAttrText = `<svg data-note='text viewBox="0 0 50 50"'></svg>`;
+    expect(parseSvgDimensions(svgWithNestedAttrText)).toBeNull();
+  });
+
+  it("correctly reads root viewBox when preceding attributes contain viewBox text in quotes", () => {
+    const svgWithComplexAttr = `<svg data-note='text viewBox="0 0 50 50"' viewBox="0 0 800 600"></svg>`;
+    expect(parseSvgDimensions(svgWithComplexAttr)).toEqual({
+      width: 800,
+      height: 600,
+      aspectRatio: "800 / 600",
+    });
+  });
 });
