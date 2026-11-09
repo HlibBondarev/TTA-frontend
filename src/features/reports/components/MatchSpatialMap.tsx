@@ -86,10 +86,11 @@ const GoalLeadVectorLine: React.FC<{ vector: GoalLeadVector }> = ({
   const x2 = dist > 0 ? vector.x2 - (dx / dist) * endOffset : vector.x2;
   const y2 = dist > 0 ? vector.y2 - (dy / dist) * endOffset : vector.y2;
 
-  const strokeColor = vector.isPositive ? "#10b981" : "#f43f5e";
+  // Pure white stroke for positive lead vectors and bright amber stroke for negative lead vectors
+  const strokeColor = vector.isPositive ? "#ffffff" : "#fcd34d";
   const markerEnd = vector.isPositive
-    ? "url(#arrow-emerald)"
-    : "url(#arrow-rose)";
+    ? "url(#arrow-white)"
+    : "url(#arrow-amber)";
 
   return (
     <g>
@@ -99,10 +100,10 @@ const GoalLeadVectorLine: React.FC<{ vector: GoalLeadVector }> = ({
         x2={x2}
         y2={y2}
         stroke={strokeColor}
-        strokeWidth="2"
-        strokeDasharray="4 3"
+        strokeWidth="2.5"
+        strokeDasharray="5 4"
         markerEnd={markerEnd}
-        className="opacity-80"
+        className="opacity-95"
       />
       <circle cx={vector.x2} cy={vector.y2} r="3" fill={strokeColor} />
     </g>
@@ -122,9 +123,11 @@ const GoalMarker: React.FC<MarkerProps> = ({
   playerNumber,
   shortCode,
 }) => {
+  // Goal scored (positive): yellow fill with green outline
+  // Goal conceded (negative): yellow fill with red outline
   const ringClass = isPositive
-    ? "fill-amber-400 stroke-emerald-400"
-    : "fill-amber-400 stroke-rose-500";
+    ? "fill-amber-400 stroke-emerald-500"
+    : "fill-amber-400 stroke-rose-600";
   const label = playerNumber != null ? `${playerNumber}` : shortCode;
 
   return (
@@ -133,13 +136,46 @@ const GoalMarker: React.FC<MarkerProps> = ({
         cx={0}
         cy={0}
         r={isHighlighted ? 11 : 7.5}
-        className={`${ringClass} stroke-2 shadow-lg transition-all duration-150`}
+        className={`${ringClass} stroke-[2.5] shadow-lg transition-all duration-150`}
       />
       <text
         x={0}
         y={3}
         textAnchor="middle"
-        className="fill-gray-950 font-mono font-black text-[9px] pointer-events-none select-none"
+        className="fill-slate-950 font-mono font-black text-[9px] pointer-events-none select-none"
+      >
+        {label}
+      </text>
+    </g>
+  );
+};
+
+const LeadMarker: React.FC<MarkerProps> = ({
+  isPositive,
+  isHighlighted,
+  playerNumber,
+  shortCode,
+}) => {
+  // Positive lead action: green fill with yellow outline
+  // Negative lead action: red fill with yellow outline
+  const circleClass = isPositive
+    ? "fill-emerald-500 stroke-amber-400"
+    : "fill-rose-600 stroke-amber-400";
+  const label = playerNumber != null ? `${playerNumber}` : shortCode;
+
+  return (
+    <g>
+      <circle
+        cx={0}
+        cy={0}
+        r={isHighlighted ? 10 : 6.5}
+        className={`${circleClass} stroke-[2.5] shadow-md transition-all duration-150`}
+      />
+      <text
+        x={0}
+        y={3}
+        textAnchor="middle"
+        className="fill-white font-mono font-black text-[9px] pointer-events-none select-none"
       >
         {label}
       </text>
@@ -218,17 +254,15 @@ const SpatialMapMarker: React.FC<SpatialMapMarkerProps> = ({
       onMouseLeave={onMouseLeave}
       className="cursor-pointer outline-none focus-visible:[&_circle]:stroke-white"
     >
-      {event.isLeadToGoal && (
-        <circle
-          cx={0}
-          cy={0}
-          r={isHighlighted ? 14 : 11}
-          className="fill-none stroke-amber-400 stroke-2 animate-ping opacity-75"
-        />
-      )}
-
       {isGoal ? (
         <GoalMarker
+          isPositive={Boolean(event.isPositive)}
+          isHighlighted={isHighlighted}
+          playerNumber={event.playerNumber}
+          shortCode={shortCode}
+        />
+      ) : event.isLeadToGoal ? (
+        <LeadMarker
           isPositive={Boolean(event.isPositive)}
           isHighlighted={isHighlighted}
           playerNumber={event.playerNumber}
@@ -486,7 +520,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
       >
         <defs>
           <marker
-            id="arrow-emerald"
+            id="arrow-white"
             viewBox="0 0 10 10"
             refX="5"
             refY="5"
@@ -494,10 +528,10 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
             markerHeight="5"
             orient="auto-start-reverse"
           >
-            <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981" />
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#ffffff" />
           </marker>
           <marker
-            id="arrow-rose"
+            id="arrow-amber"
             viewBox="0 0 10 10"
             refX="5"
             refY="5"
@@ -505,7 +539,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
             markerHeight="5"
             orient="auto-start-reverse"
           >
-            <path d="M 0 1 L 10 5 L 0 9 z" fill="#f43f5e" />
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#fcd34d" />
           </marker>
         </defs>
 

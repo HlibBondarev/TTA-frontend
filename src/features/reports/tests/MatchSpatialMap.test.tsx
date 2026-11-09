@@ -172,6 +172,53 @@ describe("MatchSpatialMap Component", () => {
 
     const vectorLine = container.querySelector("line[marker-end]");
     expect(vectorLine).toBeInTheDocument();
+    expect(vectorLine).toHaveAttribute("stroke", "#ffffff");
+    expect(vectorLine).toHaveAttribute("marker-end", "url(#arrow-white)");
+  });
+
+  it("renders GoalMarker with yellow fill and emerald outline for positive goals", () => {
+    render(
+      <MatchSpatialMap
+        events={[mockEvents[0]]}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+      />,
+    );
+
+    const goalText = screen.getByText("9");
+    const circle = goalText.previousElementSibling!;
+    expect(circle).toHaveClass("fill-amber-400");
+    expect(circle).toHaveClass("stroke-emerald-500");
+  });
+
+  it("renders LeadMarker with green fill and yellow outline for positive lead-to-goal actions", () => {
+    const leadOnlyEvents: GameEventResponse[] = [
+      {
+        id: "lead-only-1",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-2",
+        eventName: "Assist",
+        isPositive: true,
+        periodNumber: 1,
+        isLeadToGoal: true,
+        locationX: 60,
+        locationY: 40,
+        playerNumber: 7,
+      },
+    ];
+
+    render(
+      <MatchSpatialMap
+        events={leadOnlyEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+      />,
+    );
+
+    const leadText = screen.getByText("7");
+    const circle = leadText.previousElementSibling!;
+    expect(circle).toHaveClass("fill-emerald-500");
+    expect(circle).toHaveClass("stroke-amber-400");
   });
 
   it("displays tooltip on hover with positivity colors (emerald for positive, rose for negative)", () => {

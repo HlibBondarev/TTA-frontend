@@ -415,4 +415,56 @@ describe("useSpatialMap Custom Hook", () => {
 
     expect(result.current.activeEvent).toBeNull();
   });
+
+  it("uses displaced coordinates for lead and goal vector endpoints when markers are clustered", () => {
+    const clusteredEvents: GameEventResponse[] = [
+      {
+        id: "lead-cluster-1",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-1",
+        isPositive: true,
+        periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:00:00Z",
+        isLeadToGoal: true,
+        locationX: 50,
+        locationY: 50,
+        teamId: "team-1",
+      },
+      {
+        id: "goal-cluster-1",
+        matchLineupId: "l-2",
+        eventDefinitionId: "def-goal",
+        isPositive: true,
+        periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:01:00Z",
+        locationX: 50,
+        locationY: 50,
+        teamId: "team-1",
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: clusteredEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
+      }),
+    );
+
+    const points = result.current.renderablePoints;
+    expect(points).toHaveLength(2);
+
+    const leadPoint = points.find((p) => p.event.id === "lead-cluster-1")!;
+    const goalPoint = points.find((p) => p.event.id === "goal-cluster-1")!;
+
+    expect(result.current.goalLeadVectors).toHaveLength(1);
+    const vector = result.current.goalLeadVectors[0];
+
+    // Endpoints must match displaced renderablePoints (cx, cy) rather than raw coordinates
+    expect(vector.x1).toBe(leadPoint.cx);
+    expect(vector.y1).toBe(leadPoint.cy);
+    expect(vector.x2).toBe(goalPoint.cx);
+    expect(vector.y2).toBe(goalPoint.cy);
+  });
 });

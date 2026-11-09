@@ -263,9 +263,18 @@ export const useSpatialMap = ({
         e.id != null,
     );
 
+    const renderableMap = new Map(
+      renderablePoints.map((pt) => [pt.event.id, pt]),
+    );
+
     return leadEvents.map((leadEv) => {
-      const x1 = (Number(leadEv.locationY) / 100) * viewBoxWidth;
-      const y1 = ((100 - Number(leadEv.locationX)) / 100) * viewBoxHeight;
+      const leadPoint = renderableMap.get(leadEv.id);
+      const x1 = leadPoint
+        ? leadPoint.cx
+        : (Number(leadEv.locationY) / 100) * viewBoxWidth;
+      const y1 = leadPoint
+        ? leadPoint.cy
+        : ((100 - Number(leadEv.locationX)) / 100) * viewBoxHeight;
 
       const leadTimestamp =
         leadEv.eventTimestamp == null
@@ -302,8 +311,16 @@ export const useSpatialMap = ({
       let y2: number;
 
       if (matchingGoal) {
-        x2 = (Number(matchingGoal.locationY) / 100) * viewBoxWidth;
-        y2 = ((100 - Number(matchingGoal.locationX)) / 100) * viewBoxHeight;
+        const goalPoint = matchingGoal.id
+          ? renderableMap.get(matchingGoal.id)
+          : undefined;
+        if (goalPoint) {
+          x2 = goalPoint.cx;
+          y2 = goalPoint.cy;
+        } else {
+          x2 = (Number(matchingGoal.locationY) / 100) * viewBoxWidth;
+          y2 = ((100 - Number(matchingGoal.locationX)) / 100) * viewBoxHeight;
+        }
       } else {
         x2 = viewBoxWidth / 2;
         y2 = isPositiveLead ? 15 : viewBoxHeight - 15;
@@ -318,7 +335,14 @@ export const useSpatialMap = ({
         isPositive: isPositiveLead,
       };
     });
-  }, [events, allEvents, goalDefinitionIds, viewBoxWidth, viewBoxHeight]);
+  }, [
+    events,
+    allEvents,
+    goalDefinitionIds,
+    renderablePoints,
+    viewBoxWidth,
+    viewBoxHeight,
+  ]);
 
   return {
     activeEvent,
