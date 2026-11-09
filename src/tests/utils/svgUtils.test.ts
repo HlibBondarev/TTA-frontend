@@ -142,4 +142,18 @@ describe("parseSvgDimensions", () => {
       aspectRatio: "800 / 600",
     });
   });
+
+  it("returns null when root SVG has data-viewBox instead of viewBox", () => {
+    const svgWithDataViewBox = `<svg data-viewBox="0 0 50 50"></svg>`;
+    expect(parseSvgDimensions(svgWithDataViewBox)).toBeNull();
+  });
+
+  it("ignores <svg> tags inside comments before the root SVG element", () => {
+    const svgWithComment = `<!-- <svg viewBox="0 0 50 50"></svg> --><svg viewBox="0 0 800 600"></svg>`;
+    expect(parseSvgDimensions(svgWithComment)).toEqual({
+      width: 800,
+      height: 600,
+      aspectRatio: "800 / 600",
+    });
+  });
 });

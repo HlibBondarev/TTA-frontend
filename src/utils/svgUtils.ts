@@ -7,9 +7,9 @@ export interface SvgDimensions {
 // Number pattern supporting integers, decimals, and scientific/exponent notation (e.g., 1e2, -1.5e-3)
 const NUM_PATTERN = String.raw`[-+]?(?:\d*\.?\d+|\d+)(?:[eE][-+]?\d+)?`;
 
-// Regex matching viewBox attribute with optional whitespace around '=' and exponential numbers
+// Regex matching exact viewBox attribute (preceded by whitespace or start of attributes string)
 const VIEWBOX_REGEX = new RegExp(
-  String.raw`viewBox\s*=\s*["']\s*(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})\s*["']`,
+  String.raw`(?:\s|^)viewBox\s*=\s*["']\s*(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})\s*["']`,
   "i",
 );
 
@@ -22,7 +22,9 @@ export const parseSvgDimensions = (
   if (!svgString) return null;
 
   try {
-    const rootMatch = ROOT_SVG_REGEX.exec(svgString);
+    // Strip XML/HTML comments to ensure we match the actual root <svg> element
+    const sanitizedSvg = svgString.replace(/<!--[\s\S]*?-->/g, "");
+    const rootMatch = ROOT_SVG_REGEX.exec(sanitizedSvg);
     if (!rootMatch?.[1]) return null;
 
     const match = VIEWBOX_REGEX.exec(rootMatch[1]);
