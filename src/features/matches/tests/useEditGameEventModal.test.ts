@@ -289,6 +289,11 @@ describe("useEditGameEventModal Custom Hook", () => {
       await result.current.handleSave();
     });
 
+    expect(db.usereventpresets.where).toHaveBeenCalledWith({
+      userId: "redux-user-456",
+      sportId: "sport-1",
+    });
+
     expect(mockUpdateGameEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventId: "action-123",
