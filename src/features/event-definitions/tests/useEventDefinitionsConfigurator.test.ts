@@ -990,4 +990,46 @@ describe("useEventDefinitionsConfigurator", () => {
 
     expect(result.current.activeTab).toBe("POSITIVE");
   });
+
+  it("should switch active tab to NEGATIVE when creating a negative custom definition", async () => {
+    const createdCustomDef = {
+      id: "custom-neg-1",
+      sportId: mockSportId,
+      name: "Custom Foul",
+      shortName: "CF",
+      isPositive: false,
+      isCustom: true,
+      isEnabled: true,
+      sortOrder: 0,
+    };
+
+    vi.mocked(eventDefinitionService.createCustom).mockResolvedValue(
+      createdCustomDef,
+    );
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setActiveTab("POSITIVE");
+      result.current.setNewName("Custom Foul");
+      result.current.setNewShortName("CF");
+      result.current.setNewIsPositive(false);
+    });
+
+    const fakeEvent = {
+      preventDefault: vi.fn(),
+    } as unknown as React.SyntheticEvent<HTMLFormElement>;
+
+    await act(async () => {
+      await result.current.handleCreateCustom(fakeEvent);
+    });
+
+    expect(result.current.activeTab).toBe("NEGATIVE");
+  });
 });
