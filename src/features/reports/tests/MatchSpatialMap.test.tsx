@@ -70,7 +70,7 @@ describe("MatchSpatialMap Component", () => {
     },
   ];
 
-  it("renders fallback banner when playground SVG is absent or invalid", () => {
+  it("renders standard court fallback layout and spatial markers when playground SVG is absent or invalid", () => {
     render(
       <MatchSpatialMap
         events={mockEvents}
@@ -78,9 +78,12 @@ describe("MatchSpatialMap Component", () => {
       />,
     );
 
+    expect(screen.getByTestId("standard-court-fallback")).toBeInTheDocument();
     expect(
-      screen.getByText("Field Map SVG is unavailable for this match."),
+      screen.getByLabelText("Match Spatial Event Map"),
     ).toBeInTheDocument();
+    expect(screen.getByText("9")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
   });
 
   it("renders court SVG layout and player markers when playground is provided", () => {
@@ -175,7 +178,6 @@ describe("MatchSpatialMap Component", () => {
     expect(vectorLine).toHaveAttribute("stroke", "#ffffff");
     expect(vectorLine).toHaveAttribute("marker-end", "url(#arrow-white)");
 
-    // Verify scaled stroke-dasharray (600 * 0.0083 = 4.98, 600 * 0.0067 = 4.02)
     const dashArray = vectorLine?.getAttribute("stroke-dasharray");
     expect(dashArray).toBeDefined();
     const [dashOn, dashOff] = dashArray!.split(" ").map(Number);
@@ -239,7 +241,6 @@ describe("MatchSpatialMap Component", () => {
 
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
 
-    // Hover positive goal event (#9)
     const positiveMarker = screen.getByText("9");
     fireEvent.mouseEnter(positiveMarker);
 
@@ -249,7 +250,6 @@ describe("MatchSpatialMap Component", () => {
 
     fireEvent.mouseLeave(positiveMarker);
 
-    // Hover negative foul event (#4)
     const negativeMarker = screen.getByText("4");
     fireEvent.mouseEnter(negativeMarker);
 
@@ -271,23 +271,19 @@ describe("MatchSpatialMap Component", () => {
     const shotMarker = screen.getByText("9");
     fireEvent.mouseEnter(shotMarker);
 
-    // Default is Info view
     expect(screen.getByText("Action:")).toBeInTheDocument();
     expect(screen.getByText("Goal")).toBeInTheDocument();
 
-    // Move pointer from marker into tooltip
     fireEvent.mouseLeave(shotMarker);
     const tooltip = screen.getByRole("tooltip");
     fireEvent.mouseEnter(tooltip);
 
-    // Toggle to Shot view
     const shotButton = screen.getByRole("button", { name: "Shot" });
     fireEvent.click(shotButton);
 
     expect(screen.getByText("Goal Target")).toBeInTheDocument();
     expect(screen.getByText("X:45% Y:80%")).toBeInTheDocument();
 
-    // Toggle back to Info view
     const infoButton = screen.getByRole("button", { name: "Info" });
     fireEvent.click(infoButton);
 
@@ -304,7 +300,6 @@ describe("MatchSpatialMap Component", () => {
       />,
     );
 
-    // 1. Hover shot event (#9) and toggle mode to "Shot"
     const shotMarker = screen.getByText("9");
     fireEvent.mouseEnter(shotMarker);
 
@@ -312,7 +307,6 @@ describe("MatchSpatialMap Component", () => {
     fireEvent.click(shotButton);
     expect(screen.getByText("Goal Target")).toBeInTheDocument();
 
-    // 2. Hover non-shot event (#4) - state should reset to "Info" and show action info
     const nonShotMarker = screen.getByText("4");
     fireEvent.mouseEnter(nonShotMarker);
 
@@ -338,22 +332,17 @@ describe("MatchSpatialMap Component", () => {
 
     expect(screen.getByText("John Doe")).toBeInTheDocument();
 
-    // Move mouse off marker
     fireEvent.mouseLeave(shotMarker);
 
-    // Move mouse onto tooltip container
     const tooltip = screen.getByRole("tooltip");
     fireEvent.mouseEnter(tooltip);
 
-    // Fast-forward past leave grace delay
     act(() => {
       vi.advanceTimersByTime(200);
     });
 
-    // Tooltip remains visible and active
     expect(screen.getByText("John Doe")).toBeInTheDocument();
 
-    // User can click Shot button without tooltip unmounting
     const shotButton = screen.getByRole("button", { name: "Shot" });
     fireEvent.click(shotButton);
 
@@ -377,7 +366,6 @@ describe("MatchSpatialMap Component", () => {
     fireEvent.click(marker);
     expect(screen.getByText("John Doe")).toBeInTheDocument();
 
-    // Click SVG map background to dismiss tooltip
     const overlaySvg = container.querySelector(
       'svg[aria-label="Match Spatial Event Map"]',
     )!;
@@ -431,16 +419,13 @@ describe("MatchSpatialMap Component", () => {
       name: "John Doe #9 GL",
     });
 
-    // Enter key navigation
     fireEvent.keyDown(markerGroup, { key: "Enter" });
     expect(screen.getByText("John Doe")).toBeInTheDocument();
 
-    // Reset by clicking SVG background
     const overlaySvg = screen.getByLabelText("Match Spatial Event Map");
     fireEvent.click(overlaySvg);
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
 
-    // Space key navigation with preventDefault check
     const spaceEvent = fireEvent.keyDown(markerGroup, { key: " " });
     expect(spaceEvent).toBe(false);
     expect(screen.getByText("John Doe")).toBeInTheDocument();
