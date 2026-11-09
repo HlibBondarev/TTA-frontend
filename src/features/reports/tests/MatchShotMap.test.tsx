@@ -545,4 +545,46 @@ describe("MatchShotMap Component", () => {
     expect(tooltip).toHaveStyle({ top: "46%" });
     expect(tooltip).toHaveClass("-translate-y-full");
   });
+
+  it("renders full tooltip visibly when shotMap has a short aspect ratio with a midpoint marker inside a report modal container", () => {
+    const shortSvgLayout = `<svg viewBox="0 0 615 100" width="615" height="100"><rect width="615" height="100" fill="blue"/></svg>`;
+    const midEvent: GameEventResponse[] = [
+      {
+        id: "short-mid-event",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50, // locY = 50 -> topPercent = 46%
+        playerNumber: 99,
+        playerName: "Short Map Player",
+        eventName: "Goal",
+        periodNumber: 2,
+        normalizedMatchTime: "04:30.000",
+      },
+    ];
+
+    const { container } = render(
+      <div className="relative overflow-visible max-h-400px">
+        <MatchShotMap
+          events={midEvent}
+          eventDefinitionsMap={mockDefinitionsMap}
+          shotMap={shortSvgLayout}
+        />
+      </div>,
+    );
+
+    const marker = screen.getByText("99");
+    fireEvent.click(marker);
+
+    const tooltip = screen
+      .getByText(/Short Map Player/)
+      .closest("div.absolute");
+    expect(tooltip).toBeInTheDocument();
+    expect(tooltip).toHaveClass("opacity-100");
+    expect(tooltip).not.toHaveClass("invisible");
+    expect(tooltip).not.toHaveClass("opacity-0");
+
+    const mapWrapper = container.querySelector(".relative.w-full");
+    expect(mapWrapper).not.toHaveClass("overflow-hidden");
+  });
 });
