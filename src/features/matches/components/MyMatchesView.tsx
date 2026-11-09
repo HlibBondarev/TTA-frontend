@@ -162,6 +162,15 @@ export const MyMatchesView: React.FC = () => {
 
   const handleUncatch = async (matchId: string, teamId: string) => {
     try {
+      const localMatch = await db.matches.get(matchId);
+      const isUnfinishedDraft =
+        localMatch != null &&
+        (localMatch.homeScore == null || localMatch.guestScore == null);
+
+      if (isUnfinishedDraft) {
+        return;
+      }
+
       await userMatchService.uncatchMatch(matchId, teamId);
       setMatches((prev) => prev.filter((m) => m.id !== matchId));
       await db.matches.delete(matchId).catch(() => {});

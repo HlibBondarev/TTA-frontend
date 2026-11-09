@@ -656,4 +656,38 @@ describe("MyMatchesView Component", () => {
       );
     });
   });
+
+  it("should protect unfinished local draft from deletion when handleUncatch is invoked", async () => {
+    vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
+      mockMatches,
+    );
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "match-101",
+      tournamentId: "tourn-1",
+      homeTeamId: "home-team-1",
+      guestTeamId: "guest-team-2",
+      scheduledAt: "2026-08-25T15:00:00.000Z",
+      homeScore: null,
+      guestScore: null,
+    } as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MyMatchesView />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Dolphins")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /Delete/i }));
+
+    await waitFor(() => {
+      expect(db.matches.get).toHaveBeenCalledWith("match-101");
+      expect(userMatchService.uncatchMatch).not.toHaveBeenCalled();
+      expect(db.matches.delete).not.toHaveBeenCalled();
+      expect(screen.getByText("Dolphins")).toBeDefined();
+    });
+  });
 });
