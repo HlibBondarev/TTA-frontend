@@ -281,7 +281,11 @@ const recoverActivePlayersLimit = async (matchId: string): Promise<number> => {
   }
 
   const config = await db.sportconfigurations.get(tournament.configurationId);
-  if (!config || typeof config.activePlayersLimit !== "number") {
+  if (
+    !config ||
+    typeof config.activePlayersLimit !== "number" ||
+    config.activePlayersLimit <= 0
+  ) {
     throw new Error(
       `Match Recovery Error: SportConfiguration '${tournament.configurationId}' was not found or has an invalid activePlayersLimit.`,
     );

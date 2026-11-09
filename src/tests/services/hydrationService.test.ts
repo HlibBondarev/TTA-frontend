@@ -1549,7 +1549,7 @@ describe("Hydration Service", () => {
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 
-  it("should throw error when tournament sportconfiguration lacks activePlayersLimit during getMatchRecoveryState", async () => {
+  it("should throw error when tournament sportconfiguration lacks or has non-positive activePlayersLimit during getMatchRecoveryState", async () => {
     const consoleErrorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
@@ -1565,14 +1565,15 @@ describe("Hydration Service", () => {
     } as never);
     vi.mocked(db.tournaments.get).mockResolvedValueOnce({
       id: "t-1",
-      configurationId: "cfg-no-limit",
+      configurationId: "cfg-invalid-limit",
     } as never);
     vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
-      id: "cfg-no-limit",
+      id: "cfg-invalid-limit",
+      activePlayersLimit: 0,
     } as never);
 
     await expect(getMatchRecoveryState(matchId)).rejects.toThrow(
-      "Match Recovery Error: SportConfiguration 'cfg-no-limit' was not found or has an invalid activePlayersLimit.",
+      "Match Recovery Error: SportConfiguration 'cfg-invalid-limit' was not found or has an invalid activePlayersLimit.",
     );
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
