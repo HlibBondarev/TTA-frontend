@@ -154,7 +154,8 @@ export const useShotMap = ({
     });
 
     const minDim = Math.min(dimensions.width, dimensions.height);
-    const minPadding = Math.min(8, minDim * 0.25);
+    const baseMarkerRadius = minDim * 0.032;
+    const minPadding = minDim * 0.05;
 
     const points = validShotEvents.map((e) => {
       const baseCx = (Number(e.shotLocationX) / 100) * dimensions.width;
@@ -172,7 +173,7 @@ export const useShotMap = ({
 
       if (totalInGroup > 1) {
         const offsetRadius = Math.min(
-          Math.max(7, Math.sqrt(totalInGroup) * 3.5),
+          baseMarkerRadius * Math.max(0.75, Math.sqrt(totalInGroup) * 0.5),
           minDim * 0.25,
         );
         const safeRadiusX = Math.min(

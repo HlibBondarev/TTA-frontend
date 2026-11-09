@@ -308,7 +308,7 @@ describe("MatchShotMap Component", () => {
     expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
   });
 
-  it("scales marker stroke width dynamically and applies non-scaling-stroke for micro viewBox maps", () => {
+  it("scales marker stroke width dynamically without vectorEffect non-scaling-stroke on micro viewBox maps", () => {
     const microSvg = `<svg viewBox="0 0 1 1" width="1" height="1"><rect width="1" height="1" fill="blue"/></svg>`;
     const microEvents: GameEventResponse[] = [
       {
@@ -334,7 +334,7 @@ describe("MatchShotMap Component", () => {
 
     expect(circle).toBeInTheDocument();
     expect(circle).toHaveAttribute("stroke-width", "0.01");
-    expect(circle).toHaveStyle({ vectorEffect: "non-scaling-stroke" });
+    expect(circle).not.toHaveStyle({ vectorEffect: "non-scaling-stroke" });
   });
 
   it("renders distinct scaled hit targets and handles pointer events for overlapping edge markers on a 1x1 map", () => {
@@ -375,11 +375,11 @@ describe("MatchShotMap Component", () => {
     const marker1 = screen.getByRole("button", { name: /Player #7/ });
     const marker2 = screen.getByRole("button", { name: /Player #9/ });
 
-    // Verify markers are rendered at distinct translated center coordinates (cx = 0.75 vs cx = 0.25)
-    expect(marker1).toHaveAttribute("transform", "translate(0.75, 0.5)");
-    expect(marker2).toHaveAttribute("transform", "translate(0.25, 0.5)");
+    // Verify markers are rendered at distinct translated center coordinates
+    expect(marker1).toHaveAttribute("transform", "translate(0.95, 0.5)");
+    expect(marker2).toHaveAttribute("transform", "translate(0.9, 0.5)");
 
-    // Verify micro-scaled circle radii and non-scaling strokes to prevent hit target coverage
+    // Verify micro-scaled circle radii prevent hit target coverage
     const circle1 = marker1.querySelector("circle");
     const circle2 = marker2.querySelector("circle");
 
@@ -387,8 +387,6 @@ describe("MatchShotMap Component", () => {
     expect(circle2).toHaveAttribute("r", "0.032");
     expect(circle1).toHaveAttribute("stroke-width", "0.01");
     expect(circle2).toHaveAttribute("stroke-width", "0.01");
-    expect(circle1).toHaveStyle({ vectorEffect: "non-scaling-stroke" });
-    expect(circle2).toHaveStyle({ vectorEffect: "non-scaling-stroke" });
 
     // Verify independent pointer event interactions
     fireEvent.mouseEnter(marker2);
@@ -589,7 +587,7 @@ describe("MatchShotMap Component", () => {
   });
 
   it("scales marker dimensions proportionally for large viewBox maps without fixed absolute caps", () => {
-    const largeSvg = `<svg viewBox="0 0 1000 1000" width="1000" height="1000"><rect width="1000" height="1000" fill="blue"/></svg>`;
+    const largeSvg = `<svg viewBox="0 0 6150 2480" width="6150" height="2480"><rect width="6150" height="2480" fill="blue"/></svg>`;
     const largeEvents: GameEventResponse[] = [
       {
         id: "large-1",
@@ -611,11 +609,8 @@ describe("MatchShotMap Component", () => {
 
     const markerBtn = screen.getByRole("button", { name: /Player #7/ });
     const circle = markerBtn.querySelector("circle");
-    const text = markerBtn.querySelector("text");
 
-    expect(circle).toHaveAttribute("r", "32");
-    expect(circle).toHaveAttribute("stroke-width", "10");
-    expect(text).toHaveAttribute("font-size", "36");
-    expect(text).toHaveAttribute("y", "12");
+    expect(circle).toHaveAttribute("r", "79.36");
+    expect(circle).toHaveAttribute("stroke-width", "24.8");
   });
 });

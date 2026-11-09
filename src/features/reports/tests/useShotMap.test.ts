@@ -183,6 +183,42 @@ describe("useShotMap hook", () => {
     expect(p2.event.shotLocationX).toBe(50);
   });
 
+  it("visually separates markers with identical shot target coordinates proportionally on large viewBox maps", () => {
+    const largeSvgMap = '<svg viewBox="0 0 6150 2480"></svg>';
+    const overlappingEvents: GameEventResponse[] = [
+      {
+        id: "overlap-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+        playerNumber: 7,
+      },
+      {
+        id: "overlap-2",
+        eventDefinitionId: sogDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+        playerNumber: 9,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useShotMap({
+        events: overlappingEvents,
+        eventDefinitionsMap: mockDefinitionsMap,
+        shotMap: largeSvgMap,
+      }),
+    );
+
+    expect(result.current.renderablePoints).toHaveLength(2);
+    const [p1, p2] = result.current.renderablePoints;
+
+    const distance = Math.hypot(p1.cx - p2.cx, p1.cy - p2.cy);
+    expect(distance).toBeGreaterThan(100);
+  });
+
   it("keeps overlapping markers within viewBox bounds and verifies pointer selection on small viewBox maps", () => {
     const smallMapEvents: GameEventResponse[] = [
       {
@@ -214,14 +250,12 @@ describe("useShotMap hook", () => {
     expect(result.current.renderablePoints).toHaveLength(2);
     const [p1, p2] = result.current.renderablePoints;
 
-    // Verify coordinates stay within viewBox 0..10 bounds and remain distinct
     expect(p1.cx).toBeLessThanOrEqual(10);
     expect(p1.cx).toBeGreaterThanOrEqual(0);
     expect(p2.cx).toBeLessThanOrEqual(10);
     expect(p2.cx).toBeGreaterThanOrEqual(0);
     expect(p1.cx).not.toBe(p2.cx);
 
-    // Verify pointer selection for both edge markers
     act(() => {
       result.current.handleMarkerClick("edge-1");
     });
@@ -393,10 +427,8 @@ describe("useShotMap hook", () => {
     expect(result.current.renderablePoints).toHaveLength(2);
     const [p1, p2] = result.current.renderablePoints;
 
-    // Both points are grouped into cluster and rendered at distinct cx coordinates
     expect(p1.cx).not.toBe(p2.cx);
 
-    // Verify pointer selection for both nearby markers
     act(() => {
       result.current.handleMarkerClick("nearby-1");
     });
@@ -462,20 +494,17 @@ describe("useShotMap hook", () => {
 
     expect(result.current.renderablePoints).toHaveLength(5);
 
-    // Verify all 5 markers have distinct center coordinates
     const centerCoordinates = result.current.renderablePoints.map(
       (p) => `${p.cx}_${p.cy}`,
     );
     const uniqueCoordinates = new Set(centerCoordinates);
     expect(uniqueCoordinates.size).toBe(5);
 
-    // Start cycling directly from the last marker (shot-5)
     act(() => {
       result.current.handleMarkerClick("shot-5");
     });
     expect(result.current.selectedEventId).toBe("shot-5");
 
-    // Click again: must wrap around to shot-1 instead of deselecting to null
     act(() => {
       result.current.handleMarkerClick("shot-5");
     });

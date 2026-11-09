@@ -93,7 +93,6 @@ const ShotMarker: React.FC<{
         cy={0}
         r={radius}
         strokeWidth={strokeWidth}
-        style={{ vectorEffect: "non-scaling-stroke" }}
         className={`${colorClasses} shadow-md transition-all duration-150 group-focus-visible:stroke-white group-focus-visible:stroke-[3px]`}
       />
       <text
