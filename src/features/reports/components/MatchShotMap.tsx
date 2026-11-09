@@ -66,12 +66,12 @@ const ShotMarker: React.FC<{
   };
 
   const minDim = Math.min(dimensions.width, dimensions.height);
-  const baseRadius = Math.min(8, minDim * 0.032);
-  const hoverRadius = Math.min(11, minDim * 0.044);
+  const baseRadius = minDim * 0.032;
+  const hoverRadius = minDim * 0.044;
   const radius = isHighlighted ? hoverRadius : baseRadius;
-  const strokeWidth = Math.min(2, minDim * 0.01);
-  const fontSize = Math.min(9, minDim * 0.036);
-  const textY = Math.min(3, minDim * 0.012);
+  const strokeWidth = minDim * 0.01;
+  const fontSize = minDim * 0.036;
+  const textY = minDim * 0.012;
 
   return (
     <g
@@ -135,7 +135,6 @@ const ShotTooltip: React.FC<{
     ? "text-emerald-400"
     : "text-rose-400";
 
-  // Calculate top percentage clamped within container bounds to keep full tooltip visible on short maps
   const topPercent =
     locY < 45 ? Math.min(85, locY + 4) : Math.max(15, locY - 4);
   const verticalPositionClass = locY < 45 ? "mt-0" : "-translate-y-full";
@@ -153,7 +152,6 @@ const ShotTooltip: React.FC<{
         pointerEvents: "none",
       }}
     >
-      {/* Line 1: Player info */}
       <div
         className={`font-bold border-b border-gray-800 pb-0.5 mb-1 truncate ${headerColor}`}
       >
@@ -161,7 +159,6 @@ const ShotTooltip: React.FC<{
         {displayEvent.playerName || "Player"}
       </div>
 
-      {/* Line 2: Period & Match Time paired together on a dedicated line */}
       <div className="font-mono text-amber-400 text-[9px] font-bold mb-0.5">
         Q{displayEvent.periodNumber ?? "-"}
         {displayEvent.normalizedMatchTime
@@ -169,7 +166,6 @@ const ShotTooltip: React.FC<{
           : ""}
       </div>
 
-      {/* Line 3: Action Name */}
       <div className="font-semibold text-white truncate text-[9px]">
         {displayEvent.eventName || "Shot"}
       </div>

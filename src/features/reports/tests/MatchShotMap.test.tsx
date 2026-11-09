@@ -587,4 +587,35 @@ describe("MatchShotMap Component", () => {
     const mapWrapper = container.querySelector(".relative.w-full");
     expect(mapWrapper).not.toHaveClass("overflow-hidden");
   });
+
+  it("scales marker dimensions proportionally for large viewBox maps without fixed absolute caps", () => {
+    const largeSvg = `<svg viewBox="0 0 1000 1000" width="1000" height="1000"><rect width="1000" height="1000" fill="blue"/></svg>`;
+    const largeEvents: GameEventResponse[] = [
+      {
+        id: "large-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+        playerNumber: 7,
+      },
+    ];
+
+    render(
+      <MatchShotMap
+        events={largeEvents}
+        eventDefinitionsMap={mockDefinitionsMap}
+        shotMap={largeSvg}
+      />,
+    );
+
+    const markerBtn = screen.getByRole("button", { name: /Player #7/ });
+    const circle = markerBtn.querySelector("circle");
+    const text = markerBtn.querySelector("text");
+
+    expect(circle).toHaveAttribute("r", "32");
+    expect(circle).toHaveAttribute("stroke-width", "10");
+    expect(text).toHaveAttribute("font-size", "36");
+    expect(text).toHaveAttribute("y", "12");
+  });
 });
