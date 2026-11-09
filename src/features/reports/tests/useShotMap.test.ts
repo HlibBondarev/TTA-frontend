@@ -535,4 +535,66 @@ describe("useShotMap hook", () => {
     });
     expect(result.current.selectedEventId).toBe("shot-1");
   });
+
+  it("handles chain-adjacent shots (x=50, 53, 56) where distance from cluster ref isolates the boundary marker into a toggleable single cluster", () => {
+    const chainEvents: GameEventResponse[] = [
+      {
+        id: "chain-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+        playerNumber: 1,
+      },
+      {
+        id: "chain-2",
+        eventDefinitionId: sogDefId,
+        isPositive: true,
+        shotLocationX: 53,
+        shotLocationY: 50,
+        playerNumber: 2,
+      },
+      {
+        id: "chain-3",
+        eventDefinitionId: missDefId,
+        isPositive: false,
+        shotLocationX: 56,
+        shotLocationY: 50,
+        playerNumber: 3,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useShotMap({
+        events: chainEvents,
+        eventDefinitionsMap: mockDefinitionsMap,
+        shotMap: defaultShotMap,
+      }),
+    );
+
+    // chain-1 and chain-2 form Cluster 1 (dist <= 3.5); chain-3 forms isolated Cluster 2 (dist = 6 from ref)
+    expect(result.current.renderablePoints).toHaveLength(3);
+
+    // Clicking isolated marker (chain-3) once selects it; clicking twice clears selection
+    act(() => {
+      result.current.handleMarkerClick("chain-3");
+    });
+    expect(result.current.selectedEventId).toBe("chain-3");
+
+    act(() => {
+      result.current.handleMarkerClick("chain-3");
+    });
+    expect(result.current.selectedEventId).toBeNull();
+
+    // Clicking grouped marker (chain-1) cycles between chain-1 and chain-2
+    act(() => {
+      result.current.handleMarkerClick("chain-1");
+    });
+    expect(result.current.selectedEventId).toBe("chain-1");
+
+    act(() => {
+      result.current.handleMarkerClick("chain-1");
+    });
+    expect(result.current.selectedEventId).toBe("chain-2");
+  });
 });
