@@ -498,6 +498,13 @@ describe("Event Database Service (eventService)", () => {
         payload: expect.stringContaining('"shotLocationX":30'),
       }),
     );
+    expect(
+      JSON.parse(
+        vi.mocked(db.syncQueue.add).mock.lastCall?.[0].payload ?? "null",
+      ),
+    ).toContainEqual(
+      expect.objectContaining({ id: createdEvent.id, shotLocationY: 70.0 }),
+    );
   });
 
   it("should update an unsynchronized GameEvent entity and its syncQueue payload with shot locations", async () => {
@@ -559,6 +566,11 @@ describe("Event Database Service (eventService)", () => {
     expect(mockSyncQueueUpdate).toHaveBeenCalledWith(10, {
       payload: expect.stringContaining('"shotLocationX":40'),
     });
+    expect(
+      JSON.parse(mockSyncQueueUpdate.mock.lastCall?.[1]?.payload ?? "null"),
+    ).toContainEqual(
+      expect.objectContaining({ id: "event-1", shotLocationY: 60.0 }),
+    );
   });
 
   it("should throw error in updateGameEventTx if target match is locked for finalization", async () => {
