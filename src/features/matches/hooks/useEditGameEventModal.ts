@@ -197,15 +197,29 @@ export function useEditGameEventModal({
       .then((evt) => {
         if (!isMounted) return;
         if (evt) {
-          if (!isLocationEditedRef.current) {
-            if (typeof evt.locationX === "number") setLocationX(evt.locationX);
-            if (typeof evt.locationY === "number") setLocationY(evt.locationY);
+          if (
+            !isLocationEditedRef.current &&
+            typeof evt.locationX === "number"
+          ) {
+            setLocationX(evt.locationX);
           }
-          if (!isShotLocationEditedRef.current) {
-            if (typeof evt.shotLocationX === "number")
-              setShotLocationX(evt.shotLocationX);
-            if (typeof evt.shotLocationY === "number")
-              setShotLocationY(evt.shotLocationY);
+          if (
+            !isLocationEditedRef.current &&
+            typeof evt.locationY === "number"
+          ) {
+            setLocationY(evt.locationY);
+          }
+          if (
+            !isShotLocationEditedRef.current &&
+            typeof evt.shotLocationX === "number"
+          ) {
+            setShotLocationX(evt.shotLocationX);
+          }
+          if (
+            !isShotLocationEditedRef.current &&
+            typeof evt.shotLocationY === "number"
+          ) {
+            setShotLocationY(evt.shotLocationY);
           }
         }
         setIsLocationLoaded(true);
