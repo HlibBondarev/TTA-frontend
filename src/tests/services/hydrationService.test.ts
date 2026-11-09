@@ -361,7 +361,7 @@ describe("Hydration Service", () => {
     );
   });
 
-  it("should catch and log error in getMatchRecoveryState if database query fails", async () => {
+  it("should log error and re-throw in getMatchRecoveryState if database query fails", async () => {
     const consoleErrorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
@@ -369,14 +369,12 @@ describe("Hydration Service", () => {
       throw new Error("IndexedDB read error");
     });
 
-    const recoveryState = await getMatchRecoveryState(matchId);
+    await expect(getMatchRecoveryState(matchId)).rejects.toThrow(
+      "IndexedDB read error",
+    );
 
-    expect(recoveryState).toEqual({
-      recoveredPeriod: 1,
-      activePlayersLimit: 7,
-    });
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      "Failed to calculate match recovery state:",
+      `Failed to resolve match recovery state for match '${matchId}':`,
       expect.any(Error),
     );
     consoleErrorSpy.mockRestore();
@@ -636,7 +634,10 @@ describe("Hydration Service", () => {
     });
   });
 
-  it("should fallback to default period 1 and limit 7 when recovery state tables are empty", async () => {
+  it("should throw error when match record is missing in IndexedDB during getMatchRecoveryState", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     vi.mocked(db.timeanchors.where).mockReturnValueOnce({
       equals: vi.fn().mockReturnValueOnce({
         toArray: vi.fn().mockResolvedValueOnce([]),
@@ -645,11 +646,15 @@ describe("Hydration Service", () => {
 
     vi.mocked(db.matches.get).mockResolvedValueOnce(undefined as never);
 
-    const recoveryState = await getMatchRecoveryState(matchId);
-    expect(recoveryState).toEqual({
-      recoveredPeriod: 1,
-      activePlayersLimit: 7,
-    });
+    await expect(getMatchRecoveryState(matchId)).rejects.toThrow(
+      `Match Recovery Error: Match '${matchId}' or its tournamentId was not found in IndexedDB.`,
+    );
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      `Failed to resolve match recovery state for match '${matchId}':`,
+      expect.any(Error),
+    );
+    consoleErrorSpy.mockRestore();
   });
 
   it("should purge all records associated with a match when discardUnfinishedMatch is called and match is unfinished", async () => {
@@ -1544,7 +1549,10 @@ describe("Hydration Service", () => {
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 
-  it("should fallback to default activePlayersLimit 7 when tournament sportconfiguration lacks activePlayersLimit", async () => {
+  it("should throw error when tournament sportconfiguration lacks activePlayersLimit during getMatchRecoveryState", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     vi.mocked(db.timeanchors.where).mockReturnValueOnce({
       equals: vi.fn().mockReturnValueOnce({
         toArray: vi.fn().mockResolvedValueOnce([]),
@@ -1563,12 +1571,15 @@ describe("Hydration Service", () => {
       id: "cfg-no-limit",
     } as never);
 
-    const recoveryState = await getMatchRecoveryState(matchId);
+    await expect(getMatchRecoveryState(matchId)).rejects.toThrow(
+      "Match Recovery Error: SportConfiguration 'cfg-no-limit' was not found or has an invalid activePlayersLimit.",
+    );
 
-    expect(recoveryState).toEqual({
-      recoveredPeriod: 1,
-      activePlayersLimit: 7,
-    });
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      `Failed to resolve match recovery state for match '${matchId}':`,
+      expect.any(Error),
+    );
+    consoleErrorSpy.mockRestore();
   });
 
   it("should ignore DELETE items and select team from POST catch item when recovering trackedTeamId from syncQueue", async () => {

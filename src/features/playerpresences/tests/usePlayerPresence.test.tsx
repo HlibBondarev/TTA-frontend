@@ -4,7 +4,7 @@ import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import React from "react";
 import { usePlayerPresence } from "../hooks/usePlayerPresence";
-import presenceReducer from "../store/presenceSlice";
+import presenceReducer, { setPresenceLimits } from "../store/presenceSlice";
 import matchReducer from "../../matches/store/matchSlice";
 import { db } from "../../../db/ttaDatabase";
 import {
@@ -83,12 +83,16 @@ describe("usePlayerPresence Hook", () => {
     });
 
     expect(result.current.currentPeriod).toBe(1);
-    expect(result.current.activePlayersLimit).toBe(7);
+    expect(result.current.activePlayersLimit).toBe(0);
     expect(result.current.selectedStartingIds).toEqual([]);
     expect(result.current.activeLineupIds).toEqual([]);
   });
 
   it("should stage and validate starting lineup correctly within limits", () => {
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 7, period: 1 }));
+    });
+
     const { result } = renderHook(() => usePlayerPresence("test-match"), {
       wrapper,
     });
@@ -220,6 +224,10 @@ describe("usePlayerPresence Hook", () => {
   });
 
   it("should start a period, trigger database initialization, and sync with DB", async () => {
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 7, period: 1 }));
+    });
+
     const { result } = renderHook(() => usePlayerPresence("test-match"), {
       wrapper,
     });
@@ -244,6 +252,10 @@ describe("usePlayerPresence Hook", () => {
   });
 
   it("should respect overridePeriodNumber when passed to startPeriodWithRoster, endPeriodWithRoster, and executeSubstitution", async () => {
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 7, period: 1 }));
+    });
+
     const { result } = renderHook(() => usePlayerPresence("test-match"), {
       wrapper,
     });
@@ -289,6 +301,10 @@ describe("usePlayerPresence Hook", () => {
   });
 
   it("should refresh presence from DB and rethrow when startPeriodWithRoster fails", async () => {
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 7, period: 1 }));
+    });
+
     const { result } = renderHook(() => usePlayerPresence("test-match"), {
       wrapper,
     });
@@ -353,6 +369,10 @@ describe("usePlayerPresence Hook", () => {
   });
 
   it("should reject starting a period if the roster is incomplete", async () => {
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 7, period: 1 }));
+    });
+
     const { result } = renderHook(() => usePlayerPresence("test-match"), {
       wrapper,
     });

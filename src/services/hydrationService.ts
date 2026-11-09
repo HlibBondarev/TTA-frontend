@@ -220,10 +220,8 @@ export const checkUnfinishedMatch = async (
   };
 };
 
-const recoverPeriodFromAnchors = async (
-  matchId: string,
-): Promise<number | null> => {
-  if (!db?.timeanchors) return null;
+const recoverPeriodFromAnchors = async (matchId: string): Promise<number> => {
+  if (!db?.timeanchors) return 1;
   const anchors = await db.timeanchors
     .where("matchId")
     .equals(matchId)
@@ -231,7 +229,7 @@ const recoverPeriodFromAnchors = async (
 
   return anchors.length > 0
     ? Math.max(...anchors.map((a) => a.periodNumber))
-    : null;
+    : 1;
 };
 
 const refreshShotMapBackground = (
@@ -261,45 +259,66 @@ const refreshShotMapBackground = (
     });
 };
 
-const recoverActivePlayersLimit = async (
-  matchId: string,
-): Promise<number | null> => {
-  if (!db?.matches || !db?.tournaments || !db?.sportconfigurations) return null;
+const recoverActivePlayersLimit = async (matchId: string): Promise<number> => {
+  if (!db?.matches || !db?.tournaments || !db?.sportconfigurations) {
+    throw new Error(
+      "Match Recovery Error: Required IndexedDB tables are unavailable.",
+    );
+  }
 
   const match = await db.matches.get(matchId);
-  if (!match?.tournamentId) return null;
+  if (!match?.tournamentId) {
+    throw new Error(
+      `Match Recovery Error: Match '${matchId}' or its tournamentId was not found in IndexedDB.`,
+    );
+  }
 
   const tournament = await db.tournaments.get(match.tournamentId);
-  if (!tournament?.configurationId) return null;
+  if (!tournament?.configurationId) {
+    throw new Error(
+      `Match Recovery Error: Tournament '${match.tournamentId}' or its configurationId was not found in IndexedDB.`,
+    );
+  }
 
   const config = await db.sportconfigurations.get(tournament.configurationId);
+  if (!config || typeof config.activePlayersLimit !== "number") {
+    throw new Error(
+      `Match Recovery Error: SportConfiguration '${tournament.configurationId}' was not found or has an invalid activePlayersLimit.`,
+    );
+  }
 
-  if (tournament.sportId && !config?.shotMap) {
+  if (tournament.sportId && !config.shotMap) {
     refreshShotMapBackground(tournament.sportId, tournament.configurationId);
   }
 
-  return config?.activePlayersLimit ?? null;
+  return config.activePlayersLimit;
 };
 
 export const getMatchRecoveryState = async (
   matchId: string,
 ): Promise<{ recoveredPeriod: number; activePlayersLimit: number }> => {
-  let recoveredPeriod = 1;
-  let activePlayersLimit = 7;
-
   try {
-    const [period, limit] = await Promise.all([
+    const [period, activePlayersLimit] = await Promise.all([
       recoverPeriodFromAnchors(matchId),
       recoverActivePlayersLimit(matchId),
     ]);
 
-    if (period !== null) recoveredPeriod = period;
-    if (limit !== null) activePlayersLimit = limit;
+    return { recoveredPeriod: period, activePlayersLimit };
   } catch (err) {
-    console.error("Failed to calculate match recovery state:", err);
+    const status = extractErrorStatus(err);
+    if (status !== undefined && UNRECOVERABLE_STATUS_CODES.has(status)) {
+      console.warn(
+        `Unrecoverable status code (${status}) encountered while resolving match recovery state for match '${matchId}':`,
+        err,
+      );
+    } else {
+      console.error(
+        `Failed to resolve match recovery state for match '${matchId}':`,
+        err,
+      );
+    }
+    throw err;
   }
-
-  return { recoveredPeriod, activePlayersLimit };
 };
 
 export const recoverRecentActions = async (
