@@ -12,8 +12,8 @@ const VIEWBOX_VALUE_REGEX = new RegExp(
   String.raw`^\s*(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})\s*$`,
 );
 
-// Regex matching the attributes string of the root <svg ...> element only
-const ROOT_SVG_REGEX = /<svg\b([^>]*)>/i;
+// Regex matching the attributes string of the root <svg ...> element only, respecting quotes that may contain '>'
+const ROOT_SVG_REGEX = /<svg\b((?:[^"'>]|"[^"]*"|'[^']*')*)>/i;
 
 // Regex matching individual HTML/XML attributes sequentially: key="val", key='val', key=val, or boolean key
 const ATTR_REGEX =
