@@ -66,6 +66,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   };
 
   const handleLocationSelect = (x: number | null, y: number | null) => {
+    if (isSubmitting) return;
     if (x === null || y === null) {
       setPendingLocation(null);
     } else {

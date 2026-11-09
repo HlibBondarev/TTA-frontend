@@ -480,4 +480,52 @@ describe("useTTAConsole Custom Hook", () => {
 
     expect(result.current.isSubmitting).toBe(false);
   });
+
+  it("should prevent updating spatial field location when isSubmitting is true", async () => {
+    let resolveRecord: (value: unknown) => void;
+    const pendingRecordPromise = new Promise((resolve) => {
+      resolveRecord = resolve;
+    });
+
+    mockRecordGameEvent.mockReturnValueOnce(pendingRecordPromise);
+
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+    });
+
+    const { result } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.handleActionSelect("Pass", true, "def-pass-1", false);
+      result.current.handleLocationSelect(20.0, 30.0);
+      result.current.setSelectedPlayerId("player-1");
+    });
+
+    let enterPromise: Promise<void>;
+    act(() => {
+      enterPromise = result.current.handleEnter();
+    });
+
+    expect(result.current.isSubmitting).toBe(true);
+
+    // Attempt to change spatial location while submission is in progress
+    act(() => {
+      result.current.handleLocationSelect(70.0, 80.0);
+    });
+
+    // Location coordinates must remain unchanged (20.0, 30.0) while submitting
+    expect(result.current.pendingLocation).toEqual({
+      locationX: 20.0,
+      locationY: 30.0,
+    });
+
+    await act(async () => {
+      resolveRecord!(undefined);
+      await enterPromise;
+    });
+
+    expect(result.current.isSubmitting).toBe(false);
+  });
 });
