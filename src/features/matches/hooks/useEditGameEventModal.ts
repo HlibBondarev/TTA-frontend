@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useSelector } from "react-redux";
+import { liveQuery } from "dexie";
 import {
   db,
   type MatchLineupLookup,
@@ -77,6 +78,7 @@ interface MatchSportDetails {
   playground: string | null;
   shotMap: string | null;
   eventDefinitions: EventDefinitionLookup[];
+  configurationId?: string | null;
 }
 
 async function fetchMatchSportDetails(
@@ -86,18 +88,30 @@ async function fetchMatchSportDetails(
 ): Promise<MatchSportDetails> {
   const match = await db.matches.get(matchId);
   if (!match?.tournamentId) {
-    return { playground: null, shotMap: null, eventDefinitions: [] };
+    return {
+      playground: null,
+      shotMap: null,
+      eventDefinitions: [],
+      configurationId: null,
+    };
   }
 
   const tournament = await db.tournaments.get(match.tournamentId);
   if (!tournament) {
-    return { playground: null, shotMap: null, eventDefinitions: [] };
+    return {
+      playground: null,
+      shotMap: null,
+      eventDefinitions: [],
+      configurationId: null,
+    };
   }
 
   let playground: string | null = null;
   let shotMap: string | null = null;
-  if (tournament.configurationId) {
-    const config = await db.sportconfigurations.get(tournament.configurationId);
+  const configurationId = tournament.configurationId ?? null;
+
+  if (configurationId) {
+    const config = await db.sportconfigurations.get(configurationId);
     playground = config?.playground ?? null;
     shotMap = config?.shotMap ?? null;
   }
@@ -111,7 +125,7 @@ async function fetchMatchSportDetails(
     );
   }
 
-  return { playground, shotMap, eventDefinitions };
+  return { playground, shotMap, eventDefinitions, configurationId };
 }
 
 export function useEditGameEventModal({
@@ -144,6 +158,7 @@ export function useEditGameEventModal({
   >([]);
   const [playground, setPlayground] = useState<string | null>(null);
   const [shotMap, setShotMap] = useState<string | null>(null);
+  const [configurationId, setConfigurationId] = useState<string | null>(null);
 
   const [selectedMatchLineupId, setSelectedMatchLineupId] = useState<string>(
     action.matchLineupId,
@@ -214,6 +229,8 @@ export function useEditGameEventModal({
 
         if (details.playground) setPlayground(details.playground);
         if (details.shotMap) setShotMap(details.shotMap);
+        if (details.configurationId)
+          setConfigurationId(details.configurationId);
         if (details.eventDefinitions.length > 0) {
           setEventDefinitions(details.eventDefinitions);
         }
@@ -245,6 +262,33 @@ export function useEditGameEventModal({
       isMounted = false;
     };
   }, [action.id, action.eventDefinitionId, matchId, currentUserId]);
+
+  // Real-time subscription to sport configuration changes via Dexie liveQuery
+  useEffect(() => {
+    if (!configurationId) return;
+
+    const subscription = liveQuery(() =>
+      db.sportconfigurations.get(configurationId),
+    ).subscribe({
+      next: (config) => {
+        if (config) {
+          if (config.playground !== undefined) {
+            setPlayground(config.playground ?? null);
+          }
+          if (config.shotMap !== undefined) {
+            setShotMap(config.shotMap ?? null);
+          }
+        }
+      },
+      error: (err) => {
+        console.error("Failed to observe sport configuration changes:", err);
+      },
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [configurationId]);
 
   const selectedEventDef = eventDefinitions.find(
     (def) => def.id === selectedEventDefinitionId,

@@ -243,6 +243,22 @@ describe("useEditGameEventModal Custom Hook", () => {
     expect(result.current.shotMap).toBe("<svg>Goal</svg>");
   });
 
+  it("should observe sport configuration changes via liveQuery and update shotMap dynamically", async () => {
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: sampleAction,
+        matchId: "match-1",
+        onClose: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+      expect(result.current.shotMap).toBe("<svg>Goal</svg>");
+      expect(result.current.playground).toBe("<svg>Court</svg>");
+    });
+  });
+
   it("should resolve currentUserId from Redux auth.user.id fallback when auth0 is missing", async () => {
     mockAuth0User = undefined;
     mockReduxState = {
