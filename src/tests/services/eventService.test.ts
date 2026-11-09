@@ -88,7 +88,7 @@ describe("Event Database Service (eventService)", () => {
       name: "Goal",
       shortName: "GL",
       isPositive: true,
-      isShot: false,
+      isShot: true,
       isEnabled: true,
       sortOrder: 1,
       ownerId: "user-1",
@@ -101,7 +101,7 @@ describe("Event Database Service (eventService)", () => {
       name: "Pass",
       shortName: "PS",
       isPositive: true,
-      isShot: false,
+      isShot: true,
       isEnabled: true,
       sortOrder: 2,
       ownerId: "user-1",
@@ -1245,5 +1245,64 @@ describe("Event Database Service (eventService)", () => {
     expect(updated.locationY).toBe(85.0);
     expect(updated.shotLocationX).toBe(15.0);
     expect(updated.shotLocationY).toBe(80.0);
+  });
+
+  it("should clear shotLocationX and shotLocationY to null when updating event to a non-shot definition", async () => {
+    const existingEvent = {
+      id: "event-shot-to-nonshot",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: false,
+      locationX: 42.5,
+      locationY: 85.0,
+      shotLocationX: 15.0,
+      shotLocationY: 80.0,
+      createdAt: "2026-07-22T12:00:00.000Z",
+      sequenceNumber: 1,
+      isSynced: 0,
+    };
+
+    mockGameEventsGet.mockResolvedValueOnce(existingEvent);
+    mockMatchLineupsGet.mockImplementation((id: string) => {
+      if (id === "lineup-1") {
+        return Promise.resolve({ id, matchId: "match-123" });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    mockEventDefinitionsGet.mockResolvedValueOnce({
+      id: "def-non-shot",
+      sportId: "sport-1",
+      name: "Foul",
+      shortName: "FL",
+      isPositive: false,
+      isShot: false,
+    });
+
+    mockSyncQueueFilter.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 10,
+          endpoint: `/Matches/match-123/teams/team-456/events`,
+          payload: JSON.stringify([
+            { id: "event-shot-to-nonshot", matchLineupId: "lineup-1" },
+          ]),
+        },
+      ]),
+    });
+
+    const updated = await updateGameEventTx({
+      eventId: "event-shot-to-nonshot",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-non-shot",
+      isLeadToGoal: false,
+      shotLocationX: 30.0,
+      shotLocationY: 70.0,
+    });
+
+    expect(updated.shotLocationX).toBeNull();
+    expect(updated.shotLocationY).toBeNull();
   });
 });

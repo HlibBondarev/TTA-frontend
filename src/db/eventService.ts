@@ -551,6 +551,16 @@ export const updateGameEventTx = async (
         );
       }
 
+      let isShot = true;
+      if (params.eventDefinitionId !== existing.eventDefinitionId) {
+        const targetDef = await db.eventdefinitions.get(
+          params.eventDefinitionId,
+        );
+        if (targetDef) {
+          isShot = Boolean(targetDef.isShot);
+        }
+      }
+
       const locationX =
         params.locationX === undefined
           ? (existing.locationX ?? null)
@@ -559,14 +569,16 @@ export const updateGameEventTx = async (
         params.locationY === undefined
           ? (existing.locationY ?? null)
           : params.locationY;
-      const shotLocationX =
-        params.shotLocationX === undefined
+      const shotLocationX = isShot
+        ? params.shotLocationX === undefined
           ? (existing.shotLocationX ?? null)
-          : params.shotLocationX;
-      const shotLocationY =
-        params.shotLocationY === undefined
+          : params.shotLocationX
+        : null;
+      const shotLocationY = isShot
+        ? params.shotLocationY === undefined
           ? (existing.shotLocationY ?? null)
-          : params.shotLocationY;
+          : params.shotLocationY
+        : null;
 
       updatedEvent = {
         ...existing,
