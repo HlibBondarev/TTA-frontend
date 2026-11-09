@@ -70,7 +70,7 @@ describe("MatchSpatialMap Component", () => {
     },
   ];
 
-  it("renders standard court fallback layout and spatial markers when playground SVG is absent or invalid", () => {
+  it("renders fallback banner when playground SVG is absent or invalid", () => {
     render(
       <MatchSpatialMap
         events={mockEvents}
@@ -78,12 +78,9 @@ describe("MatchSpatialMap Component", () => {
       />,
     );
 
-    expect(screen.getByTestId("standard-court-fallback")).toBeInTheDocument();
     expect(
-      screen.getByLabelText("Match Spatial Event Map"),
+      screen.getByText("Field Map SVG is unavailable for this match."),
     ).toBeInTheDocument();
-    expect(screen.getByText("9")).toBeInTheDocument();
-    expect(screen.getByText("4")).toBeInTheDocument();
   });
 
   it("renders court SVG layout and player markers when playground is provided", () => {

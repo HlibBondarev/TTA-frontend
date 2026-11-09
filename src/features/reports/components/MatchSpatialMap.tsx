@@ -477,15 +477,8 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
     [playground],
   );
 
-  const effectiveDimensions = useMemo(
-    () =>
-      dimensions ?? {
-        width: 600,
-        height: 1000,
-        aspectRatio: "600 / 1000",
-      },
-    [dimensions],
-  );
+  const viewBoxWidth = dimensions?.width ?? 600;
+  const viewBoxHeight = dimensions?.height ?? 1000;
 
   const {
     activeEvent,
@@ -499,8 +492,8 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
     events,
     allEvents,
     eventDefinitionsMap,
-    viewBoxWidth: effectiveDimensions.width,
-    viewBoxHeight: effectiveDimensions.height,
+    viewBoxWidth,
+    viewBoxHeight,
   });
 
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -542,6 +535,14 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
     [playground],
   );
 
+  if (!safeSvg || !dimensions) {
+    return (
+      <div className="w-full p-6 text-center text-xs text-slate-400 bg-gray-950/80 border border-gray-800 rounded-2xl">
+        Field Map SVG is unavailable for this match.
+      </div>
+    );
+  }
+
   const hasTooltip =
     activeEvent?.id != null &&
     activeEvent?.locationX != null &&
@@ -550,74 +551,15 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
   return (
     <div
       className="relative w-full bg-blue-950/60 border border-blue-900/60 rounded-2xl overflow-hidden select-none"
-      style={{ aspectRatio: effectiveDimensions.aspectRatio }}
+      style={{ aspectRatio: dimensions.aspectRatio }}
     >
-      {safeSvg && dimensions ? (
-        <div
-          className="w-full h-auto pointer-events-none opacity-90 [&>svg]:w-full [&>svg]:h-auto [&>svg]:block"
-          dangerouslySetInnerHTML={{ __html: safeSvg }}
-        />
-      ) : (
-        <svg
-          viewBox={`0 0 ${effectiveDimensions.width} ${effectiveDimensions.height}`}
-          className="w-full h-auto pointer-events-none opacity-90 block"
-          aria-label="Standard Court Layout"
-          data-testid="standard-court-fallback"
-        >
-          <rect
-            width={effectiveDimensions.width}
-            height={effectiveDimensions.height}
-            fill="#0f172a"
-            rx="16"
-          />
-          <rect
-            x="20"
-            y="20"
-            width={effectiveDimensions.width - 40}
-            height={effectiveDimensions.height - 40}
-            fill="#1e293b"
-            stroke="#38bdf8"
-            strokeWidth="4"
-            strokeOpacity="0.4"
-            rx="8"
-          />
-          <line
-            x1="20"
-            y1={effectiveDimensions.height / 2}
-            x2={effectiveDimensions.width - 20}
-            y2={effectiveDimensions.height / 2}
-            stroke="#38bdf8"
-            strokeWidth="3"
-            strokeOpacity="0.4"
-            strokeDasharray="8 6"
-          />
-          <rect
-            x={effectiveDimensions.width / 2 - 60}
-            y="8"
-            width="120"
-            height="12"
-            fill="#38bdf8"
-            fillOpacity="0.3"
-            stroke="#38bdf8"
-            strokeWidth="2"
-            rx="2"
-          />
-          <rect
-            x={effectiveDimensions.width / 2 - 60}
-            y={effectiveDimensions.height - 20}
-            width="120"
-            height="12"
-            fill="#38bdf8"
-            fillOpacity="0.3"
-            stroke="#38bdf8"
-            strokeWidth="2"
-            rx="2"
-          />
-        </svg>
-      )}
+      <div
+        className="w-full h-auto pointer-events-none opacity-90 [&>svg]:w-full [&>svg]:h-auto [&>svg]:block"
+        dangerouslySetInnerHTML={{ __html: safeSvg }}
+      />
 
       <svg
-        viewBox={`0 0 ${effectiveDimensions.width} ${effectiveDimensions.height}`}
+        viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
         className="absolute inset-0 w-full h-full"
         aria-label="Match Spatial Event Map"
         onClick={handleClearActiveEvent}
@@ -649,18 +591,14 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
 
         {showGoalLeadVectors &&
           goalLeadVectors.map((v) => (
-            <GoalLeadVectorLine
-              key={v.id}
-              vector={v}
-              dimensions={effectiveDimensions}
-            />
+            <GoalLeadVectorLine key={v.id} vector={v} dimensions={dimensions} />
           ))}
 
         {renderablePoints.map((point) => (
           <SpatialMapMarker
             key={point.event.id}
             point={point}
-            dimensions={effectiveDimensions}
+            dimensions={dimensions}
             onMarkerClick={handleMarkerClick}
             onMouseEnter={handleMouseEnterWithDelay}
             onMouseLeave={handleMouseLeaveWithDelay}
