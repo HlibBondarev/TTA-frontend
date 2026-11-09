@@ -223,7 +223,7 @@ export const MatchShotMap: React.FC<MatchShotMapProps> = ({
 
   return (
     <div
-      className="relative w-full bg-blue-950/60 border border-blue-900/60 rounded-2xl select-none overflow-hidden"
+      className="relative w-full bg-blue-950/60 border border-blue-900/60 rounded-2xl select-none"
       style={{ aspectRatio: dimensions.aspectRatio }}
     >
       <div

@@ -514,4 +514,35 @@ describe("MatchShotMap Component", () => {
     expect(bottomTooltip).toHaveStyle({ top: "94%" });
     expect(bottomTooltip).toHaveClass("-translate-y-full");
   });
+
+  it("calculates vertical positioning for tooltips near the midpoint correctly", () => {
+    const midEvents: GameEventResponse[] = [
+      {
+        id: "mid-event",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50, // locY = 50
+        playerNumber: 9,
+        playerName: "Midfielder",
+        eventName: "Goal",
+      },
+    ];
+
+    render(
+      <MatchShotMap
+        events={midEvents}
+        eventDefinitionsMap={mockDefinitionsMap}
+        shotMap={defaultSvgLayout}
+      />,
+    );
+
+    const marker = screen.getByText("9");
+    fireEvent.click(marker);
+
+    const tooltip = screen.getByText(/Midfielder/).closest("div.absolute");
+    expect(tooltip).toBeInTheDocument();
+    expect(tooltip).toHaveStyle({ top: "46%" });
+    expect(tooltip).toHaveClass("-translate-y-full");
+  });
 });
