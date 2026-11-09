@@ -281,6 +281,26 @@ const SpatialMapMarker: React.FC<SpatialMapMarkerProps> = ({
   const eventId = event.id;
   const isHighlighted = isSelected || isHovered;
 
+  const renderMarkerContent = () => {
+    const markerProps: MarkerProps = {
+      isPositive: Boolean(event.isPositive),
+      isHighlighted,
+      playerNumber: event.playerNumber,
+      shortCode,
+      dimensions,
+    };
+
+    if (isGoal) {
+      return <GoalMarker {...markerProps} />;
+    }
+
+    if (event.isLeadToGoal) {
+      return <LeadMarker {...markerProps} />;
+    }
+
+    return <StandardMarker {...markerProps} />;
+  };
+
   return (
     <g
       transform={`translate(${cx}, ${cy})`}
@@ -302,31 +322,7 @@ const SpatialMapMarker: React.FC<SpatialMapMarkerProps> = ({
       onMouseLeave={onMouseLeave}
       className="cursor-pointer outline-none focus-visible:[&_circle]:stroke-white"
     >
-      {isGoal ? (
-        <GoalMarker
-          isPositive={Boolean(event.isPositive)}
-          isHighlighted={isHighlighted}
-          playerNumber={event.playerNumber}
-          shortCode={shortCode}
-          dimensions={dimensions}
-        />
-      ) : event.isLeadToGoal ? (
-        <LeadMarker
-          isPositive={Boolean(event.isPositive)}
-          isHighlighted={isHighlighted}
-          playerNumber={event.playerNumber}
-          shortCode={shortCode}
-          dimensions={dimensions}
-        />
-      ) : (
-        <StandardMarker
-          isPositive={Boolean(event.isPositive)}
-          isHighlighted={isHighlighted}
-          playerNumber={event.playerNumber}
-          shortCode={shortCode}
-          dimensions={dimensions}
-        />
-      )}
+      {renderMarkerContent()}
     </g>
   );
 };
