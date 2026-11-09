@@ -664,6 +664,58 @@ describe("useSpatialReport Custom Hook", () => {
     );
   });
 
+  it("publishes cached playground immediately when shotMap is missing before remote fetch finishes", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "m-1",
+      tournamentId: "tourn-1",
+    } as never);
+
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "tourn-1",
+      sportId: "waterpolo",
+      configurationId: "cfg-1",
+    } as never);
+
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      playground: "<svg id='cached-pg'></svg>",
+      shotMap: undefined,
+    } as never);
+
+    let resolveRemoteConfig!: (value: unknown) => void;
+    const remoteConfigPromise = new Promise((resolve) => {
+      resolveRemoteConfig = resolve;
+    });
+
+    vi.mocked(sportService.getSportConfigurations).mockReturnValueOnce(
+      remoteConfigPromise as never,
+    );
+
+    const { result } = renderHook(() => useSpatialReport({ matchId: "m-1" }));
+
+    // Playground should be published immediately from local cache before remote request completes
+    await waitFor(() => {
+      expect(result.current.playground).toBe("<svg id='cached-pg'></svg>");
+    });
+    expect(result.current.shotMap).toBeNull();
+
+    // Now resolve remote fetch with shotMap
+    act(() => {
+      resolveRemoteConfig([
+        {
+          id: "cfg-1",
+          sportId: "waterpolo",
+          playground: "<svg id='cached-pg'></svg>",
+          shotMap: "<svg id='fetched-sm'></svg>",
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(result.current.shotMap).toBe("<svg id='fetched-sm'></svg>");
+    });
+  });
+
   it("fetches remote match metadata from API when missing in local IndexedDB to resolve sport SVGs", async () => {
     vi.mocked(db.matches.get).mockResolvedValueOnce(undefined);
 

@@ -174,12 +174,24 @@ async function fetchTournament(
   return null;
 }
 
-async function fetchSportConfiguration(configId: string, sportId: string) {
+async function fetchSportConfiguration(
+  configId: string,
+  sportId: string,
+  onLocalFound?: (config: {
+    playground?: string | null;
+    shotMap?: string | null;
+  }) => void,
+) {
   const localConfig = await db.sportconfigurations.get(configId);
 
-  // Return immediately if local cache contains both playground and shotMap SVGs
+  // Preserve immediate return if local cache contains both playground and shotMap SVGs
   if (localConfig?.playground && localConfig?.shotMap) {
     return localConfig;
+  }
+
+  // Publish cached playground / partial assets immediately even when shotMap is missing
+  if (localConfig && (localConfig.playground || localConfig.shotMap)) {
+    onLocalFound?.(localConfig);
   }
 
   try {
@@ -207,6 +219,10 @@ async function resolveSportSvgs(
   matchId: string,
   initialPlayground: string | null = null,
   initialShotMap: string | null = null,
+  onPartialResolve?: (partial: {
+    playground: string | null;
+    shotMap: string | null;
+  }) => void,
 ): Promise<{ playground: string | null; shotMap: string | null }> {
   let pg = initialPlayground;
   let sm = initialShotMap;
@@ -228,6 +244,13 @@ async function resolveSportSvgs(
     const config = await fetchSportConfiguration(
       tournament.configurationId,
       tournament.sportId,
+      (localConfig) => {
+        const partialPg = pg || localConfig.playground || null;
+        const partialSm = sm || localConfig.shotMap || null;
+        if (partialPg || partialSm) {
+          onPartialResolve?.({ playground: partialPg, shotMap: partialSm });
+        }
+      },
     );
     if (config) {
       pg = pg || config.playground || null;
@@ -339,7 +362,17 @@ export function useSpatialReport({
     let isMounted = true;
 
     const resolveSvgs = async () => {
-      const svgs = await resolveSportSvgs(matchId, playground, shotMap);
+      const svgs = await resolveSportSvgs(
+        matchId,
+        playground,
+        shotMap,
+        (partial) => {
+          if (isMounted) {
+            if (partial.playground) setEffectivePlayground(partial.playground);
+            if (partial.shotMap) setEffectiveShotMap(partial.shotMap);
+          }
+        },
+      );
       if (isMounted) {
         setEffectivePlayground(svgs.playground);
         setEffectiveShotMap(svgs.shotMap);
