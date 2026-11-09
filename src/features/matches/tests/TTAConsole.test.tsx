@@ -174,6 +174,21 @@ type RootState = ReturnType<typeof rootReducer>;
 
 const initialMatchState = matchReducer(undefined, { type: "unknown" });
 
+const createTestStore = (preloadedState?: Partial<RootState>) => {
+  return configureStore({
+    reducer: rootReducer,
+    preloadedState: {
+      match: {
+        ...initialMatchState,
+        activeMatchId: "test-id",
+        activeTeamId: "team-123",
+        isPeriodActive: true,
+      },
+      ...preloadedState,
+    } as unknown as RootState,
+  });
+};
+
 describe("TTAConsole Component", () => {
   const mockEventDefs = [
     {
@@ -258,16 +273,7 @@ describe("TTAConsole Component", () => {
   });
 
   test("renders TTAConsole components correctly with active match", () => {
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -281,16 +287,7 @@ describe("TTAConsole Component", () => {
   test("displays selected field position coordinates when pendingLocation is set", () => {
     mockPendingLocation = { locationX: 45.5, locationY: 80.0 };
 
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -305,16 +302,7 @@ describe("TTAConsole Component", () => {
   test("displays selected goal target coordinates when pendingShotLocation is set", () => {
     mockPendingShotLocation = { shotLocationX: 30.0, shotLocationY: 70.0 };
 
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -327,17 +315,7 @@ describe("TTAConsole Component", () => {
   });
 
   test("resets action selection when switching tabs between POSITIVE and NEGATIVE", async () => {
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -358,17 +336,7 @@ describe("TTAConsole Component", () => {
   });
 
   test("successfully dispatches addRecentAction when ENTER is clicked", async () => {
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     mockRecordGameEvent.mockImplementationOnce(async ({ actionName }) => {
       store.dispatch(
@@ -418,17 +386,7 @@ describe("TTAConsole Component", () => {
         }),
     );
 
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -461,17 +419,7 @@ describe("TTAConsole Component", () => {
       new Error("Database write error"),
     );
 
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -493,17 +441,7 @@ describe("TTAConsole Component", () => {
   });
 
   test("resets selection and action states when period transitions", () => {
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     const { rerender } = render(
       <Provider store={store}>
@@ -547,17 +485,7 @@ describe("TTAConsole Component", () => {
   });
 
   test("records events with default isLeadToGoal = false for all actions", async () => {
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -583,26 +511,23 @@ describe("TTAConsole Component", () => {
 
   test("triggers handleFinalizeSuccess, resets match and presence states, and calls onCompleteMatch", () => {
     const onCompleteMatchMock = vi.fn();
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-          homeScore: 5,
-          guestScore: 3,
-        },
-        presence: {
-          currentPeriod: 2,
-          activeLineupIds: ["p1", "p2"],
-          benchLineupIds: ["p3"],
-          selectedStartingIds: ["p4"],
-          activePlayersLimit: 7,
-          isLoading: false,
-        },
-      } as unknown as RootState,
+    const store = createTestStore({
+      match: {
+        ...initialMatchState,
+        activeMatchId: "test-id",
+        activeTeamId: "team-123",
+        isPeriodActive: true,
+        homeScore: 5,
+        guestScore: 3,
+      },
+      presence: {
+        currentPeriod: 2,
+        activeLineupIds: ["p1", "p2"],
+        benchLineupIds: ["p3"],
+        selectedStartingIds: ["p4"],
+        activePlayersLimit: 7,
+        isLoading: false,
+      },
     });
 
     render(
@@ -617,5 +542,36 @@ describe("TTAConsole Component", () => {
     expect(store.getState().match.activeMatchId).toBeNull();
     expect(store.getState().presence.currentPeriod).toBe(1);
     expect(store.getState().presence.activeLineupIds).toEqual([]);
+  });
+
+  test("passes disabled=true to TTAPanel when isSubmitting is true during event recording", async () => {
+    let resolveEvent: () => void;
+    mockRecordGameEvent.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveEvent = resolve;
+        }),
+    );
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    const passBtn = await screen.findByText("Pass");
+    fireEvent.click(passBtn);
+    fireEvent.click(screen.getByText("Mock Player"));
+
+    const enterBtn = screen.getByRole("button", { name: /Enter/i });
+    fireEvent.click(enterBtn);
+
+    expect(passBtn.closest("button")).toBeDisabled();
+
+    await act(async () => {
+      resolveEvent!();
+    });
   });
 });

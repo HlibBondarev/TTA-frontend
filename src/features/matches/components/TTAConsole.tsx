@@ -88,7 +88,7 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({
             />
 
             <TTAPanel
-              disabled={!isRecordingEnabled}
+              disabled={!isRecordingEnabled || isSubmitting}
               selectedActionDefinitionId={
                 pendingAction?.eventDefinitionId || null
               }
