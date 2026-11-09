@@ -47,6 +47,41 @@ export const useShotMap = ({
     setHoveredEventId(null);
   }, [clearAutoDismissTimer]);
 
+  const validShotEvents = useMemo(() => {
+    return events.filter((e) => {
+      if (e.shotLocationX == null || e.shotLocationY == null || !e.id) {
+        return false;
+      }
+      const def = e.eventDefinitionId
+        ? eventDefinitionsMap.get(e.eventDefinitionId)
+        : undefined;
+      return def ? def.isShot === true : true;
+    });
+  }, [events, eventDefinitionsMap]);
+
+  const clusters = useMemo(() => {
+    const clusterList: GameEventResponse[][] = [];
+    validShotEvents.forEach((evt) => {
+      let added = false;
+      for (const cluster of clusterList) {
+        const ref = cluster[0];
+        const dist = Math.hypot(
+          Number(evt.shotLocationX) - Number(ref.shotLocationX),
+          Number(evt.shotLocationY) - Number(ref.shotLocationY),
+        );
+        if (dist <= 3.5) {
+          cluster.push(evt);
+          added = true;
+          break;
+        }
+      }
+      if (!added) {
+        clusterList.push([evt]);
+      }
+    });
+    return clusterList;
+  }, [validShotEvents]);
+
   const handleMarkerClick = useCallback(
     (eventId: string) => {
       clearAutoDismissTimer();
@@ -56,19 +91,11 @@ export const useShotMap = ({
         const clickedEvt = events.find((e) => e.id === eventId);
         if (!clickedEvt) return prevSelectedId === eventId ? null : eventId;
 
-        const cluster = events.filter((e) => {
-          if (e.shotLocationX == null || e.shotLocationY == null || !e.id) {
-            return false;
-          }
-          return (
-            Math.hypot(
-              Number(e.shotLocationX) - Number(clickedEvt.shotLocationX),
-              Number(e.shotLocationY) - Number(clickedEvt.shotLocationY),
-            ) <= 3.5
-          );
-        });
+        const cluster = clusters.find((c) =>
+          c.some((item) => item.id === eventId),
+        );
 
-        if (cluster.length <= 1) {
+        if (!cluster || cluster.length <= 1) {
           return prevSelectedId === eventId ? null : eventId;
         }
 
@@ -83,7 +110,7 @@ export const useShotMap = ({
         return eventId;
       });
     },
-    [clearAutoDismissTimer, events],
+    [clearAutoDismissTimer, events, clusters],
   );
 
   const handleMarkerMouseEnter = useCallback((eventId: string) => {
@@ -122,36 +149,6 @@ export const useShotMap = ({
 
   const renderablePoints = useMemo<RenderableShotPoint[]>(() => {
     if (!dimensions) return [];
-
-    const validShotEvents = events.filter((e) => {
-      if (e.shotLocationX == null || e.shotLocationY == null || !e.id) {
-        return false;
-      }
-      const def = e.eventDefinitionId
-        ? eventDefinitionsMap.get(e.eventDefinitionId)
-        : undefined;
-      return def ? def.isShot === true : true;
-    });
-
-    const clusters: GameEventResponse[][] = [];
-    validShotEvents.forEach((evt) => {
-      let added = false;
-      for (const cluster of clusters) {
-        const ref = cluster[0];
-        const dist = Math.hypot(
-          Number(evt.shotLocationX) - Number(ref.shotLocationX),
-          Number(evt.shotLocationY) - Number(ref.shotLocationY),
-        );
-        if (dist <= 3.5) {
-          cluster.push(evt);
-          added = true;
-          break;
-        }
-      }
-      if (!added) {
-        clusters.push([evt]);
-      }
-    });
 
     const minDim = Math.min(dimensions.width, dimensions.height);
     const baseMarkerRadius = minDim * 0.032;
@@ -253,12 +250,13 @@ export const useShotMap = ({
       return aActive - bActive;
     });
   }, [
-    events,
+    dimensions,
+    validShotEvents,
+    clusters,
     eventDefinitionsMap,
     goalDefinitionIds,
     selectedEventId,
     hoveredEventId,
-    dimensions,
   ]);
 
   return {
