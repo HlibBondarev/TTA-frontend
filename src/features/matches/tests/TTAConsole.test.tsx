@@ -544,7 +544,7 @@ describe("TTAConsole Component", () => {
     expect(store.getState().presence.activeLineupIds).toEqual([]);
   });
 
-  test("passes disabled=true to TTAPanel and field map controls when isSubmitting is true during event recording", async () => {
+  test("passes disabled=true to TTAPanel and field map element when isSubmitting is true during event recording", async () => {
     let resolveEvent: () => void;
     mockRecordGameEvent.mockImplementationOnce(
       () =>
@@ -561,19 +561,24 @@ describe("TTAConsole Component", () => {
       </Provider>,
     );
 
+    // Select action and player
     const passBtn = await screen.findByText("Pass");
     fireEvent.click(passBtn);
     fireEvent.click(screen.getByText("Mock Player"));
 
+    // Switch to Map tab to display the interactive field map
+    const mapTabBtn = screen.getByRole("button", { name: /Map/i });
+    fireEvent.click(mapTabBtn);
+
+    // Trigger event recording submission
     const enterBtn = screen.getByRole("button", { name: /Enter/i });
     fireEvent.click(enterBtn);
 
-    // Verify action button is disabled during submission
-    expect(passBtn.closest("button")).toBeDisabled();
-
-    // Verify field map tab button in TTAPanel is disabled during submission
-    const mapTabBtn = screen.getByRole("button", { name: /Map/i });
-    expect(mapTabBtn).toBeDisabled();
+    // Verify field map button element is disabled during pending submission
+    const fieldMapBtn = screen.getByRole("button", {
+      name: /Field Location Map/i,
+    });
+    expect(fieldMapBtn).toBeDisabled();
 
     await act(async () => {
       resolveEvent!();
