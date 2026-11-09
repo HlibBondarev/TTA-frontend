@@ -71,26 +71,31 @@ const SpatialTooltipGoalPreview: React.FC<{
   );
 };
 
-const GoalLeadVectorLine: React.FC<{ vector: GoalLeadVector }> = ({
-  vector,
-}) => {
+const GoalLeadVectorLine: React.FC<{
+  vector: GoalLeadVector;
+  dimensions: { width: number; height: number };
+}> = ({ vector, dimensions }) => {
+  const minDim = Math.min(dimensions.width, dimensions.height);
   const dx = vector.x2 - vector.x1;
   const dy = vector.y2 - vector.y1;
   const dist = Math.hypot(dx, dy);
 
-  const startOffset = dist > 20 ? 8 : 0;
-  const endOffset = dist > 20 ? 10 : 0;
+  const distThreshold = minDim * 0.06;
+  const startOffset = dist > distThreshold ? minDim * 0.04 : 0;
+  const endOffset = dist > distThreshold ? minDim * 0.045 : 0;
 
   const x1 = dist > 0 ? vector.x1 + (dx / dist) * startOffset : vector.x1;
   const y1 = dist > 0 ? vector.y1 + (dy / dist) * startOffset : vector.y1;
   const x2 = dist > 0 ? vector.x2 - (dx / dist) * endOffset : vector.x2;
   const y2 = dist > 0 ? vector.y2 - (dy / dist) * endOffset : vector.y2;
 
-  // Pure white stroke for positive lead vectors and bright amber stroke for negative lead vectors
   const strokeColor = vector.isPositive ? "#ffffff" : "#fcd34d";
   const markerEnd = vector.isPositive
     ? "url(#arrow-white)"
     : "url(#arrow-amber)";
+
+  const strokeWidth = minDim * 0.006;
+  const circleRadius = minDim * 0.008;
 
   return (
     <g>
@@ -100,12 +105,17 @@ const GoalLeadVectorLine: React.FC<{ vector: GoalLeadVector }> = ({
         x2={x2}
         y2={y2}
         stroke={strokeColor}
-        strokeWidth="2.5"
+        strokeWidth={strokeWidth}
         strokeDasharray="5 4"
         markerEnd={markerEnd}
         className="opacity-95"
       />
-      <circle cx={vector.x2} cy={vector.y2} r="3" fill={strokeColor} />
+      <circle
+        cx={vector.x2}
+        cy={vector.y2}
+        r={circleRadius}
+        fill={strokeColor}
+      />
     </g>
   );
 };
@@ -115,6 +125,7 @@ interface MarkerProps {
   isHighlighted: boolean;
   playerNumber?: number | null;
   shortCode: string;
+  dimensions: { width: number; height: number };
 }
 
 const GoalMarker: React.FC<MarkerProps> = ({
@@ -122,12 +133,21 @@ const GoalMarker: React.FC<MarkerProps> = ({
   isHighlighted,
   playerNumber,
   shortCode,
+  dimensions,
 }) => {
-  // Goal scored (positive): yellow fill with green outline
-  // Goal conceded (negative): yellow fill with red outline
+  const minDim = Math.min(dimensions.width, dimensions.height);
+  const baseRadius = minDim * 0.04;
+  const hoverRadius = minDim * 0.053;
+  const radius = isHighlighted ? hoverRadius : baseRadius;
+
+  // High contrast bold stroke for Goal markers (Green for home goal, Red for opponent goal)
+  const strokeWidth = minDim * 0.01;
+  const fontSize = minDim * 0.028;
+  const textY = minDim * 0.0095;
+
   const ringClass = isPositive
-    ? "fill-amber-400 stroke-emerald-500"
-    : "fill-amber-400 stroke-rose-600";
+    ? "fill-amber-400 stroke-emerald-400"
+    : "fill-amber-400 stroke-rose-500";
   const label = playerNumber != null ? `${playerNumber}` : shortCode;
 
   return (
@@ -135,14 +155,17 @@ const GoalMarker: React.FC<MarkerProps> = ({
       <circle
         cx={0}
         cy={0}
-        r={isHighlighted ? 11 : 7.5}
-        className={`${ringClass} stroke-[2.5] shadow-lg transition-all duration-150`}
+        r={radius}
+        strokeWidth={strokeWidth}
+        style={{ vectorEffect: "non-scaling-stroke" }}
+        className={`${ringClass} shadow-lg transition-all duration-150`}
       />
       <text
         x={0}
-        y={3}
+        y={textY}
+        fontSize={fontSize}
         textAnchor="middle"
-        className="fill-slate-950 font-mono font-black text-[9px] pointer-events-none select-none"
+        className="fill-slate-950 font-mono font-black pointer-events-none select-none"
       >
         {label}
       </text>
@@ -155,9 +178,16 @@ const LeadMarker: React.FC<MarkerProps> = ({
   isHighlighted,
   playerNumber,
   shortCode,
+  dimensions,
 }) => {
-  // Positive lead action: green fill with yellow outline
-  // Negative lead action: red fill with yellow outline
+  const minDim = Math.min(dimensions.width, dimensions.height);
+  const baseRadius = minDim * 0.036;
+  const hoverRadius = minDim * 0.048;
+  const radius = isHighlighted ? hoverRadius : baseRadius;
+  const strokeWidth = minDim * 0.006;
+  const fontSize = minDim * 0.028;
+  const textY = minDim * 0.0095;
+
   const circleClass = isPositive
     ? "fill-emerald-500 stroke-amber-400"
     : "fill-rose-600 stroke-amber-400";
@@ -168,14 +198,17 @@ const LeadMarker: React.FC<MarkerProps> = ({
       <circle
         cx={0}
         cy={0}
-        r={isHighlighted ? 10 : 6.5}
-        className={`${circleClass} stroke-[2.5] shadow-md transition-all duration-150`}
+        r={radius}
+        strokeWidth={strokeWidth}
+        style={{ vectorEffect: "non-scaling-stroke" }}
+        className={`${circleClass} shadow-md transition-all duration-150`}
       />
       <text
         x={0}
-        y={3}
+        y={textY}
+        fontSize={fontSize}
         textAnchor="middle"
-        className="fill-white font-mono font-black text-[9px] pointer-events-none select-none"
+        className="fill-white font-mono font-black pointer-events-none select-none"
       >
         {label}
       </text>
@@ -188,7 +221,16 @@ const StandardMarker: React.FC<MarkerProps> = ({
   isHighlighted,
   playerNumber,
   shortCode,
+  dimensions,
 }) => {
+  const minDim = Math.min(dimensions.width, dimensions.height);
+  const baseRadius = minDim * 0.036;
+  const hoverRadius = minDim * 0.048;
+  const radius = isHighlighted ? hoverRadius : baseRadius;
+  const strokeWidth = minDim * 0.005;
+  const fontSize = minDim * 0.028;
+  const textY = minDim * 0.0095;
+
   const circleClass = isPositive
     ? "fill-emerald-500 stroke-emerald-300"
     : "fill-rose-600 stroke-rose-300";
@@ -199,14 +241,17 @@ const StandardMarker: React.FC<MarkerProps> = ({
       <circle
         cx={0}
         cy={0}
-        r={isHighlighted ? 10 : 6.5}
-        className={`${circleClass} stroke-[1.5] shadow-md transition-all duration-150`}
+        r={radius}
+        strokeWidth={strokeWidth}
+        style={{ vectorEffect: "non-scaling-stroke" }}
+        className={`${circleClass} shadow-md transition-all duration-150`}
       />
       <text
         x={0}
-        y={3}
+        y={textY}
+        fontSize={fontSize}
         textAnchor="middle"
-        className="fill-white font-mono font-black text-[9px] pointer-events-none select-none"
+        className="fill-white font-mono font-black pointer-events-none select-none"
       >
         {label}
       </text>
@@ -216,6 +261,7 @@ const StandardMarker: React.FC<MarkerProps> = ({
 
 interface SpatialMapMarkerProps {
   point: RenderableSpatialPoint;
+  dimensions: { width: number; height: number };
   onMarkerClick: (id: string) => void;
   onMouseEnter: (id: string) => void;
   onMouseLeave: () => void;
@@ -223,6 +269,7 @@ interface SpatialMapMarkerProps {
 
 const SpatialMapMarker: React.FC<SpatialMapMarkerProps> = ({
   point,
+  dimensions,
   onMarkerClick,
   onMouseEnter,
   onMouseLeave,
@@ -260,6 +307,7 @@ const SpatialMapMarker: React.FC<SpatialMapMarkerProps> = ({
           isHighlighted={isHighlighted}
           playerNumber={event.playerNumber}
           shortCode={shortCode}
+          dimensions={dimensions}
         />
       ) : event.isLeadToGoal ? (
         <LeadMarker
@@ -267,6 +315,7 @@ const SpatialMapMarker: React.FC<SpatialMapMarkerProps> = ({
           isHighlighted={isHighlighted}
           playerNumber={event.playerNumber}
           shortCode={shortCode}
+          dimensions={dimensions}
         />
       ) : (
         <StandardMarker
@@ -274,6 +323,7 @@ const SpatialMapMarker: React.FC<SpatialMapMarkerProps> = ({
           isHighlighted={isHighlighted}
           playerNumber={event.playerNumber}
           shortCode={shortCode}
+          dimensions={dimensions}
         />
       )}
     </g>
@@ -545,13 +595,14 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
 
         {showGoalLeadVectors &&
           goalLeadVectors.map((v) => (
-            <GoalLeadVectorLine key={v.id} vector={v} />
+            <GoalLeadVectorLine key={v.id} vector={v} dimensions={dimensions} />
           ))}
 
         {renderablePoints.map((point) => (
           <SpatialMapMarker
             key={point.event.id}
             point={point}
+            dimensions={dimensions}
             onMarkerClick={handleMarkerClick}
             onMouseEnter={handleMouseEnterWithDelay}
             onMouseLeave={handleMouseLeaveWithDelay}

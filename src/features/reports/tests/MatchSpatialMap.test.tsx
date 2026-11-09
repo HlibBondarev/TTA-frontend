@@ -188,7 +188,7 @@ describe("MatchSpatialMap Component", () => {
     const goalText = screen.getByText("9");
     const circle = goalText.previousElementSibling!;
     expect(circle).toHaveClass("fill-amber-400");
-    expect(circle).toHaveClass("stroke-emerald-500");
+    expect(circle).toHaveClass("stroke-emerald-400");
   });
 
   it("renders LeadMarker with green fill and yellow outline for positive lead-to-goal actions", () => {
@@ -437,5 +437,41 @@ describe("MatchSpatialMap Component", () => {
     const spaceEvent = fireEvent.keyDown(markerGroup, { key: " " });
     expect(spaceEvent).toBe(false);
     expect(screen.getByText("John Doe")).toBeInTheDocument();
+  });
+
+  it("scales marker sizes, stroke widths, font sizes, and vector offsets dynamically for custom viewBox dimensions", () => {
+    const customSmallPlayground =
+      '<svg viewBox="0 0 300 500" width="300" height="500"><rect width="300" height="500" fill="blue"/></svg>';
+
+    const customEvents: GameEventResponse[] = [
+      {
+        id: "custom-goal",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        eventName: "Goal",
+        isPositive: true,
+        periodNumber: 1,
+        locationX: 90,
+        locationY: 50,
+        playerNumber: 7,
+      },
+    ];
+
+    render(
+      <MatchSpatialMap
+        events={customEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={customSmallPlayground}
+      />,
+    );
+
+    const markerBtn = screen.getByRole("button", { name: /#7/ });
+    const circle = markerBtn.querySelector("circle");
+    const text = markerBtn.querySelector("text");
+
+    expect(circle).toBeInTheDocument();
+    expect(circle).toHaveAttribute("r", "12");
+    expect(Number(circle?.getAttribute("stroke-width"))).toBeCloseTo(3, 3);
+    expect(text).toHaveAttribute("font-size", "8.4");
   });
 });

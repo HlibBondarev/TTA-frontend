@@ -29,6 +29,8 @@ export interface UseSpatialMapParams {
   viewBoxHeight?: number;
 }
 
+export type UseSpatialMapOptions = UseSpatialMapParams;
+
 export const useSpatialMap = ({
   events,
   allEvents,
@@ -96,8 +98,13 @@ export const useSpatialMap = ({
   // Currently active event for tooltip display
   const activeEvent = useMemo(() => {
     const activeId = hoveredEventId ?? selectedEventId;
-    return events.find((e) => e.id === activeId) ?? null;
-  }, [events, hoveredEventId, selectedEventId]);
+    if (!activeId) return null;
+    return (
+      events.find((e) => e.id === activeId) ??
+      allEvents?.find((e) => e.id === activeId) ??
+      null
+    );
+  }, [events, allEvents, hoveredEventId, selectedEventId]);
 
   // Convert percentages to SVG canvas coordinates and apply collision offset for overlapping markers
   const renderablePoints = useMemo<RenderableSpatialPoint[]>(() => {
@@ -115,8 +122,11 @@ export const useSpatialMap = ({
       const shortCode =
         def?.shortName || e.eventName?.slice(0, 3).toUpperCase() || "TTA";
 
+      // Strictly classify as goal ONLY if the event definition name is "Goal" or registered in goalDefinitionIds
+      const isGoalName = def?.name?.trim().toLowerCase() === "goal";
       const isGoal = Boolean(
-        e.eventDefinitionId && goalDefinitionIds.has(e.eventDefinitionId),
+        isGoalName ||
+        (e.eventDefinitionId && goalDefinitionIds.has(e.eventDefinitionId)),
       );
 
       return {
@@ -128,9 +138,10 @@ export const useSpatialMap = ({
       };
     });
 
-    // Group overlapping points within collision distance threshold (14px)
+    // Group overlapping points within collision distance threshold
     const clusterGroups: (typeof basePoints)[] = [];
-    const collisionThreshold = 14;
+    const minDim = Math.min(viewBoxWidth, viewBoxHeight);
+    const collisionThreshold = minDim * 0.06;
 
     basePoints.forEach((point) => {
       let groupFound = false;
@@ -154,9 +165,8 @@ export const useSpatialMap = ({
 
     // Apply radial spiderfy displacement for clustered overlapping markers with boundary safety
     const finalRenderablePoints: RenderableSpatialPoint[] = [];
-    const minDim = Math.min(viewBoxWidth, viewBoxHeight);
-    const offsetRadius = Math.min(14, minDim * 0.15);
-    const minPadding = Math.min(12, minDim * 0.05);
+    const offsetRadius = minDim * 0.065;
+    const minPadding = minDim * 0.045;
 
     clusterGroups.forEach((group) => {
       const count = group.length;
@@ -254,14 +264,17 @@ export const useSpatialMap = ({
 
     const searchList = allEvents && allEvents.length > 0 ? allEvents : events;
 
-    const goalEvents = searchList.filter(
-      (e) =>
-        e.eventDefinitionId &&
-        goalDefinitionIds.has(e.eventDefinitionId) &&
-        e.locationX != null &&
-        e.locationY != null &&
-        e.id != null,
-    );
+    const goalEvents = searchList.filter((e) => {
+      const def = e.eventDefinitionId
+        ? eventDefinitionsMap.get(e.eventDefinitionId)
+        : undefined;
+      const isGoal =
+        def?.name?.trim().toLowerCase() === "goal" ||
+        (e.eventDefinitionId && goalDefinitionIds.has(e.eventDefinitionId));
+      return (
+        isGoal && e.locationX != null && e.locationY != null && e.id != null
+      );
+    });
 
     const renderableMap = new Map(
       renderablePoints.map((pt) => [pt.event.id, pt]),
@@ -294,16 +307,21 @@ export const useSpatialMap = ({
         .filter(
           ({ goal, timestamp }) =>
             goal.id !== leadEv.id &&
-            leadEv.periodNumber != null &&
-            goal.periodNumber === leadEv.periodNumber &&
-            leadEv.teamId != null &&
-            goal.teamId === leadEv.teamId &&
+            (leadEv.periodNumber == null ||
+              goal.periodNumber === leadEv.periodNumber) &&
+            (leadEv.teamId == null ||
+              goal.teamId == null ||
+              goal.teamId === leadEv.teamId) &&
             (goal.isPositive ?? true) === isPositiveLead &&
-            Number.isFinite(leadTimestamp) &&
-            Number.isFinite(timestamp) &&
-            timestamp >= leadTimestamp,
+            (!Number.isFinite(leadTimestamp) ||
+              !Number.isFinite(timestamp) ||
+              timestamp >= leadTimestamp),
         )
-        .sort((a, b) => a.timestamp - b.timestamp);
+        .sort((a, b) =>
+          Number.isNaN(a.timestamp) || Number.isNaN(b.timestamp)
+            ? 0
+            : a.timestamp - b.timestamp,
+        );
 
       const matchingGoal = candidateGoals[0]?.goal;
 
@@ -323,7 +341,9 @@ export const useSpatialMap = ({
         }
       } else {
         x2 = viewBoxWidth / 2;
-        y2 = isPositiveLead ? 15 : viewBoxHeight - 15;
+        y2 = isPositiveLead
+          ? viewBoxHeight * 0.015
+          : viewBoxHeight - viewBoxHeight * 0.015;
       }
 
       return {
@@ -338,6 +358,7 @@ export const useSpatialMap = ({
   }, [
     events,
     allEvents,
+    eventDefinitionsMap,
     goalDefinitionIds,
     renderablePoints,
     viewBoxWidth,

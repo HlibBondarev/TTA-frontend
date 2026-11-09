@@ -147,7 +147,9 @@ describe("useSpatialMap Custom Hook", () => {
 
     const points = result.current.renderablePoints;
     expect(points).toHaveLength(2);
-    expect(points[0].cx).not.toEqual(points[1].cx);
+    expect(
+      Math.hypot(points[0].cx - points[1].cx, points[0].cy - points[1].cy),
+    ).toBeGreaterThan(0);
   });
 
   it("keeps spiderfied overlapping markers near field-map boundaries strictly within viewBox bounds", () => {
@@ -180,12 +182,14 @@ describe("useSpatialMap Custom Hook", () => {
     const points = result.current.renderablePoints;
     expect(points).toHaveLength(2);
 
-    expect(points[0].cx).not.toEqual(points[1].cx);
+    expect(
+      Math.hypot(points[0].cx - points[1].cx, points[0].cy - points[1].cy),
+    ).toBeGreaterThan(0);
     points.forEach((point) => {
-      expect(point.cx).toBeGreaterThanOrEqual(12);
-      expect(point.cx).toBeLessThanOrEqual(588);
-      expect(point.cy).toBeGreaterThanOrEqual(12);
-      expect(point.cy).toBeLessThanOrEqual(988);
+      expect(point.cx).toBeGreaterThanOrEqual(27);
+      expect(point.cx).toBeLessThanOrEqual(573);
+      expect(point.cy).toBeGreaterThanOrEqual(27);
+      expect(point.cy).toBeLessThanOrEqual(973);
     });
   });
 
@@ -312,7 +316,7 @@ describe("useSpatialMap Custom Hook", () => {
     expect(vector.y2).toBe(100);
   });
 
-  it("falls back vector target to top center (y=15) for positive actions when no goal matches", () => {
+  it("falls back vector target to top goal line (0.015 * viewBoxHeight) for positive actions when no goal matches", () => {
     const unmatchedEvents: GameEventResponse[] = [
       {
         id: "assist-q2",
@@ -345,7 +349,7 @@ describe("useSpatialMap Custom Hook", () => {
     expect(vector.y2).toBe(15);
   });
 
-  it("falls back vector target to bottom center (y=viewBoxHeight-15) for negative actions when no goal matches", () => {
+  it("falls back vector target to bottom goal line (viewBoxHeight - 0.015 * viewBoxHeight) for negative actions when no goal matches", () => {
     const unmatchedNegativeEvents: GameEventResponse[] = [
       {
         id: "foul-q1",
@@ -377,6 +381,51 @@ describe("useSpatialMap Custom Hook", () => {
     expect(vector.x2).toBe(300);
     expect(vector.y2).toBe(985);
     expect(vector.isPositive).toBe(false);
+  });
+
+  it("scales collision threshold, spiderfy displacement, and unmatched vector fallback coordinates dynamically for custom viewBox dimensions", () => {
+    const unmatchedCustomEvents: GameEventResponse[] = [
+      {
+        id: "unmatched-pos",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-1",
+        eventName: "Assist",
+        isPositive: true,
+        isLeadToGoal: true,
+        periodNumber: 1,
+        locationX: 80,
+        locationY: 50,
+      },
+      {
+        id: "unmatched-neg",
+        matchLineupId: "l-2",
+        eventDefinitionId: "def-1",
+        eventName: "Foul",
+        isPositive: false,
+        isLeadToGoal: true,
+        periodNumber: 1,
+        locationX: 20,
+        locationY: 50,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: unmatchedCustomEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 300,
+        viewBoxHeight: 500,
+      }),
+    );
+
+    expect(result.current.goalLeadVectors).toHaveLength(2);
+    const [posVector, negVector] = result.current.goalLeadVectors;
+
+    expect(posVector.x2).toBe(150);
+    expect(posVector.y2).toBe(7.5);
+
+    expect(negVector.x2).toBe(150);
+    expect(negVector.y2).toBe(492.5);
   });
 
   it("handles marker hover and click interactions correctly", () => {
@@ -437,6 +486,7 @@ describe("useSpatialMap Custom Hook", () => {
         isPositive: true,
         periodNumber: 1,
         eventTimestamp: "2026-10-14T10:01:00Z",
+        isLeadToGoal: false,
         locationX: 50,
         locationY: 50,
         teamId: "team-1",
@@ -461,7 +511,6 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.goalLeadVectors).toHaveLength(1);
     const vector = result.current.goalLeadVectors[0];
 
-    // Endpoints must match displaced renderablePoints (cx, cy) rather than raw coordinates
     expect(vector.x1).toBe(leadPoint.cx);
     expect(vector.y1).toBe(leadPoint.cy);
     expect(vector.x2).toBe(goalPoint.cx);
