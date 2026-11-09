@@ -23,7 +23,12 @@ export const parseSvgDimensions = (
     if (match?.[3] && match?.[4]) {
       const width = Number.parseFloat(match[3]);
       const height = Number.parseFloat(match[4]);
-      if (width > 0 && height > 0) {
+      if (
+        Number.isFinite(width) &&
+        Number.isFinite(height) &&
+        width > 0 &&
+        height > 0
+      ) {
         return {
           width,
           height,

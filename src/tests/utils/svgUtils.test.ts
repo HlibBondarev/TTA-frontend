@@ -113,6 +113,15 @@ describe("parseSvgDimensions", () => {
     expect(parseSvgDimensions(`<svg viewBox="0 0 50 -100"></svg>`)).toBeNull();
   });
 
+  it("returns null when width or height values are non-finite (Infinity)", () => {
+    expect(
+      parseSvgDimensions(`<svg viewBox="0 0 1e1000 500"></svg>`),
+    ).toBeNull();
+    expect(
+      parseSvgDimensions(`<svg viewBox="0 0 500 1e1000"></svg>`),
+    ).toBeNull();
+  });
+
   it("returns null for invalid or malformed viewBox values", () => {
     expect(
       parseSvgDimensions(`<svg viewBox="invalid viewBox format"></svg>`),
