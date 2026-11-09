@@ -128,4 +128,18 @@ describe("parseSvgDimensions", () => {
     ).toBeNull();
     expect(parseSvgDimensions(`<svg viewBox="0 0 abc def"></svg>`)).toBeNull();
   });
+
+  it("returns null and ignores viewBox on nested elements when root SVG element has no viewBox", () => {
+    const svgWithNestedViewBox = `<svg width="100" height="100"><symbol viewBox="0 0 50 50"></symbol></svg>`;
+    expect(parseSvgDimensions(svgWithNestedViewBox)).toBeNull();
+  });
+
+  it("parses viewBox strictly from the root SVG element, ignoring nested viewBox attributes", () => {
+    const svgWithMultipleViewBoxes = `<svg viewBox="0 0 800 600"><svg viewBox="0 0 100 100"></svg></svg>`;
+    expect(parseSvgDimensions(svgWithMultipleViewBoxes)).toEqual({
+      width: 800,
+      height: 600,
+      aspectRatio: "800 / 600",
+    });
+  });
 });

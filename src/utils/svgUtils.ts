@@ -13,13 +13,19 @@ const VIEWBOX_REGEX = new RegExp(
   "i",
 );
 
+// Regex matching the attributes of the root <svg ...> element only
+const ROOT_SVG_REGEX = /<svg\b([^>]*)>/i;
+
 export const parseSvgDimensions = (
   svgString?: string | null,
 ): SvgDimensions | null => {
   if (!svgString) return null;
 
   try {
-    const match = VIEWBOX_REGEX.exec(svgString);
+    const rootMatch = ROOT_SVG_REGEX.exec(svgString);
+    if (!rootMatch?.[1]) return null;
+
+    const match = VIEWBOX_REGEX.exec(rootMatch[1]);
     if (match?.[3] && match?.[4]) {
       const width = Number.parseFloat(match[3]);
       const height = Number.parseFloat(match[4]);
