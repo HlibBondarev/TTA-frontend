@@ -6,6 +6,7 @@ import { db } from "../../../db/ttaDatabase";
 import type { GameEventResponse } from "../../../services/reportService";
 import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
 import { sportService } from "../../../services/sportService";
+import { apiClient } from "../../../api/client";
 
 vi.mock("../../../services/reportService", () => ({
   reportService: {
@@ -661,5 +662,39 @@ describe("useSpatialReport Custom Hook", () => {
     expect(sportService.getSportConfigurations).toHaveBeenCalledWith(
       "waterpolo",
     );
+  });
+
+  it("fetches remote match metadata from API when missing in local IndexedDB to resolve sport SVGs", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce(undefined);
+
+    vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
+      if (url === "/Matches/m-remote-1") {
+        return { id: "m-remote-1", tournamentId: "tourn-remote-1" } as never;
+      }
+      return null as never;
+    });
+
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "tourn-remote-1",
+      sportId: "waterpolo",
+      configurationId: "cfg-remote-1",
+    } as never);
+
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-remote-1",
+      playground: "<svg id='remote-pg-2'></svg>",
+      shotMap: "<svg id='remote-sm-2'></svg>",
+    } as never);
+
+    const { result } = renderHook(() =>
+      useSpatialReport({ matchId: "m-remote-1" }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.playground).toBe("<svg id='remote-pg-2'></svg>");
+      expect(result.current.shotMap).toBe("<svg id='remote-sm-2'></svg>");
+    });
+
+    expect(apiClient.get).toHaveBeenCalledWith("/Matches/m-remote-1");
   });
 });

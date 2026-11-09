@@ -134,6 +134,26 @@ async function loadDefinitionsMap(
   return definitionsMap;
 }
 
+async function fetchMatch(
+  matchId: string,
+): Promise<{ id: string; tournamentId?: string } | null> {
+  const localMatch = await db.matches.get(matchId);
+  if (localMatch?.tournamentId) return localMatch;
+
+  try {
+    const remoteMatch = await apiClient.get<{
+      id: string;
+      tournamentId?: string;
+    }>(`/Matches/${matchId}`);
+    if (remoteMatch) {
+      return remoteMatch;
+    }
+  } catch {
+    // Ignore API fetch errors for missing match metadata
+  }
+  return localMatch ?? null;
+}
+
 async function fetchTournament(
   tournamentId: string,
 ): Promise<TournamentLookup | null> {
@@ -196,10 +216,10 @@ async function resolveSportSvgs(
   }
 
   try {
-    const matchDb = await db.matches.get(matchId);
-    if (!matchDb?.tournamentId) return { playground: pg, shotMap: sm };
+    const match = await fetchMatch(matchId);
+    if (!match?.tournamentId) return { playground: pg, shotMap: sm };
 
-    const tournament = await fetchTournament(matchDb.tournamentId);
+    const tournament = await fetchTournament(match.tournamentId);
     if (!tournament?.configurationId || !tournament.sportId) {
       return { playground: pg, shotMap: sm };
     }
