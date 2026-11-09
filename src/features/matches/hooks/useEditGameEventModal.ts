@@ -17,10 +17,22 @@ export interface UseEditGameEventModalOptions {
   onClose: () => void;
 }
 
+interface AuthStateShape {
+  auth?: {
+    user?: { id?: string };
+    currentUserId?: string;
+  };
+}
+
 export const checkIsPositive = (def: EventDefinitionLookup): boolean => {
   const value =
     def.isPositive ?? (def as unknown as Record<string, unknown>).ispositive;
   return !!value;
+};
+
+const selectReduxUserId = (state: RootState): string | undefined => {
+  const auth = (state as unknown as AuthStateShape).auth;
+  return auth?.currentUserId ?? auth?.user?.id;
 };
 
 async function loadSportDefinitions(
@@ -135,19 +147,7 @@ export function useEditGameEventModal({
 }: UseEditGameEventModalOptions) {
   const { user } = useAuth0();
   const auth0UserId = user?.sub ?? user?.email;
-  const reduxUserId = useSelector(
-    (state: RootState) =>
-      (
-        state as unknown as {
-          auth?: { user?: { id?: string }; currentUserId?: string };
-        }
-      ).auth?.currentUserId ??
-      (
-        state as unknown as {
-          auth?: { user?: { id?: string }; currentUserId?: string };
-        }
-      ).auth?.user?.id,
-  );
+  const reduxUserId = useSelector(selectReduxUserId);
   const currentUserId = auth0UserId || reduxUserId;
 
   const { updateGameEvent } = useGameEvents(matchId);
