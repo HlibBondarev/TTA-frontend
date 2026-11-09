@@ -97,6 +97,11 @@ const GoalLeadVectorLine: React.FC<{
   const strokeWidth = minDim * 0.006;
   const circleRadius = minDim * 0.008;
 
+  // Scale vector stroke-dasharray pattern relative to viewBox canvas dimensions
+  const dashOn = minDim * 0.0083;
+  const dashOff = minDim * 0.0067;
+  const strokeDasharray = `${dashOn} ${dashOff}`;
+
   return (
     <g>
       <line
@@ -106,7 +111,7 @@ const GoalLeadVectorLine: React.FC<{
         y2={y2}
         stroke={strokeColor}
         strokeWidth={strokeWidth}
-        strokeDasharray="5 4"
+        strokeDasharray={strokeDasharray}
         markerEnd={markerEnd}
         className="opacity-95"
       />
@@ -140,7 +145,6 @@ const GoalMarker: React.FC<MarkerProps> = ({
   const hoverRadius = minDim * 0.053;
   const radius = isHighlighted ? hoverRadius : baseRadius;
 
-  // High contrast bold stroke for Goal markers (Green for home goal, Red for opponent goal)
   const strokeWidth = minDim * 0.01;
   const fontSize = minDim * 0.028;
   const textY = minDim * 0.0095;
@@ -157,7 +161,6 @@ const GoalMarker: React.FC<MarkerProps> = ({
         cy={0}
         r={radius}
         strokeWidth={strokeWidth}
-        style={{ vectorEffect: "non-scaling-stroke" }}
         className={`${ringClass} shadow-lg transition-all duration-150`}
       />
       <text
@@ -200,7 +203,6 @@ const LeadMarker: React.FC<MarkerProps> = ({
         cy={0}
         r={radius}
         strokeWidth={strokeWidth}
-        style={{ vectorEffect: "non-scaling-stroke" }}
         className={`${circleClass} shadow-md transition-all duration-150`}
       />
       <text
@@ -243,7 +245,6 @@ const StandardMarker: React.FC<MarkerProps> = ({
         cy={0}
         r={radius}
         strokeWidth={strokeWidth}
-        style={{ vectorEffect: "non-scaling-stroke" }}
         className={`${circleClass} shadow-md transition-all duration-150`}
       />
       <text

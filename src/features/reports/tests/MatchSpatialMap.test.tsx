@@ -130,7 +130,7 @@ describe("MatchSpatialMap Component", () => {
     expect(document.querySelector("script")).not.toBeInTheDocument();
   });
 
-  it("renders directional vector when showGoalLeadVectors is true", () => {
+  it("renders directional vector when showGoalLeadVectors is true and scales stroke-dasharray proportionally", () => {
     const vectorEvents: GameEventResponse[] = [
       {
         id: "lead-1",
@@ -174,6 +174,13 @@ describe("MatchSpatialMap Component", () => {
     expect(vectorLine).toBeInTheDocument();
     expect(vectorLine).toHaveAttribute("stroke", "#ffffff");
     expect(vectorLine).toHaveAttribute("marker-end", "url(#arrow-white)");
+
+    // Verify scaled stroke-dasharray (600 * 0.0083 = 4.98, 600 * 0.0067 = 4.02)
+    const dashArray = vectorLine?.getAttribute("stroke-dasharray");
+    expect(dashArray).toBeDefined();
+    const [dashOn, dashOff] = dashArray!.split(" ").map(Number);
+    expect(dashOn).toBeCloseTo(4.98, 1);
+    expect(dashOff).toBeCloseTo(4.02, 1);
   });
 
   it("renders GoalMarker with yellow fill and emerald outline for positive goals", () => {
@@ -472,6 +479,10 @@ describe("MatchSpatialMap Component", () => {
     expect(circle).toBeInTheDocument();
     expect(circle).toHaveAttribute("r", "12");
     expect(Number(circle?.getAttribute("stroke-width"))).toBeCloseTo(3, 3);
+    expect(circle).not.toHaveAttribute(
+      "style",
+      expect.stringContaining("non-scaling-stroke"),
+    );
     expect(text).toHaveAttribute("font-size", "8.4");
   });
 });
