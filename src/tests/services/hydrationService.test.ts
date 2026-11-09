@@ -2124,7 +2124,7 @@ describe("Hydration Service", () => {
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 
-  it("should trigger background shotMap refresh without blocking match recovery resolution", async () => {
+  it("should trigger background shotMap refresh merging with cached config without blocking match recovery resolution", async () => {
     vi.mocked(db.timeanchors.where).mockReturnValueOnce({
       equals: vi.fn().mockReturnValueOnce({
         toArray: vi.fn().mockResolvedValueOnce([{ periodNumber: 1 }]),
@@ -2140,9 +2140,10 @@ describe("Hydration Service", () => {
       sportId: "sport-1",
       configurationId: "cfg-1",
     } as never);
-    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
       id: "cfg-1",
       activePlayersLimit: 6,
+      playground: "<svg>Cached Field SVG</svg>",
       shotMap: null,
     } as never);
 
@@ -2166,18 +2167,25 @@ describe("Hydration Service", () => {
     expect(sportService.getSportConfigurations).toHaveBeenCalledWith("sport-1");
     expect(db.sportconfigurations.put).not.toHaveBeenCalled();
 
-    // Resolve API promise and verify IndexedDB background update
+    // Resolve API promise and verify IndexedDB background update merges playground from cache
     const mockFreshConfig = {
       id: "cfg-1",
       sportId: "sport-1",
       activePlayersLimit: 6,
+      playground: null,
       shotMap: "<svg>Goal SVG</svg>",
     };
     resolveApiCall([mockFreshConfig]);
     await pendingPromise;
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(db.sportconfigurations.put).toHaveBeenCalledWith(mockFreshConfig);
+    expect(db.sportconfigurations.put).toHaveBeenCalledWith({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 6,
+      playground: "<svg>Cached Field SVG</svg>",
+      shotMap: "<svg>Goal SVG</svg>",
+    });
   });
 
   it("should ignore API errors during shotMap refresh in getMatchRecoveryState and complete recovery", async () => {
