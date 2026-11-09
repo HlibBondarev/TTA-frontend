@@ -189,8 +189,8 @@ async function fetchSportConfiguration(configId: string, sportId: string) {
       const updatedConfig = {
         ...localConfig,
         ...remoteConfig,
-        playground: remoteConfig.playground ?? localConfig?.playground ?? null,
-        shotMap: remoteConfig.shotMap ?? localConfig?.shotMap ?? null,
+        playground: remoteConfig.playground || localConfig?.playground || null,
+        shotMap: remoteConfig.shotMap || localConfig?.shotMap || null,
       };
       await db.sportconfigurations.put(updatedConfig);
       return updatedConfig;
@@ -217,11 +217,12 @@ async function resolveSportSvgs(
 
   try {
     const match = await fetchMatch(matchId);
-    if (!match?.tournamentId) return { playground: pg, shotMap: sm };
+    if (!match?.tournamentId)
+      return { playground: pg || null, shotMap: sm || null };
 
     const tournament = await fetchTournament(match.tournamentId);
     if (!tournament?.configurationId || !tournament.sportId) {
-      return { playground: pg, shotMap: sm };
+      return { playground: pg || null, shotMap: sm || null };
     }
 
     const config = await fetchSportConfiguration(
@@ -229,14 +230,14 @@ async function resolveSportSvgs(
       tournament.sportId,
     );
     if (config) {
-      pg = pg ?? config.playground ?? null;
-      sm = sm ?? config.shotMap ?? null;
+      pg = pg || config.playground || null;
+      sm = sm || config.shotMap || null;
     }
   } catch (err) {
     console.error("Failed to load sport configuration SVGs in hook:", err);
   }
 
-  return { playground: pg, shotMap: sm };
+  return { playground: pg || null, shotMap: sm || null };
 }
 
 function matchesShotMode(
@@ -311,10 +312,10 @@ export function useSpatialReport({
   >(new Map());
 
   const [effectivePlayground, setEffectivePlayground] = useState<string | null>(
-    playground ?? null,
+    playground || null,
   );
   const [effectiveShotMap, setEffectiveShotMap] = useState<string | null>(
-    shotMap ?? null,
+    shotMap || null,
   );
 
   const [filters, setFilters] = useState<SpatialReportFilters>({

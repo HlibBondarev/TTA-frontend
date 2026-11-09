@@ -697,4 +697,36 @@ describe("useSpatialReport Custom Hook", () => {
 
     expect(apiClient.get).toHaveBeenCalledWith("/Matches/m-remote-1");
   });
+
+  it("treats empty string SVG props as missing and resolves valid SVGs from sport configuration", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "m-empty-strings",
+      tournamentId: "tourn-1",
+    } as never);
+
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "tourn-1",
+      sportId: "waterpolo",
+      configurationId: "cfg-1",
+    } as never);
+
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      playground: "<svg id='config-pg'></svg>",
+      shotMap: "<svg id='config-sm'></svg>",
+    } as never);
+
+    const { result } = renderHook(() =>
+      useSpatialReport({
+        matchId: "m-empty-strings",
+        playground: "",
+        shotMap: "",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.playground).toBe("<svg id='config-pg'></svg>");
+      expect(result.current.shotMap).toBe("<svg id='config-sm'></svg>");
+    });
+  });
 });
