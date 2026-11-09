@@ -657,7 +657,7 @@ describe("MyMatchesView Component", () => {
     });
   });
 
-  it("should protect unfinished local draft from deletion when handleUncatch is invoked", async () => {
+  it("should protect unfinished local draft from deletion and show user-facing feedback when handleUncatch is invoked", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
@@ -687,6 +687,12 @@ describe("MyMatchesView Component", () => {
       expect(db.matches.get).toHaveBeenCalledWith("match-101");
       expect(userMatchService.uncatchMatch).not.toHaveBeenCalled();
       expect(db.matches.delete).not.toHaveBeenCalled();
+      expect(screen.getByRole("alert")).toBeDefined();
+      expect(
+        screen.getByText(
+          /deletion is blocked to preserve the active local draft/i,
+        ),
+      ).toBeDefined();
       expect(screen.getByText("Dolphins")).toBeDefined();
     });
   });

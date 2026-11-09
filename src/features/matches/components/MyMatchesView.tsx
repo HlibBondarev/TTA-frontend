@@ -168,6 +168,9 @@ export const MyMatchesView: React.FC = () => {
         (localMatch.homeScore == null || localMatch.guestScore == null);
 
       if (isUnfinishedDraft) {
+        setErrorMessage(
+          "Cannot delete match: deletion is blocked to preserve the active local draft. Please complete or discard the draft before deleting the match.",
+        );
         return;
       }
 
