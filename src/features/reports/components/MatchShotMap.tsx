@@ -129,14 +129,16 @@ const ShotTooltip: React.FC<{
   if (!displayEvent) return null;
 
   const locX = Number(displayEvent.shotLocationX ?? 50);
-  const locY = Number(100 - Number(displayEvent.shotLocationY ?? 50));
+  const rawLocY = Number(100 - Number(displayEvent.shotLocationY ?? 50));
+  const locY = Math.max(0, Math.min(100, rawLocY));
   const headerColor = displayEvent.isPositive
     ? "text-emerald-400"
     : "text-rose-400";
 
-  // Position tooltip below marker for upper half (<45%), above for lower half (>=45%)
-  const isNearTop = locY < 45;
-  const verticalPositionClass = isNearTop ? "mt-2" : "-translate-y-full -mt-2";
+  // Calculate top percentage clamped within container bounds to keep full tooltip visible on short maps
+  const topPercent =
+    locY < 45 ? Math.min(85, locY + 4) : Math.max(15, locY - 4);
+  const verticalPositionClass = locY < 45 ? "mt-0" : "-translate-y-full";
 
   return (
     <div
@@ -147,7 +149,7 @@ const ShotTooltip: React.FC<{
       }`}
       style={{
         left: `clamp(0.25rem, calc(${locX}% - 4.5rem), calc(100% - 9.5rem))`,
-        top: `${Math.max(2, Math.min(98, locY))}%`,
+        top: `${topPercent}%`,
         pointerEvents: "none",
       }}
     >

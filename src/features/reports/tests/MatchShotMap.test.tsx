@@ -453,4 +453,65 @@ describe("MatchShotMap Component", () => {
     expect(labelText).toHaveAttribute("font-size", "0.036");
     expect(labelText).toHaveAttribute("y", "0.012");
   });
+
+  it("calculates vertical positioning for tooltips near top and bottom edges to keep player details visible", () => {
+    const edgeEvents: GameEventResponse[] = [
+      {
+        id: "top-edge",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 98, // locY = 2
+        playerNumber: 7,
+        playerName: "Top Forward",
+        eventName: "Goal",
+      },
+      {
+        id: "bottom-edge",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 2, // locY = 98
+        playerNumber: 10,
+        playerName: "Bottom Driver",
+        eventName: "Goal",
+      },
+    ];
+
+    const { rerender } = render(
+      <MatchShotMap
+        events={edgeEvents}
+        eventDefinitionsMap={mockDefinitionsMap}
+        shotMap={defaultSvgLayout}
+      />,
+    );
+
+    // Click top-edge marker (locY = 2)
+    const topMarker = screen.getByText("7");
+    fireEvent.click(topMarker);
+
+    const topTooltip = screen.getByText(/Top Forward/).closest("div.absolute");
+    expect(topTooltip).toBeInTheDocument();
+    expect(topTooltip).toHaveStyle({ top: "6%" });
+    expect(topTooltip).toHaveClass("mt-0");
+
+    // Re-render and click bottom-edge marker (locY = 98)
+    rerender(
+      <MatchShotMap
+        events={edgeEvents}
+        eventDefinitionsMap={mockDefinitionsMap}
+        shotMap={defaultSvgLayout}
+      />,
+    );
+
+    const bottomMarker = screen.getByText("10");
+    fireEvent.click(bottomMarker);
+
+    const bottomTooltip = screen
+      .getByText(/Bottom Driver/)
+      .closest("div.absolute");
+    expect(bottomTooltip).toBeInTheDocument();
+    expect(bottomTooltip).toHaveStyle({ top: "94%" });
+    expect(bottomTooltip).toHaveClass("-translate-y-full");
+  });
 });
