@@ -438,6 +438,16 @@ const updateSyncQueueForEvent = async (
   );
 };
 
+const resolveCoordinateValue = (
+  paramVal: number | null | undefined,
+  existingVal: number | null | undefined,
+): number | null => {
+  if (paramVal !== undefined) {
+    return paramVal;
+  }
+  return existingVal ?? null;
+};
+
 export const createGameEventTx = async (
   params: CreateGameEventParams,
 ): Promise<GameEvent> => {
@@ -561,23 +571,19 @@ export const updateGameEventTx = async (
         }
       }
 
-      const locationX =
-        params.locationX === undefined
-          ? (existing.locationX ?? null)
-          : params.locationX;
-      const locationY =
-        params.locationY === undefined
-          ? (existing.locationY ?? null)
-          : params.locationY;
+      const locationX = resolveCoordinateValue(
+        params.locationX,
+        existing.locationX,
+      );
+      const locationY = resolveCoordinateValue(
+        params.locationY,
+        existing.locationY,
+      );
       const shotLocationX = isShot
-        ? params.shotLocationX === undefined
-          ? (existing.shotLocationX ?? null)
-          : params.shotLocationX
+        ? resolveCoordinateValue(params.shotLocationX, existing.shotLocationX)
         : null;
       const shotLocationY = isShot
-        ? params.shotLocationY === undefined
-          ? (existing.shotLocationY ?? null)
-          : params.shotLocationY
+        ? resolveCoordinateValue(params.shotLocationY, existing.shotLocationY)
         : null;
 
       updatedEvent = {
