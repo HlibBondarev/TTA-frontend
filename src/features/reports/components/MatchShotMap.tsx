@@ -70,6 +70,7 @@ const ShotMarker: React.FC<{
   const hoverRadius = minDim * 0.044;
   const radius = isHighlighted ? hoverRadius : baseRadius;
   const strokeWidth = minDim * 0.01;
+  const focusStrokeWidth = Number((minDim * 0.015).toFixed(4));
   const fontSize = minDim * 0.036;
   const textY = minDim * 0.012;
 
@@ -93,7 +94,12 @@ const ShotMarker: React.FC<{
         cy={0}
         r={radius}
         strokeWidth={strokeWidth}
-        className={`${colorClasses} shadow-md transition-all duration-150 group-focus-visible:stroke-white group-focus-visible:stroke-[3px]`}
+        style={
+          {
+            "--focus-stroke-width": `${focusStrokeWidth}`,
+          } as React.CSSProperties
+        }
+        className={`${colorClasses} shadow-md transition-all duration-150 group-focus-visible:stroke-white group-focus-visible:[stroke-width:var(--focus-stroke-width)]`}
       />
       <text
         x={0}

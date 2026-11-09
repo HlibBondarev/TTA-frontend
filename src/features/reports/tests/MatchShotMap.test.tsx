@@ -586,7 +586,7 @@ describe("MatchShotMap Component", () => {
     expect(mapWrapper).not.toHaveClass("overflow-hidden");
   });
 
-  it("scales marker dimensions proportionally for large viewBox maps without fixed absolute caps", () => {
+  it("scales marker dimensions and focused stroke width proportionally for large viewBox maps", () => {
     const largeSvg = `<svg viewBox="0 0 6150 2480" width="6150" height="2480"><rect width="6150" height="2480" fill="blue"/></svg>`;
     const largeEvents: GameEventResponse[] = [
       {
@@ -612,5 +612,54 @@ describe("MatchShotMap Component", () => {
 
     expect(circle).toHaveAttribute("r", "79.36");
     expect(circle).toHaveAttribute("stroke-width", "24.8");
+    expect(circle).toHaveStyle({ "--focus-stroke-width": "37.2" });
+  });
+
+  it("cycles selection continuously in a 2-marker cluster when starting from the last marker", () => {
+    const smallSvg = `<svg viewBox="0 0 615 248" width="615" height="248"><rect width="615" height="248" fill="blue"/></svg>`;
+    const twoClusterEvents: GameEventResponse[] = [
+      {
+        id: "cluster-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+        playerNumber: 1,
+        playerName: "Player One",
+        eventName: "Goal",
+      },
+      {
+        id: "cluster-2",
+        eventDefinitionId: sogDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+        playerNumber: 2,
+        playerName: "Player Two",
+        eventName: "Shot on Goal",
+      },
+    ];
+
+    render(
+      <MatchShotMap
+        events={twoClusterEvents}
+        eventDefinitionsMap={mockDefinitionsMap}
+        shotMap={smallSvg}
+      />,
+    );
+
+    const marker2 = screen.getByRole("button", { name: /Player #2/ });
+
+    // Click marker 2 (last marker in cluster)
+    fireEvent.click(marker2);
+    expect(screen.getByText(/Player Two/)).toBeInTheDocument();
+
+    // Click marker 2 again -> cycles to marker 1
+    fireEvent.click(marker2);
+    expect(screen.getByText(/Player One/)).toBeInTheDocument();
+
+    // Click marker 2 again -> cycles back to marker 2
+    fireEvent.click(marker2);
+    expect(screen.getByText(/Player Two/)).toBeInTheDocument();
   });
 });
