@@ -713,19 +713,16 @@ describe("MyMatchesView Component", () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
-    vi.mocked(userMatchService.uncatchMatch).mockResolvedValueOnce(undefined);
-
-    vi.mocked(db.matches.get).mockResolvedValueOnce(undefined as never);
 
     let competitorDraftCreated = false;
-    vi.mocked(db.transaction).mockImplementationOnce((async (
-      _mode: string,
-      _tables: unknown,
-      callback: () => Promise<void>,
-    ) => {
-      competitorDraftCreated = true;
-      await callback();
-    }) as unknown as typeof db.transaction);
+    vi.mocked(userMatchService.uncatchMatch).mockImplementationOnce(
+      async () => {
+        // Competing draft appears while the uncatch API call is in flight
+        competitorDraftCreated = true;
+      },
+    );
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce(undefined as never);
 
     vi.mocked(db.matches.get).mockImplementation(((id: string) => {
       if (competitorDraftCreated) {
@@ -755,11 +752,7 @@ describe("MyMatchesView Component", () => {
         "match-101",
         "guest-team-2",
       );
-      expect(db.transaction).toHaveBeenCalledWith(
-        "rw",
-        db.matches,
-        expect.any(Function),
-      );
+      expect(db.transaction).toHaveBeenCalledTimes(2);
       expect(db.matches.delete).not.toHaveBeenCalled();
     });
   });
