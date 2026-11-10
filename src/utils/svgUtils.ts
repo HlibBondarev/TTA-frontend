@@ -12,10 +12,6 @@ const VIEWBOX_VALUE_REGEX = new RegExp(
   String.raw`^\s*(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})\s*$`,
 );
 
-// Regex matching individual HTML/XML attributes sequentially: key="val", key='val', key=val, or boolean key
-const ATTR_REGEX =
-  /(?:\s+|^)([a-zA-Z0-9:_-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
-
 /**
  * Extracts the contents of the root <svg ...> opening tag safely.
  * Iterates deterministically O(N) to respect '>' inside quoted attributes without backtracking issues.
@@ -34,30 +30,83 @@ const extractRootSvgAttributes = (svgString: string): string | null => {
       if (char === inQuote) {
         inQuote = null;
       }
-    } else {
-      if (char === '"' || char === "'") {
-        inQuote = char;
-      } else if (char === ">") {
-        return svgString.slice(startIndex, i);
-      }
+    } else if (char === '"' || char === "'") {
+      inQuote = char;
+    } else if (char === ">") {
+      return svgString.slice(startIndex, i);
     }
   }
 
   return null;
 };
 
+/**
+ * Deterministically parses XML/HTML attributes from the root SVG opening tag
+ * without regular expression backtracking or complexity overhead.
+ */
 const getRootAttributeValue = (
   attributesString: string,
   targetAttr: string,
 ): string | null => {
-  ATTR_REGEX.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = ATTR_REGEX.exec(attributesString)) !== null) {
-    const attrName = match[1];
-    if (attrName.toLowerCase() === targetAttr.toLowerCase()) {
-      return match[2] ?? match[3] ?? match[4] ?? null;
+  const targetLower = targetAttr.toLowerCase();
+  let i = 0;
+  const len = attributesString.length;
+
+  while (i < len) {
+    // Skip whitespace
+    while (i < len && /\s/.test(attributesString[i])) {
+      i++;
+    }
+    if (i >= len) break;
+
+    // Read attribute key
+    const keyStart = i;
+    while (i < len && /[a-zA-Z0-9:_-]/.test(attributesString[i])) {
+      i++;
+    }
+    if (i === keyStart) {
+      i++;
+      continue;
+    }
+    const key = attributesString.slice(keyStart, i);
+
+    // Skip whitespace after key
+    while (i < len && /\s/.test(attributesString[i])) {
+      i++;
+    }
+
+    let value: string | null = null;
+    if (i < len && attributesString[i] === "=") {
+      i++; // consume '='
+      while (i < len && /\s/.test(attributesString[i])) {
+        i++;
+      }
+      if (i < len) {
+        const quote = attributesString[i];
+        if (quote === '"' || quote === "'") {
+          i++; // consume opening quote
+          const valStart = i;
+          while (i < len && attributesString[i] !== quote) {
+            i++;
+          }
+          value = attributesString.slice(valStart, i);
+          if (i < len) i++; // consume closing quote
+        } else {
+          // Unquoted attribute value
+          const valStart = i;
+          while (i < len && !/\s/.test(attributesString[i])) {
+            i++;
+          }
+          value = attributesString.slice(valStart, i);
+        }
+      }
+    }
+
+    if (key.toLowerCase() === targetLower) {
+      return value ?? "";
     }
   }
+
   return null;
 };
 
