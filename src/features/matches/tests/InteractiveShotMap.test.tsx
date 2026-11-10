@@ -241,14 +241,17 @@ describe("InteractiveShotMap Component", () => {
     expect(handleShotLocationSelect).toHaveBeenCalledWith(55, 50);
 
     // ArrowUp -> increases Y to 55
+    handleShotLocationSelect.mockClear();
     fireEvent.keyDown(button, { key: "ArrowUp" });
     expect(handleShotLocationSelect).toHaveBeenCalledWith(50, 55);
 
     // ArrowLeft -> decreases X to 45
+    handleShotLocationSelect.mockClear();
     fireEvent.keyDown(button, { key: "ArrowLeft" });
     expect(handleShotLocationSelect).toHaveBeenCalledWith(45, 50);
 
     // ArrowDown -> decreases Y to 45
+    handleShotLocationSelect.mockClear();
     fireEvent.keyDown(button, { key: "ArrowDown" });
     expect(handleShotLocationSelect).toHaveBeenCalledWith(50, 45);
   });
@@ -267,10 +270,11 @@ describe("InteractiveShotMap Component", () => {
     const button = screen.getByLabelText("Goal Shot Location Map");
 
     fireEvent.keyDown(button, { key: "ArrowRight" });
-    expect(handleShotLocationSelect).toHaveBeenCalledWith(100, 100);
+    expect(handleShotLocationSelect).toHaveBeenLastCalledWith(100, 100);
 
+    handleShotLocationSelect.mockClear();
     fireEvent.keyDown(button, { key: "ArrowUp" });
-    expect(handleShotLocationSelect).toHaveBeenCalledWith(100, 100);
+    expect(handleShotLocationSelect).toHaveBeenLastCalledWith(100, 100);
 
     handleShotLocationSelect.mockClear();
 
@@ -284,10 +288,11 @@ describe("InteractiveShotMap Component", () => {
     );
 
     fireEvent.keyDown(button, { key: "ArrowLeft" });
-    expect(handleShotLocationSelect).toHaveBeenCalledWith(0, 0);
+    expect(handleShotLocationSelect).toHaveBeenLastCalledWith(0, 0);
 
+    handleShotLocationSelect.mockClear();
     fireEvent.keyDown(button, { key: "ArrowDown" });
-    expect(handleShotLocationSelect).toHaveBeenCalledWith(0, 0);
+    expect(handleShotLocationSelect).toHaveBeenLastCalledWith(0, 0);
   });
 
   it("ignores non-arrow and non-actionable keys", () => {
