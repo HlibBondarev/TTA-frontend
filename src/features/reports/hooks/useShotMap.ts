@@ -88,8 +88,8 @@ export const useShotMap = ({
       setHoveredEventId(null);
 
       setSelectedEventId((prevSelectedId): string | null => {
-        const clickedEvt = events.find((e) => e.id === eventId);
-        if (!clickedEvt) return prevSelectedId === eventId ? null : eventId;
+        const hasClickedEvt = events.some((e) => e.id === eventId);
+        if (!hasClickedEvt) return prevSelectedId === eventId ? null : eventId;
 
         const cluster = clusters.find((c) =>
           c.some((item) => item.id === eventId),
