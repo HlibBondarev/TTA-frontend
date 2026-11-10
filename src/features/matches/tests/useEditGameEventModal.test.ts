@@ -11,6 +11,24 @@ let mockAuth0User: { sub?: string; email?: string } | undefined = {
   email: "test@example.com",
 };
 
+let liveQueryCallback: ((config: unknown) => void) | null = null;
+
+vi.mock("dexie", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("dexie")>();
+  return {
+    ...actual,
+    liveQuery: vi.fn((fn: () => Promise<unknown>) => ({
+      subscribe: (observer: { next: (val: unknown) => void }) => {
+        liveQueryCallback = observer.next;
+        void fn().then((val) => observer.next(val));
+        return {
+          unsubscribe: vi.fn(),
+        };
+      },
+    })),
+  };
+});
+
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
     get user() {
@@ -167,6 +185,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    liveQueryCallback = null;
     mockAuth0User = { sub: "user-123", email: "test@example.com" };
     mockReduxState = {
       auth: { currentUserId: "user-123" },
@@ -257,6 +276,19 @@ describe("useEditGameEventModal Custom Hook", () => {
       expect(result.current.shotMap).toBe("<svg>Goal</svg>");
       expect(result.current.playground).toBe("<svg>Court</svg>");
     });
+
+    act(() => {
+      if (liveQueryCallback) {
+        liveQueryCallback({
+          id: "config-1",
+          playground: "<svg>Updated Court</svg>",
+          shotMap: "<svg>Updated Goal Target</svg>",
+        });
+      }
+    });
+
+    expect(result.current.playground).toBe("<svg>Updated Court</svg>");
+    expect(result.current.shotMap).toBe("<svg>Updated Goal Target</svg>");
   });
 
   it("should resolve currentUserId from Redux auth.user.id fallback when auth0 is missing", async () => {
