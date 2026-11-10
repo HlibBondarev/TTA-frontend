@@ -223,14 +223,17 @@ describe("InteractivePlayground Component", () => {
     expect(handleLocationSelect).toHaveBeenCalledWith(50, 55);
 
     // ArrowUp -> increases Length (locationX) to 55
+    handleLocationSelect.mockClear();
     fireEvent.keyDown(playgroundButton, { key: "ArrowUp" });
     expect(handleLocationSelect).toHaveBeenCalledWith(55, 50);
 
     // ArrowLeft -> decreases Width (locationY) to 45
+    handleLocationSelect.mockClear();
     fireEvent.keyDown(playgroundButton, { key: "ArrowLeft" });
     expect(handleLocationSelect).toHaveBeenCalledWith(50, 45);
 
     // ArrowDown -> decreases Length (locationX) to 45
+    handleLocationSelect.mockClear();
     fireEvent.keyDown(playgroundButton, { key: "ArrowDown" });
     expect(handleLocationSelect).toHaveBeenCalledWith(45, 50);
   });
@@ -248,10 +251,11 @@ describe("InteractivePlayground Component", () => {
     const playgroundButton = container.querySelector(".cursor-crosshair")!;
 
     fireEvent.keyDown(playgroundButton, { key: "ArrowRight" });
-    expect(handleLocationSelect).toHaveBeenCalledWith(100, 100);
+    expect(handleLocationSelect).toHaveBeenLastCalledWith(100, 100);
 
+    handleLocationSelect.mockClear();
     fireEvent.keyDown(playgroundButton, { key: "ArrowUp" });
-    expect(handleLocationSelect).toHaveBeenCalledWith(100, 100);
+    expect(handleLocationSelect).toHaveBeenLastCalledWith(100, 100);
 
     handleLocationSelect.mockClear();
 
@@ -264,10 +268,11 @@ describe("InteractivePlayground Component", () => {
     );
 
     fireEvent.keyDown(playgroundButton, { key: "ArrowLeft" });
-    expect(handleLocationSelect).toHaveBeenCalledWith(0, 0);
+    expect(handleLocationSelect).toHaveBeenLastCalledWith(0, 0);
 
+    handleLocationSelect.mockClear();
     fireEvent.keyDown(playgroundButton, { key: "ArrowDown" });
-    expect(handleLocationSelect).toHaveBeenCalledWith(0, 0);
+    expect(handleLocationSelect).toHaveBeenLastCalledWith(0, 0);
   });
 
   it("ignores non-arrow and non-actionable keys", () => {
