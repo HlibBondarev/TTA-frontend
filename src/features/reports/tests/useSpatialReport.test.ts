@@ -840,4 +840,50 @@ describe("useSpatialReport Custom Hook", () => {
       expect(result.current.shotMap).toBe("<svg id='remote-sm'></svg>");
     });
   });
+
+  it("fetches remote tournament from API when cached local tournament is missing sportId or configurationId", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: "m-1",
+      tournamentId: "tourn-incomplete",
+    } as never);
+
+    // Incomplete local tournament record in IndexedDB (missing configurationId)
+    vi.mocked(db.tournaments.get).mockResolvedValue({
+      id: "tourn-incomplete",
+      sportId: "waterpolo",
+    } as never);
+
+    vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
+      if (url === "/Tournaments/tourn-incomplete") {
+        return {
+          id: "tourn-incomplete",
+          sportId: "waterpolo",
+          configurationId: "cfg-complete",
+        } as never;
+      }
+      return null as never;
+    });
+
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "cfg-complete",
+      playground: "<svg id='remote-tourn-pg'></svg>",
+      shotMap: "<svg id='remote-tourn-sm'></svg>",
+    } as never);
+
+    const { result } = renderHook(() => useSpatialReport({ matchId: "m-1" }));
+
+    await waitFor(() => {
+      expect(result.current.playground).toBe(
+        "<svg id='remote-tourn-pg'></svg>",
+      );
+      expect(result.current.shotMap).toBe("<svg id='remote-tourn-sm'></svg>");
+    });
+
+    expect(apiClient.get).toHaveBeenCalledWith("/Tournaments/tourn-incomplete");
+    expect(db.tournaments.put).toHaveBeenCalledWith({
+      id: "tourn-incomplete",
+      sportId: "waterpolo",
+      configurationId: "cfg-complete",
+    });
+  });
 });

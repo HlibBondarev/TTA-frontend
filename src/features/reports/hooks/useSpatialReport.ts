@@ -158,22 +158,30 @@ async function fetchTournament(
   tournamentId: string,
 ): Promise<TournamentLookup | null> {
   const localTournament = await db.tournaments.get(tournamentId);
-  if (localTournament) return localTournament;
+  if (localTournament?.sportId && localTournament?.configurationId) {
+    return localTournament;
+  }
 
   try {
     const remoteTournament = await apiClient.get<TournamentLookup>(
       `/Tournaments/${tournamentId}`,
     );
     if (remoteTournament) {
-      await Promise.resolve(db.tournaments.put(remoteTournament)).catch(
-        () => undefined,
-      );
-      return remoteTournament;
+      const mergedTournament: TournamentLookup = {
+        ...localTournament,
+        ...remoteTournament,
+      };
+      if (mergedTournament.sportId && mergedTournament.configurationId) {
+        await Promise.resolve(db.tournaments.put(mergedTournament)).catch(
+          () => undefined,
+        );
+      }
+      return mergedTournament;
     }
   } catch {
     // Ignore API fetch errors for missing tournament
   }
-  return null;
+  return localTournament ?? null;
 }
 
 async function fetchSportConfiguration(
