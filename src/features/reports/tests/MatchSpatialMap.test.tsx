@@ -1,10 +1,14 @@
 import { render, screen, fireEvent, act } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { MatchSpatialMap } from "../components/MatchSpatialMap";
 import type { GameEventResponse } from "../../../services/reportService";
 import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
 
 describe("MatchSpatialMap Component", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const defaultPlayground =
     '<svg viewBox="0 0 600 1000" width="600" height="1000"><rect width="600" height="1000" fill="blue"/></svg>';
   const defaultShotMap =
@@ -344,8 +348,6 @@ describe("MatchSpatialMap Component", () => {
     fireEvent.click(shotButton);
 
     expect(screen.getByText("Goal Target")).toBeInTheDocument();
-
-    vi.useRealTimers();
   });
 
   it("displays and closes interactive tooltip when clicking action markers or map background", () => {
@@ -477,17 +479,14 @@ describe("MatchSpatialMap Component", () => {
       />,
     );
 
-    // Verify outer container does not clip overflowing tooltips
     const outerContainer = container.firstChild as HTMLElement;
     expect(outerContainer).not.toHaveClass("overflow-hidden");
 
-    // Verify inner SVG wrapper maintains rounded corners and overflow clipping
     const innerWrapper = container.querySelector(
       ".pointer-events-none.opacity-90",
     );
     expect(innerWrapper).toHaveClass("rounded-2xl", "overflow-hidden");
 
-    // Verify tooltip opens on hover without errors
     const positiveMarker = screen.getByText("9");
     fireEvent.mouseEnter(positiveMarker);
     expect(screen.getByRole("tooltip")).toBeInTheDocument();
