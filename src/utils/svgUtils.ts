@@ -121,7 +121,7 @@ const getRootAttributeValue = (
     if (!attr) break;
 
     i = attr.nextIndex;
-    if (attr.key && attr.key.toLowerCase() === targetLower) {
+    if (attr.key?.toLowerCase() === targetLower) {
       return attr.value ?? "";
     }
   }
