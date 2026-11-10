@@ -467,4 +467,29 @@ describe("MatchSpatialMap Component", () => {
     );
     expect(text).toHaveAttribute("font-size", "8.4");
   });
+
+  it("removes overflow clipping from outer container and applies rounded-2xl overflow-hidden to inner SVG wrapper", () => {
+    const { container } = render(
+      <MatchSpatialMap
+        events={mockEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+      />,
+    );
+
+    // Verify outer container does not clip overflowing tooltips
+    const outerContainer = container.firstChild as HTMLElement;
+    expect(outerContainer).not.toHaveClass("overflow-hidden");
+
+    // Verify inner SVG wrapper maintains rounded corners and overflow clipping
+    const innerWrapper = container.querySelector(
+      ".pointer-events-none.opacity-90",
+    );
+    expect(innerWrapper).toHaveClass("rounded-2xl", "overflow-hidden");
+
+    // Verify tooltip opens on hover without errors
+    const positiveMarker = screen.getByText("9");
+    fireEvent.mouseEnter(positiveMarker);
+    expect(screen.getByRole("tooltip")).toBeInTheDocument();
+  });
 });

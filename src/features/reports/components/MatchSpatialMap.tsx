@@ -383,7 +383,7 @@ const SpatialTooltip: React.FC<{
         locX,
       )}`}
       style={{
-        left: `clamp(0px, calc(${screenLeftPct}% - 6.875rem), calc(100% - 13.75rem))`,
+        left: `clamp(0px, calc(${screenLeftPct}% - 6.875rem), calc(100% - 15rem))`,
         top: `${Math.max(5, Math.min(95, screenTopPct))}%`,
       }}
     >
@@ -550,11 +550,11 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
 
   return (
     <div
-      className="relative w-full bg-blue-950/60 border border-blue-900/60 rounded-2xl overflow-hidden select-none"
+      className="relative w-full bg-blue-950/60 border border-blue-900/60 rounded-2xl select-none"
       style={{ aspectRatio: dimensions.aspectRatio }}
     >
       <div
-        className="w-full h-auto pointer-events-none opacity-90 [&>svg]:w-full [&>svg]:h-auto [&>svg]:block"
+        className="w-full h-auto pointer-events-none opacity-90 rounded-2xl overflow-hidden [&>svg]:w-full [&>svg]:h-auto [&>svg]:block"
         dangerouslySetInnerHTML={{ __html: safeSvg }}
       />
 
