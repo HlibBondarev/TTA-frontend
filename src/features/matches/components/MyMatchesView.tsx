@@ -176,7 +176,17 @@ export const MyMatchesView: React.FC = () => {
 
       await userMatchService.uncatchMatch(matchId, teamId);
       setMatches((prev) => prev.filter((m) => m.id !== matchId));
-      await db.matches.delete(matchId).catch(() => {});
+      await db
+        .transaction("rw", db.matches, async () => {
+          const current = await db.matches.get(matchId);
+          const isDraft =
+            current != null &&
+            (current.homeScore == null || current.guestScore == null);
+          if (!isDraft) {
+            await db.matches.delete(matchId);
+          }
+        })
+        .catch(() => {});
     } catch (err) {
       setErrorMessage(
         err instanceof Error

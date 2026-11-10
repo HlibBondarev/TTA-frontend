@@ -708,4 +708,59 @@ describe("MyMatchesView Component", () => {
       expect(screen.getByText("Dolphins")).toBeDefined();
     });
   });
+
+  it("should skip local deletion inside atomic transaction if an active draft is created concurrently during uncatch API call", async () => {
+    vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
+      mockMatches,
+    );
+    vi.mocked(userMatchService.uncatchMatch).mockResolvedValueOnce(undefined);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce(undefined as never);
+
+    let competitorDraftCreated = false;
+    vi.mocked(db.transaction).mockImplementationOnce((async (
+      _mode: string,
+      _tables: unknown,
+      callback: () => Promise<void>,
+    ) => {
+      competitorDraftCreated = true;
+      await callback();
+    }) as unknown as typeof db.transaction);
+
+    vi.mocked(db.matches.get).mockImplementation(((id: string) => {
+      if (competitorDraftCreated) {
+        return Promise.resolve({
+          id,
+          homeScore: null,
+          guestScore: null,
+        }) as never;
+      }
+      return Promise.resolve(undefined) as never;
+    }) as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MyMatchesView />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Dolphins")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /Delete/i }));
+
+    await waitFor(() => {
+      expect(userMatchService.uncatchMatch).toHaveBeenCalledWith(
+        "match-101",
+        "guest-team-2",
+      );
+      expect(db.transaction).toHaveBeenCalledWith(
+        "rw",
+        db.matches,
+        expect.any(Function),
+      );
+      expect(db.matches.delete).not.toHaveBeenCalled();
+    });
+  });
 });
