@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { MyMatchesView } from "../components/MyMatchesView";
@@ -534,7 +540,7 @@ describe("MyMatchesView Component", () => {
     });
   });
 
-  it("should handle competing write transactions by reading updated draft state inside transaction and preserving the draft", async () => {
+  it("should skip bulkPut when transaction-time read returns an active local draft", async () => {
     vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
       mockMatches,
     );
@@ -546,7 +552,7 @@ describe("MyMatchesView Component", () => {
       _tables: unknown,
       callback: () => Promise<void>,
     ) => {
-      // Competing tab/process writes an unfinished draft to IndexedDB right before transaction read completes
+      // Competing process wrote an unfinished draft to IndexedDB right before transaction read completes
       competingDraftWritten = true;
       await callback();
     }) as unknown as typeof db.transaction);
@@ -590,7 +596,7 @@ describe("MyMatchesView Component", () => {
         expect.any(Function),
       );
       expect(db.matches.bulkGet).toHaveBeenCalledWith(["match-101"]);
-      // Draft record created by competing transaction is preserved: bulkPut is skipped
+      // Draft record returned during transaction read: bulkPut is skipped
       expect(db.matches.bulkPut).not.toHaveBeenCalled();
     });
   });
@@ -600,6 +606,7 @@ describe("MyMatchesView Component", () => {
       {
         ...mockMatches[0],
         id: "match-slow-1",
+        tournamentId: "",
         homeTeamName: "Slow Team 1",
       },
       {
@@ -638,6 +645,7 @@ describe("MyMatchesView Component", () => {
 
     // Trigger report opening for the first match (pending slow async Dexie lookup)
     fireEvent.click(viewReportButtons[0]);
+    expect(db.matches.get).toHaveBeenCalledWith("match-slow-1");
 
     // Immediately trigger report opening for the second match
     fireEvent.click(viewReportButtons[1]);
@@ -646,15 +654,19 @@ describe("MyMatchesView Component", () => {
     const reportModal = await screen.findByTestId("report-modal");
     expect(reportModal).toHaveTextContent("team: home-team-1");
 
-    // Now resolve the initial slow match lookup
-    resolveSlowGet!({ id: "match-slow-1", tournamentId: "tourn-1" });
+    // Resolve and flush slowPromise inside act
+    await act(async () => {
+      resolveSlowGet!({ id: "match-slow-1", tournamentId: "tourn-1" });
+      await slowPromise;
+    });
 
     // Verify modal state was not overwritten by the stale initial request
-    await waitFor(() => {
-      expect(screen.getByTestId("report-modal")).toHaveTextContent(
-        "team: home-team-1",
-      );
-    });
+    expect(screen.getByTestId("report-modal")).toHaveTextContent(
+      "team: home-team-1",
+    );
+    expect(screen.getByTestId("report-modal")).not.toHaveTextContent(
+      "team: guest-team-2",
+    );
   });
 
   it("should protect unfinished local draft from deletion and show user-facing feedback when handleUncatch is invoked", async () => {
