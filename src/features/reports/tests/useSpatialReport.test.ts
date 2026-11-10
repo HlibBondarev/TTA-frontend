@@ -125,9 +125,14 @@ describe("useSpatialReport Custom Hook", () => {
     vi.mocked(reportService.getMatchEvents).mockResolvedValue(mockEvents);
     vi.mocked(reportService.getTeamLineup).mockResolvedValue(mockLineups);
 
+    vi.mocked(apiClient.get).mockResolvedValue(null);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValue([]);
+
     vi.mocked(db.matches.get).mockResolvedValue(undefined);
     vi.mocked(db.tournaments.get).mockResolvedValue(undefined);
+    vi.mocked(db.tournaments.put).mockResolvedValue("tourn-1" as never);
     vi.mocked(db.sportconfigurations.get).mockResolvedValue(undefined);
+    vi.mocked(db.sportconfigurations.put).mockResolvedValue("cfg-1" as never);
 
     vi.mocked(db.matchlineups.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
@@ -175,18 +180,18 @@ describe("useSpatialReport Custom Hook", () => {
   });
 
   it("resolves sport SVGs from tournament and sport configuration when missing in props", async () => {
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: "m-1",
       tournamentId: "tourn-1",
     } as never);
 
-    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+    vi.mocked(db.tournaments.get).mockResolvedValue({
       id: "tourn-1",
       sportId: "waterpolo",
       configurationId: "cfg-1",
     } as never);
 
-    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
       id: "cfg-1",
       playground: "<svg id='db-pg'></svg>",
       shotMap: "<svg id='db-sm'></svg>",
@@ -619,25 +624,25 @@ describe("useSpatialReport Custom Hook", () => {
   });
 
   it("fetches remote sport configuration when local cached config is missing shotMap", async () => {
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: "m-1",
       tournamentId: "tourn-1",
     } as never);
 
-    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+    vi.mocked(db.tournaments.get).mockResolvedValue({
       id: "tourn-1",
       sportId: "waterpolo",
       configurationId: "cfg-1",
     } as never);
 
     // Local cache contains playground but lacks shotMap
-    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
       id: "cfg-1",
       playground: "<svg id='local-pg'></svg>",
       shotMap: undefined,
     } as never);
 
-    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValue([
       {
         id: "cfg-1",
         sportId: "waterpolo",
@@ -665,18 +670,18 @@ describe("useSpatialReport Custom Hook", () => {
   });
 
   it("publishes cached playground immediately when shotMap is missing before remote fetch finishes", async () => {
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: "m-1",
       tournamentId: "tourn-1",
     } as never);
 
-    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+    vi.mocked(db.tournaments.get).mockResolvedValue({
       id: "tourn-1",
       sportId: "waterpolo",
       configurationId: "cfg-1",
     } as never);
 
-    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
       id: "cfg-1",
       playground: "<svg id='cached-pg'></svg>",
       shotMap: undefined,
@@ -687,7 +692,7 @@ describe("useSpatialReport Custom Hook", () => {
       resolveRemoteConfig = resolve;
     });
 
-    vi.mocked(sportService.getSportConfigurations).mockReturnValueOnce(
+    vi.mocked(sportService.getSportConfigurations).mockReturnValue(
       remoteConfigPromise as never,
     );
 
@@ -705,6 +710,13 @@ describe("useSpatialReport Custom Hook", () => {
         {
           id: "cfg-1",
           sportId: "waterpolo",
+          usesCleanTime: true,
+          periodsCount: 4,
+          periodDurationMinutes: 8,
+          fieldSize: "30x20",
+          rosterLimit: 13,
+          lineupLimit: 13,
+          activePlayersLimit: 7,
           playground: "<svg id='cached-pg'></svg>",
           shotMap: "<svg id='fetched-sm'></svg>",
         },
@@ -717,7 +729,7 @@ describe("useSpatialReport Custom Hook", () => {
   });
 
   it("fetches remote match metadata from API when missing in local IndexedDB to resolve sport SVGs", async () => {
-    vi.mocked(db.matches.get).mockResolvedValueOnce(undefined);
+    vi.mocked(db.matches.get).mockResolvedValue(undefined);
 
     vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
       if (url === "/Matches/m-remote-1") {
@@ -726,13 +738,13 @@ describe("useSpatialReport Custom Hook", () => {
       return null as never;
     });
 
-    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+    vi.mocked(db.tournaments.get).mockResolvedValue({
       id: "tourn-remote-1",
       sportId: "waterpolo",
       configurationId: "cfg-remote-1",
     } as never);
 
-    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
       id: "cfg-remote-1",
       playground: "<svg id='remote-pg-2'></svg>",
       shotMap: "<svg id='remote-sm-2'></svg>",
@@ -751,18 +763,18 @@ describe("useSpatialReport Custom Hook", () => {
   });
 
   it("treats empty string SVG props as missing and resolves valid SVGs from sport configuration", async () => {
-    vi.mocked(db.matches.get).mockResolvedValueOnce({
+    vi.mocked(db.matches.get).mockResolvedValue({
       id: "m-empty-strings",
       tournamentId: "tourn-1",
     } as never);
 
-    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+    vi.mocked(db.tournaments.get).mockResolvedValue({
       id: "tourn-1",
       sportId: "waterpolo",
       configurationId: "cfg-1",
     } as never);
 
-    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
       id: "cfg-1",
       playground: "<svg id='config-pg'></svg>",
       shotMap: "<svg id='config-sm'></svg>",
@@ -779,6 +791,53 @@ describe("useSpatialReport Custom Hook", () => {
     await waitFor(() => {
       expect(result.current.playground).toBe("<svg id='config-pg'></svg>");
       expect(result.current.shotMap).toBe("<svg id='config-sm'></svg>");
+    });
+  });
+
+  it("returns fetched remote tournament and sport configuration even if IndexedDB cache write fails", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: "m-1",
+      tournamentId: "tourn-1",
+    } as never);
+
+    vi.mocked(db.tournaments.get).mockResolvedValue(undefined);
+    vi.mocked(apiClient.get).mockResolvedValue({
+      id: "tourn-1",
+      sportId: "waterpolo",
+      configurationId: "cfg-1",
+    } as never);
+
+    // Mock IndexedDB cache write failure
+    vi.mocked(db.tournaments.put).mockRejectedValue(
+      new Error("IndexedDB quota exceeded"),
+    );
+
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue(undefined);
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValue([
+      {
+        id: "cfg-1",
+        sportId: "waterpolo",
+        usesCleanTime: true,
+        periodsCount: 4,
+        periodDurationMinutes: 8,
+        fieldSize: "30x20",
+        rosterLimit: 13,
+        lineupLimit: 13,
+        activePlayersLimit: 7,
+        playground: "<svg id='remote-pg'></svg>",
+        shotMap: "<svg id='remote-sm'></svg>",
+      },
+    ]);
+
+    vi.mocked(db.sportconfigurations.put).mockRejectedValue(
+      new Error("IndexedDB write lock error"),
+    );
+
+    const { result } = renderHook(() => useSpatialReport({ matchId: "m-1" }));
+
+    await waitFor(() => {
+      expect(result.current.playground).toBe("<svg id='remote-pg'></svg>");
+      expect(result.current.shotMap).toBe("<svg id='remote-sm'></svg>");
     });
   });
 });

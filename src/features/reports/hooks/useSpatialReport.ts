@@ -165,7 +165,9 @@ async function fetchTournament(
       `/Tournaments/${tournamentId}`,
     );
     if (remoteTournament) {
-      await db.tournaments.put(remoteTournament);
+      await Promise.resolve(db.tournaments.put(remoteTournament)).catch(
+        () => undefined,
+      );
       return remoteTournament;
     }
   } catch {
@@ -196,7 +198,9 @@ async function fetchSportConfiguration(
 
   try {
     const configs = await sportService.getSportConfigurations(sportId);
-    const remoteConfig = configs.find((c) => c.id === configId);
+    const remoteConfig = Array.isArray(configs)
+      ? configs.find((c) => c.id === configId)
+      : undefined;
     if (remoteConfig) {
       const updatedConfig = {
         ...localConfig,
@@ -204,7 +208,9 @@ async function fetchSportConfiguration(
         playground: remoteConfig.playground || localConfig?.playground || null,
         shotMap: remoteConfig.shotMap || localConfig?.shotMap || null,
       };
-      await db.sportconfigurations.put(updatedConfig);
+      await Promise.resolve(db.sportconfigurations.put(updatedConfig)).catch(
+        () => undefined,
+      );
       return updatedConfig;
     }
   } catch {
