@@ -40,9 +40,74 @@ const extractRootSvgAttributes = (svgString: string): string | null => {
   return null;
 };
 
+const skipWhitespace = (str: string, startIndex: number): number => {
+  let i = startIndex;
+  while (i < str.length && /\s/.test(str[i])) {
+    i++;
+  }
+  return i;
+};
+
+const parseAttributeValue = (
+  str: string,
+  startIndex: number,
+): { value: string; nextIndex: number } => {
+  let i = skipWhitespace(str, startIndex);
+  if (i >= str.length) return { value: "", nextIndex: i };
+
+  const quote = str[i];
+  if (quote === '"' || quote === "'") {
+    i++;
+    const valStart = i;
+    while (i < str.length && str[i] !== quote) {
+      i++;
+    }
+    const value = str.slice(valStart, i);
+    return { value, nextIndex: i < str.length ? i + 1 : i };
+  }
+
+  const valStart = i;
+  while (i < str.length && !/\s/.test(str[i])) {
+    i++;
+  }
+  return { value: str.slice(valStart, i), nextIndex: i };
+};
+
+interface AttributeMatch {
+  key: string;
+  value: string | null;
+  nextIndex: number;
+}
+
+const parseNextAttribute = (
+  str: string,
+  startIndex: number,
+): AttributeMatch | null => {
+  let i = skipWhitespace(str, startIndex);
+  if (i >= str.length) return null;
+
+  const keyStart = i;
+  while (i < str.length && /[a-zA-Z0-9:_-]/.test(str[i])) {
+    i++;
+  }
+  if (i === keyStart) {
+    return { key: "", value: null, nextIndex: i + 1 };
+  }
+  const key = str.slice(keyStart, i);
+  i = skipWhitespace(str, i);
+
+  if (i >= str.length || str[i] !== "=") {
+    return { key, value: null, nextIndex: i };
+  }
+
+  i++; // consume '='
+  const { value, nextIndex } = parseAttributeValue(str, i);
+  return { key, value, nextIndex };
+};
+
 /**
  * Deterministically parses XML/HTML attributes from the root SVG opening tag
- * without regular expression backtracking or complexity overhead.
+ * without regular expression backtracking or high cognitive complexity.
  */
 const getRootAttributeValue = (
   attributesString: string,
@@ -50,60 +115,14 @@ const getRootAttributeValue = (
 ): string | null => {
   const targetLower = targetAttr.toLowerCase();
   let i = 0;
-  const len = attributesString.length;
 
-  while (i < len) {
-    // Skip whitespace
-    while (i < len && /\s/.test(attributesString[i])) {
-      i++;
-    }
-    if (i >= len) break;
+  while (i < attributesString.length) {
+    const attr = parseNextAttribute(attributesString, i);
+    if (!attr) break;
 
-    // Read attribute key
-    const keyStart = i;
-    while (i < len && /[a-zA-Z0-9:_-]/.test(attributesString[i])) {
-      i++;
-    }
-    if (i === keyStart) {
-      i++;
-      continue;
-    }
-    const key = attributesString.slice(keyStart, i);
-
-    // Skip whitespace after key
-    while (i < len && /\s/.test(attributesString[i])) {
-      i++;
-    }
-
-    let value: string | null = null;
-    if (i < len && attributesString[i] === "=") {
-      i++; // consume '='
-      while (i < len && /\s/.test(attributesString[i])) {
-        i++;
-      }
-      if (i < len) {
-        const quote = attributesString[i];
-        if (quote === '"' || quote === "'") {
-          i++; // consume opening quote
-          const valStart = i;
-          while (i < len && attributesString[i] !== quote) {
-            i++;
-          }
-          value = attributesString.slice(valStart, i);
-          if (i < len) i++; // consume closing quote
-        } else {
-          // Unquoted attribute value
-          const valStart = i;
-          while (i < len && !/\s/.test(attributesString[i])) {
-            i++;
-          }
-          value = attributesString.slice(valStart, i);
-        }
-      }
-    }
-
-    if (key.toLowerCase() === targetLower) {
-      return value ?? "";
+    i = attr.nextIndex;
+    if (attr.key && attr.key.toLowerCase() === targetLower) {
+      return attr.value ?? "";
     }
   }
 
