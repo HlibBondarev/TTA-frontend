@@ -127,6 +127,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         await onResumeMatch(activeUnfinishedMatch.id, teamToResume);
       }
     } catch (err) {
+      if (currentUserIdRef.current !== initiatedUserId) return;
       console.error("Failed to resume unfinished match:", err);
       const errorMessage =
         err instanceof Error
@@ -176,6 +177,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
       ) {
         return;
       }
+      if (currentUserIdRef.current !== initiatedUserId) return;
       console.error("Failed to discard unfinished match:", err);
       const errorMessage =
         err instanceof Error

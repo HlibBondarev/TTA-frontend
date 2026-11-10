@@ -1176,4 +1176,52 @@ describe("MainDashboard Component", () => {
 
     consoleSpy.mockRestore();
   });
+
+  it("should suppress discard failure error when account switches while discard is in-flight", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    let rejectDiscard: (err: Error) => void = () => {};
+    const deferredDiscard = new Promise<void>((_, reject) => {
+      rejectDiscard = reject;
+    });
+
+    vi.mocked(checkUnfinishedMatch).mockResolvedValue({
+      id: "m-userA-discard",
+      homeTeamId: "t1",
+      guestTeamId: "t2",
+      userId: "auth0|user-coach",
+    } as never);
+
+    vi.mocked(discardUnfinishedMatch).mockReturnValueOnce(deferredDiscard);
+
+    const store = createTestStore();
+    const { rerender } = render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    const discardBtn = await screen.findByRole("button", {
+      name: /Discard Match/i,
+    });
+    fireEvent.click(discardBtn);
+
+    // Switch account to User B while discard is in-flight
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    // Reject discard API call after user switch
+    await act(async () => {
+      rejectDiscard(new Error("Discard network failure for User A"));
+    });
+
+    // Verify stale alert is not presented to User B
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    consoleSpy.mockRestore();
+  });
 });
