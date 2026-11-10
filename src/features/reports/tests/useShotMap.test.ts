@@ -440,7 +440,7 @@ describe("useShotMap hook", () => {
     expect(result.current.activeEvent?.id).toBe("nearby-2");
   });
 
-  it("groups 5 adjacent shots into a single cluster and continuously wraps selection cycling when starting from the last marker", () => {
+  it("selects a different visible marker directly on click and cycles through all cluster items when re-clicking the selected marker", () => {
     const fiveShots: GameEventResponse[] = [
       {
         id: "shot-1",
@@ -500,8 +500,25 @@ describe("useShotMap hook", () => {
     const uniqueCoordinates = new Set(centerCoordinates);
     expect(uniqueCoordinates.size).toBe(5);
 
+    // 1. Direct Selection Test: Clicking different visible markers selects them directly
     act(() => {
       result.current.handleMarkerClick("shot-5");
+    });
+    expect(result.current.selectedEventId).toBe("shot-5");
+
+    act(() => {
+      result.current.handleMarkerClick("shot-2");
+    });
+    expect(result.current.selectedEventId).toBe("shot-2");
+
+    act(() => {
+      result.current.handleMarkerClick("shot-4");
+    });
+    expect(result.current.selectedEventId).toBe("shot-4");
+
+    // 2. Sequential Cycling Test: Re-clicking the active marker cycles through every shot in cluster order
+    act(() => {
+      result.current.handleMarkerClick("shot-4");
     });
     expect(result.current.selectedEventId).toBe("shot-5");
 
@@ -524,16 +541,6 @@ describe("useShotMap hook", () => {
       result.current.handleMarkerClick("shot-3");
     });
     expect(result.current.selectedEventId).toBe("shot-4");
-
-    act(() => {
-      result.current.handleMarkerClick("shot-4");
-    });
-    expect(result.current.selectedEventId).toBe("shot-5");
-
-    act(() => {
-      result.current.handleMarkerClick("shot-5");
-    });
-    expect(result.current.selectedEventId).toBe("shot-1");
   });
 
   it("handles chain-adjacent shots (x=50, 53, 56) where distance from cluster ref isolates the boundary marker into a toggleable single cluster", () => {
