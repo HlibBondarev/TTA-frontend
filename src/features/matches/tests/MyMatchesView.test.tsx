@@ -733,8 +733,6 @@ describe("MyMatchesView Component", () => {
       },
     );
 
-    vi.mocked(db.matches.get).mockResolvedValueOnce(undefined as never);
-
     vi.mocked(db.matches.get).mockImplementation(((id: string) => {
       if (competitorDraftCreated) {
         return Promise.resolve({
