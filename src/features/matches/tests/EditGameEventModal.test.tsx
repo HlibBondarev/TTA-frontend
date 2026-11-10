@@ -219,9 +219,8 @@ describe("EditGameEventModal Component", () => {
     expect(screen.getByText("Foul")).toBeInTheDocument();
     expect(screen.queryByText("Pass")).not.toBeInTheDocument();
 
-    // Save button remains enabled because previous selection is preserved
     const saveBtn = screen.getByRole("button", { name: /Save/i });
-    expect(saveBtn).not.toBeDisabled();
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
   });
 
   it("forces isLeadToGoal to false when switching action to Goal", async () => {
@@ -251,16 +250,14 @@ describe("EditGameEventModal Component", () => {
       </Provider>,
     );
 
-    // Select player #10
     const player10Btn = await screen.findByText("#10");
     fireEvent.click(player10Btn);
 
-    // Select new action "Goal" (def-2)
     const goalBtn = screen.getByText("Goal");
     fireEvent.click(goalBtn);
 
-    // Save changes
     const saveBtn = screen.getByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
@@ -307,12 +304,11 @@ describe("EditGameEventModal Component", () => {
       </Provider>,
     );
 
-    // Select player #10
     const player10Btn = await screen.findByText("#10");
     fireEvent.click(player10Btn);
 
-    // Save changes without switching to "Goal"
     const saveBtn = screen.getByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
@@ -351,13 +347,12 @@ describe("EditGameEventModal Component", () => {
     );
 
     const saveBtn = await screen.findByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
     fireEvent.click(saveBtn);
 
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "Database write error",
-      );
-    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Database write error",
+    );
   });
 
   it("handles loading errors for match roster and action definitions", async () => {
@@ -380,9 +375,7 @@ describe("EditGameEventModal Component", () => {
       </Provider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toBeInTheDocument();
-    });
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
   });
 
   it("closes modal on Cancel button and close button click", async () => {
@@ -404,7 +397,7 @@ describe("EditGameEventModal Component", () => {
     fireEvent.click(cancelBtn);
     expect(mockOnClose).toHaveBeenCalledTimes(1);
 
-    const closeBtn = screen.getByText("✕");
+    const closeBtn = await screen.findByText("✕");
     fireEvent.click(closeBtn);
     expect(mockOnClose).toHaveBeenCalledTimes(2);
   });
@@ -441,10 +434,11 @@ describe("EditGameEventModal Component", () => {
     const mapTab = await screen.findByRole("button", { name: /Map/i });
     fireEvent.click(mapTab);
 
-    expect(screen.getByText("Field Location Map")).toBeInTheDocument();
+    expect(await screen.findByText("Field Location Map")).toBeInTheDocument();
     expect(screen.getByText("X: 35.5% | Y: 70%")).toBeInTheDocument();
 
     const saveBtn = screen.getByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
@@ -500,6 +494,7 @@ describe("EditGameEventModal Component", () => {
     fireEvent.click(clearBtn);
 
     const saveBtn = screen.getByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
@@ -509,6 +504,7 @@ describe("EditGameEventModal Component", () => {
           locationY: null,
         }),
       );
+      expect(mockOnClose).toHaveBeenCalled();
     });
   });
 
@@ -535,11 +531,9 @@ describe("EditGameEventModal Component", () => {
       </Provider>,
     );
 
-    // Save button should be disabled while the request is pending
     const saveBtn = screen.getByRole("button", { name: /Save/i });
     expect(saveBtn).toBeDisabled();
 
-    // Resolve the coordinate loading promise
     await act(async () => {
       resolveGameEvents!({
         id: "action-123",
@@ -548,7 +542,6 @@ describe("EditGameEventModal Component", () => {
       });
     });
 
-    // Save button should become enabled once the promise resolves
     await waitFor(() => {
       expect(saveBtn).not.toBeDisabled();
     });
@@ -572,11 +565,9 @@ describe("EditGameEventModal Component", () => {
       </Provider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "Failed to load event coordinates.",
-      );
-    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to load event coordinates.",
+    );
 
     const saveBtn = screen.getByRole("button", { name: /Save/i });
     expect(saveBtn).toBeDisabled();
@@ -607,7 +598,7 @@ describe("EditGameEventModal Component", () => {
       <Provider store={store}>
         <EditGameEventModal
           isOpen={true}
-          action={{ ...sampleAction, eventDefinitionId: "def-2" }} // Goal (isShot: true)
+          action={{ ...sampleAction, eventDefinitionId: "def-2" }}
           matchId="match-1"
           onClose={vi.fn()}
         />
@@ -710,7 +701,7 @@ describe("EditGameEventModal Component", () => {
       <Provider store={store}>
         <EditGameEventModal
           isOpen={true}
-          action={{ ...sampleAction, eventDefinitionId: "def-2" }} // Starts with Goal (isShot: true)
+          action={{ ...sampleAction, eventDefinitionId: "def-2" }}
           matchId="match-1"
           onClose={mockOnClose}
         />
@@ -721,7 +712,6 @@ describe("EditGameEventModal Component", () => {
       await screen.findByRole("button", { name: /SHOTS/i }),
     ).toBeInTheDocument();
 
-    // Select non-shot action Pass (def-1)
     const passBtn = screen.getByText("Pass");
     fireEvent.click(passBtn);
 
@@ -730,6 +720,7 @@ describe("EditGameEventModal Component", () => {
     ).not.toBeInTheDocument();
 
     const saveBtn = screen.getByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
@@ -740,6 +731,7 @@ describe("EditGameEventModal Component", () => {
           shotLocationY: null,
         }),
       );
+      expect(mockOnClose).toHaveBeenCalled();
     });
   });
 
