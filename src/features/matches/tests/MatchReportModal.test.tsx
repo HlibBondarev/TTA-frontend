@@ -633,7 +633,7 @@ describe("MatchReportModal Component", () => {
     });
   });
 
-  it("resets active team and fetches new summary data when props change while open, retaining focus", async () => {
+  it("resets active team and fetches new summary data when props change while open, retaining focus on trigger element", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
       mockTeamSummary,
     );
@@ -666,7 +666,7 @@ describe("MatchReportModal Component", () => {
       );
     });
 
-    expect(document.activeElement).not.toBeNull();
+    expect(document.activeElement).toBe(triggerBtn);
     document.body.removeChild(triggerBtn);
   });
 
