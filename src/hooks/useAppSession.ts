@@ -177,6 +177,7 @@ export function useAppSession() {
       }
     } catch (error) {
       console.error("Session recovery failed (non-critical):", error);
+      throw error;
     }
   };
 

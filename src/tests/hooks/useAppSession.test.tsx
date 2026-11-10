@@ -303,4 +303,29 @@ describe("useAppSession Custom Hook", () => {
 
     consoleSpy.mockRestore();
   });
+
+  it("should re-throw error when getMatchRecoveryState fails during handleResumeMatch", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(getMatchRecoveryState).mockRejectedValueOnce(
+      new Error("Recovery DB Error"),
+    );
+
+    const store = createTestStore();
+    const { result } = renderHook(() => useAppSession(), {
+      wrapper: createWrapper(store),
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.handleResumeMatch("match-err", "team-1");
+      }),
+    ).rejects.toThrow("Recovery DB Error");
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "Session recovery failed (non-critical):",
+      expect.any(Error),
+    );
+
+    consoleSpy.mockRestore();
+  });
 });

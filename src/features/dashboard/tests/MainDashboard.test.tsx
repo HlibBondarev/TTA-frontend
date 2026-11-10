@@ -197,7 +197,7 @@ describe("MainDashboard Component", () => {
     ).toBeNull();
   });
 
-  it("should handle error when discardUnfinishedMatch rejects in handleDiscard", async () => {
+  it("should handle error when discardUnfinishedMatch rejects in handleDiscard and display alert", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-unfinished-123",
@@ -232,12 +232,13 @@ describe("MainDashboard Component", () => {
     });
     fireEvent.click(discardBtn);
 
-    await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Failed to discard unfinished match:",
-        expect.any(Error),
-      );
-    });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Discard network failure");
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "Failed to discard unfinished match:",
+      expect.any(Error),
+    );
     consoleSpy.mockRestore();
   });
 
@@ -351,7 +352,7 @@ describe("MainDashboard Component", () => {
     });
   });
 
-  it("should reset activeOp in finally block even if onResumeMatch rejects with error", async () => {
+  it("should reset activeOp in finally block and display alert banner when onResumeMatch rejects with error", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const onResumeMatchMock = vi
       .fn()
@@ -378,6 +379,9 @@ describe("MainDashboard Component", () => {
     await waitFor(() => {
       expect(onResumeMatchMock).toHaveBeenCalled();
     });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Resume failed");
 
     await waitFor(() => {
       expect(
@@ -426,7 +430,7 @@ describe("MainDashboard Component", () => {
     });
   });
 
-  it("should log an error and not invoke onResumeMatch when all team IDs are empty", async () => {
+  it("should log an error, display alert, and not invoke onResumeMatch when all team IDs are empty", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const onResumeMatchMock = vi.fn().mockResolvedValue(undefined);
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
@@ -450,13 +454,17 @@ describe("MainDashboard Component", () => {
     });
     fireEvent.click(resumeBtn);
 
-    await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Failed to resume unfinished match:",
-        expect.any(Error),
-      );
-      expect(onResumeMatchMock).not.toHaveBeenCalled();
-    });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Missing team identity for interrupted match.",
+    );
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "Failed to resume unfinished match:",
+      expect.any(Error),
+    );
+    expect(onResumeMatchMock).not.toHaveBeenCalled();
+
     consoleSpy.mockRestore();
   });
 
