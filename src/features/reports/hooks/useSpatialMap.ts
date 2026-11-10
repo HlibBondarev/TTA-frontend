@@ -317,11 +317,14 @@ export const useSpatialMap = ({
               !Number.isFinite(timestamp) ||
               timestamp >= leadTimestamp),
         )
-        .sort((a, b) =>
-          Number.isNaN(a.timestamp) || Number.isNaN(b.timestamp)
-            ? 0
-            : a.timestamp - b.timestamp,
-        );
+        .sort((a, b) => {
+          const aFinite = Number.isFinite(a.timestamp);
+          const bFinite = Number.isFinite(b.timestamp);
+          if (aFinite && bFinite) return a.timestamp - b.timestamp;
+          if (aFinite) return -1;
+          if (bFinite) return 1;
+          return 0;
+        });
 
       const matchingGoal = candidateGoals[0]?.goal;
 

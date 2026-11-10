@@ -516,4 +516,58 @@ describe("useSpatialMap Custom Hook", () => {
     expect(vector.x2).toBe(goalPoint.cx);
     expect(vector.y2).toBe(goalPoint.cy);
   });
+
+  it("sorts candidate goals with finite timestamps chronologically ahead of non-finite timestamps", () => {
+    const invalidTimestampEvents: GameEventResponse[] = [
+      {
+        id: "lead-1",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-1",
+        isPositive: true,
+        periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:00:00Z",
+        isLeadToGoal: true,
+        locationX: 50,
+        locationY: 50,
+        teamId: "team-1",
+      },
+      {
+        id: "goal-invalid-ts",
+        matchLineupId: "l-2",
+        eventDefinitionId: "def-goal",
+        isPositive: true,
+        periodNumber: 1,
+        eventTimestamp: "invalid-date-string",
+        locationX: 90,
+        locationY: 50,
+        teamId: "team-1",
+      },
+      {
+        id: "goal-valid-ts",
+        matchLineupId: "l-3",
+        eventDefinitionId: "def-goal",
+        isPositive: true,
+        periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:05:00Z",
+        locationX: 90,
+        locationY: 60,
+        teamId: "team-1",
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: invalidTimestampEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
+      }),
+    );
+
+    expect(result.current.goalLeadVectors).toHaveLength(1);
+    const vector = result.current.goalLeadVectors[0];
+
+    expect(vector.x2).toBe(360);
+    expect(vector.y2).toBe(100);
+  });
 });
