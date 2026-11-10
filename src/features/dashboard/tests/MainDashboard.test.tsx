@@ -1107,17 +1107,35 @@ describe("MainDashboard Component", () => {
     });
   });
 
-  it("should clear recoveryError state when currentUserId changes", async () => {
+  it("should clear recoveryError state when currentUserId changes and render new account's match prompt without stale alert", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const onResumeMatchMock = vi
       .fn()
-      .mockRejectedValue(new Error("Resume failed"));
-    vi.mocked(checkUnfinishedMatch).mockResolvedValue({
-      id: "m-err-resume",
+      .mockRejectedValue(new Error("Resume failed for User A"));
+
+    const matchUserA = {
+      id: "m-userA-123",
       homeTeamId: "team-1",
       guestTeamId: "team-2",
       userId: "auth0|user-coach",
-    } as never);
+    };
+
+    const matchUserB = {
+      id: "m-userB-456",
+      homeTeamId: "team-3",
+      guestTeamId: "team-4",
+      userId: "auth0|user-B",
+    };
+
+    vi.mocked(checkUnfinishedMatch).mockImplementation((userId) => {
+      if (userId === "auth0|user-coach") {
+        return Promise.resolve(matchUserA as never);
+      }
+      if (userId === "auth0|user-B") {
+        return Promise.resolve(matchUserB as never);
+      }
+      return Promise.resolve(null);
+    });
 
     const store = createTestStore();
     const { rerender } = render(
@@ -1126,13 +1144,16 @@ describe("MainDashboard Component", () => {
       </Provider>,
     );
 
-    const resumeBtn = await screen.findByRole("button", {
+    const resumeBtnA = await screen.findByRole("button", {
       name: /Resume Match/i,
     });
-    fireEvent.click(resumeBtn);
+    fireEvent.click(resumeBtnA);
 
-    expect(await screen.findByRole("alert")).toBeDefined();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Resume failed for User A",
+    );
 
+    // Switch account to User B
     mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
     rerender(
       <Provider store={store}>
@@ -1140,7 +1161,19 @@ describe("MainDashboard Component", () => {
       </Provider>,
     );
 
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-B");
+    });
+
+    // Verify recovery prompt for User B is visible with User B's match ID
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+    expect(screen.getByText("ID: m-userB-...")).toBeDefined();
+
+    // Verify stale alert from User A is absent
     expect(screen.queryByRole("alert")).toBeNull();
+
     consoleSpy.mockRestore();
   });
 });
