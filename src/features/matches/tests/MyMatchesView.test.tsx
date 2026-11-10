@@ -756,4 +756,46 @@ describe("MyMatchesView Component", () => {
       expect(db.matches.delete).not.toHaveBeenCalled();
     });
   });
+
+  it("should merge existing local record fields (such as userId, selectedTeamId) when sync bulkPut is executed", async () => {
+    vi.mocked(userMatchService.getCatchedMatches).mockResolvedValueOnce(
+      mockMatches,
+    );
+
+    vi.mocked(db.matches.bulkGet).mockResolvedValueOnce([
+      {
+        id: "match-101",
+        tournamentId: "tourn-1",
+        homeTeamId: "home-team-1",
+        guestTeamId: "guest-team-2",
+        scheduledAt: "2026-08-25T15:00:00.000Z",
+        homeScore: 7,
+        guestScore: 5,
+        userId: "user-owner-123",
+        selectedTeamId: "guest-team-2",
+      },
+    ] as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <MyMatchesView />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Dolphins")).toBeDefined();
+
+    await waitFor(() => {
+      expect(db.matches.bulkPut).toHaveBeenCalledWith([
+        expect.objectContaining({
+          id: "match-101",
+          homeScore: 8,
+          guestScore: 6,
+          userId: "user-owner-123",
+          selectedTeamId: "guest-team-2",
+        }),
+      ]);
+    });
+  });
 });

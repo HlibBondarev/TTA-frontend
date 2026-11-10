@@ -56,7 +56,7 @@ export const MyMatchesView: React.FC = () => {
           try {
             // Execute bulk read, filter, and write inside an atomic read-write Dexie transaction to avoid race conditions
             await db.transaction("rw", db.matches, async () => {
-              // Fetch existing local records to preserve unfinished drafts
+              // Fetch existing local records to preserve unfinished drafts and local fields
               const existingMatches = await db.matches.bulkGet(
                 finalizedMatches.map((m) => m.id),
               );
@@ -71,24 +71,35 @@ export const MyMatchesView: React.FC = () => {
               });
 
               if (matchesToPut.length > 0) {
+                const existingById = new Map(
+                  existingMatches
+                    .filter((e): e is NonNullable<typeof e> => e != null)
+                    .map((e) => [e.id, e]),
+                );
+
                 await db.matches.bulkPut(
-                  matchesToPut.map((m) => ({
-                    id: m.id,
-                    tournamentId: m.tournamentId,
-                    homeTeamId: m.homeTeamId,
-                    guestTeamId: m.guestTeamId,
-                    scheduledAt: m.scheduledAt,
-                    matchNumber: m.matchNumber ?? null,
-                    venue: m.venue ?? null,
-                    temperature: m.temperature ?? null,
-                    homeScore: m.homeScore ?? null,
-                    guestScore: m.guestScore ?? null,
-                    createdAt:
-                      (m as { createdAt?: string }).createdAt ??
-                      m.scheduledAt ??
-                      new Date().toISOString(),
-                    trackedTeamId: m.trackedTeamId,
-                  })),
+                  matchesToPut.map((m) => {
+                    const existing = existingById.get(m.id);
+                    return {
+                      ...existing,
+                      id: m.id,
+                      tournamentId: m.tournamentId,
+                      homeTeamId: m.homeTeamId,
+                      guestTeamId: m.guestTeamId,
+                      scheduledAt: m.scheduledAt,
+                      matchNumber: m.matchNumber ?? null,
+                      venue: m.venue ?? null,
+                      temperature: m.temperature ?? null,
+                      homeScore: m.homeScore ?? null,
+                      guestScore: m.guestScore ?? null,
+                      createdAt:
+                        (m as { createdAt?: string }).createdAt ??
+                        existing?.createdAt ??
+                        m.scheduledAt ??
+                        new Date().toISOString(),
+                      trackedTeamId: m.trackedTeamId,
+                    };
+                  }),
                 );
               }
             });
