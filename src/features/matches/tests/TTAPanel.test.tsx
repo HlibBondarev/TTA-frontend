@@ -161,6 +161,7 @@ describe("TTAPanel Component", () => {
       name: "Foul",
       shortName: "FL",
       isPositive: false,
+      isShot: false,
       createdAt: "",
     },
     {
@@ -292,12 +293,7 @@ describe("TTAPanel Component", () => {
     expect(await screen.findByText("Turnover")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Foul"));
-    expect(mockOnActionSelect).toHaveBeenCalledWith(
-      "Foul",
-      false,
-      "4",
-      undefined,
-    );
+    expect(mockOnActionSelect).toHaveBeenCalledWith("Foul", false, "4", false);
   });
 
   it("forwards action name, isPositive, eventDefinitionId, and isShot when an action button is clicked", async () => {
