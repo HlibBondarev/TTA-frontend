@@ -1106,4 +1106,41 @@ describe("MainDashboard Component", () => {
       );
     });
   });
+
+  it("should clear recoveryError state when currentUserId changes", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onResumeMatchMock = vi
+      .fn()
+      .mockRejectedValue(new Error("Resume failed"));
+    vi.mocked(checkUnfinishedMatch).mockResolvedValue({
+      id: "m-err-resume",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      userId: "auth0|user-coach",
+    } as never);
+
+    const store = createTestStore();
+    const { rerender } = render(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    const resumeBtn = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    fireEvent.click(resumeBtn);
+
+    expect(await screen.findByRole("alert")).toBeDefined();
+
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    consoleSpy.mockRestore();
+  });
 });

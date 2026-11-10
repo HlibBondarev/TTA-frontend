@@ -328,4 +328,28 @@ describe("useAppSession Custom Hook", () => {
 
     consoleSpy.mockRestore();
   });
+
+  it("should suppress error re-throw in handleResumeMatch if user account changes during failed recovery", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(getMatchRecoveryState).mockRejectedValueOnce(
+      new Error("Recovery DB Error"),
+    );
+
+    const store = createTestStore();
+    const { result, rerender } = renderHook(() => useAppSession(), {
+      wrapper: createWrapper(store),
+    });
+
+    let resumePromise: Promise<void>;
+    act(() => {
+      resumePromise = result.current.handleResumeMatch("match-err", "team-1");
+    });
+
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender();
+
+    await expect(resumePromise!).resolves.toBeUndefined();
+
+    consoleSpy.mockRestore();
+  });
 });

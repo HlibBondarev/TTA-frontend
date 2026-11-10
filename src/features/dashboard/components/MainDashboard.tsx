@@ -53,6 +53,13 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
 
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
 
+  // Synchronously reset error during render when user account changes (React recommended pattern)
+  const [prevUserId, setPrevUserId] = useState(currentUserId);
+  if (currentUserId !== prevUserId) {
+    setPrevUserId(currentUserId);
+    setRecoveryError(null);
+  }
+
   const isCheckingMatch = checkedUserId !== currentUserId;
 
   const [activeOp, setActiveOp] = useState<ActiveOperation | null>(null);
