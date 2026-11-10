@@ -12,12 +12,39 @@ const VIEWBOX_VALUE_REGEX = new RegExp(
   String.raw`^\s*(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})\s*$`,
 );
 
-// Regex matching the attributes string of the root <svg ...> element only, respecting quotes that may contain '>'
-const ROOT_SVG_REGEX = /<svg\b((?:[^"'>]|"[^"]*"|'[^']*')*)>/i;
-
 // Regex matching individual HTML/XML attributes sequentially: key="val", key='val', key=val, or boolean key
 const ATTR_REGEX =
   /(?:\s+|^)([a-zA-Z0-9:_-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+
+/**
+ * Extracts the contents of the root <svg ...> opening tag safely.
+ * Iterates deterministically O(N) to respect '>' inside quoted attributes without backtracking issues.
+ */
+const extractRootSvgAttributes = (svgString: string): string | null => {
+  const match = /<svg\b/i.exec(svgString);
+  if (!match) return null;
+
+  const startIndex = match.index + match[0].length;
+  let inQuote: '"' | "'" | null = null;
+
+  for (let i = startIndex; i < svgString.length; i++) {
+    const char = svgString[i];
+
+    if (inQuote) {
+      if (char === inQuote) {
+        inQuote = null;
+      }
+    } else {
+      if (char === '"' || char === "'") {
+        inQuote = char;
+      } else if (char === ">") {
+        return svgString.slice(startIndex, i);
+      }
+    }
+  }
+
+  return null;
+};
 
 const getRootAttributeValue = (
   attributesString: string,
@@ -42,10 +69,10 @@ export const parseSvgDimensions = (
   try {
     // Strip XML/HTML comments to ensure we match the actual root <svg> element
     const sanitizedSvg = svgString.replace(/<!--[\s\S]*?-->/g, "");
-    const rootMatch = ROOT_SVG_REGEX.exec(sanitizedSvg);
-    if (!rootMatch?.[1]) return null;
+    const attributesString = extractRootSvgAttributes(sanitizedSvg);
+    if (attributesString === null) return null;
 
-    const viewBoxAttr = getRootAttributeValue(rootMatch[1], "viewBox");
+    const viewBoxAttr = getRootAttributeValue(attributesString, "viewBox");
     if (!viewBoxAttr) return null;
 
     const match = VIEWBOX_VALUE_REGEX.exec(viewBoxAttr);
