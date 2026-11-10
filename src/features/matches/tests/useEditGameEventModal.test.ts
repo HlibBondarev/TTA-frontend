@@ -329,6 +329,12 @@ describe("useEditGameEventModal Custom Hook", () => {
       result.current.handleTabClick("shots");
     });
     expect(result.current.activeTab).toBe("shots");
+
+    act(() => {
+      result.current.handleTabClick("positive");
+    });
+    expect(result.current.activeTab).toBe("positive");
+    expect(result.current.selectedEventDefinitionId).toBe("def-2");
   });
 
   it("should separate positive and negative actions correctly in displayedActions", async () => {
