@@ -99,12 +99,9 @@ export const useShotMap = ({
           return prevSelectedId === eventId ? null : eventId;
         }
 
-        const currentClusterIdx = cluster.findIndex(
-          (e) => e.id === prevSelectedId,
-        );
-        if (currentClusterIdx !== -1) {
-          const nextIdx = (currentClusterIdx + 1) % cluster.length;
-          return cluster[nextIdx].id ?? null;
+        if (prevSelectedId === eventId) {
+          const idx = cluster.findIndex((e) => e.id === eventId);
+          return cluster[(idx + 1) % cluster.length].id ?? null;
         }
 
         return eventId;

@@ -511,22 +511,22 @@ describe("useShotMap hook", () => {
     expect(result.current.selectedEventId).toBe("shot-1");
 
     act(() => {
-      result.current.handleMarkerClick("shot-5");
+      result.current.handleMarkerClick("shot-1");
     });
     expect(result.current.selectedEventId).toBe("shot-2");
 
     act(() => {
-      result.current.handleMarkerClick("shot-5");
+      result.current.handleMarkerClick("shot-2");
     });
     expect(result.current.selectedEventId).toBe("shot-3");
 
     act(() => {
-      result.current.handleMarkerClick("shot-5");
+      result.current.handleMarkerClick("shot-3");
     });
     expect(result.current.selectedEventId).toBe("shot-4");
 
     act(() => {
-      result.current.handleMarkerClick("shot-5");
+      result.current.handleMarkerClick("shot-4");
     });
     expect(result.current.selectedEventId).toBe("shot-5");
 
