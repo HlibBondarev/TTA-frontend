@@ -30,6 +30,32 @@ vi.mock("../../../services/reportService", () => ({
   },
 }));
 
+vi.mock("../components/MatchReportModal", () => ({
+  MatchReportModal: ({
+    isOpen,
+    playground,
+    shotMap,
+    onClose,
+  }: {
+    isOpen: boolean;
+    playground?: string | null;
+    shotMap?: string | null;
+    onClose: () => void;
+  }) =>
+    isOpen ? (
+      <div data-testid="report-modal">
+        Team TTA Summary Report
+        {playground && (
+          <span data-testid="modal-playground">Playground: {playground}</span>
+        )}
+        {shotMap && <span data-testid="modal-shotmap">ShotMap: {shotMap}</span>}
+        <button type="button" onClick={onClose}>
+          Close Report
+        </button>
+      </div>
+    ) : null,
+}));
+
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
     matches: {
@@ -452,7 +478,7 @@ describe("MatchResultModal Component", () => {
     ).toBeInTheDocument();
   });
 
-  test("should trigger match finalization pipeline, keep match in Redux, and display report modal on successful submit", async () => {
+  test("should trigger match finalization pipeline, keep match in Redux, and display report modal with sport configuration SVGs on successful submit", async () => {
     vi.mocked(matchFinalizationService.finalizeMatch).mockResolvedValueOnce(
       undefined,
     );
@@ -486,6 +512,12 @@ describe("MatchResultModal Component", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
+      expect(screen.getByTestId("modal-playground")).toHaveTextContent(
+        "Playground: <svg>court</svg>",
+      );
+      expect(screen.getByTestId("modal-shotmap")).toHaveTextContent(
+        "ShotMap: <svg>goal</svg>",
+      );
     });
   });
 
@@ -510,7 +542,7 @@ describe("MatchResultModal Component", () => {
     });
 
     const closeReportBtn = screen.getByRole("button", {
-      name: /close report/i,
+      name: /Close Report/i,
     });
     fireEvent.click(closeReportBtn);
 
