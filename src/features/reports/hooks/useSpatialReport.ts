@@ -170,6 +170,7 @@ async function fetchTournament(
       const mergedTournament: TournamentLookup = {
         ...localTournament,
         ...remoteTournament,
+        id: remoteTournament.id ?? localTournament?.id ?? tournamentId,
       };
       if (mergedTournament.sportId && mergedTournament.configurationId) {
         await Promise.resolve(db.tournaments.put(mergedTournament)).catch(

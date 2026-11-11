@@ -886,4 +886,41 @@ describe("useSpatialReport Custom Hook", () => {
       configurationId: "cfg-complete",
     });
   });
+
+  it("uses requested tournamentId when remote response omits id property during merge", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: "m-1",
+      tournamentId: "tourn-no-id-in-remote",
+    } as never);
+
+    vi.mocked(db.tournaments.get).mockResolvedValue(undefined);
+
+    vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
+      if (url === "/Tournaments/tourn-no-id-in-remote") {
+        return {
+          sportId: "waterpolo",
+          configurationId: "cfg-1",
+        } as never;
+      }
+      return null as never;
+    });
+
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "cfg-1",
+      playground: "<svg id='pg'></svg>",
+      shotMap: "<svg id='sm'></svg>",
+    } as never);
+
+    const { result } = renderHook(() => useSpatialReport({ matchId: "m-1" }));
+
+    await waitFor(() => {
+      expect(result.current.playground).toBe("<svg id='pg'></svg>");
+    });
+
+    expect(db.tournaments.put).toHaveBeenCalledWith({
+      id: "tourn-no-id-in-remote",
+      sportId: "waterpolo",
+      configurationId: "cfg-1",
+    });
+  });
 });
