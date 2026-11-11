@@ -2262,4 +2262,36 @@ describe("Hydration Service", () => {
     expect(sportService.getSportConfigurations).not.toHaveBeenCalled();
     expect(db.sportconfigurations.put).not.toHaveBeenCalled();
   });
+
+  it("should throw error when activePlayersLimit is NaN or Infinity during getMatchRecoveryState", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      configurationId: "cfg-nan",
+    } as never);
+
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-nan",
+      activePlayersLimit: Number.NaN,
+    } as never);
+
+    await expect(getMatchRecoveryState(matchId)).rejects.toThrow(
+      "Match Recovery Error: SportConfiguration 'cfg-nan' was not found or has an invalid activePlayersLimit.",
+    );
+
+    consoleErrorSpy.mockRestore();
+  });
 });

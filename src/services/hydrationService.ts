@@ -284,6 +284,7 @@ const recoverActivePlayersLimit = async (matchId: string): Promise<number> => {
   if (
     !config ||
     typeof config.activePlayersLimit !== "number" ||
+    !Number.isFinite(config.activePlayersLimit) ||
     config.activePlayersLimit <= 0
   ) {
     throw new Error(
