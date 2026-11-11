@@ -66,13 +66,13 @@ const ShotMarker: React.FC<{
   };
 
   const minDim = Math.min(dimensions.width, dimensions.height);
-  const baseRadius = minDim * 0.032;
-  const hoverRadius = minDim * 0.044;
+  const baseRadius = minDim * 0.045;
+  const hoverRadius = minDim * 0.058;
   const radius = isHighlighted ? hoverRadius : baseRadius;
-  const strokeWidth = minDim * 0.01;
-  const focusStrokeWidth = Number((minDim * 0.015).toFixed(4));
-  const fontSize = minDim * 0.036;
-  const textY = minDim * 0.012;
+  const strokeWidth = minDim * 0.012;
+  const focusStrokeWidth = Number((minDim * 0.018).toFixed(4));
+  const fontSize = minDim * 0.052;
+  const textY = minDim * 0.018;
 
   return (
     <g

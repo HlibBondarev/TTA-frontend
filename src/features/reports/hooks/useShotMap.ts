@@ -148,7 +148,7 @@ export const useShotMap = ({
     if (!dimensions) return [];
 
     const minDim = Math.min(dimensions.width, dimensions.height);
-    const baseMarkerRadius = minDim * 0.032;
+    const baseMarkerRadius = minDim * 0.045;
     const minPadding = minDim * 0.05;
 
     const points = validShotEvents.map((e) => {

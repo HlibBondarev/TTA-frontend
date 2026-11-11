@@ -333,7 +333,7 @@ describe("MatchShotMap Component", () => {
     const circle = markerBtn.querySelector("circle");
 
     expect(circle).toBeInTheDocument();
-    expect(circle).toHaveAttribute("stroke-width", "0.01");
+    expect(circle).toHaveAttribute("stroke-width", "0.012");
     expect(circle).not.toHaveStyle({ vectorEffect: "non-scaling-stroke" });
   });
 
@@ -377,16 +377,16 @@ describe("MatchShotMap Component", () => {
 
     // Verify markers are rendered at distinct translated center coordinates
     expect(marker1).toHaveAttribute("transform", "translate(0.95, 0.5)");
-    expect(marker2).toHaveAttribute("transform", "translate(0.9, 0.5)");
+    expect(marker2).toHaveAttribute("transform", "translate(0.88, 0.5)");
 
     // Verify micro-scaled circle radii prevent hit target coverage
     const circle1 = marker1.querySelector("circle");
     const circle2 = marker2.querySelector("circle");
 
-    expect(circle1).toHaveAttribute("r", "0.032");
-    expect(circle2).toHaveAttribute("r", "0.032");
-    expect(circle1).toHaveAttribute("stroke-width", "0.01");
-    expect(circle2).toHaveAttribute("stroke-width", "0.01");
+    expect(circle1).toHaveAttribute("r", "0.045");
+    expect(circle2).toHaveAttribute("r", "0.045");
+    expect(circle1).toHaveAttribute("stroke-width", "0.012");
+    expect(circle2).toHaveAttribute("stroke-width", "0.012");
 
     // Verify independent pointer event interactions
     fireEvent.mouseEnter(marker2);
@@ -448,8 +448,8 @@ describe("MatchShotMap Component", () => {
     );
 
     const labelText = screen.getByText("7");
-    expect(labelText).toHaveAttribute("font-size", "0.036");
-    expect(labelText).toHaveAttribute("y", "0.012");
+    expect(labelText).toHaveAttribute("font-size", "0.052");
+    expect(labelText).toHaveAttribute("y", "0.018");
   });
 
   it("calculates vertical positioning for tooltips near top and bottom edges to keep player details visible", () => {
@@ -610,9 +610,9 @@ describe("MatchShotMap Component", () => {
     const markerBtn = screen.getByRole("button", { name: /Player #7/ });
     const circle = markerBtn.querySelector("circle");
 
-    expect(circle).toHaveAttribute("r", "79.36");
-    expect(circle).toHaveAttribute("stroke-width", "24.8");
-    expect(circle).toHaveStyle({ "--focus-stroke-width": "37.2" });
+    expect(circle).toHaveAttribute("r", "111.6");
+    expect(circle).toHaveAttribute("stroke-width", "29.76");
+    expect(circle).toHaveStyle({ "--focus-stroke-width": "44.64" });
   });
 
   it("cycles selection continuously in a 2-marker cluster when starting from the last marker", () => {
