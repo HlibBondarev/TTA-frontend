@@ -582,12 +582,12 @@ describe("MatchSpatialMap Component", () => {
     expect(screen.getByText("Player One")).toBeInTheDocument();
     expect(screen.getByText("Goal")).toBeInTheDocument();
 
-    // First click explicitly selects Player One in stack
+    // Click marker 1 to explicitly select Player One in stack
     fireEvent.click(markerGroup1);
     expect(screen.getByText("Player One")).toBeInTheDocument();
     expect(screen.getByText("Goal")).toBeInTheDocument();
 
-    // Click second marker in spiderfied stack to select Player Two
+    // Click spiderfied marker 2 to select Player Two in stack
     fireEvent.click(markerGroup2);
     expect(screen.getByText("Player Two")).toBeInTheDocument();
     expect(screen.getByText("Foul")).toBeInTheDocument();
