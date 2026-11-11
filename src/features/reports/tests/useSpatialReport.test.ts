@@ -205,6 +205,57 @@ describe("useSpatialReport Custom Hook", () => {
     });
   });
 
+  it("falls back to remote resolution when IndexedDB cache reads throw errors in fetchMatch, fetchTournament, or fetchSportConfiguration", async () => {
+    vi.mocked(db.matches.get).mockRejectedValue(
+      new Error("IndexedDB read error"),
+    );
+    vi.mocked(db.tournaments.get).mockRejectedValue(
+      new Error("IndexedDB read error"),
+    );
+    vi.mocked(db.sportconfigurations.get).mockRejectedValue(
+      new Error("IndexedDB read error"),
+    );
+
+    vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
+      if (url === "/Matches/m-db-error") {
+        return { id: "m-db-error", tournamentId: "tourn-remote" } as never;
+      }
+      if (url === "/Tournaments/tourn-remote") {
+        return {
+          id: "tourn-remote",
+          sportId: "waterpolo",
+          configurationId: "cfg-remote",
+        } as never;
+      }
+      return null as never;
+    });
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValue([
+      {
+        id: "cfg-remote",
+        sportId: "waterpolo",
+        usesCleanTime: true,
+        periodsCount: 4,
+        periodDurationMinutes: 8,
+        fieldSize: "30x20",
+        rosterLimit: 13,
+        lineupLimit: 13,
+        activePlayersLimit: 7,
+        playground: "<svg id='fallback-pg'></svg>",
+        shotMap: "<svg id='fallback-sm'></svg>",
+      },
+    ]);
+
+    const { result } = renderHook(() =>
+      useSpatialReport({ matchId: "m-db-error" }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.playground).toBe("<svg id='fallback-pg'></svg>");
+      expect(result.current.shotMap).toBe("<svg id='fallback-sm'></svg>");
+    });
+  });
+
   it("normalizes missing playerRosterId and positionId to null when loading team lineups", async () => {
     const incompleteLineups = [
       {

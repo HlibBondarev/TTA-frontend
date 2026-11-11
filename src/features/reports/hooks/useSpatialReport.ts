@@ -137,7 +137,7 @@ async function loadDefinitionsMap(
 async function fetchMatch(
   matchId: string,
 ): Promise<{ id: string; tournamentId?: string } | null> {
-  const localMatch = await db.matches.get(matchId);
+  const localMatch = await db.matches.get(matchId).catch(() => undefined);
   if (localMatch?.tournamentId) return localMatch;
 
   try {
@@ -157,7 +157,10 @@ async function fetchMatch(
 async function fetchTournament(
   tournamentId: string,
 ): Promise<TournamentLookup | null> {
-  const localTournament = await db.tournaments.get(tournamentId);
+  const localTournament = await db.tournaments
+    .get(tournamentId)
+    .catch(() => undefined);
+
   if (localTournament?.sportId && localTournament?.configurationId) {
     return localTournament;
   }
@@ -193,7 +196,9 @@ async function fetchSportConfiguration(
     shotMap?: string | null;
   }) => void,
 ) {
-  const localConfig = await db.sportconfigurations.get(configId);
+  const localConfig = await db.sportconfigurations
+    .get(configId)
+    .catch(() => undefined);
 
   // Preserve immediate return if local cache contains both playground and shotMap SVGs
   if (localConfig?.playground && localConfig?.shotMap) {
