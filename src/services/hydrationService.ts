@@ -243,15 +243,18 @@ const refreshShotMapBackground = (
     .then(async (configs) => {
       const freshConfig = configs.find((c) => c.id === configurationId);
       if (freshConfig) {
-        const cachedConfig = await db.sportconfigurations.get(configurationId);
-        const updatedConfig = {
-          ...freshConfig,
-          ...cachedConfig,
-          playground:
-            cachedConfig?.playground || freshConfig.playground || null,
-          shotMap: cachedConfig?.shotMap || freshConfig.shotMap || null,
-        };
-        await db.sportconfigurations.put(updatedConfig);
+        await db.transaction("rw", db.sportconfigurations, async () => {
+          const cachedConfig =
+            await db.sportconfigurations.get(configurationId);
+          const updatedConfig = {
+            ...freshConfig,
+            ...cachedConfig,
+            playground:
+              cachedConfig?.playground || freshConfig.playground || null,
+            shotMap: cachedConfig?.shotMap || freshConfig.shotMap || null,
+          };
+          await db.sportconfigurations.put(updatedConfig);
+        });
       }
     })
     .catch(() => {

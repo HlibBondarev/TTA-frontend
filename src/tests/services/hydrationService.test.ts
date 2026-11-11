@@ -2295,7 +2295,7 @@ describe("Hydration Service", () => {
     consoleErrorSpy.mockRestore();
   });
 
-  it("should preserve newer local configuration metadata (e.g. periodsCount) when background shotMap refresh completes", async () => {
+  it("should perform atomic background refresh and preserve concurrent hydration updates written before background transaction", async () => {
     vi.mocked(db.timeanchors.where).mockReturnValueOnce({
       equals: vi.fn().mockReturnValueOnce({
         toArray: vi.fn().mockResolvedValueOnce([{ periodNumber: 1 }]),
@@ -2312,12 +2312,22 @@ describe("Hydration Service", () => {
       configurationId: "cfg-1",
     } as never);
 
-    // Initial cached config missing shotMap, but with updated periodsCount: 6 from concurrent write
-    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+    // 1st get: Initial read during getMatchRecoveryState sees missing shotMap (periodsCount: 4)
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
       id: "cfg-1",
       sportId: "sport-1",
       activePlayersLimit: 6,
-      periodsCount: 6,
+      periodsCount: 4,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: null,
+    } as never);
+
+    // 2nd get: Interleaved write happens before background transaction runs, so atomic read inside transaction sees periodsCount: 8
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 6,
+      periodsCount: 8,
       playground: "<svg>Cached Field</svg>",
       shotMap: null,
     } as never);
@@ -2333,7 +2343,7 @@ describe("Hydration Service", () => {
 
     await getMatchRecoveryState(matchId);
 
-    // Stale remote response has older periodsCount: 4
+    // Remote background API fetch resolves with older periodsCount: 4
     const mockStaleRemoteConfig = {
       id: "cfg-1",
       sportId: "sport-1",
@@ -2347,12 +2357,19 @@ describe("Hydration Service", () => {
     await pendingPromise;
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Verify put preserves local periodsCount: 6 and playground while filling shotMap
+    // Verify atomic transaction was opened on sportconfigurations
+    expect(db.transaction).toHaveBeenCalledWith(
+      "rw",
+      db.sportconfigurations,
+      expect.any(Function),
+    );
+
+    // Verify put preserves the interleaved hydration record (periodsCount: 8) read inside the transaction
     expect(db.sportconfigurations.put).toHaveBeenCalledWith({
       id: "cfg-1",
       sportId: "sport-1",
       activePlayersLimit: 6,
-      periodsCount: 6,
+      periodsCount: 8,
       playground: "<svg>Cached Field</svg>",
       shotMap: "<svg>Remote ShotMap</svg>",
     });
