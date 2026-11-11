@@ -608,13 +608,63 @@ describe("useSpatialMap Custom Hook", () => {
     const points = result.current.renderablePoints;
     expect(points).toHaveLength(3);
 
+    const minCollisionDist = 600 * 0.05; // 30px
     for (let i = 0; i < points.length; i++) {
       for (let j = i + 1; j < points.length; j++) {
         const dist = Math.hypot(
           points[i].cx - points[j].cx,
           points[i].cy - points[j].cy,
         );
-        expect(dist).toBeGreaterThanOrEqual(3);
+        expect(dist).toBeGreaterThanOrEqual(minCollisionDist);
+      }
+    }
+  });
+
+  it("resolves cross-group spiderfy collisions to maintain minimum pointer hit area separation", () => {
+    const crossGroupEvents: GameEventResponse[] = [
+      {
+        id: "groupA-1",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-1",
+        locationX: 50,
+        locationY: 50,
+      },
+      {
+        id: "groupA-2",
+        matchLineupId: "l-2",
+        eventDefinitionId: "def-1",
+        locationX: 50,
+        locationY: 50,
+      },
+      {
+        id: "groupB-1",
+        matchLineupId: "l-3",
+        eventDefinitionId: "def-goal",
+        locationX: 50,
+        locationY: 56,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: crossGroupEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
+      }),
+    );
+
+    const points = result.current.renderablePoints;
+    expect(points).toHaveLength(3);
+
+    const minHitAreaDist = 600 * 0.05; // 30px hit-area separation exceeding max GoalMarker base radius (24px)
+    for (let i = 0; i < points.length; i++) {
+      for (let j = i + 1; j < points.length; j++) {
+        const dist = Math.hypot(
+          points[i].cx - points[j].cx,
+          points[i].cy - points[j].cy,
+        );
+        expect(dist).toBeGreaterThanOrEqual(minHitAreaDist);
       }
     }
   });

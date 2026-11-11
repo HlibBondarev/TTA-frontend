@@ -242,7 +242,7 @@ export const useSpatialMap = ({
 
     // Secondary pass: resolve exact/near coordinate collisions across all points to guarantee pointer selectability
     const finalRenderablePoints: RenderableSpatialPoint[] = [];
-    const minCollisionDist = 3;
+    const minCollisionDist = minDim * 0.05;
 
     rawRenderablePoints.forEach((pt) => {
       let cx = pt.cx;
@@ -250,7 +250,7 @@ export const useSpatialMap = ({
       let attempts = 0;
 
       while (
-        attempts < 8 &&
+        attempts < 12 &&
         finalRenderablePoints.some(
           (existing) =>
             Math.hypot(existing.cx - cx, existing.cy - cy) < minCollisionDist,
@@ -258,18 +258,19 @@ export const useSpatialMap = ({
       ) {
         attempts++;
         const nudgeAngle = (attempts * Math.PI) / 4;
+        const step = attempts * (minDim * 0.015);
         cx = Math.max(
           minPadding,
           Math.min(
             viewBoxWidth - minPadding,
-            pt.cx + attempts * 3 * Math.cos(nudgeAngle),
+            pt.cx + step * Math.cos(nudgeAngle),
           ),
         );
         cy = Math.max(
           minPadding,
           Math.min(
             viewBoxHeight - minPadding,
-            pt.cy + attempts * 3 * Math.sin(nudgeAngle),
+            pt.cy + step * Math.sin(nudgeAngle),
           ),
         );
       }
