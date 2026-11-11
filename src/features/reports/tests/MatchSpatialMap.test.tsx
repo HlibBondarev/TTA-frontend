@@ -491,4 +491,55 @@ describe("MatchSpatialMap Component", () => {
     fireEvent.mouseEnter(positiveMarker);
     expect(screen.getByRole("tooltip")).toBeInTheDocument();
   });
+
+  it("does not reverse short vector direction when vector length is smaller than combined base offsets", () => {
+    const shortVectorEvents: GameEventResponse[] = [
+      {
+        id: "short-lead",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-2",
+        eventName: "Short Pass",
+        isPositive: true,
+        periodNumber: 1,
+        isLeadToGoal: true,
+        locationX: 50,
+        locationY: 50,
+        teamId: "team-1",
+      },
+      {
+        id: "short-goal",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        eventName: "Goal",
+        isPositive: true,
+        periodNumber: 1,
+        isLeadToGoal: false,
+        locationX: 54,
+        locationY: 54, // Задано 54 замість 50, щоб вектор мав діагональне зміщення
+        teamId: "team-1",
+      },
+    ];
+
+    const { container } = render(
+      <MatchSpatialMap
+        events={shortVectorEvents}
+        allEvents={shortVectorEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+        showGoalLeadVectors={true}
+      />,
+    );
+
+    const line = container.querySelector("line[marker-end]");
+    expect(line).toBeInTheDocument();
+
+    const x1 = Number(line?.getAttribute("x1"));
+    const x2 = Number(line?.getAttribute("x2"));
+    const y1 = Number(line?.getAttribute("y1"));
+    const y2 = Number(line?.getAttribute("y2"));
+
+    // Перевіряємо, що кінцеві точки не перехрещуються і вектор зберігає напрямок
+    expect(x1).toBeLessThan(x2);
+    expect(y1).toBeGreaterThan(y2);
+  });
 });

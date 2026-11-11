@@ -80,9 +80,21 @@ const GoalLeadVectorLine: React.FC<{
   const dy = vector.y2 - vector.y1;
   const dist = Math.hypot(dx, dy);
 
-  const distThreshold = minDim * 0.06;
-  const startOffset = dist > distThreshold ? minDim * 0.04 : 0;
-  const endOffset = dist > distThreshold ? minDim * 0.045 : 0;
+  const baseStartOffset = minDim * 0.04;
+  const baseEndOffset = minDim * 0.045;
+  const combinedOffset = baseStartOffset + baseEndOffset;
+
+  let startOffset = 0;
+  let endOffset = 0;
+
+  if (dist > combinedOffset) {
+    startOffset = baseStartOffset;
+    endOffset = baseEndOffset;
+  } else if (dist > 0) {
+    const scale = (dist * 0.8) / combinedOffset;
+    startOffset = baseStartOffset * scale;
+    endOffset = baseEndOffset * scale;
+  }
 
   const x1 = dist > 0 ? vector.x1 + (dx / dist) * startOffset : vector.x1;
   const y1 = dist > 0 ? vector.y1 + (dy / dist) * startOffset : vector.y1;
