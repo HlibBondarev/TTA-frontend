@@ -46,6 +46,7 @@ vi.mock("../../../db/ttaDatabase", () => ({
     eventdefinitions: {
       toArray: vi.fn(),
     },
+    transaction: vi.fn((_mode, _table, callback) => callback()),
   },
 }));
 
@@ -254,6 +255,66 @@ describe("useSpatialReport Custom Hook", () => {
       expect(result.current.playground).toBe("<svg id='fallback-pg'></svg>");
       expect(result.current.shotMap).toBe("<svg id='fallback-sm'></svg>");
     });
+  });
+
+  it("merges remote SVGs into latest local configuration record to prevent overwriting Concurrent updates", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: "m-1",
+      tournamentId: "tourn-1",
+    } as never);
+
+    vi.mocked(db.tournaments.get).mockResolvedValue({
+      id: "tourn-1",
+      sportId: "waterpolo",
+      configurationId: "cfg-1",
+    } as never);
+
+    // Initial local config lacking shotMap
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      playground: "<svg id='local-pg'></svg>",
+      shotMap: undefined,
+      periodsCount: 4,
+    } as never);
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValue([
+      {
+        id: "cfg-1",
+        sportId: "waterpolo",
+        usesCleanTime: true,
+        periodsCount: 4,
+        periodDurationMinutes: 8,
+        fieldSize: "30x20",
+        rosterLimit: 13,
+        lineupLimit: 13,
+        activePlayersLimit: 7,
+        playground: "<svg id='remote-pg'></svg>",
+        shotMap: "<svg id='remote-sm'></svg>",
+      },
+    ]);
+
+    // Re-read during write transaction returns freshly updated local record with modified periodsCount
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      playground: "<svg id='local-pg'></svg>",
+      shotMap: undefined,
+      periodsCount: 6, // Updated concurrently during remote fetch
+    } as never);
+
+    const { result } = renderHook(() => useSpatialReport({ matchId: "m-1" }));
+
+    await waitFor(() => {
+      expect(result.current.shotMap).toBe("<svg id='remote-sm'></svg>");
+    });
+
+    expect(db.sportconfigurations.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "cfg-1",
+        playground: "<svg id='remote-pg'></svg>",
+        shotMap: "<svg id='remote-sm'></svg>",
+        periodsCount: 6,
+      }),
+    );
   });
 
   it("normalizes missing playerRosterId and positionId to null when loading team lineups", async () => {

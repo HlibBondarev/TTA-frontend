@@ -215,17 +215,44 @@ async function fetchSportConfiguration(
     const remoteConfig = Array.isArray(configs)
       ? configs.find((c) => c.id === configId)
       : undefined;
+
     if (remoteConfig) {
-      const updatedConfig = {
-        ...localConfig,
-        ...remoteConfig,
-        playground: remoteConfig.playground || localConfig?.playground || null,
-        shotMap: remoteConfig.shotMap || localConfig?.shotMap || null,
+      let updatedConfig: typeof remoteConfig;
+
+      const performWrite = async () => {
+        const latestLocal = await db.sportconfigurations
+          .get(configId)
+          .catch(() => undefined);
+
+        updatedConfig = {
+          ...remoteConfig,
+          ...latestLocal,
+          playground:
+            remoteConfig.playground ||
+            latestLocal?.playground ||
+            localConfig?.playground ||
+            null,
+          shotMap:
+            remoteConfig.shotMap ||
+            latestLocal?.shotMap ||
+            localConfig?.shotMap ||
+            null,
+        };
+
+        await db.sportconfigurations.put(updatedConfig);
       };
-      await Promise.resolve(db.sportconfigurations.put(updatedConfig)).catch(
-        () => undefined,
-      );
-      return updatedConfig;
+
+      if (typeof db.transaction === "function") {
+        await db
+          .transaction("rw", db.sportconfigurations, performWrite)
+          .catch(async () => {
+            await performWrite().catch(() => undefined);
+          });
+      } else {
+        await performWrite().catch(() => undefined);
+      }
+
+      return updatedConfig!;
     }
   } catch {
     // Retain and return available local data on network failure
