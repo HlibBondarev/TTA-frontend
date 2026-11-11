@@ -71,6 +71,7 @@ export const useSpatialMap = ({
     autoDismissTimerRef.current = setTimeout(() => {
       autoDismissTimerRef.current = null;
       setSelectedEventId(null);
+      setHoveredEventId(null);
     }, 3500);
 
     return clearAutoDismissTimer;

@@ -193,7 +193,7 @@ describe("useSpatialMap Custom Hook", () => {
     });
   });
 
-  it("auto-dismisses selected event after 3.5 seconds", () => {
+  it("auto-dismisses selected event and clears hover state after 3.5 seconds", () => {
     vi.useFakeTimers();
 
     const { result } = renderHook(() =>
@@ -204,16 +204,20 @@ describe("useSpatialMap Custom Hook", () => {
     );
 
     act(() => {
+      result.current.handleMarkerMouseEnter("event-1");
       result.current.handleMarkerClick("event-1");
     });
 
     expect(result.current.selectedEventId).toBe("event-1");
+    expect(result.current.activeEvent?.id).toBe("event-1");
 
     act(() => {
       vi.advanceTimersByTime(3500);
     });
 
     expect(result.current.selectedEventId).toBeNull();
+    expect(result.current.hoveredEventId).toBeNull();
+    expect(result.current.activeEvent).toBeNull();
   });
 
   it("calculates goalLeadVectors connecting lead events directly to nearest subsequent Goal in the same period", () => {
