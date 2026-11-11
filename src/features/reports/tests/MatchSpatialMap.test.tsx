@@ -542,4 +542,54 @@ describe("MatchSpatialMap Component", () => {
     expect(x1).toBeLessThan(x2);
     expect(y1).toBeGreaterThan(y2);
   });
+
+  it("updates tooltip content when cycling through stacked markers while mouse hover remains active", () => {
+    const stackedEvents: GameEventResponse[] = Array.from(
+      { length: 20 },
+      (_, idx) => ({
+        id: `stack-${idx + 1}`,
+        matchLineupId: "lineup-1",
+        eventDefinitionId: idx === 0 ? "def-1" : "def-2",
+        eventName: idx === 0 ? "Goal" : "Foul",
+        isPositive: idx === 0,
+        periodNumber: 1,
+        locationX: 100,
+        locationY: 0,
+        playerName:
+          idx === 0
+            ? "Player One"
+            : idx === 1
+              ? "Player Two"
+              : `Player ${idx + 1}`,
+        playerNumber: idx + 1,
+      }),
+    );
+
+    render(
+      <MatchSpatialMap
+        events={stackedEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+      />,
+    );
+
+    const markerGroup1 = screen.getByText("1").parentElement!;
+    const markerGroup2 = screen.getByText("2").parentElement!;
+
+    fireEvent.mouseEnter(markerGroup1);
+
+    // Initial hover displays Player One
+    expect(screen.getByText("Player One")).toBeInTheDocument();
+    expect(screen.getByText("Goal")).toBeInTheDocument();
+
+    // First click explicitly selects Player One in stack
+    fireEvent.click(markerGroup1);
+    expect(screen.getByText("Player One")).toBeInTheDocument();
+    expect(screen.getByText("Goal")).toBeInTheDocument();
+
+    // Click second marker in spiderfied stack to select Player Two
+    fireEvent.click(markerGroup2);
+    expect(screen.getByText("Player Two")).toBeInTheDocument();
+    expect(screen.getByText("Foul")).toBeInTheDocument();
+  });
 });

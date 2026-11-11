@@ -87,9 +87,9 @@ export const useSpatialMap = ({
     return goalIds;
   }, [eventDefinitionsMap]);
 
-  // Currently active event for tooltip display
+  // Currently active event for tooltip display (prefers selectedEventId over hoveredEventId)
   const activeEvent = useMemo(() => {
-    const activeId = hoveredEventId ?? selectedEventId;
+    const activeId = selectedEventId ?? hoveredEventId;
     if (!activeId) return null;
     return (
       events.find((e) => e.id === activeId) ??
