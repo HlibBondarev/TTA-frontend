@@ -570,4 +570,52 @@ describe("useSpatialMap Custom Hook", () => {
     expect(vector.x2).toBe(360);
     expect(vector.y2).toBe(100);
   });
+
+  it("resolves coordinate collisions and keeps all markers distinctly selectable even when clamped at boundaries", () => {
+    const boundaryCollidingEvents: GameEventResponse[] = [
+      {
+        id: "boundary-1",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-1",
+        locationX: 100,
+        locationY: 0,
+      },
+      {
+        id: "boundary-2",
+        matchLineupId: "l-2",
+        eventDefinitionId: "def-1",
+        locationX: 100,
+        locationY: 0,
+      },
+      {
+        id: "boundary-3",
+        matchLineupId: "l-3",
+        eventDefinitionId: "def-1",
+        locationX: 100,
+        locationY: 0,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: boundaryCollidingEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
+      }),
+    );
+
+    const points = result.current.renderablePoints;
+    expect(points).toHaveLength(3);
+
+    for (let i = 0; i < points.length; i++) {
+      for (let j = i + 1; j < points.length; j++) {
+        const dist = Math.hypot(
+          points[i].cx - points[j].cx,
+          points[i].cy - points[j].cy,
+        );
+        expect(dist).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
 });

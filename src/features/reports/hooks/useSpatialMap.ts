@@ -164,7 +164,7 @@ export const useSpatialMap = ({
     });
 
     // Apply radial spiderfy displacement for clustered overlapping markers with boundary safety
-    const finalRenderablePoints: RenderableSpatialPoint[] = [];
+    const rawRenderablePoints: RenderableSpatialPoint[] = [];
     const offsetRadius = minDim * 0.065;
     const minPadding = minDim * 0.045;
 
@@ -173,11 +173,11 @@ export const useSpatialMap = ({
 
       if (count > 1) {
         const safeRadiusX = Math.min(
-          viewBoxWidth / 2,
+          viewBoxWidth / 2 - 1,
           minPadding + offsetRadius,
         );
         const safeRadiusY = Math.min(
-          viewBoxHeight / 2,
+          viewBoxHeight / 2 - 1,
           minPadding + offsetRadius,
         );
 
@@ -204,7 +204,7 @@ export const useSpatialMap = ({
             Math.min(viewBoxHeight - minPadding, rawCy),
           );
 
-          finalRenderablePoints.push({
+          rawRenderablePoints.push({
             event: pt.event,
             cx: finalCx,
             cy: finalCy,
@@ -216,8 +216,8 @@ export const useSpatialMap = ({
         });
       } else {
         const pt = group[0];
-        const paddingX = Math.min(viewBoxWidth / 2, minPadding);
-        const paddingY = Math.min(viewBoxHeight / 2, minPadding);
+        const paddingX = Math.min(viewBoxWidth / 2 - 1, minPadding);
+        const paddingY = Math.min(viewBoxHeight / 2 - 1, minPadding);
 
         const finalCx = Math.max(
           paddingX,
@@ -228,7 +228,7 @@ export const useSpatialMap = ({
           Math.min(viewBoxHeight - paddingY, pt.baseCy),
         );
 
-        finalRenderablePoints.push({
+        rawRenderablePoints.push({
           event: pt.event,
           cx: finalCx,
           cy: finalCy,
@@ -238,6 +238,47 @@ export const useSpatialMap = ({
           isGoal: pt.isGoal,
         });
       }
+    });
+
+    // Secondary pass: resolve exact/near coordinate collisions across all points to guarantee pointer selectability
+    const finalRenderablePoints: RenderableSpatialPoint[] = [];
+    const minCollisionDist = 3;
+
+    rawRenderablePoints.forEach((pt) => {
+      let cx = pt.cx;
+      let cy = pt.cy;
+      let attempts = 0;
+
+      while (
+        attempts < 8 &&
+        finalRenderablePoints.some(
+          (existing) =>
+            Math.hypot(existing.cx - cx, existing.cy - cy) < minCollisionDist,
+        )
+      ) {
+        attempts++;
+        const nudgeAngle = (attempts * Math.PI) / 4;
+        cx = Math.max(
+          minPadding,
+          Math.min(
+            viewBoxWidth - minPadding,
+            pt.cx + attempts * 3 * Math.cos(nudgeAngle),
+          ),
+        );
+        cy = Math.max(
+          minPadding,
+          Math.min(
+            viewBoxHeight - minPadding,
+            pt.cy + attempts * 3 * Math.sin(nudgeAngle),
+          ),
+        );
+      }
+
+      finalRenderablePoints.push({
+        ...pt,
+        cx,
+        cy,
+      });
     });
 
     return finalRenderablePoints;
