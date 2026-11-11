@@ -1081,4 +1081,65 @@ describe("useSpatialReport Custom Hook", () => {
       expect(result.current.shotMap).toBe("<svg id='remote-sm'></svg>");
     });
   });
+
+  it("resets effective playground and shotMap immediately when matchId changes to prevent rendering stale maps", async () => {
+    vi.mocked(db.matches.get).mockImplementation(((id: string) => {
+      if (id === "m-1")
+        return Promise.resolve({ id: "m-1", tournamentId: "tourn-1" });
+      if (id === "m-2")
+        return Promise.resolve({ id: "m-2", tournamentId: "tourn-2" });
+      return Promise.resolve(undefined);
+    }) as never);
+
+    vi.mocked(db.tournaments.get).mockImplementation(((id: string) => {
+      if (id === "tourn-1")
+        return Promise.resolve({
+          id: "tourn-1",
+          sportId: "waterpolo",
+          configurationId: "cfg-1",
+        });
+      if (id === "tourn-2")
+        return Promise.resolve({
+          id: "tourn-2",
+          sportId: "waterpolo",
+          configurationId: "cfg-2",
+        });
+      return Promise.resolve(undefined);
+    }) as never);
+
+    vi.mocked(db.sportconfigurations.get).mockImplementation(((id: string) => {
+      if (id === "cfg-1")
+        return Promise.resolve({
+          id: "cfg-1",
+          playground: "<svg id='pg-1'></svg>",
+          shotMap: "<svg id='sm-1'></svg>",
+        });
+      if (id === "cfg-2")
+        return Promise.resolve({
+          id: "cfg-2",
+          playground: "<svg id='pg-2'></svg>",
+          shotMap: "<svg id='sm-2'></svg>",
+        });
+      return Promise.resolve(undefined);
+    }) as never);
+
+    const { result, rerender } = renderHook(
+      ({ matchId }) => useSpatialReport({ matchId }),
+      { initialProps: { matchId: "m-1" } },
+    );
+
+    await waitFor(() => {
+      expect(result.current.playground).toBe("<svg id='pg-1'></svg>");
+    });
+
+    // Rerender with new matchId
+    rerender({ matchId: "m-2" });
+
+    // Should immediately reset to null/props to avoid displaying stale map during async resolution
+    expect(result.current.playground).toBeNull();
+
+    await waitFor(() => {
+      expect(result.current.playground).toBe("<svg id='pg-2'></svg>");
+    });
+  });
 });

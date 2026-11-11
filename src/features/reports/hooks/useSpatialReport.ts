@@ -393,6 +393,18 @@ export function useSpatialReport({
     shotMap || null,
   );
 
+  // Track incoming props to reset effective maps during rendering when matchId or props change
+  const [prevProps, setPrevProps] = useState({ matchId, playground, shotMap });
+  if (
+    prevProps.matchId !== matchId ||
+    prevProps.playground !== playground ||
+    prevProps.shotMap !== shotMap
+  ) {
+    setPrevProps({ matchId, playground, shotMap });
+    setEffectivePlayground(playground || null);
+    setEffectiveShotMap(shotMap || null);
+  }
+
   const [filters, setFilters] = useState<SpatialReportFilters>({
     periodNumber: null,
     selectedLineupIds: [],
