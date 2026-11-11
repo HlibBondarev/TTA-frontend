@@ -1185,12 +1185,29 @@ describe("MainDashboard Component", () => {
       rejectDiscard = reject;
     });
 
-    vi.mocked(checkUnfinishedMatch).mockResolvedValue({
+    const matchUserA = {
       id: "m-userA-discard",
       homeTeamId: "t1",
       guestTeamId: "t2",
       userId: "auth0|user-coach",
-    } as never);
+    };
+
+    const matchUserB = {
+      id: "m-userB-discard",
+      homeTeamId: "t3",
+      guestTeamId: "t4",
+      userId: "auth0|user-B",
+    };
+
+    vi.mocked(checkUnfinishedMatch).mockImplementation((userId) => {
+      if (userId === "auth0|user-coach") {
+        return Promise.resolve(matchUserA as never);
+      }
+      if (userId === "auth0|user-B") {
+        return Promise.resolve(matchUserB as never);
+      }
+      return Promise.resolve(null);
+    });
 
     vi.mocked(discardUnfinishedMatch).mockReturnValueOnce(deferredDiscard);
 
@@ -1214,12 +1231,18 @@ describe("MainDashboard Component", () => {
       </Provider>,
     );
 
+    // Wait for User B's recovery prompt to appear
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+    expect(screen.getByText("ID: m-userB-...")).toBeDefined();
+
     // Reject discard API call after user switch
     await act(async () => {
       rejectDiscard(new Error("Discard network failure for User A"));
     });
 
-    // Verify stale alert is not presented to User B
+    // Verify stale alert is not presented to User B on their recovery prompt
     expect(screen.queryByRole("alert")).toBeNull();
 
     consoleSpy.mockRestore();
