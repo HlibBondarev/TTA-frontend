@@ -217,7 +217,12 @@ async function fetchSportConfiguration(
       : undefined;
 
     if (remoteConfig) {
-      let updatedConfig: typeof remoteConfig;
+      let updatedConfig = {
+        ...remoteConfig,
+        ...localConfig,
+        playground: remoteConfig.playground || localConfig?.playground || null,
+        shotMap: remoteConfig.shotMap || localConfig?.shotMap || null,
+      };
 
       const performWrite = async () => {
         const latestLocal = await db.sportconfigurations
@@ -242,17 +247,17 @@ async function fetchSportConfiguration(
         await db.sportconfigurations.put(updatedConfig);
       };
 
-      if (typeof db.transaction === "function") {
-        await db
-          .transaction("rw", db.sportconfigurations, performWrite)
-          .catch(async () => {
-            await performWrite().catch(() => undefined);
-          });
-      } else {
-        await performWrite().catch(() => undefined);
+      try {
+        if (typeof db.transaction === "function") {
+          await db.transaction("rw", db.sportconfigurations, performWrite);
+        } else {
+          await performWrite();
+        }
+      } catch {
+        // Ignore cache write or transaction failures; safely return updatedConfig with fetched remote SVGs
       }
 
-      return updatedConfig!;
+      return updatedConfig;
     }
   } catch {
     // Retain and return available local data on network failure

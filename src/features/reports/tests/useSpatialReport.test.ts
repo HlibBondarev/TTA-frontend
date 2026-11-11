@@ -1035,4 +1035,50 @@ describe("useSpatialReport Custom Hook", () => {
       configurationId: "cfg-1",
     });
   });
+
+  it("returns fetched remote SVGs even if db.transaction fails during cache write", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: "m-1",
+      tournamentId: "tourn-1",
+    } as never);
+
+    vi.mocked(db.tournaments.get).mockResolvedValue({
+      id: "tourn-1",
+      sportId: "waterpolo",
+      configurationId: "cfg-1",
+    } as never);
+
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "cfg-1",
+      playground: "<svg id='local-pg'></svg>",
+      shotMap: undefined,
+    } as never);
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValue([
+      {
+        id: "cfg-1",
+        sportId: "waterpolo",
+        usesCleanTime: true,
+        periodsCount: 4,
+        periodDurationMinutes: 8,
+        fieldSize: "30x20",
+        rosterLimit: 13,
+        lineupLimit: 13,
+        activePlayersLimit: 7,
+        playground: "<svg id='remote-pg'></svg>",
+        shotMap: "<svg id='remote-sm'></svg>",
+      },
+    ]);
+
+    vi.mocked(db.transaction).mockRejectedValueOnce(
+      new Error("Transaction failed due to storage lock"),
+    );
+
+    const { result } = renderHook(() => useSpatialReport({ matchId: "m-1" }));
+
+    await waitFor(() => {
+      expect(result.current.playground).toBe("<svg id='remote-pg'></svg>");
+      expect(result.current.shotMap).toBe("<svg id='remote-sm'></svg>");
+    });
+  });
 });
