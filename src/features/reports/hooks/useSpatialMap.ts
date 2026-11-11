@@ -57,14 +57,6 @@ export const useSpatialMap = ({
     setHoveredEventId(null);
   }, [clearAutoDismissTimer]);
 
-  const handleMarkerClick = useCallback(
-    (eventId: string) => {
-      clearAutoDismissTimer();
-      setSelectedEventId((prev) => (prev === eventId ? null : eventId));
-    },
-    [clearAutoDismissTimer],
-  );
-
   const handleMarkerMouseEnter = useCallback((eventId: string) => {
     setHoveredEventId(eventId);
   }, []);
@@ -240,9 +232,10 @@ export const useSpatialMap = ({
       }
     });
 
-    // Secondary pass: resolve exact/near coordinate collisions across all points to guarantee pointer selectability
+    // Secondary pass: resolve exact/near coordinate collisions using golden angle spiral expansion
     const finalRenderablePoints: RenderableSpatialPoint[] = [];
     const minCollisionDist = minDim * 0.05;
+    const GOLDEN_ANGLE = 2.399963229728653; // ~137.5 degrees in radians
 
     rawRenderablePoints.forEach((pt) => {
       let cx = pt.cx;
@@ -250,15 +243,15 @@ export const useSpatialMap = ({
       let attempts = 0;
 
       while (
-        attempts < 12 &&
+        attempts < 30 &&
         finalRenderablePoints.some(
           (existing) =>
             Math.hypot(existing.cx - cx, existing.cy - cy) < minCollisionDist,
         )
       ) {
         attempts++;
-        const nudgeAngle = (attempts * Math.PI) / 4;
-        const step = attempts * (minDim * 0.015);
+        const nudgeAngle = attempts * GOLDEN_ANGLE;
+        const step = (Math.floor((attempts - 1) / 8) + 1) * (minDim * 0.03);
         cx = Math.max(
           minPadding,
           Math.min(
@@ -292,6 +285,38 @@ export const useSpatialMap = ({
     viewBoxWidth,
     viewBoxHeight,
   ]);
+
+  const handleMarkerClick = useCallback(
+    (eventId: string) => {
+      clearAutoDismissTimer();
+      setSelectedEventId((prev) => {
+        const clickedPt = renderablePoints.find((p) => p.event.id === eventId);
+        if (!clickedPt) return prev === eventId ? null : eventId;
+
+        const minDim = Math.min(viewBoxWidth, viewBoxHeight);
+        const hitRadius = minDim * 0.05;
+
+        const stack = renderablePoints.filter(
+          (p) =>
+            Math.hypot(p.cx - clickedPt.cx, p.cy - clickedPt.cy) <= hitRadius,
+        );
+
+        if (stack.length <= 1) {
+          return prev === eventId ? null : eventId;
+        }
+
+        const currentIndex = stack.findIndex((p) => p.event.id === prev);
+        if (currentIndex === -1) {
+          return stack[0]?.event.id ?? null;
+        }
+        const nextIndex = (currentIndex + 1) % (stack.length + 1);
+        return (
+          (nextIndex < stack.length ? stack[nextIndex]?.event.id : null) ?? null
+        );
+      });
+    },
+    [clearAutoDismissTimer, renderablePoints, viewBoxWidth, viewBoxHeight],
+  );
 
   // Calculate directional vectors connecting Lead events directly to Goal events
   const goalLeadVectors = useMemo<GoalLeadVector[]>(() => {

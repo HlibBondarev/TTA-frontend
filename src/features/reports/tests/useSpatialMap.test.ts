@@ -668,4 +668,55 @@ describe("useSpatialMap Custom Hook", () => {
       }
     }
   });
+
+  it("handles dense boundary clusters and cycles marker selection when clicking overlapping stacked markers", () => {
+    const denseBoundaryEvents: GameEventResponse[] = Array.from(
+      { length: 40 },
+      (_, idx) => ({
+        id: `dense-${idx + 1}`,
+        matchLineupId: `l-${idx + 1}`,
+        eventDefinitionId: "def-1",
+        locationX: 100,
+        locationY: 0,
+      }),
+    );
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: denseBoundaryEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
+      }),
+    );
+
+    expect(result.current.renderablePoints).toHaveLength(40);
+
+    // Find a marker that is actually stacked (stack length > 1)
+    const minDim = 600;
+    const hitRadius = minDim * 0.05;
+    const stackedPoint = result.current.renderablePoints.find((pt) => {
+      const stack = result.current.renderablePoints.filter(
+        (p) => Math.hypot(p.cx - pt.cx, p.cy - pt.cy) <= hitRadius,
+      );
+      return stack.length > 1;
+    });
+
+    expect(stackedPoint).toBeDefined();
+    const targetId = stackedPoint!.event.id!;
+
+    // First click selects the first event in the stack
+    act(() => {
+      result.current.handleMarkerClick(targetId);
+    });
+    const firstSelected = result.current.selectedEventId;
+    expect(firstSelected).not.toBeNull();
+
+    // Second click cycles selection to the next event in the stack instead of resetting to null
+    act(() => {
+      result.current.handleMarkerClick(targetId);
+    });
+    expect(result.current.selectedEventId).not.toBeNull();
+    expect(result.current.selectedEventId).not.toBe(firstSelected);
+  });
 });
