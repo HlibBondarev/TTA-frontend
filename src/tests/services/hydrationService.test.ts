@@ -2294,4 +2294,67 @@ describe("Hydration Service", () => {
 
     consoleErrorSpy.mockRestore();
   });
+
+  it("should preserve newer local configuration metadata (e.g. periodsCount) when background shotMap refresh completes", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ periodNumber: 1 }]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      sportId: "sport-1",
+      configurationId: "cfg-1",
+    } as never);
+
+    // Initial cached config missing shotMap, but with updated periodsCount: 6 from concurrent write
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 6,
+      periodsCount: 6,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: null,
+    } as never);
+
+    let resolveApiCall!: (value: unknown) => void;
+    const pendingPromise = new Promise((resolve) => {
+      resolveApiCall = resolve;
+    });
+
+    vi.mocked(sportService.getSportConfigurations).mockReturnValueOnce(
+      pendingPromise as never,
+    );
+
+    await getMatchRecoveryState(matchId);
+
+    // Stale remote response has older periodsCount: 4
+    const mockStaleRemoteConfig = {
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 6,
+      periodsCount: 4,
+      playground: "<svg>Remote Field</svg>",
+      shotMap: "<svg>Remote ShotMap</svg>",
+    };
+
+    resolveApiCall([mockStaleRemoteConfig]);
+    await pendingPromise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Verify put preserves local periodsCount: 6 and playground while filling shotMap
+    expect(db.sportconfigurations.put).toHaveBeenCalledWith({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 6,
+      periodsCount: 6,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: "<svg>Remote ShotMap</svg>",
+    });
+  });
 });

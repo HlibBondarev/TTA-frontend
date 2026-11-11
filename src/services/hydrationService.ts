@@ -245,11 +245,11 @@ const refreshShotMapBackground = (
       if (freshConfig) {
         const cachedConfig = await db.sportconfigurations.get(configurationId);
         const updatedConfig = {
-          ...cachedConfig,
           ...freshConfig,
+          ...cachedConfig,
           playground:
-            freshConfig.playground || cachedConfig?.playground || null,
-          shotMap: freshConfig.shotMap || cachedConfig?.shotMap || null,
+            cachedConfig?.playground || freshConfig.playground || null,
+          shotMap: cachedConfig?.shotMap || freshConfig.shotMap || null,
         };
         await db.sportconfigurations.put(updatedConfig);
       }
