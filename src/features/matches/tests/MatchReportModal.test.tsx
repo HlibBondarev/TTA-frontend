@@ -1,4 +1,10 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MatchReportModal } from "../components/MatchReportModal";
 import { reportService } from "../../../services/reportService";
@@ -382,10 +388,41 @@ describe("MatchReportModal Component", () => {
     });
   });
 
-  it("switches back to home team tab and fetches home team summary report when clicked", async () => {
-    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
-      mockTeamSummary,
+  it("switches back to home team tab and ignores stale deferred guest summary response", async () => {
+    const mockGuestSummary = [
+      {
+        matchLineupId: "lineup-guest-1",
+        firstName: "Guest",
+        lastName: "Player",
+        number: 10,
+        goals: 2,
+        positiveGoalLeadingActions: 1,
+        negativeGoalLeadingActions: 0,
+        totalPositiveActions: 8,
+        totalNegativeActions: 1,
+        playPercentage: 90.0,
+      },
+    ];
+
+    const secondHomeSummary = [
+      {
+        ...mockTeamSummary[0],
+        firstName: "Home",
+        lastName: "Captain",
+      },
+    ];
+
+    let resolveGuestReport: (value: typeof mockGuestSummary) => void;
+    const guestReportPromise = new Promise<typeof mockGuestSummary>(
+      (resolve) => {
+        resolveGuestReport = resolve;
+      },
     );
+
+    vi.mocked(reportService.getTeamSummaryReport)
+      .mockResolvedValueOnce(mockTeamSummary)
+      .mockReturnValueOnce(guestReportPromise)
+      .mockResolvedValueOnce(secondHomeSummary);
 
     render(
       <MatchReportModal
@@ -397,19 +434,20 @@ describe("MatchReportModal Component", () => {
     );
 
     expect(
-      await screen.findByRole("button", { name: /Home Squad/i }),
+      await screen.findByRole("button", { name: /Michael Jordan/i }),
     ).toBeInTheDocument();
 
     const guestTab = screen.getByRole("button", { name: /Opponent Squad/i });
     fireEvent.click(guestTab);
 
     await waitFor(() => {
-      expect(reportService.getTeamSummaryReport).toHaveBeenLastCalledWith(
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
         "match-101",
         "guest-team-303",
       );
     });
 
+    // Switch back to Home before the deferred guest summary resolves
     const homeTab = screen.getByRole("button", { name: /Home Squad/i });
     fireEvent.click(homeTab);
 
@@ -418,7 +456,23 @@ describe("MatchReportModal Component", () => {
         "match-101",
         "team-202",
       );
+      expect(
+        screen.getByRole("button", { name: /Home Captain/i }),
+      ).toBeInTheDocument();
     });
+
+    // Resolve the stale guest response and verify Home report remains displayed
+    await act(async () => {
+      resolveGuestReport!(mockGuestSummary);
+      await guestReportPromise;
+    });
+
+    expect(
+      screen.getByRole("button", { name: /Home Captain/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Guest Player/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("passes active guest teamId to MatchSpatialReportView when spatial tab is selected under guest team view", async () => {
