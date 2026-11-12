@@ -31,6 +31,12 @@ export interface UseSpatialMapParams {
 
 export type UseSpatialMapOptions = UseSpatialMapParams;
 
+const getMarkerRenderPriority = (point: RenderableSpatialPoint): number => {
+  if (point.isSelected) return 2;
+  if (point.isHovered) return 1;
+  return 0;
+};
+
 export const useSpatialMap = ({
   events,
   allEvents,
@@ -297,11 +303,9 @@ export const useSpatialMap = ({
     });
 
     // Render the active marker last (selected over hovered) so it stays the pointer target in a fully overlapping stack
-    return finalRenderablePoints.sort((a, b) => {
-      const aPriority = a.isSelected ? 2 : a.isHovered ? 1 : 0;
-      const bPriority = b.isSelected ? 2 : b.isHovered ? 1 : 0;
-      return aPriority - bPriority;
-    });
+    return finalRenderablePoints.sort(
+      (a, b) => getMarkerRenderPriority(a) - getMarkerRenderPriority(b),
+    );
   }, [
     events,
     eventDefinitionsMap,
