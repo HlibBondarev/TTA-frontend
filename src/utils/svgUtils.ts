@@ -5,7 +5,7 @@ export interface SvgDimensions {
 }
 
 // Number pattern supporting integers, decimals, and scientific/exponent notation (e.g., 1e2, -1.5e-3)
-const NUM_PATTERN = String.raw`[-+]?(?:\d*\.?\d+|\d+)(?:[eE][-+]?\d+)?`;
+const NUM_PATTERN = String.raw`[-+]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?`;
 
 // Regex matching values of 4 viewBox coordinates
 const VIEWBOX_VALUE_REGEX = new RegExp(
