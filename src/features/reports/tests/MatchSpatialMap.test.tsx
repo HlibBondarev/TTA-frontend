@@ -671,4 +671,57 @@ describe("MatchSpatialMap Component", () => {
     );
     expect(previewCircle).not.toHaveClass("stroke-2");
   });
+
+  it("provides a direct Tab focus path from active marker to tooltip and keeps tooltip open during keyboard navigation", () => {
+    vi.useFakeTimers();
+    render(
+      <MatchSpatialMap
+        events={mockEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+        shotMap={defaultShotMap}
+      />,
+    );
+
+    const firstMarker = screen.getByRole("button", {
+      name: "John Doe #9 GL",
+    });
+
+    firstMarker.focus();
+    fireEvent.keyDown(firstMarker, { key: "Enter" });
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    // Even if keyboard navigation takes longer than 3.5s before tabbing into tooltip, it stays open
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    // Pressing Tab on the active marker moves focus directly to the tooltip's Info button
+    const tabEvent = fireEvent.keyDown(firstMarker, { key: "Tab" });
+    expect(tabEvent).toBe(false);
+
+    const infoButton = screen.getByRole("button", { name: "Info" });
+    expect(document.activeElement).toBe(infoButton);
+
+    // Moving focus to Shot button keeps tooltip open
+    const shotButton = screen.getByRole("button", { name: "Shot" });
+    shotButton.focus();
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    // Moving focus outside the map/tooltip restarts the 3.5s auto-dismiss timer
+    shotButton.blur();
+    act(() => {
+      vi.advanceTimersByTime(3499);
+    });
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
+  });
 });

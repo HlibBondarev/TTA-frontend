@@ -275,17 +275,21 @@ const StandardMarker: React.FC<MarkerProps> = ({
 interface SpatialMapMarkerProps {
   point: RenderableSpatialPoint;
   dimensions: { width: number; height: number };
+  isActive?: boolean;
   onMarkerClick: (id: string) => void;
   onMouseEnter: (id: string) => void;
   onMouseLeave: () => void;
+  onActiveMarkerTab?: () => boolean;
 }
 
 const SpatialMapMarker: React.FC<SpatialMapMarkerProps> = ({
   point,
   dimensions,
+  isActive = false,
   onMarkerClick,
   onMouseEnter,
   onMouseLeave,
+  onActiveMarkerTab,
 }) => {
   const { event, cx, cy, shortCode, isSelected, isHovered, isGoal } = point;
   if (!event.id) return null;
@@ -324,6 +328,13 @@ const SpatialMapMarker: React.FC<SpatialMapMarkerProps> = ({
         onMarkerClick(eventId);
       }}
       onKeyDown={(e) => {
+        if (e.key === "Tab" && !e.shiftKey && isActive && onActiveMarkerTab) {
+          if (onActiveMarkerTab()) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+          return;
+        }
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           e.stopPropagation();
@@ -340,6 +351,7 @@ const SpatialMapMarker: React.FC<SpatialMapMarkerProps> = ({
 };
 
 const SpatialTooltip: React.FC<{
+  tooltipRef?: React.RefObject<HTMLDivElement | null>;
   activeEvent: GameEventResponse;
   eventDefinitionsMap: Map<string, EventDefinitionLookup>;
   shotMap?: string | null;
@@ -348,6 +360,7 @@ const SpatialTooltip: React.FC<{
   onPauseAutoDismiss?: () => void;
   onResumeAutoDismiss?: () => void;
 }> = ({
+  tooltipRef,
   activeEvent,
   eventDefinitionsMap,
   shotMap,
@@ -423,13 +436,15 @@ const SpatialTooltip: React.FC<{
 
   return (
     <div
+      ref={tooltipRef}
+      tabIndex={-1}
       role="tooltip"
       aria-label="Event Details"
       onMouseEnter={handlePointerEnter}
       onMouseLeave={handlePointerLeave}
       onFocus={handleFocus}
       onBlur={handleBlur}
-      className={`absolute z-20 min-w-44 max-w-60 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-auto transition-all duration-150 ${getTooltipPositionClass(
+      className={`absolute z-20 min-w-44 max-w-60 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-auto outline-none transition-all duration-150 ${getTooltipPositionClass(
         locX,
       )}`}
       style={{
@@ -549,6 +564,9 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
   });
 
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const isTooltipPointerInsideRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -577,6 +595,23 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
     }, 150);
   };
 
+  const focusTooltip = (): boolean => {
+    const tooltipEl = tooltipRef.current;
+    if (!tooltipEl) return false;
+    const firstFocusable = tooltipEl.querySelector<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    (firstFocusable ?? tooltipEl).focus();
+    return true;
+  };
+
+  const handleMarkerActivate = (id: string) => {
+    handleMarkerClick(id);
+    if (mapContainerRef.current?.contains(document.activeElement)) {
+      pauseAutoDismiss();
+    }
+  };
+
   const safeSvg = useMemo(
     () =>
       playground
@@ -602,6 +637,24 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
 
   return (
     <div
+      ref={mapContainerRef}
+      onKeyDown={(e) => {
+        if (!hasTooltip) return;
+        if (e.key === "Escape") {
+          e.preventDefault();
+          handleClearActiveEvent();
+        } else if (e.key === "Tab") {
+          pauseAutoDismiss();
+        }
+      }}
+      onBlur={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          return;
+        }
+        if (!isTooltipPointerInsideRef.current) {
+          resumeAutoDismiss();
+        }
+      }}
       className="relative w-full bg-blue-950/60 border border-blue-900/60 rounded-2xl select-none"
       style={{ aspectRatio: dimensions.aspectRatio }}
     >
@@ -651,9 +704,11 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
             key={point.event.id}
             point={point}
             dimensions={dimensions}
-            onMarkerClick={handleMarkerClick}
+            isActive={activeEvent?.id === point.event.id}
+            onMarkerClick={handleMarkerActivate}
             onMouseEnter={handleMouseEnterWithDelay}
             onMouseLeave={handleMouseLeaveWithDelay}
+            onActiveMarkerTab={focusTooltip}
           />
         ))}
       </svg>
@@ -661,11 +716,18 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
       {hasTooltip && (
         <SpatialTooltip
           key={activeEvent.id}
+          tooltipRef={tooltipRef}
           activeEvent={activeEvent}
           eventDefinitionsMap={eventDefinitionsMap}
           shotMap={shotMap}
-          onMouseEnter={() => handleMouseEnterWithDelay(activeEvent.id)}
-          onMouseLeave={handleMouseLeaveWithDelay}
+          onMouseEnter={() => {
+            isTooltipPointerInsideRef.current = true;
+            handleMouseEnterWithDelay(activeEvent.id);
+          }}
+          onMouseLeave={() => {
+            isTooltipPointerInsideRef.current = false;
+            handleMouseLeaveWithDelay();
+          }}
           onPauseAutoDismiss={pauseAutoDismiss}
           onResumeAutoDismiss={resumeAutoDismiss}
         />
