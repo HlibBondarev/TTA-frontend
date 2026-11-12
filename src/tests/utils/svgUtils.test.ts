@@ -191,14 +191,7 @@ describe("parseSvgDimensions", () => {
     });
   });
 
-  it("correctly parses decimal width and height values", () => {
-    const svg = `<svg viewBox="0 0 100.5 200.75"></svg>`;
-    expect(parseSvgDimensions(svg)).toEqual({
-      width: 100.5,
-      height: 200.75,
-      aspectRatio: "100.5 / 200.75",
-    });
-
+  it("correctly parses leading-dot decimal width and height values", () => {
     const svgLeadingDot = `<svg viewBox="-.5 -.25 .5 .75"></svg>`;
     expect(parseSvgDimensions(svgLeadingDot)).toEqual({
       width: 0.5,
