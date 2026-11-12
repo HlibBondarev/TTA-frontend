@@ -43,6 +43,7 @@ export const useSpatialMap = ({
   const autoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const isAutoDismissPausedRef = useRef(false);
 
   const clearAutoDismissTimer = useCallback(() => {
     if (autoDismissTimerRef.current !== null) {
@@ -51,7 +52,30 @@ export const useSpatialMap = ({
     }
   }, []);
 
+  const scheduleAutoDismiss = useCallback(() => {
+    clearAutoDismissTimer();
+    if (!selectedEventId || isAutoDismissPausedRef.current) return;
+
+    autoDismissTimerRef.current = setTimeout(() => {
+      autoDismissTimerRef.current = null;
+      isAutoDismissPausedRef.current = false;
+      setSelectedEventId(null);
+      setHoveredEventId(null);
+    }, 3500);
+  }, [selectedEventId, clearAutoDismissTimer]);
+
+  const pauseAutoDismiss = useCallback(() => {
+    isAutoDismissPausedRef.current = true;
+    clearAutoDismissTimer();
+  }, [clearAutoDismissTimer]);
+
+  const resumeAutoDismiss = useCallback(() => {
+    isAutoDismissPausedRef.current = false;
+    scheduleAutoDismiss();
+  }, [scheduleAutoDismiss]);
+
   const handleClearActiveEvent = useCallback(() => {
+    isAutoDismissPausedRef.current = false;
     clearAutoDismissTimer();
     setSelectedEventId(null);
     setHoveredEventId(null);
@@ -66,16 +90,16 @@ export const useSpatialMap = ({
   }, []);
 
   useEffect(() => {
-    if (!selectedEventId) return;
+    if (!selectedEventId) {
+      isAutoDismissPausedRef.current = false;
+      clearAutoDismissTimer();
+      return;
+    }
 
-    autoDismissTimerRef.current = setTimeout(() => {
-      autoDismissTimerRef.current = null;
-      setSelectedEventId(null);
-      setHoveredEventId(null);
-    }, 3500);
+    scheduleAutoDismiss();
 
     return clearAutoDismissTimer;
-  }, [selectedEventId, clearAutoDismissTimer]);
+  }, [selectedEventId, scheduleAutoDismiss, clearAutoDismissTimer]);
 
   // Set of definition IDs strictly representing "Goal" events
   const goalDefinitionIds = useMemo(() => {
@@ -285,6 +309,7 @@ export const useSpatialMap = ({
 
   const handleMarkerClick = useCallback(
     (eventId: string) => {
+      isAutoDismissPausedRef.current = false;
       clearAutoDismissTimer();
       setSelectedEventId((prev) => {
         const clickedPt = renderablePoints.find((p) => p.event.id === eventId);
@@ -446,5 +471,7 @@ export const useSpatialMap = ({
     handleMarkerMouseEnter,
     handleMarkerMouseLeave,
     handleClearActiveEvent,
+    pauseAutoDismiss,
+    resumeAutoDismiss,
   };
 };

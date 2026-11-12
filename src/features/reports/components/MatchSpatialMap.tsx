@@ -345,14 +345,49 @@ const SpatialTooltip: React.FC<{
   shotMap?: string | null;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
+  onPauseAutoDismiss?: () => void;
+  onResumeAutoDismiss?: () => void;
 }> = ({
   activeEvent,
   eventDefinitionsMap,
   shotMap,
   onMouseEnter,
   onMouseLeave,
+  onPauseAutoDismiss,
+  onResumeAutoDismiss,
 }) => {
   const [tooltipMode, setTooltipMode] = useState<"info" | "shot">("info");
+  const isPointerInsideRef = useRef(false);
+  const isFocusInsideRef = useRef(false);
+
+  const handlePointerEnter = () => {
+    isPointerInsideRef.current = true;
+    onPauseAutoDismiss?.();
+    onMouseEnter?.();
+  };
+
+  const handlePointerLeave = () => {
+    isPointerInsideRef.current = false;
+    if (!isFocusInsideRef.current) {
+      onResumeAutoDismiss?.();
+    }
+    onMouseLeave?.();
+  };
+
+  const handleFocus = () => {
+    isFocusInsideRef.current = true;
+    onPauseAutoDismiss?.();
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      return;
+    }
+    isFocusInsideRef.current = false;
+    if (!isPointerInsideRef.current) {
+      onResumeAutoDismiss?.();
+    }
+  };
 
   const safeShotMap = useMemo(
     () =>
@@ -390,8 +425,10 @@ const SpatialTooltip: React.FC<{
     <div
       role="tooltip"
       aria-label="Event Details"
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseEnter={handlePointerEnter}
+      onMouseLeave={handlePointerLeave}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
       className={`absolute z-20 min-w-44 max-w-60 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-auto transition-all duration-150 ${getTooltipPositionClass(
         locX,
       )}`}
@@ -501,6 +538,8 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
     handleMarkerMouseEnter,
     handleMarkerMouseLeave,
     handleClearActiveEvent,
+    pauseAutoDismiss,
+    resumeAutoDismiss,
   } = useSpatialMap({
     events,
     allEvents,
@@ -627,6 +666,8 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
           shotMap={shotMap}
           onMouseEnter={() => handleMouseEnterWithDelay(activeEvent.id)}
           onMouseLeave={handleMouseLeaveWithDelay}
+          onPauseAutoDismiss={pauseAutoDismiss}
+          onResumeAutoDismiss={resumeAutoDismiss}
         />
       )}
     </div>

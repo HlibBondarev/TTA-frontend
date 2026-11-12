@@ -220,6 +220,45 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.activeEvent).toBeNull();
   });
 
+  it("pauses auto-dismiss timer when pauseAutoDismiss is called and restarts it on resumeAutoDismiss", () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: mockEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+      }),
+    );
+
+    act(() => {
+      result.current.handleMarkerClick("event-1");
+    });
+
+    expect(result.current.selectedEventId).toBe("event-1");
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+      result.current.pauseAutoDismiss();
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(result.current.selectedEventId).toBe("event-1");
+
+    act(() => {
+      result.current.resumeAutoDismiss();
+      vi.advanceTimersByTime(3499);
+    });
+
+    expect(result.current.selectedEventId).toBe("event-1");
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(result.current.selectedEventId).toBeNull();
+    expect(result.current.activeEvent).toBeNull();
+  });
+
   it("calculates goalLeadVectors connecting lead events directly to nearest subsequent Goal in the same period", () => {
     const { result } = renderHook(() =>
       useSpatialMap({

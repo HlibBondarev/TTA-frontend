@@ -350,6 +350,52 @@ describe("MatchSpatialMap Component", () => {
     expect(screen.getByText("Goal Target")).toBeInTheDocument();
   });
 
+  it("pauses tooltip auto-dismiss while pointer or keyboard focus is inside and restarts when interaction leaves", () => {
+    vi.useFakeTimers();
+    render(
+      <MatchSpatialMap
+        events={mockEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+        shotMap={defaultShotMap}
+      />,
+    );
+
+    const marker = screen.getByText("9");
+    fireEvent.click(marker);
+
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    const tooltip = screen.getByRole("tooltip");
+    fireEvent.mouseEnter(tooltip);
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    const shotButton = screen.getByRole("button", { name: "Shot" });
+    fireEvent.focus(shotButton);
+    fireEvent.mouseLeave(tooltip);
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    fireEvent.blur(shotButton);
+
+    act(() => {
+      vi.advanceTimersByTime(3499);
+    });
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
+  });
+
   it("displays and closes interactive tooltip when clicking action markers or map background", () => {
     const { container } = render(
       <MatchSpatialMap
