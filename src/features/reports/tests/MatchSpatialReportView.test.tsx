@@ -137,8 +137,10 @@ describe("MatchSpatialReportView Component", () => {
     filteredEvents: mockEvents,
     teamLineups: mockTeamLineups,
     eventDefinitionsMap: mockDefinitionsMap,
-    playground: "<svg>Playground</svg>",
-    shotMap: "<svg>ShotMap</svg>",
+    playground:
+      '<svg viewBox="0 0 600 1000"><rect width="600" height="1000" /></svg>',
+    shotMap:
+      '<svg viewBox="0 0 615 248"><rect width="615" height="248" /></svg>',
     filters: {
       periodNumber: null,
       selectedLineupIds: [],
@@ -210,7 +212,9 @@ describe("MatchSpatialReportView Component", () => {
   it("renders filter controls, player chips, action definition chips, and field court map by default", () => {
     vi.mocked(useSpatialReport).mockReturnValueOnce(mockHookReturnValue);
 
-    render(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
+    const { container } = render(
+      <MatchSpatialReportView matchId="m-1" teamId="t-1" />,
+    );
 
     expect(
       screen.getByText((_content, node) => {
@@ -234,9 +238,15 @@ describe("MatchSpatialReportView Component", () => {
     expect(screen.getAllByText("Goal")[0]).toBeInTheDocument();
     expect(screen.getByText("- Negative Actions")).toBeInTheDocument();
     expect(screen.getByText("Foul")).toBeInTheDocument();
+
+    expect(
+      container.querySelector('svg[viewBox="0 0 600 1000"]'),
+    ).toBeInTheDocument();
+    expect(screen.getByText("GL")).toBeInTheDocument();
+    expect(screen.getByText("FL")).toBeInTheDocument();
   });
 
-  it("renders MatchShotMap legend when mapMode is set to shot", () => {
+  it("renders MatchShotMap and legend when mapMode is set to shot", () => {
     vi.mocked(useSpatialReport).mockReturnValueOnce({
       ...mockHookReturnValue,
       filters: {
@@ -245,12 +255,23 @@ describe("MatchSpatialReportView Component", () => {
       },
     });
 
-    render(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
+    const { container } = render(
+      <MatchSpatialReportView matchId="m-1" teamId="t-1" />,
+    );
 
     expect(screen.getAllByText("Goal")[0]).toBeInTheDocument();
     expect(screen.getByText("Shot on Goal")).toBeInTheDocument();
     expect(screen.getByText("Missed")).toBeInTheDocument();
     expect(screen.getByText("Conceded")).toBeInTheDocument();
+
+    const shotSvg = container.querySelector('svg[viewBox="0 0 615 248"]');
+    expect(shotSvg).toBeInTheDocument();
+    expect(
+      container.querySelectorAll('svg [role="button"]').length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.queryByText("Goal Shot Map SVG is unavailable for this match."),
+    ).not.toBeInTheDocument();
   });
 
   it("renders fallback banner when mapMode is shot and effectiveShotMap is unavailable", () => {
