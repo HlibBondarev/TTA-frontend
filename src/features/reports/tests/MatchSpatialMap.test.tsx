@@ -592,4 +592,37 @@ describe("MatchSpatialMap Component", () => {
     expect(screen.getByText("Player Two")).toBeInTheDocument();
     expect(screen.getByText("Foul")).toBeInTheDocument();
   });
+
+  it("scales goal-preview circle strokeWidth proportionally with shotMap viewBox dimensions", () => {
+    const customShotMap =
+      '<svg viewBox="0 0 100 50" width="100" height="50"><rect width="100" height="50" fill="green"/></svg>';
+
+    render(
+      <MatchSpatialMap
+        events={mockEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+        shotMap={customShotMap}
+      />,
+    );
+
+    const shotMarker = screen.getByText("9");
+    fireEvent.mouseEnter(shotMarker);
+
+    const shotButton = screen.getByRole("button", { name: "Shot" });
+    fireEvent.click(shotButton);
+
+    const tooltip = screen.getByRole("tooltip");
+    const previewCircle = tooltip.querySelector("svg circle");
+
+    expect(previewCircle).toBeInTheDocument();
+    expect(previewCircle).toHaveAttribute("r", "2");
+    expect(previewCircle).toHaveAttribute("stroke-width", "0.5");
+    expect(previewCircle).toHaveClass(
+      "fill-amber-400",
+      "stroke-slate-950",
+      "shadow-md",
+    );
+    expect(previewCircle).not.toHaveClass("stroke-2");
+  });
 });

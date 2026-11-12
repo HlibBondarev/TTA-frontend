@@ -64,7 +64,8 @@ const SpatialTooltipGoalPreview: React.FC<{
           cx={cx}
           cy={cy}
           r={Math.min(dimensions.width, dimensions.height) * 0.04}
-          className="fill-amber-400 stroke-slate-950 stroke-2 shadow-md"
+          strokeWidth={Math.min(dimensions.width, dimensions.height) * 0.01}
+          className="fill-amber-400 stroke-slate-950 shadow-md"
         />
       </svg>
     </div>
