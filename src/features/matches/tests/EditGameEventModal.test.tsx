@@ -753,6 +753,14 @@ describe("EditGameEventModal Component", () => {
   });
 
   it("resets shotLocationX and shotLocationY to null when action switches to a non-shot action", async () => {
+    vi.mocked(db.gameevents.get).mockResolvedValueOnce({
+      id: "action-123",
+      locationX: 35.5,
+      locationY: 70.0,
+      shotLocationX: 15.0,
+      shotLocationY: 85.0,
+    });
+
     vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
       id: "action-123",
       matchLineupId: "lineup-1",
@@ -783,18 +791,24 @@ describe("EditGameEventModal Component", () => {
       </Provider>,
     );
 
-    expect(
-      await screen.findByRole("button", { name: /SHOTS/i }),
-    ).toBeInTheDocument();
+    const saveBtn = await screen.findByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
 
-    const passBtn = screen.getByText("Pass");
-    fireEvent.click(passBtn);
+    // Open SHOTS tab to verify existing non-null shot coordinates loaded into the modal
+    const shotsTab = screen.getByRole("button", { name: /SHOTS/i });
+    fireEvent.click(shotsTab);
+
+    expect(await screen.findByText("Goal Shot Map")).toBeInTheDocument();
+    expect(screen.getByText("X: 15% | Y: 85%")).toBeInTheDocument();
+
+    // Switch back to Positive tab and change action from Goal (isShot: true) to Pass (isShot: false)
+    fireEvent.click(screen.getByRole("button", { name: "Positive" }));
+    fireEvent.click(screen.getByText("Pass"));
 
     expect(
       screen.queryByRole("button", { name: /SHOTS/i }),
     ).not.toBeInTheDocument();
 
-    const saveBtn = screen.getByRole("button", { name: /Save/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
     fireEvent.click(saveBtn);
 
