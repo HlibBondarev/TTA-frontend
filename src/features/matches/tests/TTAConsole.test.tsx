@@ -570,14 +570,16 @@ describe("TTAConsole Component", () => {
     const mapTabBtn = screen.getByRole("button", { name: /Map/i });
     fireEvent.click(mapTabBtn);
 
+    const fieldMapBtn = screen.getByRole("button", {
+      name: /Field Location Map/i,
+    });
+    expect(fieldMapBtn).toBeEnabled();
+
     // Trigger event recording submission
     const enterBtn = screen.getByRole("button", { name: /Enter/i });
     fireEvent.click(enterBtn);
 
-    // Verify field map button element is disabled during pending submission
-    const fieldMapBtn = screen.getByRole("button", {
-      name: /Field Location Map/i,
-    });
+    // Verify field map button element becomes disabled during pending submission
     expect(fieldMapBtn).toBeDisabled();
 
     await act(async () => {
