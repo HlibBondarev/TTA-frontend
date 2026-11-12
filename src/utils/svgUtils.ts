@@ -9,7 +9,7 @@ const NUM_PATTERN = String.raw`[-+]?(?:\d*\.?\d+|\d+)(?:[eE][-+]?\d+)?`;
 
 // Regex matching values of 4 viewBox coordinates
 const VIEWBOX_VALUE_REGEX = new RegExp(
-  String.raw`^\s*(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})[\s,]+(${NUM_PATTERN})\s*$`,
+  String.raw`^\s*(${NUM_PATTERN})(?:\s*,\s*|\s+)(${NUM_PATTERN})(?:\s*,\s*|\s+)(${NUM_PATTERN})(?:\s*,\s*|\s+)(${NUM_PATTERN})\s*$`,
 );
 
 /**

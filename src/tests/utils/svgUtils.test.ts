@@ -184,4 +184,17 @@ describe("parseSvgDimensions", () => {
       aspectRatio: "800 / 600",
     });
   });
+
+  it("returns null for invalid or malformed viewBox values", () => {
+    expect(
+      parseSvgDimensions(`<svg viewBox="invalid viewBox format"></svg>`),
+    ).toBeNull();
+    expect(parseSvgDimensions(`<svg viewBox="0 0 abc def"></svg>`)).toBeNull();
+    expect(
+      parseSvgDimensions(`<svg viewBox="0,,0,,100,,100"></svg>`),
+    ).toBeNull();
+    expect(
+      parseSvgDimensions(`<svg viewBox="0, , 0, 100, 100"></svg>`),
+    ).toBeNull();
+  });
 });
