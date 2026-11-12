@@ -780,4 +780,29 @@ describe("MatchSpatialMap Component", () => {
     });
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
   });
+
+  it("clears active selection when pressing Enter or Space on the spatial map background", () => {
+    render(
+      <MatchSpatialMap
+        events={mockEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+      />,
+    );
+
+    const marker = screen.getByText("9");
+    fireEvent.click(marker);
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    const overlaySvg = screen.getByLabelText("Match Spatial Event Map");
+    fireEvent.keyDown(overlaySvg, { key: "Enter" });
+    expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
+
+    fireEvent.click(marker);
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    const spaceEvent = fireEvent.keyDown(overlaySvg, { key: " " });
+    expect(spaceEvent).toBe(false);
+    expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
+  });
 });

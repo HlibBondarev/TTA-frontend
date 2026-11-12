@@ -408,8 +408,6 @@ const SpatialTooltip: React.FC<{
     <div
       ref={tooltipRef}
       tabIndex={-1}
-      role="tooltip"
-      aria-label="Event Details"
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       onKeyDown={(e) => {
@@ -437,79 +435,83 @@ const SpatialTooltip: React.FC<{
         top: `${Math.max(5, Math.min(95, screenTopPct))}%`,
       }}
     >
-      <div className="flex items-center justify-between border-b border-gray-800 pb-1 mb-1.5 gap-2">
-        <div
-          className={`flex items-center space-x-1.5 font-bold whitespace-nowrap truncate ${headerColor}`}
-        >
-          <span>#{activeEvent.playerNumber ?? "-"}</span>
-          <span className="truncate">{activeEvent.playerName || "Player"}</span>
-        </div>
-
-        {isShotAction && (
-          <div className="flex bg-gray-950 p-0.5 rounded-lg border border-gray-800 shrink-0">
-            <button
-              type="button"
-              onClick={() => setTooltipMode("info")}
-              className={`px-1.5 py-0.5 text-[9px] font-bold rounded transition-colors ${
-                tooltipMode === "info"
-                  ? "bg-indigo-600 text-white"
-                  : "text-gray-400 hover:text-gray-200"
-              }`}
-            >
-              Info
-            </button>
-            <button
-              type="button"
-              onClick={() => setTooltipMode("shot")}
-              className={`px-1.5 py-0.5 text-[9px] font-bold rounded transition-colors ${
-                tooltipMode === "shot"
-                  ? "bg-amber-600 text-white"
-                  : "text-gray-400 hover:text-gray-200"
-              }`}
-            >
-              Shot
-            </button>
-          </div>
-        )}
-      </div>
-
-      {tooltipMode === "info" ? (
-        <div className="space-y-0.5 text-gray-300">
-          <div className="wrap-break-word">
-            <span className="text-gray-400">Action: </span>
-            <span className="font-semibold text-white">
-              {activeEvent.eventName || "Action"}
+      <div role="tooltip" aria-label="Event Details">
+        <div className="flex items-center justify-between border-b border-gray-800 pb-1 mb-1.5 gap-2">
+          <div
+            className={`flex items-center space-x-1.5 font-bold whitespace-nowrap truncate ${headerColor}`}
+          >
+            <span>#{activeEvent.playerNumber ?? "-"}</span>
+            <span className="truncate">
+              {activeEvent.playerName || "Player"}
             </span>
           </div>
-          <div>
-            <span className="text-gray-400">Period: </span>
-            <span>Q{activeEvent.periodNumber ?? "-"}</span>
-          </div>
-          {activeEvent.normalizedMatchTime && (
-            <div>
-              <span className="text-gray-400">Time: </span>
-              <span className="font-mono">
-                {formatMatchTime(activeEvent.normalizedMatchTime)}
-              </span>
+
+          {isShotAction && (
+            <div className="flex bg-gray-950 p-0.5 rounded-lg border border-gray-800 shrink-0">
+              <button
+                type="button"
+                onClick={() => setTooltipMode("info")}
+                className={`px-1.5 py-0.5 text-[9px] font-bold rounded transition-colors ${
+                  tooltipMode === "info"
+                    ? "bg-indigo-600 text-white"
+                    : "text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                Info
+              </button>
+              <button
+                type="button"
+                onClick={() => setTooltipMode("shot")}
+                className={`px-1.5 py-0.5 text-[9px] font-bold rounded transition-colors ${
+                  tooltipMode === "shot"
+                    ? "bg-amber-600 text-white"
+                    : "text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                Shot
+              </button>
             </div>
           )}
         </div>
-      ) : (
-        <div className="space-y-1.5">
-          <div className="flex justify-between items-center text-[9px] text-gray-400 font-bold uppercase">
-            <span>Goal Target</span>
-            <span className="font-mono text-amber-400">
-              X:{shotX}% Y:{shotY}%
-            </span>
+
+        {tooltipMode === "info" ? (
+          <div className="space-y-0.5 text-gray-300">
+            <div className="wrap-break-word">
+              <span className="text-gray-400">Action: </span>
+              <span className="font-semibold text-white">
+                {activeEvent.eventName || "Action"}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-400">Period: </span>
+              <span>Q{activeEvent.periodNumber ?? "-"}</span>
+            </div>
+            {activeEvent.normalizedMatchTime && (
+              <div>
+                <span className="text-gray-400">Time: </span>
+                <span className="font-mono">
+                  {formatMatchTime(activeEvent.normalizedMatchTime)}
+                </span>
+              </div>
+            )}
           </div>
-          <SpatialTooltipGoalPreview
-            shotX={shotX}
-            shotY={shotY}
-            safeShotMap={safeShotMap}
-            rawShotMap={shotMap}
-          />
-        </div>
-      )}
+        ) : (
+          <div className="space-y-1.5">
+            <div className="flex justify-between items-center text-[9px] text-gray-400 font-bold uppercase">
+              <span>Goal Target</span>
+              <span className="font-mono text-amber-400">
+                X:{shotX}% Y:{shotY}%
+              </span>
+            </div>
+            <SpatialTooltipGoalPreview
+              shotX={shotX}
+              shotY={shotY}
+              safeShotMap={safeShotMap}
+              rawShotMap={shotMap}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -681,8 +683,19 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
       <svg
         viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
         className="absolute inset-0 w-full h-full"
+        role="button"
+        tabIndex={0}
         aria-label="Match Spatial Event Map"
         onClick={handleClearActiveEvent}
+        onKeyDown={(e) => {
+          if (
+            e.target === e.currentTarget &&
+            (e.key === "Enter" || e.key === " ")
+          ) {
+            e.preventDefault();
+            handleClearActiveEvent();
+          }
+        }}
       >
         <defs>
           <marker
