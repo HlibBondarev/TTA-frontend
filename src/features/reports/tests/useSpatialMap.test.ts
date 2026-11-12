@@ -894,7 +894,7 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.selectedEventId).toBe(expectedNextId);
   });
 
-  it("cycles through every event in a fully overlapping stack when repeatedly clicking the top-rendered marker and deselects on background clear", () => {
+  it("cycles through every event in a fully overlapping stack when repeatedly clicking the top-rendered marker while hovered and deselects on background clear", () => {
     const overlappingEvents: GameEventResponse[] = Array.from(
       { length: 5 },
       (_, idx) => ({
@@ -915,6 +915,17 @@ describe("useSpatialMap Custom Hook", () => {
       }),
     );
 
+    // Hover the initial top-rendered marker and keep hover active across clicks
+    const initialTopMarkerId =
+      result.current.renderablePoints.at(-1)!.event.id!;
+    act(() => {
+      result.current.handleMarkerMouseEnter(initialTopMarkerId);
+    });
+    expect(result.current.hoveredEventId).toBe(initialTopMarkerId);
+    expect(result.current.renderablePoints.at(-1)?.event.id).toBe(
+      initialTopMarkerId,
+    );
+
     const visitedIds = new Set<string>();
 
     for (let i = 0; i < overlappingEvents.length; i++) {
@@ -928,8 +939,13 @@ describe("useSpatialMap Custom Hook", () => {
       expect(selectedId).toBeTruthy();
       visitedIds.add(selectedId);
 
-      // Selected marker must render last so it stays the pointer target
+      // Selected marker must render last (outranking a different hovered marker)
       expect(result.current.renderablePoints.at(-1)?.event.id).toBe(selectedId);
+      if (selectedId !== initialTopMarkerId) {
+        expect(result.current.renderablePoints.at(-2)?.event.id).toBe(
+          initialTopMarkerId,
+        );
+      }
     }
 
     expect(visitedIds.size).toBe(overlappingEvents.length);
@@ -943,10 +959,11 @@ describe("useSpatialMap Custom Hook", () => {
     });
     expect(result.current.selectedEventId).toBe(firstSelectedId);
 
-    // Background click still clears selection
+    // Background click still clears selection and hover
     act(() => {
       result.current.handleClearActiveEvent();
     });
     expect(result.current.selectedEventId).toBeNull();
+    expect(result.current.hoveredEventId).toBeNull();
   });
 });

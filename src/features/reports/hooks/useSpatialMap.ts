@@ -296,11 +296,11 @@ export const useSpatialMap = ({
       });
     });
 
-    // Render the active marker last so it is the pointer target in a fully overlapping stack
+    // Render the active marker last (selected over hovered) so it stays the pointer target in a fully overlapping stack
     return finalRenderablePoints.sort((a, b) => {
-      const aActive = a.isSelected || a.isHovered ? 1 : 0;
-      const bActive = b.isSelected || b.isHovered ? 1 : 0;
-      return aActive - bActive;
+      const aPriority = a.isSelected ? 2 : a.isHovered ? 1 : 0;
+      const bPriority = b.isSelected ? 2 : b.isHovered ? 1 : 0;
+      return aPriority - bPriority;
     });
   }, [
     events,
