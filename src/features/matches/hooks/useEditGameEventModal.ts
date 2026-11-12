@@ -286,12 +286,8 @@ export function useEditGameEventModal({
     ).subscribe({
       next: (config) => {
         if (config) {
-          if (config.playground !== undefined) {
-            setPlayground(config.playground ?? null);
-          }
-          if (config.shotMap !== undefined) {
-            setShotMap(config.shotMap ?? null);
-          }
+          setPlayground(config.playground ?? null);
+          setShotMap(config.shotMap ?? null);
         }
       },
       error: (err) => {

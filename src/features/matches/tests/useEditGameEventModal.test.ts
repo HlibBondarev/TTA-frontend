@@ -289,6 +289,17 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     expect(result.current.playground).toBe("<svg>Updated Court</svg>");
     expect(result.current.shotMap).toBe("<svg>Updated Goal Target</svg>");
+
+    act(() => {
+      if (liveQueryCallback) {
+        liveQueryCallback({
+          id: "config-1",
+        });
+      }
+    });
+
+    expect(result.current.playground).toBeNull();
+    expect(result.current.shotMap).toBeNull();
   });
 
   it("should resolve currentUserId from Redux auth.user.id fallback when auth0 is missing", async () => {
