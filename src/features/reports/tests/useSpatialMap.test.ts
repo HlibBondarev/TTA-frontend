@@ -723,6 +723,9 @@ describe("useSpatialMap Custom Hook", () => {
         locationY: 0,
       }),
     );
+    const eventOrder = new Map(
+      denseBoundaryEvents.map((e, idx) => [e.id!, idx]),
+    );
 
     const { result } = renderHook(() =>
       useSpatialMap({
@@ -750,7 +753,8 @@ describe("useSpatialMap Custom Hook", () => {
     }
 
     expect(targetStack.length).toBeGreaterThan(1);
-    const secondMarkerId = targetStack[1].event.id!;
+    const secondPoint = targetStack[1];
+    const secondMarkerId = secondPoint.event.id!;
 
     // First click selects the activated marker (stack[1]) rather than stack[0]
     act(() => {
@@ -758,12 +762,26 @@ describe("useSpatialMap Custom Hook", () => {
     });
     expect(result.current.selectedEventId).toBe(secondMarkerId);
 
-    // Second click cycles selection to the next item in the stack (or null if length === 2)
+    const secondStack = result.current.renderablePoints
+      .filter(
+        (p) =>
+          Math.hypot(p.cx - secondPoint.cx, p.cy - secondPoint.cy) <= hitRadius,
+      )
+      .sort(
+        (a, b) =>
+          (eventOrder.get(a.event.id!) ?? 0) -
+          (eventOrder.get(b.event.id!) ?? 0),
+      );
+    const secondIndex = secondStack.findIndex(
+      (p) => p.event.id === secondMarkerId,
+    );
+    const expectedNextId =
+      secondStack[(secondIndex + 1) % secondStack.length].event.id!;
+
+    // Second click cycles selection to the next item in secondPoint's hit-stack
     act(() => {
       result.current.handleMarkerClick(secondMarkerId);
     });
-    const expectedNextId =
-      targetStack.length > 2 ? targetStack[2].event.id! : null;
     expect(result.current.selectedEventId).toBe(expectedNextId);
   });
 
@@ -810,6 +828,9 @@ describe("useSpatialMap Custom Hook", () => {
         locationY: 0,
       }),
     );
+    const eventOrder = new Map(
+      denseBoundaryEvents.map((e, idx) => [e.id!, idx]),
+    );
 
     const { result } = renderHook(() =>
       useSpatialMap({
@@ -849,20 +870,83 @@ describe("useSpatialMap Custom Hook", () => {
     });
     expect(result.current.selectedEventId).toBe(secondMarkerId);
 
+    // Compute expected next ID in the stable event-order hit-stack
+    const secondStack = result.current.renderablePoints
+      .filter(
+        (p) =>
+          Math.hypot(p.cx - secondPoint.cx, p.cy - secondPoint.cy) <= hitRadius,
+      )
+      .sort(
+        (a, b) =>
+          (eventOrder.get(a.event.id!) ?? 0) -
+          (eventOrder.get(b.event.id!) ?? 0),
+      );
+    const secondIndex = secondStack.findIndex(
+      (p) => p.event.id === secondMarkerId,
+    );
+    const nextIdx = (secondIndex + 1) % secondStack.length;
+    const expectedNextId = secondStack[nextIdx].event.id!;
+
     // Repeated activation of the same marker cycles forward in its hit-stack
     act(() => {
       result.current.handleMarkerClick(secondMarkerId);
     });
-    const secondStack = result.current.renderablePoints.filter(
-      (p) =>
-        Math.hypot(p.cx - secondPoint.cx, p.cy - secondPoint.cy) <= hitRadius,
-    );
-    const secondIndex = secondStack.findIndex(
-      (p) => p.event.id === secondMarkerId,
-    );
-    const nextIdx = (secondIndex + 1) % (secondStack.length + 1);
-    const expectedNextId =
-      nextIdx < secondStack.length ? secondStack[nextIdx].event.id! : null;
     expect(result.current.selectedEventId).toBe(expectedNextId);
+  });
+
+  it("cycles through every event in a fully overlapping stack when repeatedly clicking the top-rendered marker and deselects on background clear", () => {
+    const overlappingEvents: GameEventResponse[] = Array.from(
+      { length: 5 },
+      (_, idx) => ({
+        id: `overlap-stack-${idx + 1}`,
+        matchLineupId: `l-${idx + 1}`,
+        eventDefinitionId: "def-1",
+        locationX: 50,
+        locationY: 50,
+      }),
+    );
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: overlappingEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 0,
+        viewBoxHeight: 0,
+      }),
+    );
+
+    const visitedIds = new Set<string>();
+
+    for (let i = 0; i < overlappingEvents.length; i++) {
+      const topRenderedMarker = result.current.renderablePoints.at(-1)!;
+
+      act(() => {
+        result.current.handleMarkerClick(topRenderedMarker.event.id!);
+      });
+
+      const selectedId = result.current.selectedEventId!;
+      expect(selectedId).toBeTruthy();
+      visitedIds.add(selectedId);
+
+      // Selected marker must render last so it stays the pointer target
+      expect(result.current.renderablePoints.at(-1)?.event.id).toBe(selectedId);
+    }
+
+    expect(visitedIds.size).toBe(overlappingEvents.length);
+
+    // Clicking again wraps back to the first selected event in the cycle
+    const firstSelectedId = Array.from(visitedIds)[0];
+    act(() => {
+      result.current.handleMarkerClick(
+        result.current.renderablePoints.at(-1)!.event.id!,
+      );
+    });
+    expect(result.current.selectedEventId).toBe(firstSelectedId);
+
+    // Background click still clears selection
+    act(() => {
+      result.current.handleClearActiveEvent();
+    });
+    expect(result.current.selectedEventId).toBeNull();
   });
 });

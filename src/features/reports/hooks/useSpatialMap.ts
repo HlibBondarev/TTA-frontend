@@ -296,7 +296,12 @@ export const useSpatialMap = ({
       });
     });
 
-    return finalRenderablePoints;
+    // Render the active marker last so it is the pointer target in a fully overlapping stack
+    return finalRenderablePoints.sort((a, b) => {
+      const aActive = a.isSelected || a.isHovered ? 1 : 0;
+      const bActive = b.isSelected || b.isHovered ? 1 : 0;
+      return aActive - bActive;
+    });
   }, [
     events,
     eventDefinitionsMap,
@@ -306,6 +311,16 @@ export const useSpatialMap = ({
     viewBoxWidth,
     viewBoxHeight,
   ]);
+
+  const eventOrderMap = useMemo(() => {
+    const map = new Map<string, number>();
+    events.forEach((e, idx) => {
+      if (e.id != null) {
+        map.set(e.id, idx);
+      }
+    });
+    return map;
+  }, [events]);
 
   const handleMarkerClick = useCallback(
     (eventId: string) => {
@@ -318,10 +333,16 @@ export const useSpatialMap = ({
         const minDim = Math.min(viewBoxWidth, viewBoxHeight);
         const hitRadius = minDim * 0.05;
 
-        const stack = renderablePoints.filter(
-          (p) =>
-            Math.hypot(p.cx - clickedPt.cx, p.cy - clickedPt.cy) <= hitRadius,
-        );
+        const stack = renderablePoints
+          .filter(
+            (p) =>
+              Math.hypot(p.cx - clickedPt.cx, p.cy - clickedPt.cy) <= hitRadius,
+          )
+          .sort(
+            (a, b) =>
+              (a.event.id != null ? (eventOrderMap.get(a.event.id) ?? 0) : 0) -
+              (b.event.id != null ? (eventOrderMap.get(b.event.id) ?? 0) : 0),
+          );
 
         if (stack.length <= 1) {
           return prev === eventId ? null : eventId;
@@ -335,13 +356,17 @@ export const useSpatialMap = ({
         if (currentIndex === -1) {
           return eventId;
         }
-        const nextIndex = (currentIndex + 1) % (stack.length + 1);
-        return (
-          (nextIndex < stack.length ? stack[nextIndex]?.event.id : null) ?? null
-        );
+        const nextIndex = (currentIndex + 1) % stack.length;
+        return stack[nextIndex]?.event.id ?? null;
       });
     },
-    [clearAutoDismissTimer, renderablePoints, viewBoxWidth, viewBoxHeight],
+    [
+      clearAutoDismissTimer,
+      eventOrderMap,
+      renderablePoints,
+      viewBoxWidth,
+      viewBoxHeight,
+    ],
   );
 
   // Calculate directional vectors connecting Lead events directly to Goal events
