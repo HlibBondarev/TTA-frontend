@@ -302,7 +302,11 @@ export const useSpatialMap = ({
           return prev === eventId ? null : eventId;
         }
 
-        const currentIndex = stack.findIndex((p) => p.event.id === prev);
+        if (prev !== eventId) {
+          return eventId;
+        }
+
+        const currentIndex = stack.findIndex((p) => p.event.id === eventId);
         if (currentIndex === -1) {
           return eventId;
         }

@@ -759,4 +759,71 @@ describe("useSpatialMap Custom Hook", () => {
     });
     expect(result.current.activeEvent?.id).toBe("event-1");
   });
+
+  it("selects a different marker in the same hit-stack directly instead of advancing from the previous selection", () => {
+    const denseBoundaryEvents: GameEventResponse[] = Array.from(
+      { length: 40 },
+      (_, idx) => ({
+        id: `dense-${idx + 1}`,
+        matchLineupId: `l-${idx + 1}`,
+        eventDefinitionId: "def-1",
+        locationX: 100,
+        locationY: 0,
+      }),
+    );
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: denseBoundaryEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
+      }),
+    );
+
+    const hitRadius = 600 * 0.05;
+    let targetStack: typeof result.current.renderablePoints = [];
+    for (const pt of result.current.renderablePoints) {
+      const stack = result.current.renderablePoints.filter(
+        (p) => Math.hypot(p.cx - pt.cx, p.cy - pt.cy) <= hitRadius,
+      );
+      if (stack.length > 1) {
+        targetStack = stack;
+        break;
+      }
+    }
+
+    expect(targetStack.length).toBeGreaterThan(1);
+    const firstMarkerId = targetStack[0].event.id!;
+    const secondPoint = targetStack[1];
+    const secondMarkerId = secondPoint.event.id!;
+
+    // Select the first marker in the stack
+    act(() => {
+      result.current.handleMarkerClick(firstMarkerId);
+    });
+    expect(result.current.selectedEventId).toBe(firstMarkerId);
+
+    // Activating a different marker in the same hit-stack selects it directly
+    act(() => {
+      result.current.handleMarkerClick(secondMarkerId);
+    });
+    expect(result.current.selectedEventId).toBe(secondMarkerId);
+
+    // Repeated activation of the same marker cycles forward in its hit-stack
+    act(() => {
+      result.current.handleMarkerClick(secondMarkerId);
+    });
+    const secondStack = result.current.renderablePoints.filter(
+      (p) =>
+        Math.hypot(p.cx - secondPoint.cx, p.cy - secondPoint.cy) <= hitRadius,
+    );
+    const secondIndex = secondStack.findIndex(
+      (p) => p.event.id === secondMarkerId,
+    );
+    const nextIdx = (secondIndex + 1) % (secondStack.length + 1);
+    const expectedNextId =
+      nextIdx < secondStack.length ? secondStack[nextIdx].event.id! : null;
+    expect(result.current.selectedEventId).toBe(expectedNextId);
+  });
 });
