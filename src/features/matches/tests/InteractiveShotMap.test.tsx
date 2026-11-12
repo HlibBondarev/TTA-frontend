@@ -336,4 +336,50 @@ describe("InteractiveShotMap Component", () => {
       screen.queryByLabelText("Goal Shot Location Map"),
     ).not.toBeInTheDocument();
   });
+
+  it("ignores coordinate-free click activations without substituting keyboard default coordinates", () => {
+    const handleShotLocationSelect = vi.fn();
+    render(
+      <InteractiveShotMap
+        shotMap={validSvg}
+        onShotLocationSelect={handleShotLocationSelect}
+      />,
+    );
+
+    const clickableArea = screen.getByLabelText("Goal Shot Location Map");
+
+    vi.spyOn(clickableArea, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 100,
+      right: 200,
+      bottom: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+
+    // Synthetic/assistive click with detail=0 and (0, 0) coordinates
+    fireEvent.click(clickableArea);
+    expect(handleShotLocationSelect).not.toHaveBeenCalled();
+
+    // Native element.click() activation
+    clickableArea.click();
+    expect(handleShotLocationSelect).not.toHaveBeenCalled();
+
+    // Non-finite pointer coordinates (defined on event instance since JSDOM MouseEventInit rejects NaN)
+    const nonFiniteEvent = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      clientY: 20,
+    });
+    Object.defineProperty(nonFiniteEvent, "clientX", { value: Number.NaN });
+    fireEvent(clickableArea, nonFiniteEvent);
+    expect(handleShotLocationSelect).not.toHaveBeenCalled();
+
+    // Actual pointer click at top-left viewport origin (detail >= 1) still registers
+    fireEvent.click(clickableArea, { clientX: 0, clientY: 0, detail: 1 });
+    expect(handleShotLocationSelect).toHaveBeenCalledWith(0, 100);
+  });
 });
