@@ -322,6 +322,7 @@ const SpatialMapMarker: React.FC<SpatialMapMarkerProps> = ({
   return (
     <g
       ref={markerRef}
+      data-spatial-marker="true"
       transform={`translate(${cx}, ${cy})`}
       role="button"
       tabIndex={0}
@@ -371,6 +372,36 @@ const SpatialTooltip: React.FC<{
   onShiftTabOut,
 }) => {
   const [tooltipMode, setTooltipMode] = useState<"info" | "shot">("info");
+  const fallbackTooltipRef = useRef<HTMLDivElement | null>(null);
+  const resolvedTooltipRef = tooltipRef ?? fallbackTooltipRef;
+
+  useEffect(() => {
+    const el = resolvedTooltipRef.current;
+    if (!el) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Tab" && e.shiftKey && onShiftTabOut) {
+        const focusables = Array.from(
+          el.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ),
+        );
+        const isAtStart =
+          focusables.length === 0 ||
+          document.activeElement === el ||
+          document.activeElement === focusables[0];
+        if (isAtStart && onShiftTabOut()) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+    };
+
+    el.addEventListener("keydown", handleKeyDown);
+    return () => {
+      el.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [resolvedTooltipRef, onShiftTabOut]);
 
   const safeShotMap = useMemo(
     () =>
@@ -406,27 +437,10 @@ const SpatialTooltip: React.FC<{
 
   return (
     <div
-      ref={tooltipRef}
+      ref={resolvedTooltipRef}
       tabIndex={-1}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      onKeyDown={(e) => {
-        if (e.key === "Tab" && e.shiftKey && onShiftTabOut) {
-          const focusables = Array.from(
-            e.currentTarget.querySelectorAll<HTMLElement>(
-              'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-            ),
-          );
-          const isAtStart =
-            focusables.length === 0 ||
-            document.activeElement === e.currentTarget ||
-            document.activeElement === focusables[0];
-          if (isAtStart && onShiftTabOut()) {
-            e.preventDefault();
-            e.stopPropagation();
-          }
-        }
-      }}
       className={`absolute z-20 min-w-44 max-w-60 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-auto outline-none transition-all duration-150 ${getTooltipPositionClass(
         locX,
       )}`}
@@ -576,6 +590,38 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
     };
   }, []);
 
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container || !hasTooltip) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        handleClearActiveEvent();
+      } else if (e.key === "Tab") {
+        pauseAutoDismiss();
+      }
+    };
+
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (
+        tooltipRef.current?.contains(target) ||
+        target?.closest('[data-spatial-marker="true"]')
+      ) {
+        return;
+      }
+      handleClearActiveEvent();
+    };
+
+    container.addEventListener("keydown", handleKeyDown);
+    container.addEventListener("click", handleClick);
+    return () => {
+      container.removeEventListener("keydown", handleKeyDown);
+      container.removeEventListener("click", handleClick);
+    };
+  }, [hasTooltip, handleClearActiveEvent, pauseAutoDismiss]);
+
   const handleMouseEnterWithDelay = (id?: string) => {
     if (!id) return;
     if (leaveTimerRef.current) {
@@ -663,15 +709,6 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
         isMapFocusInsideRef.current = false;
         maybeResumeAutoDismiss();
       }}
-      onKeyDown={(e) => {
-        if (!hasTooltip) return;
-        if (e.key === "Escape") {
-          e.preventDefault();
-          handleClearActiveEvent();
-        } else if (e.key === "Tab") {
-          pauseAutoDismiss();
-        }
-      }}
       className="relative w-full bg-blue-950/60 border border-blue-900/60 rounded-2xl select-none"
       style={{ aspectRatio: dimensions.aspectRatio }}
     >
@@ -683,19 +720,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
       <svg
         viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
         className="absolute inset-0 w-full h-full"
-        role="button"
-        tabIndex={0}
         aria-label="Match Spatial Event Map"
-        onClick={handleClearActiveEvent}
-        onKeyDown={(e) => {
-          if (
-            e.target === e.currentTarget &&
-            (e.key === "Enter" || e.key === " ")
-          ) {
-            e.preventDefault();
-            handleClearActiveEvent();
-          }
-        }}
       >
         <defs>
           <marker

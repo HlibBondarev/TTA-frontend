@@ -781,7 +781,7 @@ describe("MatchSpatialMap Component", () => {
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
   });
 
-  it("clears active selection when pressing Enter or Space on the spatial map background", () => {
+  it("clears active selection when pressing Escape inside the spatial map", () => {
     render(
       <MatchSpatialMap
         events={mockEvents}
@@ -790,19 +790,14 @@ describe("MatchSpatialMap Component", () => {
       />,
     );
 
-    const marker = screen.getByText("9");
-    fireEvent.click(marker);
+    const markerGroup = screen.getByRole("button", {
+      name: "John Doe #9 GL",
+    });
+    markerGroup.focus();
+    fireEvent.keyDown(markerGroup, { key: "Enter" });
     expect(screen.getByText("John Doe")).toBeInTheDocument();
 
-    const overlaySvg = screen.getByLabelText("Match Spatial Event Map");
-    fireEvent.keyDown(overlaySvg, { key: "Enter" });
-    expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
-
-    fireEvent.click(marker);
-    expect(screen.getByText("John Doe")).toBeInTheDocument();
-
-    const spaceEvent = fireEvent.keyDown(overlaySvg, { key: " " });
-    expect(spaceEvent).toBe(false);
+    fireEvent.keyDown(markerGroup, { key: "Escape" });
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
   });
 });
