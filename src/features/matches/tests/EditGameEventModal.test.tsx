@@ -610,7 +610,82 @@ describe("EditGameEventModal Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("allows switching to SHOTS tab and setting target coordinates", async () => {
+  it("allows switching to SHOTS tab, selecting target coordinates on the shot map, and saving them", async () => {
+    vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
+      id: "action-123",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-2",
+      periodNumber: 1,
+      eventTimestamp: "",
+      isLeadToGoal: false,
+      locationX: 35.5,
+      locationY: 70.0,
+      shotLocationX: 25,
+      shotLocationY: 80,
+      createdAt: "",
+      sequenceNumber: 1,
+      isSynced: 0,
+    });
+
+    const mockOnClose = vi.fn();
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={{ ...sampleAction, eventDefinitionId: "def-2" }}
+          matchId="match-1"
+          onClose={mockOnClose}
+        />
+      </Provider>,
+    );
+
+    const saveBtn = await screen.findByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+
+    const shotsTab = screen.getByRole("button", { name: /SHOTS/i });
+    fireEvent.click(shotsTab);
+
+    expect(await screen.findByText("Goal Shot Map")).toBeInTheDocument();
+
+    const shotMapArea = screen.getByLabelText("Goal Shot Location Map");
+    vi.spyOn(shotMapArea, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 100,
+      right: 200,
+      bottom: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+
+    // Click at (50, 20) on 200x100 rect -> X: 25%, Y: 80%
+    fireEvent.click(shotMapArea, { clientX: 50, clientY: 20 });
+    expect(screen.getByText("X: 25% | Y: 80%")).toBeInTheDocument();
+
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(eventService.updateGameEventTx).toHaveBeenCalledWith({
+        eventId: "action-123",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-2",
+        expectedSportId: "sport-1",
+        isLeadToGoal: false,
+        locationX: 35.5,
+        locationY: 70.0,
+        shotLocationX: 25,
+        shotLocationY: 80,
+        userId: "user-123",
+      });
+      expect(mockOnClose).toHaveBeenCalled();
+    });
+  });
+
+  it("preserves existing saved shot coordinates when opening SHOTS tab and saving without changes", async () => {
     vi.mocked(db.gameevents.get).mockResolvedValueOnce({
       id: "action-123",
       locationX: 35.5,
