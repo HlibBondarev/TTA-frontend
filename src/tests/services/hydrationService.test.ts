@@ -1549,7 +1549,7 @@ describe("Hydration Service", () => {
     expect(db.matches.delete).toHaveBeenCalledWith(matchId);
   });
 
-  it("should throw error when tournament sportconfiguration lacks or has non-positive activePlayersLimit during getMatchRecoveryState", async () => {
+  it("should throw error when tournament sportconfiguration has non-positive activePlayersLimit during getMatchRecoveryState", async () => {
     const consoleErrorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
@@ -1574,6 +1574,40 @@ describe("Hydration Service", () => {
 
     await expect(getMatchRecoveryState(matchId)).rejects.toThrow(
       "Match Recovery Error: SportConfiguration 'cfg-invalid-limit' was not found or has an invalid activePlayersLimit.",
+    );
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      `Failed to resolve match recovery state for match '${matchId}':`,
+      expect.any(Error),
+    );
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("should throw error when activePlayersLimit is absent during getMatchRecoveryState", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      configurationId: "cfg-missing-limit",
+    } as never);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-missing-limit",
+    } as never);
+
+    await expect(getMatchRecoveryState(matchId)).rejects.toThrow(
+      "Match Recovery Error: SportConfiguration 'cfg-missing-limit' was not found or has an invalid activePlayersLimit.",
     );
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(
