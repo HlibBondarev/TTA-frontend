@@ -130,8 +130,13 @@ describe("MatchSpatialMap Component", () => {
       />,
     );
 
-    expect(screen.getByTestId("xss-svg")).toBeInTheDocument();
+    const svg = screen.getByTestId("xss-svg");
+    expect(svg).toBeInTheDocument();
     expect(document.querySelector("script")).not.toBeInTheDocument();
+
+    const circle = svg.querySelector("circle");
+    expect(circle).toBeInTheDocument();
+    expect(circle).not.toHaveAttribute("onload");
   });
 
   it("renders directional vector when showGoalLeadVectors is true and scales stroke-dasharray proportionally", () => {
