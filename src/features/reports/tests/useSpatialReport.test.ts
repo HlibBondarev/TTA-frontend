@@ -1130,6 +1130,7 @@ describe("useSpatialReport Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.playground).toBe("<svg id='pg-1'></svg>");
+      expect(result.current.shotMap).toBe("<svg id='sm-1'></svg>");
     });
 
     // Rerender with new matchId
@@ -1137,9 +1138,11 @@ describe("useSpatialReport Custom Hook", () => {
 
     // Should immediately reset to null/props to avoid displaying stale map during async resolution
     expect(result.current.playground).toBeNull();
+    expect(result.current.shotMap).toBeNull();
 
     await waitFor(() => {
       expect(result.current.playground).toBe("<svg id='pg-2'></svg>");
+      expect(result.current.shotMap).toBe("<svg id='sm-2'></svg>");
     });
   });
 });
