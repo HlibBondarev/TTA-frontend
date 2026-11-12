@@ -1316,5 +1316,20 @@ describe("Event Database Service (eventService)", () => {
 
     expect(updated.shotLocationX).toBeNull();
     expect(updated.shotLocationY).toBeNull();
+    expect(mockGameEventsPut).toHaveBeenCalledWith(updated);
+    expect(mockSyncQueueUpdate).toHaveBeenCalledWith(10, {
+      payload: expect.any(String),
+    });
+    expect(
+      JSON.parse(mockSyncQueueUpdate.mock.lastCall?.[1]?.payload ?? "null"),
+    ).toContainEqual(
+      expect.objectContaining({
+        id: "event-shot-to-nonshot",
+        locationX: 42.5,
+        locationY: 85.0,
+        shotLocationX: null,
+        shotLocationY: null,
+      }),
+    );
   });
 });
