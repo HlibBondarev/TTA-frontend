@@ -724,4 +724,55 @@ describe("MatchSpatialMap Component", () => {
     });
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
   });
+
+  it("keeps auto-dismiss timer paused when focus returns from tooltip Info button back to a marker via Shift+Tab", () => {
+    vi.useFakeTimers();
+    render(
+      <MatchSpatialMap
+        events={mockEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+        shotMap={defaultShotMap}
+      />,
+    );
+
+    const firstMarker = screen.getByRole("button", {
+      name: "John Doe #9 GL",
+    });
+
+    firstMarker.focus();
+    fireEvent.keyDown(firstMarker, { key: "Enter" });
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    // Tab into tooltip's Info button
+    fireEvent.keyDown(firstMarker, { key: "Tab" });
+    const infoButton = screen.getByRole("button", { name: "Info" });
+    expect(document.activeElement).toBe(infoButton);
+
+    // Shift+Tab from Info moves focus back to the active marker inside the map
+    const shiftTabEvent = fireEvent.keyDown(infoButton, {
+      key: "Tab",
+      shiftKey: true,
+    });
+    expect(shiftTabEvent).toBe(false);
+    expect(document.activeElement).toBe(firstMarker);
+
+    // Timer stays paused for > 3.5s while focus remains inside the map
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    // Moving focus completely outside the map restarts the 3.5s timer
+    firstMarker.blur();
+    act(() => {
+      vi.advanceTimersByTime(3499);
+    });
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
+  });
 });
