@@ -308,7 +308,7 @@ export const useSpatialMap = ({
 
         const currentIndex = stack.findIndex((p) => p.event.id === prev);
         if (currentIndex === -1) {
-          return stack[0]?.event.id ?? null;
+          return eventId;
         }
         const nextIndex = (currentIndex + 1) % (stack.length + 1);
         return (

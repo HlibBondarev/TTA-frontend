@@ -673,7 +673,7 @@ describe("useSpatialMap Custom Hook", () => {
     }
   });
 
-  it("handles dense boundary clusters and cycles marker selection when clicking overlapping stacked markers", () => {
+  it("handles dense boundary clusters, selects the activated stacked marker first, and cycles selection", () => {
     const denseBoundaryEvents: GameEventResponse[] = Array.from(
       { length: 40 },
       (_, idx) => ({
@@ -696,31 +696,35 @@ describe("useSpatialMap Custom Hook", () => {
 
     expect(result.current.renderablePoints).toHaveLength(40);
 
-    // Find a marker that is actually stacked (stack length > 1)
+    // Find a stack with at least 2 overlapping markers
     const minDim = 600;
     const hitRadius = minDim * 0.05;
-    const stackedPoint = result.current.renderablePoints.find((pt) => {
+    let targetStack: typeof result.current.renderablePoints = [];
+    for (const pt of result.current.renderablePoints) {
       const stack = result.current.renderablePoints.filter(
         (p) => Math.hypot(p.cx - pt.cx, p.cy - pt.cy) <= hitRadius,
       );
-      return stack.length > 1;
-    });
+      if (stack.length > 1) {
+        targetStack = stack;
+        break;
+      }
+    }
 
-    expect(stackedPoint).toBeDefined();
-    const targetId = stackedPoint!.event.id!;
+    expect(targetStack.length).toBeGreaterThan(1);
+    const secondMarkerId = targetStack[1].event.id!;
 
-    // First click selects the first event in the stack
+    // First click selects the activated marker (stack[1]) rather than stack[0]
     act(() => {
-      result.current.handleMarkerClick(targetId);
+      result.current.handleMarkerClick(secondMarkerId);
     });
-    const firstSelected = result.current.selectedEventId;
-    expect(firstSelected).not.toBeNull();
+    expect(result.current.selectedEventId).toBe(secondMarkerId);
 
-    // Second click cycles selection to the next event in the stack instead of resetting to null
+    // Second click cycles selection to the next item in the stack (or null if length === 2)
     act(() => {
-      result.current.handleMarkerClick(targetId);
+      result.current.handleMarkerClick(secondMarkerId);
     });
-    expect(result.current.selectedEventId).not.toBeNull();
-    expect(result.current.selectedEventId).not.toBe(firstSelected);
+    const expectedNextId =
+      targetStack.length > 2 ? targetStack[2].event.id! : null;
+    expect(result.current.selectedEventId).toBe(expectedNextId);
   });
 });
