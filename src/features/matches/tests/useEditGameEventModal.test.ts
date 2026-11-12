@@ -923,7 +923,7 @@ describe("useEditGameEventModal Custom Hook", () => {
     expect(mockUpdateGameEvent).not.toHaveBeenCalled();
   });
 
-  it("should preserve user selected coordinates if user edits location while Dexie read is pending", async () => {
+  it("should preserve field edits and keep cleared shot coordinates null when switching from shot action to Pass while Dexie read is pending", async () => {
     let resolveGameEvent!: (value: unknown) => void;
     const gameEventPromise = new Promise((resolve) => {
       resolveGameEvent = resolve;
@@ -933,7 +933,11 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     const { result } = renderHook(() =>
       useEditGameEventModal({
-        action: sampleAction,
+        action: {
+          ...sampleAction,
+          actionName: "Goal",
+          eventDefinitionId: "def-2",
+        },
         matchId: "match-1",
         onClose: vi.fn(),
       }),
@@ -941,7 +945,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     expect(result.current.isLocationLoaded).toBe(false);
 
-    // User edits coordinates while DB read is pending
+    // User edits field and shot coordinates on a shot action while DB read is pending
     act(() => {
       result.current.handleLocationSelect(88.0, 99.0);
       result.current.handleShotLocationSelect(44.0, 55.0);
@@ -951,6 +955,21 @@ describe("useEditGameEventModal Custom Hook", () => {
     expect(result.current.locationY).toBe(99.0);
     expect(result.current.shotLocationX).toBe(44.0);
     expect(result.current.shotLocationY).toBe(55.0);
+
+    // User switches action to Pass (non-shot) while DB read is still pending
+    act(() => {
+      result.current.handleActionSelect({
+        id: "def-1",
+        name: "Pass",
+        isPositive: true,
+        isShot: false,
+        sportId: "sport-1",
+        shortName: "P",
+      });
+    });
+
+    expect(result.current.shotLocationX).toBeNull();
+    expect(result.current.shotLocationY).toBeNull();
 
     // DB read resolves with initial DB values
     resolveGameEvent({
@@ -965,10 +984,10 @@ describe("useEditGameEventModal Custom Hook", () => {
       expect(result.current.isLocationLoaded).toBe(true);
     });
 
-    // User's pre-completion edits are preserved instead of being overwritten by DB values
+    // User's field edit is preserved and cleared shot coordinates remain null
     expect(result.current.locationX).toBe(88.0);
     expect(result.current.locationY).toBe(99.0);
-    expect(result.current.shotLocationX).toBe(44.0);
-    expect(result.current.shotLocationY).toBe(55.0);
+    expect(result.current.shotLocationX).toBeNull();
+    expect(result.current.shotLocationY).toBeNull();
   });
 });
