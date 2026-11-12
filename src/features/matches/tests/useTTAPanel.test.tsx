@@ -388,4 +388,38 @@ describe("useTTAPanel Custom Hook", () => {
 
     expect(result.current.displayedActions).toEqual([]);
   });
+
+  it("should keep isShotSelected false when shot action is selected without shotMap or existing shot coordinates", async () => {
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "config-1",
+      playground: "<svg>Pool</svg>",
+      shotMap: null,
+    } as unknown as Awaited<ReturnType<typeof db.sportconfigurations.get>>);
+
+    const store = createTestStore({
+      match: { activeMatchId: "match-123" },
+    });
+
+    const { result, rerender } = renderHook((props) => useTTAPanel(props), {
+      wrapper: createWrapper(store),
+      initialProps: {
+        selectedActionDefinitionId: "def-1",
+        hasShotLocation: false,
+      },
+    });
+
+    await waitFor(() => {
+      expect(result.current.displayedActions).toHaveLength(1);
+    });
+
+    expect(result.current.shotMap).toBeNull();
+    expect(result.current.isShotSelected).toBe(false);
+
+    rerender({
+      selectedActionDefinitionId: "def-1",
+      hasShotLocation: true,
+    });
+
+    expect(result.current.isShotSelected).toBe(true);
+  });
 });

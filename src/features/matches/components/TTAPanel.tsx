@@ -38,7 +38,13 @@ export const TTAPanel: React.FC<TTAPanelProps> = ({
     playground,
     shotMap,
     isShotSelected,
-  } = useTTAPanel({ userId, selectedActionDefinitionId });
+  } = useTTAPanel({
+    userId,
+    selectedActionDefinitionId,
+    hasShotLocation:
+      pendingShotLocation?.shotLocationX != null &&
+      pendingShotLocation?.shotLocationY != null,
+  });
 
   const handleTabClick = (tab: "positive" | "negative" | "map" | "shots") => {
     if (activeTab !== tab) {

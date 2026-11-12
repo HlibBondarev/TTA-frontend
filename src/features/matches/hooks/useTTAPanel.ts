@@ -12,6 +12,7 @@ import type { RootState } from "../../../store";
 export interface UseTTAPanelOptions {
   userId?: string;
   selectedActionDefinitionId?: string | null;
+  hasShotLocation?: boolean;
 }
 
 const checkIsPositive = (def: EventDefinitionLookup): boolean => {
@@ -190,7 +191,9 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
   const selectedActionDef = eventDefinitions.find(
     (def) => def.id === options?.selectedActionDefinitionId,
   );
-  const isShotSelected = Boolean(selectedActionDef?.isShot);
+  const isShotSelected =
+    Boolean(selectedActionDef?.isShot) &&
+    (Boolean(shotMap) || Boolean(options?.hasShotLocation));
 
   // Switch away from "shots" tab during render if current action is no longer a shot
   if (activeTab === "shots" && !isShotSelected) {

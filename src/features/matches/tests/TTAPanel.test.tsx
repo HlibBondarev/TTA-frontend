@@ -409,6 +409,53 @@ describe("TTAPanel Component", () => {
     expect(screen.getByText("SHOTS")).toBeInTheDocument();
   });
 
+  it("hides SHOTS tab when shot action is selected but neither shotMap nor pendingShotLocation is available", async () => {
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "config-1",
+      playground: "<svg>Playground</svg>",
+      shotMap: null,
+    } as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="1"
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+    expect(screen.queryByText("SHOTS")).not.toBeInTheDocument();
+  });
+
+  it("shows SHOTS tab when shotMap is null if pendingShotLocation is already present", async () => {
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "config-1",
+      playground: "<svg>Playground</svg>",
+      shotMap: null,
+    } as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="1"
+          pendingShotLocation={{ shotLocationX: 50, shotLocationY: 50 }}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+    expect(screen.getByText("SHOTS")).toBeInTheDocument();
+  });
+
   it("allows switching to SHOTS tab and interacting with InteractiveShotMap", async () => {
     const mockOnShotLocationSelect = vi.fn();
     const store = createTestStore();
