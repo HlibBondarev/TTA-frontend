@@ -727,4 +727,36 @@ describe("useSpatialMap Custom Hook", () => {
       targetStack.length > 2 ? targetStack[2].event.id! : null;
     expect(result.current.selectedEventId).toBe(expectedNextId);
   });
+
+  it("resolves activeEvent only from filtered events and returns null if event exists only in allEvents", () => {
+    const filteredEvents = [mockEvents[0]]; // contains only event-1
+    const allEvents = mockEvents; // contains event-1 and event-2
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: filteredEvents,
+        allEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
+      }),
+    );
+
+    // Selecting/hovering an event present only in allEvents should not expose activeEvent
+    act(() => {
+      result.current.handleMarkerMouseEnter("event-2");
+    });
+    expect(result.current.activeEvent).toBeNull();
+
+    act(() => {
+      result.current.handleMarkerClick("event-2");
+    });
+    expect(result.current.activeEvent).toBeNull();
+
+    // Selecting an event present in filtered events works as expected
+    act(() => {
+      result.current.handleMarkerClick("event-1");
+    });
+    expect(result.current.activeEvent?.id).toBe("event-1");
+  });
 });

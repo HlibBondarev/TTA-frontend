@@ -92,12 +92,8 @@ export const useSpatialMap = ({
   const activeEvent = useMemo(() => {
     const activeId = selectedEventId ?? hoveredEventId;
     if (!activeId) return null;
-    return (
-      events.find((e) => e.id === activeId) ??
-      allEvents?.find((e) => e.id === activeId) ??
-      null
-    );
-  }, [events, allEvents, hoveredEventId, selectedEventId]);
+    return events.find((e) => e.id === activeId) ?? null;
+  }, [events, hoveredEventId, selectedEventId]);
 
   // Convert percentages to SVG canvas coordinates and apply collision offset for overlapping markers
   const renderablePoints = useMemo<RenderableSpatialPoint[]>(() => {
