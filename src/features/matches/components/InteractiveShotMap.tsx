@@ -45,11 +45,14 @@ export const InteractiveShotMap: React.FC<InteractiveShotMapProps> = ({
   const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (disabled) return;
 
-    if (
-      !Number.isFinite(e.clientX) ||
-      !Number.isFinite(e.clientY) ||
-      (e.detail === 0 && e.clientX === 0 && e.clientY === 0)
-    ) {
+    if (!Number.isFinite(e.clientX) || !Number.isFinite(e.clientY)) {
+      return;
+    }
+
+    if (e.detail === 0 && e.clientX === 0 && e.clientY === 0) {
+      if (!hasLocation) {
+        onShotLocationSelect(50, 50);
+      }
       return;
     }
 

@@ -337,9 +337,9 @@ describe("InteractiveShotMap Component", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("ignores coordinate-free click activations without substituting keyboard default coordinates", () => {
+  it("selects default center coordinates on coordinate-free activation only when no target exists and rejects non-finite coordinates", () => {
     const handleShotLocationSelect = vi.fn();
-    render(
+    const { rerender } = render(
       <InteractiveShotMap
         shotMap={validSvg}
         onShotLocationSelect={handleShotLocationSelect}
@@ -360,15 +360,17 @@ describe("InteractiveShotMap Component", () => {
       toJSON: () => {},
     });
 
-    // Synthetic/assistive click with detail=0 and (0, 0) coordinates
+    // Synthetic/assistive click with detail=0 and (0, 0) coordinates initializes center (50, 50)
     fireEvent.click(clickableArea);
-    expect(handleShotLocationSelect).not.toHaveBeenCalled();
+    expect(handleShotLocationSelect).toHaveBeenCalledWith(50, 50);
 
-    // Native element.click() activation
+    // Native element.click() activation initializes center (50, 50) when no target exists
+    handleShotLocationSelect.mockClear();
     clickableArea.click();
-    expect(handleShotLocationSelect).not.toHaveBeenCalled();
+    expect(handleShotLocationSelect).toHaveBeenCalledWith(50, 50);
 
     // Non-finite pointer coordinates (defined on event instance since JSDOM MouseEventInit rejects NaN)
+    handleShotLocationSelect.mockClear();
     const nonFiniteEvent = new MouseEvent("click", {
       bubbles: true,
       cancelable: true,
@@ -381,5 +383,19 @@ describe("InteractiveShotMap Component", () => {
     // Actual pointer click at top-left viewport origin (detail >= 1) still registers
     fireEvent.click(clickableArea, { clientX: 0, clientY: 0, detail: 1 });
     expect(handleShotLocationSelect).toHaveBeenCalledWith(0, 100);
+
+    // Coordinate-free activation does not overwrite an existing target
+    handleShotLocationSelect.mockClear();
+    rerender(
+      <InteractiveShotMap
+        shotMap={validSvg}
+        shotLocationX={30}
+        shotLocationY={40}
+        onShotLocationSelect={handleShotLocationSelect}
+      />,
+    );
+
+    clickableArea.click();
+    expect(handleShotLocationSelect).not.toHaveBeenCalled();
   });
 });
