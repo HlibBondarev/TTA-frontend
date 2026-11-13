@@ -424,4 +424,19 @@ describe("usePlayerPresence Hook", () => {
 
     expect(db.matchlineups.where).toHaveBeenCalled();
   });
+
+  it("should reject starting a period when activePlayersLimit is zero or negative", async () => {
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    // Default activePlayersLimit is 0 in initial state
+    await expect(
+      act(async () => {
+        await result.current.startPeriodWithRoster("2026-07-16T10:00:00.000Z");
+      }),
+    ).rejects.toThrow("The active players limit is not configured.");
+
+    expect(initializePeriodPresenceTx).not.toHaveBeenCalled();
+  });
 });

@@ -1038,4 +1038,32 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       expect(noteElement).toHaveTextContent(/active period/i);
     });
   });
+
+  test("should show configuration error and block period start when activePlayersLimit is zero or negative", async () => {
+    vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
+      ...defaultPresenceMock,
+      selectedStartingIds: [],
+      activePlayersLimit: 0,
+    });
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const startBtn = screen.getByRole("button", { name: "START PERIOD" });
+    await waitFor(() => expect(startBtn).not.toBeDisabled());
+
+    // Attempt to start period with unconfigured (0) active players limit
+    fireEvent.click(startBtn);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The active players limit is not configured.",
+    );
+    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(db.timeanchors.add).not.toHaveBeenCalled();
+    expect(defaultPresenceMock.startPeriodWithRoster).not.toHaveBeenCalled();
+  });
 });
