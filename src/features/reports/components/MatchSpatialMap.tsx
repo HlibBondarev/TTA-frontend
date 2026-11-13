@@ -472,6 +472,7 @@ const SpatialTooltip: React.FC<{
             <div className="flex bg-gray-950 p-0.5 rounded-lg border border-gray-800 shrink-0">
               <button
                 type="button"
+                aria-pressed={tooltipMode === "info"}
                 onClick={() => setTooltipMode("info")}
                 className={`px-1.5 py-0.5 text-[9px] font-bold rounded transition-colors ${
                   tooltipMode === "info"
@@ -483,6 +484,7 @@ const SpatialTooltip: React.FC<{
               </button>
               <button
                 type="button"
+                aria-pressed={tooltipMode === "shot"}
                 onClick={() => setTooltipMode("shot")}
                 className={`px-1.5 py-0.5 text-[9px] font-bold rounded transition-colors ${
                   tooltipMode === "shot"

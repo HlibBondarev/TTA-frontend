@@ -284,16 +284,25 @@ describe("MatchSpatialMap Component", () => {
     const tooltip = screen.getByRole("tooltip");
     fireEvent.mouseEnter(tooltip);
 
+    const infoButton = screen.getByRole("button", { name: "Info" });
     const shotButton = screen.getByRole("button", { name: "Shot" });
+
+    // Verify default Info mode pressed states
+    expect(infoButton).toHaveAttribute("aria-pressed", "true");
+    expect(shotButton).toHaveAttribute("aria-pressed", "false");
+
     fireEvent.click(shotButton);
 
     expect(screen.getByText("Goal Target")).toBeInTheDocument();
     expect(screen.getByText("X:45% Y:80%")).toBeInTheDocument();
+    expect(infoButton).toHaveAttribute("aria-pressed", "false");
+    expect(shotButton).toHaveAttribute("aria-pressed", "true");
 
-    const infoButton = screen.getByRole("button", { name: "Info" });
     fireEvent.click(infoButton);
 
     expect(screen.getByText("Action:")).toBeInTheDocument();
+    expect(infoButton).toHaveAttribute("aria-pressed", "true");
+    expect(shotButton).toHaveAttribute("aria-pressed", "false");
   });
 
   it("resets tooltip mode back to Info when switching active events", () => {
