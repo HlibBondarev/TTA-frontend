@@ -376,8 +376,21 @@ describe("MatchShotMap Component", () => {
     const marker2 = screen.getByRole("button", { name: /Player #9/ });
 
     // Verify markers are rendered at distinct translated center coordinates
-    expect(marker1).toHaveAttribute("transform", "translate(0.95, 0.5)");
-    expect(marker2).toHaveAttribute("transform", "translate(0.88, 0.5)");
+    const parseTranslate = (el: Element) => {
+      const match = el
+        .getAttribute("transform")
+        ?.match(/^translate\(([^,]+),\s*([^)]+)\)$/);
+      expect(match).not.toBeNull();
+      return { x: Number(match![1]), y: Number(match![2]) };
+    };
+
+    const pos1 = parseTranslate(marker1);
+    const pos2 = parseTranslate(marker2);
+
+    expect(pos1.x).toBeCloseTo(0.95, 5);
+    expect(pos1.y).toBeCloseTo(0.5, 5);
+    expect(pos2.x).toBeCloseTo(0.8825, 5);
+    expect(pos2.y).toBeCloseTo(0.5, 5);
 
     // Verify micro-scaled circle radii prevent hit target coverage
     const circle1 = marker1.querySelector("circle");

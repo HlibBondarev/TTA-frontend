@@ -604,4 +604,41 @@ describe("useShotMap hook", () => {
     });
     expect(result.current.selectedEventId).toBe("chain-2");
   });
+
+  it("preserves sub-hundredth precision without fixed-unit rounding on normalized 1x1 viewBoxes", () => {
+    const normalizedSvgMap = '<svg viewBox="0 0 1 1"></svg>';
+    const overlappingEvents: GameEventResponse[] = [
+      {
+        id: "norm-1",
+        eventDefinitionId: goalDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+        playerNumber: 7,
+      },
+      {
+        id: "norm-2",
+        eventDefinitionId: sogDefId,
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+        playerNumber: 9,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useShotMap({
+        events: overlappingEvents,
+        eventDefinitionsMap: mockDefinitionsMap,
+        shotMap: normalizedSvgMap,
+      }),
+    );
+
+    expect(result.current.renderablePoints).toHaveLength(2);
+    const [p1, p2] = result.current.renderablePoints;
+
+    expect(p1.cx).toBeCloseTo(0.53375, 5);
+    expect(p2.cx).toBeCloseTo(0.46625, 5);
+    expect(p1.cx).not.toBe(p2.cx);
+  });
 });

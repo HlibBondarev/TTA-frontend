@@ -192,24 +192,14 @@ export const useShotMap = ({
         const rawCx = centerCx + Math.cos(angle) * offsetRadius;
         const rawCy = centerCy + Math.sin(angle) * offsetRadius;
 
-        cx = Number(Math.max(0, Math.min(dimensions.width, rawCx)).toFixed(2));
-        cy = Number(Math.max(0, Math.min(dimensions.height, rawCy)).toFixed(2));
+        cx = Math.max(0, Math.min(dimensions.width, rawCx));
+        cy = Math.max(0, Math.min(dimensions.height, rawCy));
       } else {
         const paddingX = Math.min(dimensions.width / 2, minPadding);
         const paddingY = Math.min(dimensions.height / 2, minPadding);
 
-        cx = Number(
-          Math.max(
-            paddingX,
-            Math.min(dimensions.width - paddingX, baseCx),
-          ).toFixed(2),
-        );
-        cy = Number(
-          Math.max(
-            paddingY,
-            Math.min(dimensions.height - paddingY, baseCy),
-          ).toFixed(2),
-        );
+        cx = Math.max(paddingX, Math.min(dimensions.width - paddingX, baseCx));
+        cy = Math.max(paddingY, Math.min(dimensions.height - paddingY, baseCy));
       }
 
       const def = e.eventDefinitionId
