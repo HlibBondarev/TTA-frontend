@@ -174,9 +174,11 @@ describe("MatchReportModal Component", () => {
     const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
     fireEvent.click(spatialTab);
 
-    expect(screen.getByText("SVG: <svg>Court SVG</svg>")).toBeInTheDocument();
     expect(
-      screen.getByText("SHOT_SVG: <svg>Goal SVG</svg>"),
+      await screen.findByText("SVG: <svg>Court SVG</svg>"),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("SHOT_SVG: <svg>Goal SVG</svg>"),
     ).toBeInTheDocument();
   });
 
