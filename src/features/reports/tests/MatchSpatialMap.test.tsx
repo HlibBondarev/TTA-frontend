@@ -800,4 +800,51 @@ describe("MatchSpatialMap Component", () => {
     fireEvent.keyDown(markerGroup, { key: "Escape" });
     expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
   });
+
+  it("defers clearing hovered tooltip while focus remains inside tooltip controls and completes clear when focus leaves", () => {
+    vi.useFakeTimers();
+    render(
+      <MatchSpatialMap
+        events={mockEvents}
+        eventDefinitionsMap={mockEventDefinitionsMap}
+        playground={defaultPlayground}
+        shotMap={defaultShotMap}
+      />,
+    );
+
+    const shotMarker = screen.getByText("9");
+    fireEvent.mouseEnter(shotMarker);
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    const tooltip = screen.getByRole("tooltip");
+    fireEvent.mouseEnter(tooltip);
+
+    const shotButton = screen.getByRole("button", { name: "Shot" });
+    act(() => {
+      shotButton.focus();
+    });
+
+    // Pointer leaves tooltip while focus stays on the Shot control
+    fireEvent.mouseLeave(tooltip);
+
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    // Tooltip stays open while focus remains within tooltip controls
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    // Moving focus between controls inside tooltip keeps it open
+    const infoButton = screen.getByRole("button", { name: "Info" });
+    act(() => {
+      infoButton.focus();
+    });
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+
+    // Leaving tooltip controls completes the deferred hover clear
+    act(() => {
+      infoButton.blur();
+    });
+    expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
+  });
 });

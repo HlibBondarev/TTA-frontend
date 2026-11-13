@@ -361,6 +361,7 @@ const SpatialTooltip: React.FC<{
   shotMap?: string | null;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
+  onBlur?: () => void;
   onShiftTabOut?: () => boolean;
 }> = ({
   tooltipRef,
@@ -369,6 +370,7 @@ const SpatialTooltip: React.FC<{
   shotMap,
   onMouseEnter,
   onMouseLeave,
+  onBlur,
   onShiftTabOut,
 }) => {
   const [tooltipMode, setTooltipMode] = useState<"info" | "shot">("info");
@@ -441,6 +443,12 @@ const SpatialTooltip: React.FC<{
       tabIndex={-1}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      onBlur={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          return;
+        }
+        onBlur?.();
+      }}
       className={`absolute z-20 min-w-44 max-w-60 p-2.5 bg-gray-900/95 border border-gray-700 text-white rounded-xl shadow-2xl text-[11px] backdrop-blur-md pointer-events-auto outline-none transition-all duration-150 ${getTooltipPositionClass(
         locX,
       )}`}
@@ -570,6 +578,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const isTooltipPointerInsideRef = useRef(false);
   const isMapFocusInsideRef = useRef(false);
+  const isHoverClearDeferredRef = useRef(false);
 
   const hasTooltip =
     activeEvent?.id != null &&
@@ -579,6 +588,7 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
   useEffect(() => {
     if (!hasTooltip) {
       isTooltipPointerInsideRef.current = false;
+      isHoverClearDeferredRef.current = false;
     }
   }, [hasTooltip]);
 
@@ -622,8 +632,15 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
     };
   }, [hasTooltip, handleClearActiveEvent, pauseAutoDismiss]);
 
+  const isFocusWithinTooltip = () => {
+    const tooltipEl = tooltipRef.current;
+    const activeEl = document.activeElement;
+    return Boolean(tooltipEl && activeEl && tooltipEl.contains(activeEl));
+  };
+
   const handleMouseEnterWithDelay = (id?: string) => {
     if (!id) return;
+    isHoverClearDeferredRef.current = false;
     if (leaveTimerRef.current) {
       clearTimeout(leaveTimerRef.current);
       leaveTimerRef.current = null;
@@ -636,8 +653,13 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
       clearTimeout(leaveTimerRef.current);
     }
     leaveTimerRef.current = setTimeout(() => {
-      handleMarkerMouseLeave();
       leaveTimerRef.current = null;
+      if (isFocusWithinTooltip()) {
+        isHoverClearDeferredRef.current = true;
+        return;
+      }
+      isHoverClearDeferredRef.current = false;
+      handleMarkerMouseLeave();
     }, 150);
   };
 
@@ -785,6 +807,15 @@ export const MatchSpatialMap: React.FC<MatchSpatialMapProps> = ({
             isTooltipPointerInsideRef.current = false;
             maybeResumeAutoDismiss();
             handleMouseLeaveWithDelay();
+          }}
+          onBlur={() => {
+            if (
+              isHoverClearDeferredRef.current &&
+              !isTooltipPointerInsideRef.current
+            ) {
+              isHoverClearDeferredRef.current = false;
+              handleMarkerMouseLeave();
+            }
           }}
           onShiftTabOut={focusActiveMarker}
         />
