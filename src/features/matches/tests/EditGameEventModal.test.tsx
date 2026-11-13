@@ -865,4 +865,77 @@ describe("EditGameEventModal Component", () => {
       expect(saveBtn).not.toBeDisabled();
     });
   });
+
+  it("disables InteractiveShotMap while save is pending", async () => {
+    let resolveUpdate!: (value: unknown) => void;
+    const pendingUpdate = new Promise((resolve) => {
+      resolveUpdate = resolve;
+    });
+    vi.mocked(eventService.updateGameEventTx).mockReturnValueOnce(
+      pendingUpdate as ReturnType<typeof eventService.updateGameEventTx>,
+    );
+
+    const mockOnClose = vi.fn();
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={{ ...sampleAction, eventDefinitionId: "def-2" }}
+          matchId="match-1"
+          onClose={mockOnClose}
+        />
+      </Provider>,
+    );
+
+    const saveBtn = await screen.findByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+
+    const shotsTab = screen.getByRole("button", { name: /SHOTS/i });
+    fireEvent.click(shotsTab);
+
+    const shotMapArea = await screen.findByLabelText("Goal Shot Location Map");
+    expect(shotMapArea).not.toBeDisabled();
+
+    // Trigger save and keep it pending
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => expect(shotMapArea).toBeDisabled());
+
+    // Clicking the map while disabled must not select target coordinates
+    vi.spyOn(shotMapArea, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 100,
+      right: 200,
+      bottom: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+    fireEvent.click(shotMapArea, { clientX: 50, clientY: 20 });
+    expect(screen.queryByText("X: 25% | Y: 80%")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveUpdate({
+        id: "action-123",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-2",
+        periodNumber: 1,
+        eventTimestamp: "",
+        isLeadToGoal: false,
+        locationX: 35.5,
+        locationY: 70.0,
+        shotLocationX: null,
+        shotLocationY: null,
+        createdAt: "",
+        sequenceNumber: 1,
+        isSynced: 0,
+      });
+    });
+
+    await waitFor(() => expect(mockOnClose).toHaveBeenCalled());
+  });
 });

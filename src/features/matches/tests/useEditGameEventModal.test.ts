@@ -1128,4 +1128,56 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     expect(result.current.isShotSelected).toBe(true);
   });
+
+  it("should ignore shot location updates while a save is pending", async () => {
+    let resolveSave!: () => void;
+    const pendingSave = new Promise<void>((resolve) => {
+      resolveSave = resolve;
+    });
+    mockUpdateGameEvent.mockReturnValueOnce(pendingSave);
+
+    const onClose = vi.fn();
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: {
+          ...sampleAction,
+          actionName: "Goal",
+          eventDefinitionId: "def-2",
+        },
+        matchId: "match-1",
+        onClose,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    expect(result.current.shotLocationX).toBe(12.0);
+    expect(result.current.shotLocationY).toBe(80.0);
+
+    // Start save without resolving yet
+    act(() => {
+      void result.current.handleSave();
+    });
+    expect(result.current.isSaving).toBe(true);
+
+    // Attempt to update shot target while save is in-flight
+    act(() => {
+      result.current.handleShotLocationSelect(95.0, 15.0);
+    });
+
+    expect(result.current.shotLocationX).toBe(12.0);
+    expect(result.current.shotLocationY).toBe(80.0);
+
+    // Finish save
+    await act(async () => {
+      resolveSave();
+      await pendingSave;
+    });
+
+    expect(result.current.isSaving).toBe(false);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

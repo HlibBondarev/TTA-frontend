@@ -370,6 +370,7 @@ export function useEditGameEventModal({
   };
 
   const handleShotLocationSelect = (x: number | null, y: number | null) => {
+    if (isSaving) return;
     isShotLocationEditedRef.current = true;
     setShotLocationX(x);
     setShotLocationY(y);

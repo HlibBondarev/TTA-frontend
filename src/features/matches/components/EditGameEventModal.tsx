@@ -51,6 +51,7 @@ const EditGameEventModalContent: React.FC<{
           shotMap={shotMap}
           shotLocationX={shotLocationX}
           shotLocationY={shotLocationY}
+          disabled={isSaving}
           onShotLocationSelect={handleShotLocationSelect}
         />
       );
