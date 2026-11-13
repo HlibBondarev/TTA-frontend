@@ -325,7 +325,7 @@ function matchesShotMode(
   const def = ev.eventDefinitionId
     ? eventDefinitionsMap.get(ev.eventDefinitionId)
     : undefined;
-  return def ? def.isShot === true : true;
+  return def?.isShot === true;
 }
 
 function matchesDefinitionFilter(
@@ -578,10 +578,17 @@ export function useSpatialReport({
   }, []);
 
   const toggleMapMode = useCallback((mode?: "field" | "shot") => {
-    setFilters((prev) => ({
-      ...prev,
-      mapMode: mode ?? (prev.mapMode === "field" ? "shot" : "field"),
-    }));
+    setFilters((prev) => {
+      const nextMode = mode ?? (prev.mapMode === "field" ? "shot" : "field");
+      if (nextMode === prev.mapMode) return prev;
+      if (nextMode === "field") return { ...prev, mapMode: nextMode };
+      return {
+        ...prev,
+        mapMode: nextMode,
+        selectedPositiveDefIds: [],
+        selectedNegativeDefIds: [],
+      };
+    });
   }, []);
 
   return {

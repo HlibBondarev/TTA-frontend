@@ -68,10 +68,19 @@ export const MatchSpatialReportView: React.FC<MatchSpatialReportViewProps> = ({
     );
   }
 
+  const isShotDefinition = (eventDefinitionId: string) =>
+    eventDefinitionsMap.get(eventDefinitionId)?.isShot === true;
+
   const positiveDefIds = Array.from(
     new Set(
       events
-        .filter((e) => e.isPositive && e.eventDefinitionId)
+        .filter(
+          (e) =>
+            e.isPositive &&
+            e.eventDefinitionId &&
+            (filters.mapMode !== "shot" ||
+              isShotDefinition(e.eventDefinitionId)),
+        )
         .map((e) => e.eventDefinitionId!),
     ),
   );
@@ -79,7 +88,13 @@ export const MatchSpatialReportView: React.FC<MatchSpatialReportViewProps> = ({
   const negativeDefIds = Array.from(
     new Set(
       events
-        .filter((e) => !e.isPositive && e.eventDefinitionId)
+        .filter(
+          (e) =>
+            !e.isPositive &&
+            e.eventDefinitionId &&
+            (filters.mapMode !== "shot" ||
+              isShotDefinition(e.eventDefinitionId)),
+        )
         .map((e) => e.eventDefinitionId!),
     ),
   );

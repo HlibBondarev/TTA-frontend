@@ -1145,4 +1145,53 @@ describe("useSpatialReport Custom Hook", () => {
       expect(result.current.shotMap).toBe("<svg id='sm-2'></svg>");
     });
   });
+
+  it("clears definition filters when entering shot mode and preserves them when mode is unchanged or switching to field mode", async () => {
+    const { result } = renderHook(() =>
+      useSpatialReport({ matchId: "m-1", teamId: "t-1" }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.events).toHaveLength(2);
+    });
+
+    act(() => {
+      result.current.togglePositiveDefSelection("def-1");
+      result.current.toggleNegativeDefSelection("def-2");
+    });
+
+    expect(result.current.filters.selectedPositiveDefIds).toEqual(["def-1"]);
+    expect(result.current.filters.selectedNegativeDefIds).toEqual(["def-2"]);
+
+    // Switching to shot mode clears definition filters
+    act(() => {
+      result.current.toggleMapMode("shot");
+    });
+
+    expect(result.current.filters.mapMode).toBe("shot");
+    expect(result.current.filters.selectedPositiveDefIds).toEqual([]);
+    expect(result.current.filters.selectedNegativeDefIds).toEqual([]);
+    expect(result.current.filteredEvents).toHaveLength(1);
+    expect(result.current.filteredEvents[0].id).toBe("ev-1");
+
+    // Select a shot definition filter while in shot mode
+    act(() => {
+      result.current.togglePositiveDefSelection("def-1");
+    });
+    expect(result.current.filters.selectedPositiveDefIds).toEqual(["def-1"]);
+
+    // Re-selecting the same "shot" mode preserves current selections
+    act(() => {
+      result.current.toggleMapMode("shot");
+    });
+    expect(result.current.filters.selectedPositiveDefIds).toEqual(["def-1"]);
+
+    // Switching back to "field" mode preserves current selections
+    act(() => {
+      result.current.toggleMapMode("field");
+    });
+    expect(result.current.filters.mapMode).toBe("field");
+    expect(result.current.filters.selectedPositiveDefIds).toEqual(["def-1"]);
+  });
 });

@@ -408,4 +408,57 @@ describe("MatchSpatialReportView Component", () => {
     });
     expect(markerOrder2).toBeInTheDocument();
   });
+
+  it("shows only action definition chips with isShot === true when mapMode is set to shot", () => {
+    vi.mocked(useSpatialReport).mockReturnValueOnce({
+      ...mockHookReturnValue,
+      events: [
+        ...mockEvents,
+        {
+          id: "ev-3",
+          isPositive: true,
+          periodNumber: 1,
+          matchLineupId: "l-1",
+          eventDefinitionId: "def-3",
+          eventName: "Pass",
+          eventTimestamp: "2026-10-14T10:02:00Z",
+          isLeadToGoal: false,
+          locationX: 50,
+          locationY: 50,
+          shotLocationX: 20,
+          shotLocationY: 30,
+        },
+      ],
+      eventDefinitionsMap: new Map([
+        ...mockDefinitionsMap,
+        [
+          "def-3",
+          {
+            id: "def-3",
+            sportId: "s-1",
+            name: "Pass",
+            shortName: "PS",
+            isPositive: true,
+            isShot: false,
+          },
+        ],
+      ]),
+      filters: {
+        ...mockHookReturnValue.filters,
+        mapMode: "shot",
+      },
+    });
+
+    render(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
+
+    // Goal (isShot: true) is available for selection
+    const goalChip = screen
+      .getAllByText("Goal")
+      .find((el) => el.tagName === "BUTTON");
+    expect(goalChip).toBeDefined();
+
+    // Non-shot actions (isShot: false) are excluded even if an event has shot coordinates
+    expect(screen.queryByText("Pass")).not.toBeInTheDocument();
+    expect(screen.queryByText("Foul")).not.toBeInTheDocument();
+  });
 });
