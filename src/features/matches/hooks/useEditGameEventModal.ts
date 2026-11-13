@@ -142,6 +142,49 @@ async function fetchMatchSportDetails(
   return { playground, shotMap, eventDefinitions, configurationId };
 }
 
+interface InitialShotLoadState {
+  isShot: boolean | null;
+  shotX: number | null;
+  shotY: number | null;
+}
+
+function applyInitialFieldLocation(
+  evt: { locationX?: number | null; locationY?: number | null },
+  isEdited: boolean,
+  setX: (val: number) => void,
+  setY: (val: number) => void,
+): void {
+  if (isEdited) return;
+  if (typeof evt.locationX === "number") {
+    setX(evt.locationX);
+  }
+  if (typeof evt.locationY === "number") {
+    setY(evt.locationY);
+  }
+}
+
+function applyInitialShotLocation(
+  evt: { shotLocationX?: number | null; shotLocationY?: number | null },
+  loadState: InitialShotLoadState,
+  isEdited: boolean,
+  setShotX: (val: number) => void,
+  setShotY: (val: number) => void,
+): void {
+  const canApplyImmediately = loadState.isShot === true && !isEdited;
+  if (typeof evt.shotLocationX === "number") {
+    loadState.shotX = evt.shotLocationX;
+    if (canApplyImmediately) {
+      setShotX(evt.shotLocationX);
+    }
+  }
+  if (typeof evt.shotLocationY === "number") {
+    loadState.shotY = evt.shotLocationY;
+    if (canApplyImmediately) {
+      setShotY(evt.shotLocationY);
+    }
+  }
+}
+
 export function useEditGameEventModal({
   action,
   matchId,
@@ -190,11 +233,7 @@ export function useEditGameEventModal({
 
   useEffect(() => {
     let isMounted = true;
-    const initialLoadState: {
-      isShot: boolean | null;
-      shotX: number | null;
-      shotY: number | null;
-    } = {
+    const initialLoadState: InitialShotLoadState = {
       isShot: null,
       shotX: null,
       shotY: null,
@@ -208,36 +247,19 @@ export function useEditGameEventModal({
       .then((evt) => {
         if (!isMounted) return;
         if (evt) {
-          if (
-            !isLocationEditedRef.current &&
-            typeof evt.locationX === "number"
-          ) {
-            setLocationX(evt.locationX);
-          }
-          if (
-            !isLocationEditedRef.current &&
-            typeof evt.locationY === "number"
-          ) {
-            setLocationY(evt.locationY);
-          }
-          if (typeof evt.shotLocationX === "number") {
-            initialLoadState.shotX = evt.shotLocationX;
-            if (
-              initialLoadState.isShot === true &&
-              !isShotLocationEditedRef.current
-            ) {
-              setShotLocationX(evt.shotLocationX);
-            }
-          }
-          if (typeof evt.shotLocationY === "number") {
-            initialLoadState.shotY = evt.shotLocationY;
-            if (
-              initialLoadState.isShot === true &&
-              !isShotLocationEditedRef.current
-            ) {
-              setShotLocationY(evt.shotLocationY);
-            }
-          }
+          applyInitialFieldLocation(
+            evt,
+            isLocationEditedRef.current,
+            setLocationX,
+            setLocationY,
+          );
+          applyInitialShotLocation(
+            evt,
+            initialLoadState,
+            isShotLocationEditedRef.current,
+            setShotLocationX,
+            setShotLocationY,
+          );
         }
         setIsLocationLoaded(true);
       })
