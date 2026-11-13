@@ -232,14 +232,17 @@ export function useEditGameEventModal({
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
+    isLocationEditedRef.current = false;
+    isShotLocationEditedRef.current = false;
+  }, [action.id, action.eventDefinitionId, matchId]);
+
+  useEffect(() => {
     let isMounted = true;
     const initialLoadState: InitialShotLoadState = {
       isShot: null,
       shotX: null,
       shotY: null,
     };
-    isLocationEditedRef.current = false;
-    isShotLocationEditedRef.current = false;
 
     // Load existing event spatial and shot target coordinates from Dexie DB
     db.gameevents

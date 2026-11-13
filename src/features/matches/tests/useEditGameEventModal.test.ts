@@ -1221,4 +1221,56 @@ describe("useEditGameEventModal Custom Hook", () => {
     expect(result.current.shotLocationY).toBeNull();
     expect(result.current.hasShotLocation).toBe(false);
   });
+
+  it("should preserve unsaved coordinate edits when currentUserId updates after initial load", async () => {
+    mockAuth0User = undefined;
+    mockReduxState = {
+      auth: {},
+      match: {
+        activeMatchId: "match-1",
+        activeTeamId: "team-1",
+        periodNumber: 1,
+      },
+    };
+
+    const { result, rerender } = renderHook(() =>
+      useEditGameEventModal({
+        action: {
+          ...sampleAction,
+          actionName: "Goal",
+          eventDefinitionId: "def-2",
+        },
+        matchId: "match-1",
+        onClose: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    // User edits field and shot coordinates before Auth0 user resolves
+    act(() => {
+      result.current.handleLocationSelect(88.0, 99.0);
+      result.current.handleShotLocationSelect(44.0, 55.0);
+    });
+
+    // Auth0 user finishes hydrating, changing currentUserId
+    mockAuth0User = { sub: "user-123", email: "test@example.com" };
+    rerender();
+
+    await waitFor(() => {
+      expect(db.usereventpresets.where).toHaveBeenCalledWith({
+        userId: "user-123",
+        sportId: "sport-1",
+      });
+    });
+
+    // Unsaved coordinate edits must not be overwritten by stored Dexie values
+    expect(result.current.locationX).toBe(88.0);
+    expect(result.current.locationY).toBe(99.0);
+    expect(result.current.shotLocationX).toBe(44.0);
+    expect(result.current.shotLocationY).toBe(55.0);
+  });
 });
