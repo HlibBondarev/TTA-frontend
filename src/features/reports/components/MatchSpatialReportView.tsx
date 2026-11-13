@@ -63,7 +63,7 @@ export const MatchSpatialReportView: React.FC<MatchSpatialReportViewProps> = ({
         nextMode = modes[0];
         break;
       case "End":
-        nextMode = modes[modes.length - 1];
+        nextMode = modes.at(-1)!;
         break;
       default:
         return;
