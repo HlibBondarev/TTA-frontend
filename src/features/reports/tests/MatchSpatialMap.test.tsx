@@ -552,6 +552,7 @@ describe("MatchSpatialMap Component", () => {
         eventName: "Short Pass",
         isPositive: true,
         periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:00:00Z",
         isLeadToGoal: true,
         locationX: 50,
         locationY: 50,
@@ -564,9 +565,10 @@ describe("MatchSpatialMap Component", () => {
         eventName: "Goal",
         isPositive: true,
         periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:01:00Z",
         isLeadToGoal: false,
         locationX: 54,
-        locationY: 54, // Задано 54 замість 50, щоб вектор мав діагональне зміщення
+        locationY: 54, // Set to 54 instead of 50 so the vector has a diagonal offset
         teamId: "team-1",
       },
     ];
@@ -589,7 +591,7 @@ describe("MatchSpatialMap Component", () => {
     const y1 = Number(line?.getAttribute("y1"));
     const y2 = Number(line?.getAttribute("y2"));
 
-    // Перевіряємо, що кінцеві точки не перехрещуються і вектор зберігає напрямок
+    // Verify endpoints do not cross over and the vector preserves its direction
     expect(x1).toBeLessThan(x2);
     expect(y1).toBeGreaterThan(y2);
   });

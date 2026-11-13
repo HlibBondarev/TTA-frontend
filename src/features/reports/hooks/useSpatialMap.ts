@@ -435,9 +435,8 @@ export const useSpatialMap = ({
               goal.teamId == null ||
               goal.teamId === leadEv.teamId) &&
             (goal.isPositive ?? true) === isPositiveLead &&
-            (!Number.isFinite(leadTimestamp) ||
-              !Number.isFinite(timestamp) ||
-              timestamp >= leadTimestamp),
+            Number.isFinite(leadTimestamp) &&
+            (!Number.isFinite(timestamp) || timestamp >= leadTimestamp),
         )
         .sort((a, b) => {
           const aFinite = Number.isFinite(a.timestamp);

@@ -614,6 +614,49 @@ describe("useSpatialMap Custom Hook", () => {
     expect(vector.y2).toBe(100);
   });
 
+  it("falls back to the goal line when lead event timestamp is missing or non-finite instead of matching an arbitrary goal", () => {
+    const missingLeadTimestampEvents: GameEventResponse[] = [
+      {
+        id: "lead-no-ts",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-1",
+        isPositive: true,
+        periodNumber: 1,
+        eventTimestamp: undefined,
+        isLeadToGoal: true,
+        locationX: 60,
+        locationY: 50,
+        teamId: "team-1",
+      },
+      {
+        id: "goal-in-period",
+        matchLineupId: "l-2",
+        eventDefinitionId: "def-goal",
+        isPositive: true,
+        periodNumber: 1,
+        eventTimestamp: "2026-10-14T10:01:00Z",
+        locationX: 90,
+        locationY: 30,
+        teamId: "team-1",
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events: missingLeadTimestampEvents,
+        eventDefinitionsMap: mockEventDefinitionsMap,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
+      }),
+    );
+
+    expect(result.current.goalLeadVectors).toHaveLength(1);
+    const vector = result.current.goalLeadVectors[0];
+
+    expect(vector.x2).toBe(300);
+    expect(vector.y2).toBe(15);
+  });
+
   it("resolves coordinate collisions and keeps all markers distinctly selectable even when clamped at boundaries", () => {
     const boundaryCollidingEvents: GameEventResponse[] = [
       {
