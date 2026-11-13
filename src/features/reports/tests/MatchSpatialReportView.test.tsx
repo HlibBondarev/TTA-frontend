@@ -461,4 +461,69 @@ describe("MatchSpatialReportView Component", () => {
     expect(screen.queryByText("Pass")).not.toBeInTheDocument();
     expect(screen.queryByText("Foul")).not.toBeInTheDocument();
   });
+
+  it("exposes tablist/tab/tabpanel semantics with aria-selected and supports keyboard navigation", () => {
+    vi.mocked(useSpatialReport).mockReturnValue(mockHookReturnValue);
+
+    const { rerender } = render(
+      <MatchSpatialReportView matchId="m-1" teamId="t-1" />,
+    );
+
+    const tablist = screen.getByRole("tablist", { name: "Map Mode" });
+    expect(tablist).toBeInTheDocument();
+
+    const fieldTab = screen.getByRole("tab", { name: "Field Map" });
+    const shotTab = screen.getByRole("tab", { name: "Shot Map" });
+    const activePanel = screen.getByRole("tabpanel");
+
+    expect(fieldTab).toHaveAttribute("aria-selected", "true");
+    expect(fieldTab).toHaveAttribute("tabindex", "0");
+    expect(shotTab).toHaveAttribute("aria-selected", "false");
+    expect(shotTab).toHaveAttribute("tabindex", "-1");
+    expect(activePanel).toHaveAttribute(
+      "id",
+      fieldTab.getAttribute("aria-controls"),
+    );
+    expect(activePanel).toHaveAttribute("aria-labelledby", fieldTab.id);
+
+    // ArrowRight moves focus to Shot Map tab and activates shot mode
+    fieldTab.focus();
+    fireEvent.keyDown(fieldTab, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(shotTab);
+    expect(mockHookReturnValue.toggleMapMode).toHaveBeenCalledWith("shot");
+
+    // Simulate updated shot mode state
+    vi.mocked(useSpatialReport).mockReturnValue({
+      ...mockHookReturnValue,
+      filters: {
+        ...mockHookReturnValue.filters,
+        mapMode: "shot",
+      },
+    });
+    rerender(<MatchSpatialReportView matchId="m-1" teamId="t-1" />);
+
+    expect(fieldTab).toHaveAttribute("aria-selected", "false");
+    expect(fieldTab).toHaveAttribute("tabindex", "-1");
+    expect(shotTab).toHaveAttribute("aria-selected", "true");
+    expect(shotTab).toHaveAttribute("tabindex", "0");
+
+    const shotPanel = screen.getByRole("tabpanel");
+    expect(shotPanel).toHaveAttribute(
+      "id",
+      shotTab.getAttribute("aria-controls"),
+    );
+    expect(shotPanel).toHaveAttribute("aria-labelledby", shotTab.id);
+
+    // ArrowLeft and Home return focus to Field Map tab and activate field mode
+    fireEvent.keyDown(shotTab, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(fieldTab);
+    expect(mockHookReturnValue.toggleMapMode).toHaveBeenCalledWith("field");
+
+    fireEvent.keyDown(shotTab, { key: "End" });
+    expect(document.activeElement).toBe(shotTab);
+
+    fireEvent.keyDown(shotTab, { key: "Home" });
+    expect(document.activeElement).toBe(fieldTab);
+    expect(mockHookReturnValue.toggleMapMode).toHaveBeenCalledWith("field");
+  });
 });

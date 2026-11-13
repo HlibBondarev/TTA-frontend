@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useId, useRef } from "react";
 import { useSpatialReport } from "../hooks/useSpatialReport";
 import { MatchSpatialMap } from "./MatchSpatialMap";
 import { MatchShotMap } from "./MatchShotMap";
@@ -37,6 +37,45 @@ export const MatchSpatialReportView: React.FC<MatchSpatialReportViewProps> = ({
     toggleGoalLeadVectors,
     toggleMapMode,
   } = useSpatialReport({ matchId, teamId, playground, shotMap });
+
+  const idPrefix = useId();
+  const fieldTabRef = useRef<HTMLButtonElement | null>(null);
+  const shotTabRef = useRef<HTMLButtonElement | null>(null);
+
+  const fieldTabId = `${idPrefix}-field-tab`;
+  const shotTabId = `${idPrefix}-shot-tab`;
+  const fieldPanelId = `${idPrefix}-field-panel`;
+  const shotPanelId = `${idPrefix}-shot-panel`;
+
+  const handleMapModeKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    const modes = ["field", "shot"] as const;
+    const currentIndex = modes.indexOf(filters.mapMode);
+    let nextMode: (typeof modes)[number];
+
+    switch (e.key) {
+      case "ArrowRight":
+        nextMode = modes[(currentIndex + 1) % modes.length];
+        break;
+      case "ArrowLeft":
+        nextMode = modes[(currentIndex - 1 + modes.length) % modes.length];
+        break;
+      case "Home":
+        nextMode = modes[0];
+        break;
+      case "End":
+        nextMode = modes[modes.length - 1];
+        break;
+      default:
+        return;
+    }
+
+    e.preventDefault();
+    const targetRef = nextMode === "field" ? fieldTabRef : shotTabRef;
+    targetRef.current?.focus();
+    if (nextMode !== filters.mapMode) {
+      toggleMapMode(nextMode);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -151,10 +190,21 @@ export const MatchSpatialReportView: React.FC<MatchSpatialReportViewProps> = ({
 
       {/* Map Mode Toggle */}
       <div className="space-y-1">
-        <div className="flex bg-gray-950 p-1 rounded-xl border border-gray-800 gap-1">
+        <div
+          role="tablist"
+          aria-label="Map Mode"
+          className="flex bg-gray-950 p-1 rounded-xl border border-gray-800 gap-1"
+        >
           <button
+            ref={fieldTabRef}
+            id={fieldTabId}
             type="button"
+            role="tab"
+            aria-selected={filters.mapMode === "field"}
+            aria-controls={fieldPanelId}
+            tabIndex={filters.mapMode === "field" ? 0 : -1}
             onClick={() => toggleMapMode("field")}
+            onKeyDown={handleMapModeKeyDown}
             className={`flex-1 py-1 text-[10px] font-bold rounded-lg transition-colors ${
               filters.mapMode === "field"
                 ? "bg-indigo-600 text-white"
@@ -164,8 +214,15 @@ export const MatchSpatialReportView: React.FC<MatchSpatialReportViewProps> = ({
             Field Map
           </button>
           <button
+            ref={shotTabRef}
+            id={shotTabId}
             type="button"
+            role="tab"
+            aria-selected={filters.mapMode === "shot"}
+            aria-controls={shotPanelId}
+            tabIndex={filters.mapMode === "shot" ? 0 : -1}
             onClick={() => toggleMapMode("shot")}
+            onKeyDown={handleMapModeKeyDown}
             className={`flex-1 py-1 text-[10px] font-bold rounded-lg transition-colors ${
               filters.mapMode === "shot"
                 ? "bg-indigo-600 text-white"
@@ -357,7 +414,24 @@ export const MatchSpatialReportView: React.FC<MatchSpatialReportViewProps> = ({
       </div>
 
       {/* Render Field Map vs Shot Map Component */}
-      {renderMapContent()}
+      <div
+        role="tabpanel"
+        id={fieldPanelId}
+        aria-labelledby={fieldTabId}
+        hidden={filters.mapMode !== "field"}
+        className="w-full"
+      >
+        {filters.mapMode === "field" && renderMapContent()}
+      </div>
+      <div
+        role="tabpanel"
+        id={shotPanelId}
+        aria-labelledby={shotTabId}
+        hidden={filters.mapMode !== "shot"}
+        className="w-full"
+      >
+        {filters.mapMode === "shot" && renderMapContent()}
+      </div>
     </div>
   );
 };
