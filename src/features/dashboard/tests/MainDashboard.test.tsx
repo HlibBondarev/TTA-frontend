@@ -1247,4 +1247,67 @@ describe("MainDashboard Component", () => {
 
     consoleSpy.mockRestore();
   });
+
+  it("should display fallback alert messages when resume or discard rejects with empty/whitespace Error or non-Error value", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const matchFixture = {
+      id: "m-empty-err",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      trackedTeamId: "team-1",
+      userId: "auth0|user-coach",
+    };
+
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce(
+      matchFixture as never,
+    );
+    const onResumeMatchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("   "))
+      .mockRejectedValueOnce("string failure");
+
+    vi.mocked(discardUnfinishedMatch)
+      .mockRejectedValueOnce(new Error(""))
+      .mockRejectedValueOnce({ code: 500 });
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    const resumeBtn = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    const discardBtn = screen.getByRole("button", {
+      name: /Discard Match/i,
+    });
+
+    // Whitespace-only Error in handleResume -> fallback message
+    fireEvent.click(resumeBtn);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to resume match. Please check match data or discard session.",
+    );
+
+    // Non-Error rejection in handleResume -> fallback message
+    fireEvent.click(resumeBtn);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to resume match. Please check match data or discard session.",
+    );
+
+    // Empty Error message in handleDiscard -> fallback message
+    fireEvent.click(discardBtn);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to discard unfinished match.",
+    );
+
+    // Non-Error rejection in handleDiscard -> fallback message
+    fireEvent.click(discardBtn);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to discard unfinished match.",
+    );
+
+    consoleSpy.mockRestore();
+  });
 });

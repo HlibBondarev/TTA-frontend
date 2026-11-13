@@ -130,7 +130,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
       if (currentUserIdRef.current !== initiatedUserId) return;
       console.error("Failed to resume unfinished match:", err);
       const errorMessage =
-        err instanceof Error
+        err instanceof Error && err.message.trim()
           ? err.message
           : "Failed to resume match. Please check match data or discard session.";
       setRecoveryError(errorMessage);
@@ -180,7 +180,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
       if (currentUserIdRef.current !== initiatedUserId) return;
       console.error("Failed to discard unfinished match:", err);
       const errorMessage =
-        err instanceof Error
+        err instanceof Error && err.message.trim()
           ? err.message
           : "Failed to discard unfinished match.";
       setRecoveryError(errorMessage);
