@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useSelector } from "react-redux";
 import { liveQuery } from "dexie";
+import DOMPurify from "dompurify";
 import {
   db,
   type MatchLineupLookup,
   type EventDefinitionLookup,
 } from "../../../db/ttaDatabase";
+import { parseSvgDimensions } from "../../../utils/svgUtils";
 import type { ActionEntry } from "../store/matchSlice";
 import type { RootState } from "../../../store";
 import { useGameEvents } from "./useGameEvents";
@@ -303,9 +305,26 @@ export function useEditGameEventModal({
   const selectedEventDef = eventDefinitions.find(
     (def) => def.id === selectedEventDefinitionId,
   );
-  const isShotSelected = Boolean(selectedEventDef?.isShot);
+  const isShotDefinition = Boolean(selectedEventDef?.isShot);
 
-  // Fallback away from "shots" tab if action is changed or definition lacks isShot
+  const hasLocation =
+    typeof locationX === "number" && typeof locationY === "number";
+
+  const hasShotLocation =
+    typeof shotLocationX === "number" && typeof shotLocationY === "number";
+
+  const isShotMapValid = Boolean(
+    shotMap &&
+    DOMPurify.sanitize(shotMap, {
+      USE_PROFILES: { svg: true, svgFilters: true },
+    }) &&
+    parseSvgDimensions(shotMap),
+  );
+
+  const isShotSelected =
+    isShotDefinition && (isShotMapValid || hasShotLocation);
+
+  // Fallback away from "shots" tab if action is changed, definition lacks isShot, or shot map & target become unavailable
   if (activeTab === "shots" && !isShotSelected) {
     setActiveTab(isPositive ? "positive" : "negative");
   }
@@ -386,8 +405,8 @@ export function useEditGameEventModal({
         isLeadToGoal: isGoalAction ? false : action.isLeadToGoal,
         locationX,
         locationY,
-        shotLocationX: isShotSelected ? shotLocationX : null,
-        shotLocationY: isShotSelected ? shotLocationY : null,
+        shotLocationX: isShotDefinition ? shotLocationX : null,
+        shotLocationY: isShotDefinition ? shotLocationY : null,
       });
       onClose();
     } catch (err: unknown) {
@@ -396,12 +415,6 @@ export function useEditGameEventModal({
       setIsSaving(false);
     }
   };
-
-  const hasLocation =
-    typeof locationX === "number" && typeof locationY === "number";
-
-  const hasShotLocation =
-    typeof shotLocationX === "number" && typeof shotLocationY === "number";
 
   return {
     lineups,

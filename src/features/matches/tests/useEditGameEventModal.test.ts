@@ -201,6 +201,11 @@ describe("useEditGameEventModal Custom Hook", () => {
         hydrationVersion: 0,
       },
     };
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "config-1",
+      playground: "<svg>Court</svg>",
+      shotMap: "<svg>Goal</svg>",
+    } as never);
   });
 
   it("should evaluate checkIsPositive helper correctly for camelCase and lowerCase properties", () => {
@@ -1000,5 +1005,127 @@ describe("useEditGameEventModal Custom Hook", () => {
     expect(result.current.locationY).toBe(99.0);
     expect(result.current.shotLocationX).toBeNull();
     expect(result.current.shotLocationY).toBeNull();
+  });
+
+  it("should hide SHOTS tab when shot action has neither valid shotMap nor saved target while preserving shot classification on save", async () => {
+    mockUpdateGameEvent.mockResolvedValue(undefined);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "config-1",
+      playground: '<svg viewBox="0 0 600 1000">Court</svg>',
+      shotMap: null,
+    } as never);
+    vi.mocked(db.gameevents.get).mockResolvedValueOnce({
+      id: "action-123",
+      locationX: 35.5,
+      locationY: 70.0,
+      shotLocationX: null,
+      shotLocationY: null,
+    } as never);
+
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: {
+          ...sampleAction,
+          actionName: "Goal",
+          eventDefinitionId: "def-2",
+        },
+        matchId: "match-1",
+        onClose: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    expect(result.current.isShotSelected).toBe(false);
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockUpdateGameEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventDefinitionId: "def-2",
+        shotLocationX: null,
+        shotLocationY: null,
+      }),
+    );
+  });
+
+  it("should keep SHOTS tab available for a shot with saved target when shotMap is absent and fall back when target is cleared", async () => {
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "config-1",
+      playground: '<svg viewBox="0 0 600 1000">Court</svg>',
+      shotMap: null,
+    } as never);
+
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: {
+          ...sampleAction,
+          actionName: "Goal",
+          eventDefinitionId: "def-2",
+        },
+        matchId: "match-1",
+        onClose: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    expect(result.current.isShotSelected).toBe(true);
+
+    act(() => {
+      result.current.handleTabClick("shots");
+    });
+    expect(result.current.activeTab).toBe("shots");
+
+    // Clearing the saved target with no shotMap hides SHOTS tab and falls back to positive/negative
+    act(() => {
+      result.current.handleShotLocationSelect(null, null);
+    });
+
+    expect(result.current.isShotSelected).toBe(false);
+    expect(result.current.activeTab).toBe("positive");
+  });
+
+  it("should enable SHOTS tab when a valid shotMap SVG is present even without a saved target", async () => {
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "config-1",
+      playground: '<svg viewBox="0 0 600 1000">Court</svg>',
+      shotMap:
+        '<svg viewBox="0 0 100 50"><rect width="100" height="50" /></svg>',
+    } as never);
+    vi.mocked(db.gameevents.get).mockResolvedValueOnce({
+      id: "action-123",
+      locationX: 35.5,
+      locationY: 70.0,
+      shotLocationX: null,
+      shotLocationY: null,
+    } as never);
+
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: {
+          ...sampleAction,
+          actionName: "Goal",
+          eventDefinitionId: "def-2",
+        },
+        matchId: "match-1",
+        onClose: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    expect(result.current.isShotSelected).toBe(true);
   });
 });
