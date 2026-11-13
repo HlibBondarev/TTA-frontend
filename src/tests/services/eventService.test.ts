@@ -1284,14 +1284,17 @@ describe("Event Database Service (eventService)", () => {
       return Promise.resolve(undefined);
     });
 
-    mockEventDefinitionsGet.mockResolvedValueOnce({
+    const nonShotDefinition = {
       id: "def-non-shot",
       sportId: "sport-1",
       name: "Foul",
       shortName: "FL",
       isPositive: false,
       isShot: false,
-    });
+    };
+    mockEventDefinitionsGet
+      .mockResolvedValueOnce(nonShotDefinition)
+      .mockResolvedValueOnce(nonShotDefinition);
 
     mockSyncQueueFilter.mockReturnValueOnce({
       toArray: vi.fn().mockResolvedValue([
