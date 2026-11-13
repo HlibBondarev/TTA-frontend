@@ -190,6 +190,15 @@ export function useEditGameEventModal({
 
   useEffect(() => {
     let isMounted = true;
+    const initialLoadState: {
+      isShot: boolean | null;
+      shotX: number | null;
+      shotY: number | null;
+    } = {
+      isShot: null,
+      shotX: null,
+      shotY: null,
+    };
     isLocationEditedRef.current = false;
     isShotLocationEditedRef.current = false;
 
@@ -211,17 +220,23 @@ export function useEditGameEventModal({
           ) {
             setLocationY(evt.locationY);
           }
-          if (
-            !isShotLocationEditedRef.current &&
-            typeof evt.shotLocationX === "number"
-          ) {
-            setShotLocationX(evt.shotLocationX);
+          if (typeof evt.shotLocationX === "number") {
+            initialLoadState.shotX = evt.shotLocationX;
+            if (
+              initialLoadState.isShot === true &&
+              !isShotLocationEditedRef.current
+            ) {
+              setShotLocationX(evt.shotLocationX);
+            }
           }
-          if (
-            !isShotLocationEditedRef.current &&
-            typeof evt.shotLocationY === "number"
-          ) {
-            setShotLocationY(evt.shotLocationY);
+          if (typeof evt.shotLocationY === "number") {
+            initialLoadState.shotY = evt.shotLocationY;
+            if (
+              initialLoadState.isShot === true &&
+              !isShotLocationEditedRef.current
+            ) {
+              setShotLocationY(evt.shotLocationY);
+            }
           }
         }
         setIsLocationLoaded(true);
@@ -250,6 +265,21 @@ export function useEditGameEventModal({
         if (details.eventDefinitions.length > 0) {
           setEventDefinitions(details.eventDefinitions);
         }
+
+        const initialEventDef = details.eventDefinitions.find(
+          (def) => def.id === action.eventDefinitionId,
+        );
+        initialLoadState.isShot = Boolean(initialEventDef?.isShot);
+
+        if (initialLoadState.isShot && !isShotLocationEditedRef.current) {
+          if (typeof initialLoadState.shotX === "number") {
+            setShotLocationX(initialLoadState.shotX);
+          }
+          if (typeof initialLoadState.shotY === "number") {
+            setShotLocationY(initialLoadState.shotY);
+          }
+        }
+
         setIsDefinitionsLoaded(true);
       } catch {
         if (isMounted) {

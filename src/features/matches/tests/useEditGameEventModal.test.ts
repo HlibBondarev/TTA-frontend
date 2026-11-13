@@ -242,7 +242,11 @@ describe("useEditGameEventModal Custom Hook", () => {
   it("should initialize state and load lineup, definitions, and event coordinates from Dexie", async () => {
     const { result } = renderHook(() =>
       useEditGameEventModal({
-        action: sampleAction,
+        action: {
+          ...sampleAction,
+          actionName: "Goal",
+          eventDefinitionId: "def-2",
+        },
         matchId: "match-1",
         onClose: vi.fn(),
       }),
@@ -254,7 +258,7 @@ describe("useEditGameEventModal Custom Hook", () => {
     });
 
     expect(result.current.selectedMatchLineupId).toBe("lineup-1");
-    expect(result.current.selectedEventDefinitionId).toBe("def-1");
+    expect(result.current.selectedEventDefinitionId).toBe("def-2");
     expect(result.current.activeTab).toBe("positive");
     expect(result.current.locationX).toBe(35.5);
     expect(result.current.locationY).toBe(70.0);
@@ -1179,5 +1183,42 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     expect(result.current.isSaving).toBe(false);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("should not load or retain stored shot coordinates from a non-shot event when later selecting a shot definition", async () => {
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: sampleAction,
+        matchId: "match-1",
+        onClose: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    // Stored shot coordinates on a non-shot event must not be loaded
+    expect(result.current.shotLocationX).toBeNull();
+    expect(result.current.shotLocationY).toBeNull();
+    expect(result.current.hasShotLocation).toBe(false);
+
+    // Selecting a shot definition later must start with a clean shot target
+    act(() => {
+      result.current.handleActionSelect({
+        id: "def-2",
+        name: "Goal",
+        isPositive: true,
+        isShot: true,
+        sportId: "sport-1",
+        shortName: "G",
+      });
+    });
+
+    expect(result.current.selectedEventDefinitionId).toBe("def-2");
+    expect(result.current.shotLocationX).toBeNull();
+    expect(result.current.shotLocationY).toBeNull();
+    expect(result.current.hasShotLocation).toBe(false);
   });
 });
