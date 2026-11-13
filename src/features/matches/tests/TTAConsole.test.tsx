@@ -330,7 +330,7 @@ describe("TTAConsole Component", () => {
     const enterBtn = screen.getByRole("button", { name: /Enter/i });
     expect(enterBtn).not.toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: /Negative/i }));
+    fireEvent.click(screen.getByRole("tab", { name: /Negative/i }));
 
     expect(enterBtn).toBeDisabled();
   });
@@ -567,7 +567,7 @@ describe("TTAConsole Component", () => {
     fireEvent.click(screen.getByText("Mock Player"));
 
     // Switch to Map tab to display the interactive field map
-    const mapTabBtn = screen.getByRole("button", { name: /Map/i });
+    const mapTabBtn = screen.getByRole("tab", { name: /Map/i });
     fireEvent.click(mapTabBtn);
 
     const fieldMapBtn = screen.getByRole("button", {

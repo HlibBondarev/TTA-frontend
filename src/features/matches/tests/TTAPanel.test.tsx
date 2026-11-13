@@ -496,7 +496,7 @@ describe("TTAPanel Component", () => {
     );
 
     await screen.findByText("Goal");
-    const shotsTab = screen.getByRole("button", { name: /SHOTS/i });
+    const shotsTab = screen.getByRole("tab", { name: /SHOTS/i });
     expect(shotsTab.querySelector(".animate-pulse")).toBeInTheDocument();
   });
 
@@ -581,10 +581,10 @@ describe("TTAPanel Component", () => {
 
     expect(container.firstChild).toHaveClass("opacity-50");
 
-    const positiveTabBtn = screen.getByRole("button", { name: /Positive/i });
+    const positiveTabBtn = screen.getByRole("tab", { name: /Positive/i });
     expect(positiveTabBtn).toBeDisabled();
 
-    const negativeTabBtn = screen.getByRole("button", { name: /Negative/i });
+    const negativeTabBtn = screen.getByRole("tab", { name: /Negative/i });
     expect(negativeTabBtn).toBeDisabled();
 
     const actionBtn = await screen.findByText("Goal");
@@ -787,5 +787,59 @@ describe("TTAPanel Component", () => {
       expect(isSportHydratedForUser).toHaveBeenCalledWith("s1", "user-1");
     });
     expect(await screen.findByText("Goal")).toBeInTheDocument();
+  });
+
+  it("exposes WAI-ARIA tablist, tab, and tabpanel semantics and supports keyboard navigation", async () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="1" // Goal (isShot: true) so SHOTS tab is available
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+
+    const tablist = screen.getByRole("tablist");
+    expect(tablist).toBeInTheDocument();
+
+    const positiveTab = screen.getByRole("tab", { name: /Positive/i });
+    const negativeTab = screen.getByRole("tab", { name: /Negative/i });
+    const mapTab = screen.getByRole("tab", { name: /Map/i });
+    const shotsTab = screen.getByRole("tab", { name: /SHOTS/i });
+    const tabpanel = screen.getByRole("tabpanel");
+
+    expect(positiveTab).toHaveAttribute("aria-selected", "true");
+    expect(shotsTab).toHaveAttribute("aria-selected", "false");
+    expect(tabpanel).toHaveAttribute("aria-labelledby", positiveTab.id);
+    expect(positiveTab).toHaveAttribute("aria-controls", tabpanel.id);
+
+    // Navigate with End directly to SHOTS tab
+    positiveTab.focus();
+    fireEvent.keyDown(positiveTab, { key: "End" });
+
+    expect(shotsTab).toHaveAttribute("aria-selected", "true");
+    expect(positiveTab).toHaveAttribute("aria-selected", "false");
+    expect(document.activeElement).toBe(shotsTab);
+    expect(tabpanel).toHaveAttribute("aria-labelledby", shotsTab.id);
+    expect(screen.getByTestId("interactive-shotMap")).toBeInTheDocument();
+
+    // Wrap around with ArrowRight back to Positive tab
+    fireEvent.keyDown(shotsTab, { key: "ArrowRight" });
+    expect(positiveTab).toHaveAttribute("aria-selected", "true");
+    expect(document.activeElement).toBe(positiveTab);
+
+    // Move backward with ArrowLeft to wrap to SHOTS, then Home to Positive
+    fireEvent.keyDown(positiveTab, { key: "ArrowLeft" });
+    expect(shotsTab).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(shotsTab, { key: "Home" });
+    expect(positiveTab).toHaveAttribute("aria-selected", "true");
+    expect(negativeTab).toHaveAttribute("aria-selected", "false");
+    expect(mapTab).toHaveAttribute("aria-selected", "false");
   });
 });
