@@ -51,6 +51,10 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
     if (isProcessing) return;
     setPanelError(null);
 
+    if (activePlayersLimit <= 0) {
+      setPanelError("The active players limit is not configured.");
+      return;
+    }
     if (selectedStartingIds.length !== activePlayersLimit) {
       setPanelError(`Select exactly ${activePlayersLimit} players.`);
       return;

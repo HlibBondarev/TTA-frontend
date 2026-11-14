@@ -4082,6 +4082,7 @@ export interface components {
             name?: string | null;
             shortName?: string | null;
             isPositive?: boolean;
+            isShot?: boolean;
         };
         CreateGameEventRequest: {
             /** Format: uuid */
@@ -4099,6 +4100,10 @@ export interface components {
             locationX?: number | null;
             /** Format: double */
             locationY?: number | null;
+            /** Format: double */
+            shotLocationX?: number | null;
+            /** Format: double */
+            shotLocationY?: number | null;
         };
         CreatePlayerPresenceRequest: {
             /** Format: uuid */
@@ -4166,6 +4171,7 @@ export interface components {
             name?: string | null;
             shortName?: string | null;
             isPositive?: boolean;
+            isShot?: boolean;
             isCustom?: boolean;
             isEnabled?: boolean;
             /** Format: int32 */
@@ -4191,6 +4197,10 @@ export interface components {
             locationX?: number | null;
             /** Format: double */
             locationY?: number | null;
+            /** Format: double */
+            shotLocationX?: number | null;
+            /** Format: double */
+            shotLocationY?: number | null;
             playerName?: string | null;
             /** Format: int32 */
             playerNumber?: number | null;
@@ -4277,6 +4287,10 @@ export interface components {
             locationX?: number | null;
             /** Format: double */
             locationY?: number | null;
+            /** Format: double */
+            shotLocationX?: number | null;
+            /** Format: double */
+            shotLocationY?: number | null;
         };
         PlayerDetailedMatchReportResponse: {
             firstName?: string | null;
@@ -4391,6 +4405,7 @@ export interface components {
             fieldLength?: number;
             /** Format: double */
             fieldWidth?: number;
+            shotMap?: string | null;
         };
         SportResponse: {
             /** Format: uuid */
@@ -4530,6 +4545,10 @@ export interface components {
             locationX?: number | null;
             /** Format: double */
             locationY?: number | null;
+            /** Format: double */
+            shotLocationX?: number | null;
+            /** Format: double */
+            shotLocationY?: number | null;
         };
         UpdatePlayerInMatchLineupRequest: {
             /** Format: int32 */

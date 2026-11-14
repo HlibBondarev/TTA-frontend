@@ -21,6 +21,8 @@ export interface RecordGameEventParams {
   eventDefinitionId: string;
   locationX?: number | null;
   locationY?: number | null;
+  shotLocationX?: number | null;
+  shotLocationY?: number | null;
 }
 
 export interface UpdateGameEventHookParams {
@@ -32,6 +34,8 @@ export interface UpdateGameEventHookParams {
   eventDefinitionId: string;
   locationX?: number | null;
   locationY?: number | null;
+  shotLocationX?: number | null;
+  shotLocationY?: number | null;
 }
 
 export const useGameEvents = (matchId: string, userId?: string) => {
@@ -90,6 +94,8 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       eventDefinitionId,
       locationX,
       locationY,
+      shotLocationX,
+      shotLocationY,
     } = params;
 
     const normalizedMatchId = matchId?.trim();
@@ -132,6 +138,8 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       isLeadToGoal,
       locationX: locationX ?? null,
       locationY: locationY ?? null,
+      shotLocationX: shotLocationX ?? null,
+      shotLocationY: shotLocationY ?? null,
     });
 
     dispatch(setGlobalSequenceNumber(createdEvent.sequenceNumber));
@@ -167,6 +175,8 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       eventDefinitionId,
       locationX,
       locationY,
+      shotLocationX,
+      shotLocationY,
     } = params;
 
     const normalizedMatchId = matchId?.trim();
@@ -200,6 +210,8 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       isLeadToGoal,
       locationX,
       locationY,
+      shotLocationX,
+      shotLocationY,
       userId: currentUserId,
     });
 

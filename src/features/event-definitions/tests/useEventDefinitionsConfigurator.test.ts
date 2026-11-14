@@ -55,6 +55,7 @@ describe("useEventDefinitionsConfigurator", () => {
       name: "Goal",
       shortName: "G",
       isPositive: true,
+      isShot: true,
       isEnabled: true,
       sortOrder: 1,
     },
@@ -63,6 +64,7 @@ describe("useEventDefinitionsConfigurator", () => {
       name: "Assist",
       shortName: "A",
       isPositive: true,
+      isShot: false,
       isEnabled: true,
       sortOrder: 2,
     },
@@ -71,6 +73,7 @@ describe("useEventDefinitionsConfigurator", () => {
       name: "Exclusion",
       shortName: "EX",
       isPositive: false,
+      isShot: false,
       isEnabled: true,
       sortOrder: 3,
     },
@@ -444,13 +447,14 @@ describe("useEventDefinitionsConfigurator", () => {
     expect(result.current.error).toBe("Failed to save user preset.");
   });
 
-  it("should create custom definition with negative flag, persist to Dexie dict, update draft state, and switch active tab without refetching available definitions", async () => {
+  it("should create custom definition with isShot flag, persist to Dexie dict, update draft state, and switch active tab without refetching available definitions", async () => {
     const createdCustomDef = {
       id: "custom-def-99",
       sportId: mockSportId,
-      name: "Custom Foul",
-      shortName: "CF",
-      isPositive: false,
+      name: "Penalty Goal",
+      shortName: "PG",
+      isPositive: true,
+      isShot: true,
       isCustom: true,
       isEnabled: false,
       sortOrder: 0,
@@ -477,9 +481,10 @@ describe("useEventDefinitionsConfigurator", () => {
     ).mock.calls.length;
 
     act(() => {
-      result.current.setNewName("Custom Foul");
-      result.current.setNewShortName("CF");
-      result.current.setNewIsPositive(false);
+      result.current.setNewName("Penalty Goal");
+      result.current.setNewShortName("PG");
+      result.current.setNewIsPositive(true);
+      result.current.setNewIsShot(true);
     });
 
     const fakeEvent = {
@@ -493,17 +498,19 @@ describe("useEventDefinitionsConfigurator", () => {
     expect(eventDefinitionService.createCustom).toHaveBeenCalledWith(
       mockSportId,
       expect.objectContaining({
-        name: "Custom Foul",
-        shortName: "CF",
-        isPositive: false,
+        name: "Penalty Goal",
+        shortName: "PG",
+        isPositive: true,
+        isShot: true,
       }),
     );
 
     expect(db.eventdefinitions.put).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "custom-def-99",
-        name: "Custom Foul",
-        isPositive: false,
+        name: "Penalty Goal",
+        isPositive: true,
+        isShot: true,
         isCustom: true,
       }),
     );
@@ -511,7 +518,7 @@ describe("useEventDefinitionsConfigurator", () => {
       vi.mocked(eventDefinitionService.getAvailableForSport).mock.calls,
     ).toHaveLength(getAvailableCallsBefore);
 
-    expect(result.current.activeTab).toBe("NEGATIVE");
+    expect(result.current.activeTab).toBe("POSITIVE");
     expect(onPresetModified).toHaveBeenCalled();
 
     const addedDef = result.current.definitions.find(
@@ -519,6 +526,7 @@ describe("useEventDefinitionsConfigurator", () => {
     );
     expect(addedDef).toBeDefined();
     expect(addedDef?.isEnabled).toBe(true);
+    expect(addedDef?.isShot).toBe(true);
   });
 
   it("should fallback to client-generated UUID when server response ID is missing", async () => {
@@ -981,5 +989,47 @@ describe("useEventDefinitionsConfigurator", () => {
     });
 
     expect(result.current.activeTab).toBe("POSITIVE");
+  });
+
+  it("should switch active tab to NEGATIVE when creating a negative custom definition", async () => {
+    const createdCustomDef = {
+      id: "custom-neg-1",
+      sportId: mockSportId,
+      name: "Custom Foul",
+      shortName: "CF",
+      isPositive: false,
+      isCustom: true,
+      isEnabled: true,
+      sortOrder: 0,
+    };
+
+    vi.mocked(eventDefinitionService.createCustom).mockResolvedValue(
+      createdCustomDef,
+    );
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setActiveTab("POSITIVE");
+      result.current.setNewName("Custom Foul");
+      result.current.setNewShortName("CF");
+      result.current.setNewIsPositive(false);
+    });
+
+    const fakeEvent = {
+      preventDefault: vi.fn(),
+    } as unknown as React.SyntheticEvent<HTMLFormElement>;
+
+    await act(async () => {
+      await result.current.handleCreateCustom(fakeEvent);
+    });
+
+    expect(result.current.activeTab).toBe("NEGATIVE");
   });
 });

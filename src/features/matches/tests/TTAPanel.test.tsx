@@ -35,6 +35,20 @@ vi.mock("../components/InteractivePlayground", () => ({
   ),
 }));
 
+vi.mock("../components/InteractiveShotMap", () => ({
+  InteractiveShotMap: ({
+    onShotLocationSelect,
+  }: {
+    onShotLocationSelect: (x: number | null, y: number | null) => void;
+  }) => (
+    <div data-testid="interactive-shotMap">
+      <button type="button" onClick={() => onShotLocationSelect(75, 45)}>
+        Select Shot Target
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock("../../../db/eventService", () => ({
   clearEventDefinitionsCache: vi.fn(),
   isSportHydratedForUser: vi.fn().mockResolvedValue(true),
@@ -47,6 +61,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
       get: vi.fn(),
     },
     tournaments: {
+      get: vi.fn(),
+    },
+    sportconfigurations: {
       get: vi.fn(),
     },
     eventdefinitions: {
@@ -117,6 +134,7 @@ describe("TTAPanel Component", () => {
       name: "Goal",
       shortName: "GL",
       isPositive: true,
+      isShot: true,
       createdAt: "",
     },
     {
@@ -125,6 +143,7 @@ describe("TTAPanel Component", () => {
       name: "Pass",
       shortName: "PS",
       isPositive: true,
+      isShot: false,
       createdAt: "",
     },
     {
@@ -133,6 +152,7 @@ describe("TTAPanel Component", () => {
       name: "Turnover",
       shortName: "TO",
       isPositive: false,
+      isShot: false,
       createdAt: "",
     },
     {
@@ -141,6 +161,7 @@ describe("TTAPanel Component", () => {
       name: "Foul",
       shortName: "FL",
       isPositive: false,
+      isShot: false,
       createdAt: "",
     },
     {
@@ -224,6 +245,12 @@ describe("TTAPanel Component", () => {
     vi.mocked(db.tournaments.get).mockResolvedValue({
       id: "tour-1",
       sportId: "s1",
+      configurationId: "config-1",
+    } as never);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "config-1",
+      playground: "<svg>Playground</svg>",
+      shotMap: '<svg viewBox="0 0 100 100">Goal Frame</svg>',
     } as never);
 
     mockUserPresetsWhere.mockReturnValue({
@@ -260,13 +287,33 @@ describe("TTAPanel Component", () => {
     expect(await screen.findByText("Goal")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Pass"));
-    expect(mockOnActionSelect).toHaveBeenCalledWith("Pass", true, "2");
+    expect(mockOnActionSelect).toHaveBeenCalledWith("Pass", true, "2", false);
 
     fireEvent.click(screen.getByText("Negative"));
     expect(await screen.findByText("Turnover")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Foul"));
-    expect(mockOnActionSelect).toHaveBeenCalledWith("Foul", false, "4");
+    expect(mockOnActionSelect).toHaveBeenCalledWith("Foul", false, "4", false);
+  });
+
+  it("forwards action name, isPositive, eventDefinitionId, and isShot when an action button is clicked", async () => {
+    const mockOnActionSelect = vi.fn();
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={mockOnActionSelect}
+          selectedActionDefinitionId={null}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    const goalButton = await screen.findByText("Goal");
+    fireEvent.click(goalButton);
+
+    expect(mockOnActionSelect).toHaveBeenCalledWith("Goal", true, "1", true);
   });
 
   it("triggers onTabChange callback ONLY when switching between POSITIVE and NEGATIVE tabs", async () => {
@@ -326,6 +373,131 @@ describe("TTAPanel Component", () => {
 
     fireEvent.click(screen.getByText("Select Position"));
     expect(mockOnLocationSelect).toHaveBeenCalledWith(40, 60);
+  });
+
+  it("hides SHOTS tab by default when no action is selected or a non-shot action is selected", async () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="2" // Pass (isShot: false)
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+    expect(screen.queryByText("SHOTS")).not.toBeInTheDocument();
+  });
+
+  it("shows SHOTS tab when an action with isShot === true is selected", async () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="1" // Goal (isShot: true)
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+    expect(screen.getByText("SHOTS")).toBeInTheDocument();
+  });
+
+  it("hides SHOTS tab when shot action is selected but neither shotMap nor pendingShotLocation is available", async () => {
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "config-1",
+      playground: "<svg>Playground</svg>",
+      shotMap: null,
+    } as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="1"
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+    expect(screen.queryByText("SHOTS")).not.toBeInTheDocument();
+  });
+
+  it("shows SHOTS tab when shotMap is null if pendingShotLocation is already present", async () => {
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "config-1",
+      playground: "<svg>Playground</svg>",
+      shotMap: null,
+    } as never);
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="1"
+          pendingShotLocation={{ shotLocationX: 50, shotLocationY: 50 }}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+    expect(screen.getByText("SHOTS")).toBeInTheDocument();
+  });
+
+  it("allows switching to SHOTS tab and interacting with InteractiveShotMap", async () => {
+    const mockOnShotLocationSelect = vi.fn();
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          onShotLocationSelect={mockOnShotLocationSelect}
+          selectedActionDefinitionId="1" // Goal (isShot: true)
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+
+    fireEvent.click(screen.getByText("SHOTS"));
+
+    expect(screen.getByTestId("interactive-shotMap")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Select Shot Target"));
+    expect(mockOnShotLocationSelect).toHaveBeenCalledWith(75, 45);
+  });
+
+  it("renders a pulse indicator on SHOTS tab when pendingShotLocation is present", async () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="1"
+          pendingShotLocation={{ shotLocationX: 80, shotLocationY: 50 }}
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+    const shotsTab = screen.getByRole("tab", { name: /SHOTS/i });
+    expect(shotsTab.querySelector(".animate-pulse")).toBeInTheDocument();
   });
 
   it("applies selected styling strictly based on selectedActionDefinitionId", async () => {
@@ -409,10 +581,10 @@ describe("TTAPanel Component", () => {
 
     expect(container.firstChild).toHaveClass("opacity-50");
 
-    const positiveTabBtn = screen.getByRole("button", { name: /Positive/i });
+    const positiveTabBtn = screen.getByRole("tab", { name: /Positive/i });
     expect(positiveTabBtn).toBeDisabled();
 
-    const negativeTabBtn = screen.getByRole("button", { name: /Negative/i });
+    const negativeTabBtn = screen.getByRole("tab", { name: /Negative/i });
     expect(negativeTabBtn).toBeDisabled();
 
     const actionBtn = await screen.findByText("Goal");
@@ -615,5 +787,59 @@ describe("TTAPanel Component", () => {
       expect(isSportHydratedForUser).toHaveBeenCalledWith("s1", "user-1");
     });
     expect(await screen.findByText("Goal")).toBeInTheDocument();
+  });
+
+  it("exposes WAI-ARIA tablist, tab, and tabpanel semantics and supports keyboard navigation", async () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAPanel
+          onActionSelect={vi.fn()}
+          selectedActionDefinitionId="1" // Goal (isShot: true) so SHOTS tab is available
+          disabled={false}
+        />
+      </Provider>,
+    );
+
+    await screen.findByText("Goal");
+
+    const tablist = screen.getByRole("tablist");
+    expect(tablist).toBeInTheDocument();
+
+    const positiveTab = screen.getByRole("tab", { name: /Positive/i });
+    const negativeTab = screen.getByRole("tab", { name: /Negative/i });
+    const mapTab = screen.getByRole("tab", { name: /Map/i });
+    const shotsTab = screen.getByRole("tab", { name: /SHOTS/i });
+    const tabpanel = screen.getByRole("tabpanel");
+
+    expect(positiveTab).toHaveAttribute("aria-selected", "true");
+    expect(shotsTab).toHaveAttribute("aria-selected", "false");
+    expect(tabpanel).toHaveAttribute("aria-labelledby", positiveTab.id);
+    expect(positiveTab).toHaveAttribute("aria-controls", tabpanel.id);
+
+    // Navigate with End directly to SHOTS tab
+    positiveTab.focus();
+    fireEvent.keyDown(positiveTab, { key: "End" });
+
+    expect(shotsTab).toHaveAttribute("aria-selected", "true");
+    expect(positiveTab).toHaveAttribute("aria-selected", "false");
+    expect(document.activeElement).toBe(shotsTab);
+    expect(tabpanel).toHaveAttribute("aria-labelledby", shotsTab.id);
+    expect(screen.getByTestId("interactive-shotMap")).toBeInTheDocument();
+
+    // Wrap around with ArrowRight back to Positive tab
+    fireEvent.keyDown(shotsTab, { key: "ArrowRight" });
+    expect(positiveTab).toHaveAttribute("aria-selected", "true");
+    expect(document.activeElement).toBe(positiveTab);
+
+    // Move backward with ArrowLeft to wrap to SHOTS, then Home to Positive
+    fireEvent.keyDown(positiveTab, { key: "ArrowLeft" });
+    expect(shotsTab).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(shotsTab, { key: "Home" });
+    expect(positiveTab).toHaveAttribute("aria-selected", "true");
+    expect(negativeTab).toHaveAttribute("aria-selected", "false");
+    expect(mapTab).toHaveAttribute("aria-selected", "false");
   });
 });

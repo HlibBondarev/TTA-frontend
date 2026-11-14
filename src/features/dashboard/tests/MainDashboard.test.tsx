@@ -197,7 +197,7 @@ describe("MainDashboard Component", () => {
     ).toBeNull();
   });
 
-  it("should handle error when discardUnfinishedMatch rejects in handleDiscard", async () => {
+  it("should handle error when discardUnfinishedMatch rejects in handleDiscard and display alert", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
       id: "m-unfinished-123",
@@ -232,12 +232,13 @@ describe("MainDashboard Component", () => {
     });
     fireEvent.click(discardBtn);
 
-    await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Failed to discard unfinished match:",
-        expect.any(Error),
-      );
-    });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Discard network failure");
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "Failed to discard unfinished match:",
+      expect.any(Error),
+    );
     consoleSpy.mockRestore();
   });
 
@@ -351,7 +352,7 @@ describe("MainDashboard Component", () => {
     });
   });
 
-  it("should reset activeOp in finally block even if onResumeMatch rejects with error", async () => {
+  it("should reset activeOp in finally block and display alert banner when onResumeMatch rejects with error", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const onResumeMatchMock = vi
       .fn()
@@ -378,6 +379,9 @@ describe("MainDashboard Component", () => {
     await waitFor(() => {
       expect(onResumeMatchMock).toHaveBeenCalled();
     });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Resume failed");
 
     await waitFor(() => {
       expect(
@@ -426,7 +430,7 @@ describe("MainDashboard Component", () => {
     });
   });
 
-  it("should log an error and not invoke onResumeMatch when all team IDs are empty", async () => {
+  it("should log an error, display alert, and not invoke onResumeMatch when all team IDs are empty", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const onResumeMatchMock = vi.fn().mockResolvedValue(undefined);
     vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce({
@@ -450,13 +454,17 @@ describe("MainDashboard Component", () => {
     });
     fireEvent.click(resumeBtn);
 
-    await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Failed to resume unfinished match:",
-        expect.any(Error),
-      );
-      expect(onResumeMatchMock).not.toHaveBeenCalled();
-    });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Missing team identity for interrupted match.",
+    );
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "Failed to resume unfinished match:",
+      expect.any(Error),
+    );
+    expect(onResumeMatchMock).not.toHaveBeenCalled();
+
     consoleSpy.mockRestore();
   });
 
@@ -1097,5 +1105,209 @@ describe("MainDashboard Component", () => {
         "team-guest-fallback",
       );
     });
+  });
+
+  it("should clear recoveryError state when currentUserId changes and render new account's match prompt without stale alert", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onResumeMatchMock = vi
+      .fn()
+      .mockRejectedValue(new Error("Resume failed for User A"));
+
+    const matchUserA = {
+      id: "m-userA-123",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      userId: "auth0|user-coach",
+    };
+
+    const matchUserB = {
+      id: "m-userB-456",
+      homeTeamId: "team-3",
+      guestTeamId: "team-4",
+      userId: "auth0|user-B",
+    };
+
+    vi.mocked(checkUnfinishedMatch).mockImplementation((userId) => {
+      if (userId === "auth0|user-coach") {
+        return Promise.resolve(matchUserA as never);
+      }
+      if (userId === "auth0|user-B") {
+        return Promise.resolve(matchUserB as never);
+      }
+      return Promise.resolve(null);
+    });
+
+    const store = createTestStore();
+    const { rerender } = render(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    const resumeBtnA = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    fireEvent.click(resumeBtnA);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Resume failed for User A",
+    );
+
+    // Switch account to User B
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(checkUnfinishedMatch).toHaveBeenCalledWith("auth0|user-B");
+    });
+
+    // Verify recovery prompt for User B is visible with User B's match ID
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+    expect(screen.getByText("ID: m-userB-...")).toBeDefined();
+
+    // Verify stale alert from User A is absent
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    consoleSpy.mockRestore();
+  });
+
+  it("should suppress discard failure error when account switches while discard is in-flight", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    let rejectDiscard: (err: Error) => void = () => {};
+    const deferredDiscard = new Promise<void>((_, reject) => {
+      rejectDiscard = reject;
+    });
+
+    const matchUserA = {
+      id: "m-userA-discard",
+      homeTeamId: "t1",
+      guestTeamId: "t2",
+      userId: "auth0|user-coach",
+    };
+
+    const matchUserB = {
+      id: "m-userB-discard",
+      homeTeamId: "t3",
+      guestTeamId: "t4",
+      userId: "auth0|user-B",
+    };
+
+    vi.mocked(checkUnfinishedMatch).mockImplementation((userId) => {
+      if (userId === "auth0|user-coach") {
+        return Promise.resolve(matchUserA as never);
+      }
+      if (userId === "auth0|user-B") {
+        return Promise.resolve(matchUserB as never);
+      }
+      return Promise.resolve(null);
+    });
+
+    vi.mocked(discardUnfinishedMatch).mockReturnValueOnce(deferredDiscard);
+
+    const store = createTestStore();
+    const { rerender } = render(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    const discardBtn = await screen.findByRole("button", {
+      name: /Discard Match/i,
+    });
+    fireEvent.click(discardBtn);
+
+    // Switch account to User B while discard is in-flight
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender(
+      <Provider store={store}>
+        <MainDashboard />
+      </Provider>,
+    );
+
+    // Wait for User B's recovery prompt to appear
+    expect(
+      await screen.findByRole("region", { name: "Session Recovery Prompt" }),
+    ).toBeDefined();
+    expect(screen.getByText("ID: m-userB-...")).toBeDefined();
+
+    // Reject discard API call after user switch
+    await act(async () => {
+      rejectDiscard(new Error("Discard network failure for User A"));
+    });
+
+    // Verify stale alert is not presented to User B on their recovery prompt
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    consoleSpy.mockRestore();
+  });
+
+  it("should display fallback alert messages when resume or discard rejects with empty/whitespace Error or non-Error value", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const matchFixture = {
+      id: "m-empty-err",
+      homeTeamId: "team-1",
+      guestTeamId: "team-2",
+      trackedTeamId: "team-1",
+      userId: "auth0|user-coach",
+    };
+
+    vi.mocked(checkUnfinishedMatch).mockResolvedValueOnce(
+      matchFixture as never,
+    );
+    const onResumeMatchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("   "))
+      .mockRejectedValueOnce("string failure");
+
+    vi.mocked(discardUnfinishedMatch)
+      .mockRejectedValueOnce(new Error(""))
+      .mockRejectedValueOnce({ code: 500 });
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MainDashboard onResumeMatch={onResumeMatchMock} />
+      </Provider>,
+    );
+
+    const resumeBtn = await screen.findByRole("button", {
+      name: /Resume Match/i,
+    });
+    const discardBtn = screen.getByRole("button", {
+      name: /Discard Match/i,
+    });
+
+    // Whitespace-only Error in handleResume -> fallback message
+    fireEvent.click(resumeBtn);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to resume match. Please check match data or discard session.",
+    );
+
+    // Non-Error rejection in handleResume -> fallback message
+    fireEvent.click(resumeBtn);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to resume match. Please check match data or discard session.",
+    );
+
+    // Empty Error message in handleDiscard -> fallback message
+    fireEvent.click(discardBtn);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to discard unfinished match.",
+    );
+
+    // Non-Error rejection in handleDiscard -> fallback message
+    fireEvent.click(discardBtn);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to discard unfinished match.",
+    );
+
+    consoleSpy.mockRestore();
   });
 });

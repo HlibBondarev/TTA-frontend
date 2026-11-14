@@ -41,6 +41,8 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   const [completedMatchContext, setCompletedMatchContext] = useState<{
     matchId: string;
     teamId: string;
+    playground?: string | null;
+    shotMap?: string | null;
   } | null>(null);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
 
@@ -268,6 +270,28 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     const currentMatchId = activeMatchId;
     const currentTeamId = activeTeamId;
 
+    // Fetch SVG maps BEFORE finalizing to preserve tournament context before local entity purge
+    let playground: string | null = null;
+    let shotMap: string | null = null;
+
+    try {
+      const matchDb = await db.matches.get(currentMatchId);
+      if (matchDb?.tournamentId) {
+        const tournament = await db.tournaments.get(matchDb.tournamentId);
+        if (tournament?.configurationId) {
+          const config = await db.sportconfigurations.get(
+            tournament.configurationId,
+          );
+          if (config) {
+            playground = config.playground ?? null;
+            shotMap = config.shotMap ?? null;
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load sport config SVGs on finalize:", err);
+    }
+
     try {
       await matchFinalizationService.finalizeMatch({
         matchId: currentMatchId,
@@ -281,6 +305,8 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
       setCompletedMatchContext({
         matchId: currentMatchId,
         teamId: currentTeamId,
+        playground,
+        shotMap,
       });
 
       setIsReportOpen(true);
@@ -315,12 +341,15 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     onClose();
   };
 
+  // Pass loaded SVG maps to MatchReportModal
   if (isReportOpen && completedMatchContext) {
     return (
       <MatchReportModal
         isOpen={isReportOpen}
         matchId={completedMatchContext.matchId}
         teamId={completedMatchContext.teamId}
+        playground={completedMatchContext.playground}
+        shotMap={completedMatchContext.shotMap}
         onClose={handleReportClose}
       />
     );

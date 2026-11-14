@@ -145,7 +145,7 @@ describe("useAppSession Custom Hook", () => {
       expect.any(Function),
     );
 
-    expect(store.getState().presence.activePlayersLimit).toBe(7);
+    expect((store.getState() as RootState).presence.activePlayersLimit).toBe(7);
     expect(store.getState().match.activeMatchId).toBe("match-99");
     expect(store.getState().match.activeTeamId).toBe("team-home-1");
   });
@@ -251,8 +251,8 @@ describe("useAppSession Custom Hook", () => {
     expect(getMatchRecoveryState).toHaveBeenCalledWith("match-resumed");
     expect(recoverRecentActions).toHaveBeenCalledWith("match-resumed");
 
-    expect(store.getState().presence.currentPeriod).toBe(2);
-    expect(store.getState().presence.activePlayersLimit).toBe(6);
+    expect((store.getState() as RootState).presence.currentPeriod).toBe(2);
+    expect((store.getState() as RootState).presence.activePlayersLimit).toBe(6);
     expect(store.getState().match.activeMatchId).toBe("match-resumed");
     expect(store.getState().match.activeTeamId).toBe("team-guest-2");
     expect(store.getState().match.recentActions).toEqual(mockActions);
@@ -300,6 +300,55 @@ describe("useAppSession Custom Hook", () => {
       "Account changed during match recovery. Aborting session resumption.",
     );
     expect(store.getState().match.activeMatchId).toBeNull();
+
+    consoleSpy.mockRestore();
+  });
+
+  it("should re-throw error when getMatchRecoveryState fails during handleResumeMatch", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(getMatchRecoveryState).mockRejectedValueOnce(
+      new Error("Recovery DB Error"),
+    );
+
+    const store = createTestStore();
+    const { result } = renderHook(() => useAppSession(), {
+      wrapper: createWrapper(store),
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.handleResumeMatch("match-err", "team-1");
+      }),
+    ).rejects.toThrow("Recovery DB Error");
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "Session recovery failed (non-critical):",
+      expect.any(Error),
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  it("should suppress error re-throw in handleResumeMatch if user account changes during failed recovery", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(getMatchRecoveryState).mockRejectedValueOnce(
+      new Error("Recovery DB Error"),
+    );
+
+    const store = createTestStore();
+    const { result, rerender } = renderHook(() => useAppSession(), {
+      wrapper: createWrapper(store),
+    });
+
+    let resumePromise: Promise<void>;
+    act(() => {
+      resumePromise = result.current.handleResumeMatch("match-err", "team-1");
+    });
+
+    mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
+    rerender();
+
+    await expect(resumePromise!).resolves.toBeUndefined();
 
     consoleSpy.mockRestore();
   });

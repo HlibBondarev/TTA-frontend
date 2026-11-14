@@ -177,6 +177,8 @@ export function useAppSession() {
       }
     } catch (error) {
       console.error("Session recovery failed (non-critical):", error);
+      if (currentUserIdRef.current !== initiatedUserId) return;
+      throw error;
     }
   };
 

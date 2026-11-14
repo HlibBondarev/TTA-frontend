@@ -29,6 +29,10 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     locationX: number;
     locationY: number;
   } | null>(null);
+  const [pendingShotLocation, setPendingShotLocation] = useState<{
+    shotLocationX: number;
+    shotLocationY: number;
+  } | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [consoleError, setConsoleError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,6 +43,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     setPrevPeriod(periodNumber);
     setPendingAction(null);
     setPendingLocation(null);
+    setPendingShotLocation(null);
     setSelectedPlayerId(null);
     setConsoleError(null);
   }
@@ -56,14 +61,25 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   const clearPendingAction = () => {
     setPendingAction(null);
     setPendingLocation(null);
+    setPendingShotLocation(null);
     setConsoleError(null);
   };
 
   const handleLocationSelect = (x: number | null, y: number | null) => {
+    if (isSubmitting) return;
     if (x === null || y === null) {
       setPendingLocation(null);
     } else {
       setPendingLocation({ locationX: x, locationY: y });
+    }
+  };
+
+  const handleShotLocationSelect = (x: number | null, y: number | null) => {
+    if (isSubmitting) return;
+    if (x === null || y === null) {
+      setPendingShotLocation(null);
+    } else {
+      setPendingShotLocation({ shotLocationX: x, shotLocationY: y });
     }
   };
 
@@ -85,10 +101,13 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
           isLeadToGoal: false,
           locationX: pendingLocation?.locationX ?? null,
           locationY: pendingLocation?.locationY ?? null,
+          shotLocationX: pendingShotLocation?.shotLocationX ?? null,
+          shotLocationY: pendingShotLocation?.shotLocationY ?? null,
         });
 
         setPendingAction(null);
         setPendingLocation(null);
+        setPendingShotLocation(null);
         setSelectedPlayerId(null);
       } catch (err: unknown) {
         console.error("Failed to record game event:", err);
@@ -107,10 +126,14 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     name: string,
     isPositive: boolean,
     eventDefinitionId?: string,
+    isShot?: boolean,
   ) => {
     setConsoleError(null);
     if (!eventDefinitionId) return;
     setPendingAction({ name, isPositive, eventDefinitionId });
+    if (!isShot) {
+      setPendingShotLocation(null);
+    }
   };
 
   return {
@@ -119,6 +142,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     isRecordingEnabled,
     pendingAction,
     pendingLocation,
+    pendingShotLocation,
     selectedPlayerId,
     setSelectedPlayerId,
     consoleError,
@@ -127,6 +151,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     handleEnter,
     handleActionSelect,
     handleLocationSelect,
+    handleShotLocationSelect,
     clearPendingAction,
   };
 }

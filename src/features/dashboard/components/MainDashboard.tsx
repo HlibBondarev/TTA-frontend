@@ -51,6 +51,15 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     undefined,
   );
 
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+
+  // Synchronously reset error during render when user account changes (React recommended pattern)
+  const [prevUserId, setPrevUserId] = useState(currentUserId);
+  if (currentUserId !== prevUserId) {
+    setPrevUserId(currentUserId);
+    setRecoveryError(null);
+  }
+
   const isCheckingMatch = checkedUserId !== currentUserId;
 
   const [activeOp, setActiveOp] = useState<ActiveOperation | null>(null);
@@ -90,6 +99,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
 
   const handleResume = useCallback(async () => {
     if (!activeUnfinishedMatch || isRecoveryBusy || !currentUserId) return;
+    setRecoveryError(null);
+
     const teamToResume = (
       activeUnfinishedMatch.trackedTeamId ||
       activeUnfinishedMatch.selectedTeamId ||
@@ -99,10 +110,12 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     ).trim();
 
     if (!teamToResume) {
+      const errMessage = "Missing team identity for interrupted match.";
       console.error(
         "Failed to resume unfinished match:",
-        new Error("Missing team identity for interrupted match."),
+        new Error(errMessage),
       );
+      setRecoveryError(errMessage);
       return;
     }
 
@@ -114,7 +127,13 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         await onResumeMatch(activeUnfinishedMatch.id, teamToResume);
       }
     } catch (err) {
+      if (currentUserIdRef.current !== initiatedUserId) return;
       console.error("Failed to resume unfinished match:", err);
+      const errorMessage =
+        err instanceof Error && err.message.trim()
+          ? err.message
+          : "Failed to resume match. Please check match data or discard session.";
+      setRecoveryError(errorMessage);
     } finally {
       setActiveOp((prev) =>
         prev?.userId === initiatedUserId && prev?.token === token ? null : prev,
@@ -124,6 +143,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
 
   const handleDiscard = useCallback(async () => {
     if (!activeUnfinishedMatch || isRecoveryBusy || !currentUserId) return;
+    setRecoveryError(null);
+
     const initiatedUserId = currentUserId;
     const matchIdToDiscard = activeUnfinishedMatch.id;
     const teamToDiscard =
@@ -156,7 +177,13 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
       ) {
         return;
       }
+      if (currentUserIdRef.current !== initiatedUserId) return;
       console.error("Failed to discard unfinished match:", err);
+      const errorMessage =
+        err instanceof Error && err.message.trim()
+          ? err.message
+          : "Failed to discard unfinished match.";
+      setRecoveryError(errorMessage);
     } finally {
       setActiveOp((prev) =>
         prev?.userId === initiatedUserId && prev?.token === token ? null : prev,
@@ -207,6 +234,15 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
             An active unfinished match session was detected in local storage.
             Would you like to resume tracking?
           </p>
+
+          {recoveryError && (
+            <div
+              role="alert"
+              className="p-2 text-[11px] bg-red-900/50 border border-red-800 text-red-200 rounded-lg text-center font-medium"
+            >
+              {recoveryError}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-2 pt-1">
             <button
