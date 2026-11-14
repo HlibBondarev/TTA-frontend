@@ -435,6 +435,8 @@ export const useSpatialMap = ({
 
       const isPositiveLead = leadEv.isPositive ?? true;
 
+      // Retain timestamp-less/non-finite goals in the same period, team, and polarity
+      // as lower-priority fallback matches (sorted after finite subsequent goals below).
       const candidateGoals = goalEvents
         .map((goal) => ({
           goal,
