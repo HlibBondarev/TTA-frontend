@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useId, useRef } from "react";
 import { ModalDialog } from "../../matches/components/ModalDialog";
 import {
   useEventDefinitionsConfigurator,
@@ -21,6 +21,9 @@ const getTextColorClass = (
 export const EventDefinitionsConfigurator: React.FC<
   EventDefinitionsConfiguratorProps
 > = (props) => {
+  const selectAllCheckboxId = useId();
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
+
   const {
     activeTab,
     loading,
@@ -34,18 +37,23 @@ export const EventDefinitionsConfigurator: React.FC<
     newName,
     newShortName,
     newIsPositive,
+    newIsShot,
     isLocked,
     activeCategoryDefs,
     activePositiveCount,
     activeNegativeCount,
+    isAllActiveCategorySelected,
+    isActiveCategoryIndeterminate,
     setActiveTab,
     setIsModalOpen,
     setModalError,
     setNewName,
     setNewShortName,
     setNewIsPositive,
+    setNewIsShot,
     setCreating,
     handleToggleEnabled,
+    handleToggleAll,
     handleMove,
     handleSavePreset,
     handleConfirmDefaultPreset,
@@ -54,6 +62,14 @@ export const EventDefinitionsConfigurator: React.FC<
     handleDeleteCustom,
   } = useEventDefinitionsConfigurator(props);
 
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = Boolean(
+        isActiveCategoryIndeterminate,
+      );
+    }
+  }, [isActiveCategoryIndeterminate, loading]);
+
   if (loading) {
     return (
       <div className="p-4 text-center text-xs text-gray-400">
@@ -61,6 +77,9 @@ export const EventDefinitionsConfigurator: React.FC<
       </div>
     );
   }
+
+  const activeCategorySelectedCount =
+    activeTab === "POSITIVE" ? activePositiveCount : activeNegativeCount;
 
   return (
     <div className="w-full bg-gray-950 text-gray-100 p-3 rounded-xl border border-gray-800 space-y-3">
@@ -141,6 +160,34 @@ export const EventDefinitionsConfigurator: React.FC<
         </button>
       </div>
 
+      <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-gray-900/60 border border-gray-800/80 text-xs">
+        <div className="flex items-center gap-2.5">
+          <input
+            ref={selectAllRef}
+            id={selectAllCheckboxId}
+            type="checkbox"
+            disabled={isLocked || activeCategoryDefs.length === 0}
+            aria-label={`Select all ${activeTab.toLowerCase()} actions`}
+            checked={Boolean(isAllActiveCategorySelected)}
+            onChange={handleToggleAll}
+            className="w-4 h-4 shrink-0 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+          />
+          <label
+            htmlFor={selectAllCheckboxId}
+            className={`text-[11px] font-semibold select-none ${
+              isLocked || activeCategoryDefs.length === 0
+                ? "text-gray-500 cursor-not-allowed"
+                : "text-gray-300 cursor-pointer"
+            }`}
+          >
+            Select all
+          </label>
+        </div>
+        <span className="text-[10px] text-gray-400 font-mono">
+          {activeCategorySelectedCount} / {activeCategoryDefs.length}
+        </span>
+      </div>
+
       <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
         {activeCategoryDefs.length === 0 ? (
           <p className="text-xs text-gray-500 italic text-center py-4">
@@ -157,39 +204,70 @@ export const EventDefinitionsConfigurator: React.FC<
             return (
               <div
                 key={defId}
-                className={`flex items-center justify-between p-2 rounded-lg border text-xs transition-colors ${
+                className={`flex items-center justify-between gap-2 p-2 rounded-lg border text-xs transition-colors ${
                   isEnabled
                     ? "bg-gray-900 border-gray-800 text-gray-200"
                     : "bg-gray-950/50 border-gray-900 text-gray-500"
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   <input
                     type="checkbox"
                     disabled={isLocked}
                     aria-label={`Enable ${def.name}`}
                     checked={isEnabled}
                     onChange={() => handleToggleEnabled(defId)}
-                    className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                    className="w-4 h-4 shrink-0 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                   />
-                  <div className="flex items-center gap-1.5 truncate">
+                  <div className="flex flex-col min-w-0 flex-1">
                     <span
-                      className={`font-semibold truncate ${textColorClass}`}
+                      className={`font-semibold wrap-break-word leading-snug ${textColorClass}`}
                     >
                       {def.name}
                     </span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-mono">
-                      {def.shortName}
-                    </span>
-                    {def.isCustom && (
-                      <span className="text-[9px] px-1 py-0.2 rounded bg-amber-950 border border-amber-800 text-amber-300">
-                        Custom
+                    <div className="flex flex-wrap items-center gap-1 mt-1">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-mono">
+                        {def.shortName}
                       </span>
-                    )}
+                      {def.isShot && (
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-amber-950 border border-amber-800 text-amber-300">
+                          Shot
+                        </span>
+                      )}
+                      {def.isCustom && (
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-amber-950 border border-amber-800 text-amber-300">
+                          Custom
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
+                  {def.isCustom && (
+                    <button
+                      type="button"
+                      disabled={isLocked}
+                      onClick={() => handleDeleteCustom(defId)}
+                      className="p-1 hover:bg-rose-950 hover:text-rose-400 rounded text-gray-500 disabled:opacity-20 transition-colors mr-1"
+                      title="Delete Custom Action"
+                    >
+                      <svg
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
+                      </svg>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     disabled={isLocked || catIndex === 0}
@@ -234,30 +312,6 @@ export const EventDefinitionsConfigurator: React.FC<
                       />
                     </svg>
                   </button>
-
-                  {def.isCustom && (
-                    <button
-                      type="button"
-                      disabled={isLocked}
-                      onClick={() => handleDeleteCustom(defId)}
-                      className="p-1 hover:bg-rose-950 hover:text-rose-400 rounded text-gray-500 disabled:opacity-20 transition-colors ml-1"
-                      title="Delete Custom Action"
-                    >
-                      <svg
-                        className="w-3.5 h-3.5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
-                      </svg>
-                    </button>
-                  )}
                 </div>
               </div>
             );
@@ -328,20 +382,38 @@ export const EventDefinitionsConfigurator: React.FC<
                 />
               </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="isPositiveCheck"
-                  checked={newIsPositive}
-                  onChange={(e) => setNewIsPositive(e.target.checked)}
-                  className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"
-                />
-                <label
-                  htmlFor="isPositiveCheck"
-                  className="text-xs text-gray-300 cursor-pointer"
-                >
-                  Positive action (Green indicator)
-                </label>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="isPositiveCheck"
+                    checked={newIsPositive}
+                    onChange={(e) => setNewIsPositive(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"
+                  />
+                  <label
+                    htmlFor="isPositiveCheck"
+                    className="text-xs text-gray-300 cursor-pointer"
+                  >
+                    Positive action (Green indicator)
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="isShotCheck"
+                    checked={newIsShot}
+                    onChange={(e) => setNewIsShot(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"
+                  />
+                  <label
+                    htmlFor="isShotCheck"
+                    className="text-xs text-amber-300 cursor-pointer"
+                  >
+                    Shot action (Goal target map enabled)
+                  </label>
+                </div>
               </div>
 
               <div className="flex gap-2 pt-2">

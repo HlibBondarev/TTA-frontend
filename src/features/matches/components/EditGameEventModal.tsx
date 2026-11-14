@@ -2,6 +2,7 @@ import React from "react";
 import type { ActionEntry } from "../store/matchSlice";
 import { ModalDialog } from "./ModalDialog";
 import { InteractivePlayground } from "./InteractivePlayground";
+import { InteractiveShotMap } from "./InteractiveShotMap";
 import { useEditGameEventModal } from "../hooks/useEditGameEventModal";
 
 interface EditGameEventModalProps {
@@ -19,22 +20,83 @@ const EditGameEventModalContent: React.FC<{
   const {
     lineups,
     displayedActions,
-    playgroundSvg,
+    playground,
+    shotMap,
     selectedMatchLineupId,
     selectedEventDefinitionId,
     activeTab,
     locationX,
     locationY,
+    shotLocationX,
+    shotLocationY,
     hasLocation,
+    hasShotLocation,
+    isShotSelected,
     isLocationLoaded,
+    isDefinitionsLoaded,
     isSaving,
     error,
     setSelectedMatchLineupId,
     handleActionSelect,
     handleTabClick,
     handleLocationSelect,
+    handleShotLocationSelect,
     handleSave,
   } = useEditGameEventModal({ action, matchId, onClose });
+
+  const renderTabContent = () => {
+    if (activeTab === "shots") {
+      return (
+        <InteractiveShotMap
+          shotMap={shotMap}
+          shotLocationX={shotLocationX}
+          shotLocationY={shotLocationY}
+          disabled={isSaving}
+          onShotLocationSelect={handleShotLocationSelect}
+        />
+      );
+    }
+
+    if (activeTab === "map") {
+      return (
+        <InteractivePlayground
+          playground={playground}
+          locationX={locationX}
+          locationY={locationY}
+          onLocationSelect={handleLocationSelect}
+        />
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-1">
+        {!isDefinitionsLoaded ? (
+          <div className="col-span-3 p-4 text-center text-xs text-gray-400 italic">
+            Loading action definitions...
+          </div>
+        ) : (
+          displayedActions.map((def) => {
+            const isSelected =
+              Boolean(def.id) && selectedEventDefinitionId === def.id;
+            return (
+              <button
+                key={def.id || def.name}
+                type="button"
+                onClick={() => handleActionSelect(def)}
+                className={`p-2 min-h-10 rounded text-[11px] font-medium transition-all ${
+                  isSelected
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                }`}
+              >
+                {def.name}
+              </button>
+            );
+          })
+        )}
+      </div>
+    );
+  };
 
   return (
     <ModalDialog
@@ -117,37 +179,27 @@ const EditGameEventModalContent: React.FC<{
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
               )}
             </button>
+
+            {/* Dynamic 4th tab: SHOTS */}
+            {isShotSelected && (
+              <button
+                type="button"
+                onClick={() => handleTabClick("shots")}
+                className={`flex-1 py-1.5 text-[11px] font-bold uppercase transition-all flex items-center justify-center space-x-1 ${
+                  activeTab === "shots"
+                    ? "text-amber-400 border-b-2 border-amber-400"
+                    : "text-gray-500"
+                }`}
+              >
+                <span>SHOTS</span>
+                {hasShotLocation && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                )}
+              </button>
+            )}
           </div>
 
-          {activeTab === "map" ? (
-            <InteractivePlayground
-              playgroundSvg={playgroundSvg}
-              locationX={locationX}
-              locationY={locationY}
-              onLocationSelect={handleLocationSelect}
-            />
-          ) : (
-            <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-1">
-              {displayedActions.map((def) => {
-                const isSelected =
-                  Boolean(def.id) && selectedEventDefinitionId === def.id;
-                return (
-                  <button
-                    key={def.id || def.name}
-                    type="button"
-                    onClick={() => handleActionSelect(def)}
-                    className={`p-2 min-h-10 rounded text-[11px] font-medium transition-all ${
-                      isSelected
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-800 text-gray-300 hover:bg-gray-700"
-                    }`}
-                  >
-                    {def.name}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          {renderTabContent()}
         </div>
       </div>
 
@@ -166,6 +218,7 @@ const EditGameEventModalContent: React.FC<{
           disabled={
             isSaving ||
             !isLocationLoaded ||
+            !isDefinitionsLoaded ||
             !selectedMatchLineupId ||
             !selectedEventDefinitionId
           }

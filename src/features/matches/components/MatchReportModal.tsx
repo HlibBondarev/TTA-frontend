@@ -7,6 +7,7 @@ import {
 import { TeamSummaryReportView } from "./TeamSummaryReportView";
 import { PlayerDetailedReportView } from "./PlayerDetailedReportView";
 import { MatchSpatialReportView } from "../../reports/components/MatchSpatialReportView";
+import { db } from "../../../db/ttaDatabase";
 
 export interface MatchReportModalProps {
   isOpen: boolean;
@@ -15,8 +16,34 @@ export interface MatchReportModalProps {
   teamName?: string;
   guestTeamId?: string;
   guestTeamName?: string;
-  playgroundSvg?: string | null;
+  playground?: string | null;
+  shotMap?: string | null;
   onClose: () => void;
+}
+
+async function loadSportConfigFromDb(matchId: string): Promise<{
+  playground: string | null;
+  shotMap: string | null;
+}> {
+  if (!matchId) return { playground: null, shotMap: null };
+
+  try {
+    const matchDb = await db.matches.get(matchId);
+    if (!matchDb?.tournamentId) return { playground: null, shotMap: null };
+
+    const tournament = await db.tournaments.get(matchDb.tournamentId);
+    if (!tournament?.configurationId)
+      return { playground: null, shotMap: null };
+
+    const config = await db.sportconfigurations.get(tournament.configurationId);
+    return {
+      playground: config?.playground ?? null,
+      shotMap: config?.shotMap ?? null,
+    };
+  } catch (err) {
+    console.error("Failed to load sport configuration SVGs in modal:", err);
+    return { playground: null, shotMap: null };
+  }
 }
 
 export const MatchReportModal: React.FC<MatchReportModalProps> = ({
@@ -26,7 +53,8 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   teamName,
   guestTeamId,
   guestTeamName,
-  playgroundSvg,
+  playground,
+  shotMap,
   onClose,
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -39,6 +67,14 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
   const [fetchGeneration, setFetchGeneration] = useState<number>(0);
   const hasAttemptedAutoSwitchRef = useRef<boolean>(false);
   const requestIdRef = useRef<number>(0);
+
+  const [fetchedPlayground, setFetchedPlayground] = useState<string | null>(
+    null,
+  );
+  const [fetchedShotMap, setFetchedShotMap] = useState<string | null>(null);
+
+  const effectivePlayground = playground ?? fetchedPlayground;
+  const effectiveShotMap = shotMap ?? fetchedShotMap;
 
   const [summaryReports, setSummaryReports] = useState<
     TeamMatchSummaryReportResponse[]
@@ -69,8 +105,31 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
       setActiveTeamId(teamId);
       setSelectedLineupId(null);
       setReportMode("summary");
+      setFetchedPlayground(null);
+      setFetchedShotMap(null);
     }
   }
+
+  // Fallback SVG configuration loader from IndexedDB if props are missing
+  useEffect(() => {
+    if (!isOpen || (effectivePlayground && effectiveShotMap)) return;
+
+    let isMounted = true;
+
+    const fetchSvgConfig = async () => {
+      const dbConfig = await loadSportConfigFromDb(matchId);
+      if (isMounted) {
+        setFetchedPlayground((prev) => prev ?? dbConfig.playground);
+        setFetchedShotMap((prev) => prev ?? dbConfig.shotMap);
+      }
+    };
+
+    void fetchSvgConfig();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, matchId, effectivePlayground, effectiveShotMap]);
 
   useEffect(() => {
     if (isOpen) {
@@ -267,7 +326,8 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
         <MatchSpatialReportView
           matchId={matchId}
           teamId={activeTeamId}
-          playgroundSvg={playgroundSvg}
+          playground={effectivePlayground}
+          shotMap={effectiveShotMap}
           onBack={() => setReportMode("summary")}
         />
       );

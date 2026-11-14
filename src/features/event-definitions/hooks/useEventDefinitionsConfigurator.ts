@@ -85,6 +85,7 @@ export function useEventDefinitionsConfigurator({
   const [newName, setNewName] = useState("");
   const [newShortName, setNewShortName] = useState("");
   const [newIsPositive, setNewIsPositive] = useState(true);
+  const [newIsShot, setNewIsShot] = useState(false);
 
   const onChangeRef = useRef(onChange);
   const onLoadStateChangeRef = useRef(onLoadStateChange);
@@ -122,6 +123,7 @@ export function useEventDefinitionsConfigurator({
           name: def.name ?? "",
           shortName: def.shortName ?? "",
           isPositive: Boolean(def.isPositive),
+          isShot: Boolean(def.isShot),
           isCustom: def.isCustom,
           isEnabled: def.isEnabled ?? true,
           sortOrder: def.sortOrder ?? idx + 1,
@@ -434,6 +436,7 @@ export function useEventDefinitionsConfigurator({
           name: newName.trim(),
           shortName: newShortName.trim(),
           isPositive: newIsPositive,
+          isShot: newIsShot,
         },
       );
 
@@ -449,6 +452,7 @@ export function useEventDefinitionsConfigurator({
             name: createdResponse?.name ?? newName.trim(),
             shortName: createdResponse?.shortName ?? newShortName.trim(),
             isPositive: Boolean(createdResponse?.isPositive ?? newIsPositive),
+            isShot: Boolean(createdResponse?.isShot ?? newIsShot),
             isCustom: true,
             ownerId: currentUserId ?? null,
           };
@@ -469,6 +473,7 @@ export function useEventDefinitionsConfigurator({
         name: createdResponse?.name ?? newName.trim(),
         shortName: createdResponse?.shortName ?? newShortName.trim(),
         isPositive: Boolean(createdResponse?.isPositive ?? newIsPositive),
+        isShot: Boolean(createdResponse?.isShot ?? newIsShot),
         isCustom: true,
         isEnabled: true,
         sortOrder: 0,
@@ -484,6 +489,7 @@ export function useEventDefinitionsConfigurator({
       setNewName("");
       setNewShortName("");
       setNewIsPositive(true);
+      setNewIsShot(false);
       setModalError(null);
       setIsModalOpen(false);
 
@@ -545,6 +551,45 @@ export function useEventDefinitionsConfigurator({
     (d) => d.isEnabled,
   ).length;
 
+  const activeCategorySelectedCount =
+    activeTab === "POSITIVE" ? activePositiveCount : activeNegativeCount;
+
+  const isAllActiveCategorySelected =
+    activeCategoryDefs.length > 0 &&
+    activeCategoryDefs.every((d) => Boolean(d.isEnabled));
+
+  const isActiveCategoryIndeterminate =
+    activeCategorySelectedCount > 0 &&
+    activeCategorySelectedCount < activeCategoryDefs.length;
+
+  const handleToggleAll = () => {
+    if (isLocked || activeCategoryDefs.length === 0) return;
+
+    const shouldEnableAll = !isAllActiveCategorySelected;
+    const isTargetCategory = (def: EventDefinitionResponse) =>
+      activeTab === "POSITIVE" ? Boolean(def.isPositive) : !def.isPositive;
+
+    const updatedDefinitions = definitions.map((def) =>
+      isTargetCategory(def) ? { ...def, isEnabled: shouldEnableAll } : def,
+    );
+
+    const finalDefinitions = updatedDefinitions.map((item, idx) => ({
+      ...item,
+      sortOrder: idx + 1,
+    }));
+
+    setDefinitions(finalDefinitions);
+    notifyParent(finalDefinitions);
+    syncToDexie(finalDefinitions).catch((err) => {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to sync action definitions.",
+      );
+    });
+    onPresetModified?.();
+  };
+
   return {
     definitions,
     activeTab,
@@ -560,10 +605,13 @@ export function useEventDefinitionsConfigurator({
     newName,
     newShortName,
     newIsPositive,
+    newIsShot,
     isLocked,
     activeCategoryDefs,
     activePositiveCount,
     activeNegativeCount,
+    isAllActiveCategorySelected,
+    isActiveCategoryIndeterminate,
     setActiveTab,
     setIsModalOpen,
     setIsConfirmZeroModalOpen,
@@ -571,8 +619,10 @@ export function useEventDefinitionsConfigurator({
     setNewName,
     setNewShortName,
     setNewIsPositive,
+    setNewIsShot,
     setCreating,
     handleToggleEnabled,
+    handleToggleAll,
     handleMove,
     handleSavePreset,
     handleConfirmDefaultPreset,

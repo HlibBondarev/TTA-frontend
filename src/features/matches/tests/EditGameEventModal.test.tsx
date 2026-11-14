@@ -37,7 +37,8 @@ vi.mock("../../../db/ttaDatabase", () => ({
     sportconfigurations: {
       get: vi.fn().mockResolvedValue({
         id: "config-1",
-        playground: "<svg>Court</svg>",
+        playground: '<svg viewBox="0 0 1000 500">Court</svg>',
+        shotMap: '<svg viewBox="0 0 100 100">Goal</svg>',
       }),
     },
     gameevents: {
@@ -45,6 +46,8 @@ vi.mock("../../../db/ttaDatabase", () => ({
         id: "action-123",
         locationX: 35.5,
         locationY: 70.0,
+        shotLocationX: null,
+        shotLocationY: null,
       }),
     },
     usereventpresets: {
@@ -58,27 +61,42 @@ vi.mock("../../../db/ttaDatabase", () => ({
     },
     eventdefinitions: {
       bulkGet: vi.fn().mockResolvedValue([
-        { id: "def-1", name: "Pass", isPositive: true },
-        { id: "def-2", name: "Goal", isPositive: true },
-        { id: "def-3", name: "Foul", isPositive: false },
+        { id: "def-1", name: "Pass", isPositive: true, isShot: false },
+        { id: "def-2", name: "Goal", isPositive: true, isShot: true },
+        { id: "def-3", name: "Foul", isPositive: false, isShot: false },
       ]),
       get: vi.fn().mockImplementation((id: string) => {
         const defs: Record<
           string,
-          { id: string; name: string; isPositive: boolean }
+          { id: string; name: string; isPositive: boolean; isShot?: boolean }
         > = {
-          "def-1": { id: "def-1", name: "Pass", isPositive: true },
-          "def-2": { id: "def-2", name: "Goal", isPositive: true },
-          "def-3": { id: "def-3", name: "Foul", isPositive: false },
+          "def-1": {
+            id: "def-1",
+            name: "Pass",
+            isPositive: true,
+            isShot: false,
+          },
+          "def-2": {
+            id: "def-2",
+            name: "Goal",
+            isPositive: true,
+            isShot: true,
+          },
+          "def-3": {
+            id: "def-3",
+            name: "Foul",
+            isPositive: false,
+            isShot: false,
+          },
         };
         return Promise.resolve(defs[id]);
       }),
       where: vi.fn().mockReturnValue({
         equals: vi.fn().mockReturnValue({
           toArray: vi.fn().mockResolvedValue([
-            { id: "def-1", name: "Pass", isPositive: true },
-            { id: "def-2", name: "Goal", isPositive: true },
-            { id: "def-3", name: "Foul", isPositive: false },
+            { id: "def-1", name: "Pass", isPositive: true, isShot: false },
+            { id: "def-2", name: "Goal", isPositive: true, isShot: true },
+            { id: "def-3", name: "Foul", isPositive: false, isShot: false },
           ]),
         }),
       }),
@@ -201,9 +219,8 @@ describe("EditGameEventModal Component", () => {
     expect(screen.getByText("Foul")).toBeInTheDocument();
     expect(screen.queryByText("Pass")).not.toBeInTheDocument();
 
-    // Save button remains enabled because previous selection is preserved
     const saveBtn = screen.getByRole("button", { name: /Save/i });
-    expect(saveBtn).not.toBeDisabled();
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
   });
 
   it("forces isLeadToGoal to false when switching action to Goal", async () => {
@@ -233,16 +250,14 @@ describe("EditGameEventModal Component", () => {
       </Provider>,
     );
 
-    // Select player #10
     const player10Btn = await screen.findByText("#10");
     fireEvent.click(player10Btn);
 
-    // Select new action "Goal" (def-2)
     const goalBtn = screen.getByText("Goal");
     fireEvent.click(goalBtn);
 
-    // Save changes
     const saveBtn = screen.getByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
@@ -254,6 +269,8 @@ describe("EditGameEventModal Component", () => {
         isLeadToGoal: false,
         locationX: 35.5,
         locationY: 70,
+        shotLocationX: null,
+        shotLocationY: null,
         userId: "user-123",
       });
       expect(mockOnClose).toHaveBeenCalled();
@@ -287,12 +304,11 @@ describe("EditGameEventModal Component", () => {
       </Provider>,
     );
 
-    // Select player #10
     const player10Btn = await screen.findByText("#10");
     fireEvent.click(player10Btn);
 
-    // Save changes without switching to "Goal"
     const saveBtn = screen.getByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
@@ -304,6 +320,8 @@ describe("EditGameEventModal Component", () => {
         isLeadToGoal: true,
         locationX: 35.5,
         locationY: 70,
+        shotLocationX: null,
+        shotLocationY: null,
         userId: "user-123",
       });
       expect(mockOnClose).toHaveBeenCalled();
@@ -329,13 +347,12 @@ describe("EditGameEventModal Component", () => {
     );
 
     const saveBtn = await screen.findByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
     fireEvent.click(saveBtn);
 
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "Database write error",
-      );
-    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Database write error",
+    );
   });
 
   it("handles loading errors for match roster and action definitions", async () => {
@@ -358,9 +375,7 @@ describe("EditGameEventModal Component", () => {
       </Provider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toBeInTheDocument();
-    });
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
   });
 
   it("closes modal on Cancel button and close button click", async () => {
@@ -382,7 +397,7 @@ describe("EditGameEventModal Component", () => {
     fireEvent.click(cancelBtn);
     expect(mockOnClose).toHaveBeenCalledTimes(1);
 
-    const closeBtn = screen.getByText("✕");
+    const closeBtn = await screen.findByText("✕");
     fireEvent.click(closeBtn);
     expect(mockOnClose).toHaveBeenCalledTimes(2);
   });
@@ -419,10 +434,11 @@ describe("EditGameEventModal Component", () => {
     const mapTab = await screen.findByRole("button", { name: /Map/i });
     fireEvent.click(mapTab);
 
-    expect(screen.getByText("Field Location Map")).toBeInTheDocument();
+    expect(await screen.findByText("Field Location Map")).toBeInTheDocument();
     expect(screen.getByText("X: 35.5% | Y: 70%")).toBeInTheDocument();
 
     const saveBtn = screen.getByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
@@ -434,6 +450,8 @@ describe("EditGameEventModal Component", () => {
         isLeadToGoal: true,
         locationX: 35.5,
         locationY: 70.0,
+        shotLocationX: null,
+        shotLocationY: null,
         userId: "user-123",
       });
       expect(mockOnClose).toHaveBeenCalled();
@@ -476,6 +494,7 @@ describe("EditGameEventModal Component", () => {
     fireEvent.click(clearBtn);
 
     const saveBtn = screen.getByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
@@ -485,6 +504,7 @@ describe("EditGameEventModal Component", () => {
           locationY: null,
         }),
       );
+      expect(mockOnClose).toHaveBeenCalled();
     });
   });
 
@@ -511,11 +531,9 @@ describe("EditGameEventModal Component", () => {
       </Provider>,
     );
 
-    // Save button should be disabled while the request is pending
     const saveBtn = screen.getByRole("button", { name: /Save/i });
     expect(saveBtn).toBeDisabled();
 
-    // Resolve the coordinate loading promise
     await act(async () => {
       resolveGameEvents!({
         id: "action-123",
@@ -524,7 +542,6 @@ describe("EditGameEventModal Component", () => {
       });
     });
 
-    // Save button should become enabled once the promise resolves
     await waitFor(() => {
       expect(saveBtn).not.toBeDisabled();
     });
@@ -548,13 +565,377 @@ describe("EditGameEventModal Component", () => {
       </Provider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "Failed to load event coordinates.",
-      );
-    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to load event coordinates.",
+    );
 
     const saveBtn = screen.getByRole("button", { name: /Save/i });
     expect(saveBtn).toBeDisabled();
+  });
+
+  it("does not render SHOTS tab when selected action has isShot !== true", async () => {
+    const store = createStore();
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction}
+          matchId="match-1"
+          onClose={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("Pass")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /SHOTS/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders SHOTS tab dynamically when an action with isShot === true is selected", async () => {
+    const store = createStore();
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={{ ...sampleAction, eventDefinitionId: "def-2" }}
+          matchId="match-1"
+          onClose={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /SHOTS/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("allows switching to SHOTS tab, selecting target coordinates on the shot map, and saving them", async () => {
+    vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
+      id: "action-123",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-2",
+      periodNumber: 1,
+      eventTimestamp: "",
+      isLeadToGoal: false,
+      locationX: 35.5,
+      locationY: 70.0,
+      shotLocationX: 25,
+      shotLocationY: 80,
+      createdAt: "",
+      sequenceNumber: 1,
+      isSynced: 0,
+    });
+
+    const mockOnClose = vi.fn();
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={{ ...sampleAction, eventDefinitionId: "def-2" }}
+          matchId="match-1"
+          onClose={mockOnClose}
+        />
+      </Provider>,
+    );
+
+    const saveBtn = await screen.findByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+
+    const shotsTab = screen.getByRole("button", { name: /SHOTS/i });
+    fireEvent.click(shotsTab);
+
+    expect(await screen.findByText("Goal Shot Map")).toBeInTheDocument();
+
+    const shotMapArea = screen.getByLabelText("Goal Shot Location Map");
+    vi.spyOn(shotMapArea, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 100,
+      right: 200,
+      bottom: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+
+    // Click at (50, 20) on 200x100 rect -> X: 25%, Y: 80%
+    fireEvent.click(shotMapArea, { clientX: 50, clientY: 20 });
+    expect(screen.getByText("X: 25% | Y: 80%")).toBeInTheDocument();
+
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(eventService.updateGameEventTx).toHaveBeenCalledWith({
+        eventId: "action-123",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-2",
+        expectedSportId: "sport-1",
+        isLeadToGoal: false,
+        locationX: 35.5,
+        locationY: 70.0,
+        shotLocationX: 25,
+        shotLocationY: 80,
+        userId: "user-123",
+      });
+      expect(mockOnClose).toHaveBeenCalled();
+    });
+  });
+
+  it("preserves existing saved shot coordinates when opening SHOTS tab and saving without changes", async () => {
+    vi.mocked(db.gameevents.get).mockResolvedValueOnce({
+      id: "action-123",
+      locationX: 35.5,
+      locationY: 70.0,
+      shotLocationX: 10.0,
+      shotLocationY: 85.0,
+    });
+
+    vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
+      id: "action-123",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-2",
+      periodNumber: 1,
+      eventTimestamp: "",
+      isLeadToGoal: false,
+      locationX: 35.5,
+      locationY: 70.0,
+      shotLocationX: 10.0,
+      shotLocationY: 85.0,
+      createdAt: "",
+      sequenceNumber: 1,
+      isSynced: 0,
+    });
+
+    const mockOnClose = vi.fn();
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={{ ...sampleAction, eventDefinitionId: "def-2" }}
+          matchId="match-1"
+          onClose={mockOnClose}
+        />
+      </Provider>,
+    );
+
+    const saveBtn = await screen.findByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+
+    const shotsTab = screen.getByRole("button", { name: /SHOTS/i });
+    fireEvent.click(shotsTab);
+
+    expect(await screen.findByText("Goal Shot Map")).toBeInTheDocument();
+    expect(screen.getByText("X: 10% | Y: 85%")).toBeInTheDocument();
+
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(eventService.updateGameEventTx).toHaveBeenCalledWith({
+        eventId: "action-123",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-2",
+        expectedSportId: "sport-1",
+        isLeadToGoal: false,
+        locationX: 35.5,
+        locationY: 70.0,
+        shotLocationX: 10.0,
+        shotLocationY: 85.0,
+        userId: "user-123",
+      });
+      expect(mockOnClose).toHaveBeenCalled();
+    });
+  });
+
+  it("resets shotLocationX and shotLocationY to null when action switches to a non-shot action", async () => {
+    vi.mocked(db.gameevents.get).mockResolvedValueOnce({
+      id: "action-123",
+      locationX: 35.5,
+      locationY: 70.0,
+      shotLocationX: 15.0,
+      shotLocationY: 85.0,
+    });
+
+    vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
+      id: "action-123",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "",
+      isLeadToGoal: true,
+      locationX: 35.5,
+      locationY: 70.0,
+      shotLocationX: null,
+      shotLocationY: null,
+      createdAt: "",
+      sequenceNumber: 1,
+      isSynced: 0,
+    });
+
+    const mockOnClose = vi.fn();
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={{ ...sampleAction, eventDefinitionId: "def-2" }}
+          matchId="match-1"
+          onClose={mockOnClose}
+        />
+      </Provider>,
+    );
+
+    const saveBtn = await screen.findByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+
+    // Open SHOTS tab to verify existing non-null shot coordinates loaded into the modal
+    const shotsTab = screen.getByRole("button", { name: /SHOTS/i });
+    fireEvent.click(shotsTab);
+
+    expect(await screen.findByText("Goal Shot Map")).toBeInTheDocument();
+    expect(screen.getByText("X: 15% | Y: 85%")).toBeInTheDocument();
+
+    // Switch back to Positive tab and change action from Goal (isShot: true) to Pass (isShot: false)
+    fireEvent.click(screen.getByRole("button", { name: "Positive" }));
+    fireEvent.click(screen.getByText("Pass"));
+
+    expect(
+      screen.queryByRole("button", { name: /SHOTS/i }),
+    ).not.toBeInTheDocument();
+
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(eventService.updateGameEventTx).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventDefinitionId: "def-1",
+          shotLocationX: null,
+          shotLocationY: null,
+        }),
+      );
+      expect(mockOnClose).toHaveBeenCalled();
+    });
+  });
+
+  it("disables Save button and displays loading message while definitions loading is pending", async () => {
+    let resolveMatch: (value: unknown) => void;
+    const pendingMatchPromise = new Promise((resolve) => {
+      resolveMatch = resolve;
+    });
+
+    vi.mocked(db.matches.get).mockReturnValueOnce(
+      pendingMatchPromise as unknown as ReturnType<typeof db.matches.get>,
+    );
+
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction}
+          matchId="match-1"
+          onClose={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    expect(
+      screen.getByText("Loading action definitions..."),
+    ).toBeInTheDocument();
+
+    const saveBtn = screen.getByRole("button", { name: /Save/i });
+    expect(saveBtn).toBeDisabled();
+
+    await act(async () => {
+      resolveMatch!({
+        id: "match-1",
+        tournamentId: "tour-1",
+      });
+    });
+
+    await waitFor(() => {
+      expect(saveBtn).not.toBeDisabled();
+    });
+  });
+
+  it("disables InteractiveShotMap while save is pending", async () => {
+    let resolveUpdate!: (value: unknown) => void;
+    const pendingUpdate = new Promise((resolve) => {
+      resolveUpdate = resolve;
+    });
+    vi.mocked(eventService.updateGameEventTx).mockReturnValueOnce(
+      pendingUpdate as ReturnType<typeof eventService.updateGameEventTx>,
+    );
+
+    const mockOnClose = vi.fn();
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={{ ...sampleAction, eventDefinitionId: "def-2" }}
+          matchId="match-1"
+          onClose={mockOnClose}
+        />
+      </Provider>,
+    );
+
+    const saveBtn = await screen.findByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+
+    const shotsTab = screen.getByRole("button", { name: /SHOTS/i });
+    fireEvent.click(shotsTab);
+
+    const shotMapArea = await screen.findByLabelText("Goal Shot Location Map");
+    expect(shotMapArea).not.toBeDisabled();
+
+    // Trigger save and keep it pending
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => expect(shotMapArea).toBeDisabled());
+
+    // Clicking the map while disabled must not select target coordinates
+    vi.spyOn(shotMapArea, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 100,
+      right: 200,
+      bottom: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+    fireEvent.click(shotMapArea, { clientX: 50, clientY: 20 });
+    expect(screen.queryByText("X: 25% | Y: 80%")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveUpdate({
+        id: "action-123",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-2",
+        periodNumber: 1,
+        eventTimestamp: "",
+        isLeadToGoal: false,
+        locationX: 35.5,
+        locationY: 70.0,
+        shotLocationX: null,
+        shotLocationY: null,
+        createdAt: "",
+        sequenceNumber: 1,
+        isSynced: 0,
+      });
+    });
+
+    await waitFor(() => expect(mockOnClose).toHaveBeenCalled());
   });
 });

@@ -24,6 +24,10 @@ interface MockPresenceProps {
 let mockPeriodActive = true;
 let mockPeriodNumber = 1;
 let mockPendingLocation: { locationX: number; locationY: number } | null = null;
+let mockPendingShotLocation: {
+  shotLocationX: number;
+  shotLocationY: number;
+} | null = null;
 
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
@@ -49,6 +53,7 @@ vi.mock("../hooks/useMatchLifecycle", () => ({
 
 const mockRecordGameEvent = vi.fn();
 const mockHandleLocationSelect = vi.fn();
+const mockHandleShotLocationSelect = vi.fn();
 
 vi.mock("../hooks/useTTAConsole", async (importOriginal) => {
   const actual =
@@ -60,7 +65,9 @@ vi.mock("../hooks/useTTAConsole", async (importOriginal) => {
       return {
         ...result,
         pendingLocation: mockPendingLocation,
+        pendingShotLocation: mockPendingShotLocation,
         handleLocationSelect: mockHandleLocationSelect,
+        handleShotLocationSelect: mockHandleShotLocationSelect,
       };
     },
   };
@@ -96,6 +103,9 @@ vi.mock("../../../db/ttaDatabase", () => ({
     tournaments: {
       get: vi.fn(),
     },
+    sportconfigurations: {
+      get: vi.fn(),
+    },
     matchlineups: {
       get: vi.fn(),
       where: vi.fn().mockReturnValue({
@@ -107,11 +117,24 @@ vi.mock("../../../db/ttaDatabase", () => ({
     playerrosters: {
       get: vi.fn(),
     },
+    usereventpresets: {
+      where: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+    },
     eventdefinitions: {
       toArray: vi.fn(),
+      bulkGet: vi.fn().mockResolvedValue([]),
       where: vi.fn(() => ({
         equals: mockWhereEqualsToArray,
       })),
+    },
+    gameevents: {
+      where: vi.fn().mockReturnValue({
+        anyOf: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      }),
     },
   },
 }));
@@ -151,6 +174,21 @@ type RootState = ReturnType<typeof rootReducer>;
 
 const initialMatchState = matchReducer(undefined, { type: "unknown" });
 
+const createTestStore = (preloadedState?: Partial<RootState>) => {
+  return configureStore({
+    reducer: rootReducer,
+    preloadedState: {
+      match: {
+        ...initialMatchState,
+        activeMatchId: "test-id",
+        activeTeamId: "team-123",
+        isPeriodActive: true,
+      },
+      ...preloadedState,
+    } as unknown as RootState,
+  });
+};
+
 describe("TTAConsole Component", () => {
   const mockEventDefs = [
     {
@@ -184,6 +222,7 @@ describe("TTAConsole Component", () => {
     mockPeriodActive = true;
     mockPeriodNumber = 1;
     mockPendingLocation = null;
+    mockPendingShotLocation = null;
 
     vi.mocked(db.matches.get).mockResolvedValue({
       id: "test-id",
@@ -234,16 +273,7 @@ describe("TTAConsole Component", () => {
   });
 
   test("renders TTAConsole components correctly with active match", () => {
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -254,19 +284,10 @@ describe("TTAConsole Component", () => {
     expect(screen.getByText(/TTA Match Recorder/i)).toBeDefined();
   });
 
-  test("displays selected spatial coordinates when pendingLocation is set", () => {
+  test("displays selected field position coordinates when pendingLocation is set", () => {
     mockPendingLocation = { locationX: 45.5, locationY: 80.0 };
 
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -274,22 +295,27 @@ describe("TTAConsole Component", () => {
       </Provider>,
     );
 
-    expect(screen.getByText("Coordinates:")).toBeInTheDocument();
+    expect(screen.getByText(/Field Pos:/i)).toBeInTheDocument();
     expect(screen.getByText("[45.5%, 80%]")).toBeInTheDocument();
   });
 
+  test("displays selected goal target coordinates when pendingShotLocation is set", () => {
+    mockPendingShotLocation = { shotLocationX: 30.0, shotLocationY: 70.0 };
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    expect(screen.getByText(/Goal Target:/i)).toBeInTheDocument();
+    expect(screen.getByText("[30%, 70%]")).toBeInTheDocument();
+  });
+
   test("resets action selection when switching tabs between POSITIVE and NEGATIVE", async () => {
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -304,23 +330,13 @@ describe("TTAConsole Component", () => {
     const enterBtn = screen.getByRole("button", { name: /Enter/i });
     expect(enterBtn).not.toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: /Negative/i }));
+    fireEvent.click(screen.getByRole("tab", { name: /Negative/i }));
 
     expect(enterBtn).toBeDisabled();
   });
 
   test("successfully dispatches addRecentAction when ENTER is clicked", async () => {
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     mockRecordGameEvent.mockImplementationOnce(async ({ actionName }) => {
       store.dispatch(
@@ -370,17 +386,7 @@ describe("TTAConsole Component", () => {
         }),
     );
 
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -413,17 +419,7 @@ describe("TTAConsole Component", () => {
       new Error("Database write error"),
     );
 
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -445,17 +441,7 @@ describe("TTAConsole Component", () => {
   });
 
   test("resets selection and action states when period transitions", () => {
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     const { rerender } = render(
       <Provider store={store}>
@@ -499,17 +485,7 @@ describe("TTAConsole Component", () => {
   });
 
   test("records events with default isLeadToGoal = false for all actions", async () => {
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-        },
-      } as unknown as RootState,
-    });
+    const store = createTestStore();
 
     render(
       <Provider store={store}>
@@ -535,26 +511,23 @@ describe("TTAConsole Component", () => {
 
   test("triggers handleFinalizeSuccess, resets match and presence states, and calls onCompleteMatch", () => {
     const onCompleteMatchMock = vi.fn();
-    const store = configureStore({
-      reducer: rootReducer,
-      preloadedState: {
-        match: {
-          ...initialMatchState,
-          activeMatchId: "test-id",
-          activeTeamId: "team-123",
-          isPeriodActive: true,
-          homeScore: 5,
-          guestScore: 3,
-        },
-        presence: {
-          currentPeriod: 2,
-          activeLineupIds: ["p1", "p2"],
-          benchLineupIds: ["p3"],
-          selectedStartingIds: ["p4"],
-          activePlayersLimit: 7,
-          isLoading: false,
-        },
-      } as unknown as RootState,
+    const store = createTestStore({
+      match: {
+        ...initialMatchState,
+        activeMatchId: "test-id",
+        activeTeamId: "team-123",
+        isPeriodActive: true,
+        homeScore: 5,
+        guestScore: 3,
+      },
+      presence: {
+        currentPeriod: 2,
+        activeLineupIds: ["p1", "p2"],
+        benchLineupIds: ["p3"],
+        selectedStartingIds: ["p4"],
+        activePlayersLimit: 7,
+        isLoading: false,
+      },
     });
 
     render(
@@ -569,5 +542,48 @@ describe("TTAConsole Component", () => {
     expect(store.getState().match.activeMatchId).toBeNull();
     expect(store.getState().presence.currentPeriod).toBe(1);
     expect(store.getState().presence.activeLineupIds).toEqual([]);
+  });
+
+  test("passes disabled=true to TTAPanel and field map element when isSubmitting is true during event recording", async () => {
+    let resolveEvent: () => void;
+    mockRecordGameEvent.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveEvent = resolve;
+        }),
+    );
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    // Select action and player
+    const passBtn = await screen.findByText("Pass");
+    fireEvent.click(passBtn);
+    fireEvent.click(screen.getByText("Mock Player"));
+
+    // Switch to Map tab to display the interactive field map
+    const mapTabBtn = screen.getByRole("tab", { name: /Map/i });
+    fireEvent.click(mapTabBtn);
+
+    const fieldMapBtn = screen.getByRole("button", {
+      name: /Field Location Map/i,
+    });
+    expect(fieldMapBtn).toBeEnabled();
+
+    // Trigger event recording submission
+    const enterBtn = screen.getByRole("button", { name: /Enter/i });
+    fireEvent.click(enterBtn);
+
+    // Verify field map button element becomes disabled during pending submission
+    expect(fieldMapBtn).toBeDisabled();
+
+    await act(async () => {
+      resolveEvent!();
+    });
   });
 });

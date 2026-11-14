@@ -104,6 +104,9 @@ export function usePlayerPresence(matchId: string) {
   const startPeriodWithRoster = useCallback(
     async (startTimestamp: string, overridePeriodNumber?: number) => {
       const targetPeriod = overridePeriodNumber ?? currentPeriodRef.current;
+      if (activePlayersLimit <= 0) {
+        throw new Error("The active players limit is not configured.");
+      }
       if (selectedStartingIds.length !== activePlayersLimit) {
         throw new Error(
           `Starting lineup must contain exactly ${activePlayersLimit} players.`,

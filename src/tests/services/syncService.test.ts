@@ -1627,7 +1627,7 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
     );
   });
 
-  it("collects un-synced events, anchors, and presences, formats UTC ISO timestamps, and posts batch request without local metadata", async () => {
+  it("collects un-synced events, anchors, and presences, formats UTC ISO timestamps, and posts batch request without local metadata including shotLocationX and shotLocationY", async () => {
     const mockLineups = [{ id: "l1", matchId: "m123" }];
     const mockEvents = [
       {
@@ -1638,6 +1638,8 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
         isLeadToGoal: false,
         isSynced: 0,
         eventTimestamp: "2026-10-05T12:00:00Z",
+        shotLocationX: null,
+        shotLocationY: null,
       },
     ];
     const mockAnchors = [
@@ -1728,6 +1730,8 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
           isLeadToGoal: false,
           locationX: null,
           locationY: null,
+          shotLocationX: null,
+          shotLocationY: null,
         },
       ],
       anchors: [
@@ -1757,7 +1761,7 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
     expect(db.syncQueue.delete).toHaveBeenCalledWith(10);
   });
 
-  it("includes spatial locationX and locationY coordinates in batch request payload when present on events", async () => {
+  it("includes spatial locationX, locationY, shotLocationX, and shotLocationY coordinates in batch request payload when present on events", async () => {
     const mockLineups = [{ id: "l1", matchId: "m123" }];
     const mockEvents = [
       {
@@ -1770,6 +1774,8 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
         eventTimestamp: "2026-10-05T12:00:00Z",
         locationX: 45.5,
         locationY: 80.2,
+        shotLocationX: 30.5,
+        shotLocationY: 70.0,
       },
     ];
 
@@ -1812,6 +1818,8 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
           isLeadToGoal: true,
           locationX: 45.5,
           locationY: 80.2,
+          shotLocationX: 30.5,
+          shotLocationY: 70.0,
         },
       ],
       anchors: [],

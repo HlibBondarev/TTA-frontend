@@ -16,7 +16,7 @@ describe("presenceSlice reducers", () => {
     activeLineupIds: [],
     benchLineupIds: [],
     selectedStartingIds: [],
-    activePlayersLimit: 7,
+    activePlayersLimit: 0,
     isLoading: false,
   };
 

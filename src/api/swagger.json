@@ -6372,6 +6372,9 @@
           },
           "isPositive": {
             "type": "boolean"
+          },
+          "isShot": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -6408,6 +6411,16 @@
             "nullable": true
           },
           "locationY": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "shotLocationX": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "shotLocationY": {
             "type": "number",
             "format": "double",
             "nullable": true
@@ -6580,6 +6593,9 @@
           "isPositive": {
             "type": "boolean"
           },
+          "isShot": {
+            "type": "boolean"
+          },
           "isCustom": {
             "type": "boolean"
           },
@@ -6637,6 +6653,16 @@
             "nullable": true
           },
           "locationY": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "shotLocationX": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "shotLocationY": {
             "type": "number",
             "format": "double",
             "nullable": true
@@ -6895,6 +6921,16 @@
             "nullable": true
           },
           "locationY": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "shotLocationX": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "shotLocationY": {
             "type": "number",
             "format": "double",
             "nullable": true
@@ -7185,6 +7221,10 @@
           "fieldWidth": {
             "type": "number",
             "format": "double"
+          },
+          "shotMap": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -7537,6 +7577,16 @@
             "nullable": true
           },
           "locationY": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "shotLocationX": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "shotLocationY": {
             "type": "number",
             "format": "double",
             "nullable": true

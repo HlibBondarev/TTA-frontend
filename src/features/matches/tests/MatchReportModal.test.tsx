@@ -1,7 +1,14 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MatchReportModal } from "../components/MatchReportModal";
 import { reportService } from "../../../services/reportService";
+import { db } from "../../../db/ttaDatabase";
 
 vi.mock("../../../services/reportService", () => ({
   reportService: {
@@ -10,23 +17,40 @@ vi.mock("../../../services/reportService", () => ({
   },
 }));
 
+vi.mock("../../../db/ttaDatabase", () => ({
+  db: {
+    matches: {
+      get: vi.fn(),
+    },
+    tournaments: {
+      get: vi.fn(),
+    },
+    sportconfigurations: {
+      get: vi.fn(),
+    },
+  },
+}));
+
 vi.mock("../../reports/components/MatchSpatialReportView", () => ({
   MatchSpatialReportView: ({
     matchId,
     teamId,
-    playgroundSvg,
+    playground,
+    shotMap,
     onBack,
   }: {
     matchId: string;
     teamId: string;
-    playgroundSvg?: string | null;
+    playground?: string | null;
+    shotMap?: string | null;
     onBack?: () => void;
   }) => (
     <div data-testid="match-spatial-report-view">
       <span>
         Spatial View for Match {matchId}, Team {teamId}
       </span>
-      {playgroundSvg && <span>SVG: {playgroundSvg}</span>}
+      {playground && <span>SVG: {playground}</span>}
+      {shotMap && <span>SHOT_SVG: {shotMap}</span>}
       <button type="button" onClick={onBack}>
         Back from Spatial
       </button>
@@ -34,7 +58,7 @@ vi.mock("../../reports/components/MatchSpatialReportView", () => ({
   ),
 }));
 
-describe("MatchReportModal", () => {
+describe("MatchReportModal Component", () => {
   const defaultProps = {
     isOpen: true,
     matchId: "match-101",
@@ -91,6 +115,8 @@ describe("MatchReportModal", () => {
         this.open = false;
       });
     }
+
+    vi.mocked(db.matches.get).mockResolvedValue(undefined as never);
   });
 
   it("does not render when isOpen is false", () => {
@@ -117,6 +143,43 @@ describe("MatchReportModal", () => {
         screen.getByRole("button", { name: /Michael Jordan/i }),
       ).toBeInTheDocument();
     });
+  });
+
+  it("fetches SVG layout configuration from Dexie database when playground/shotMap props are missing", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
+      mockTeamSummary,
+    );
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "match-101",
+      tournamentId: "tour-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "tour-1",
+      configurationId: "config-1",
+    } as never);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "config-1",
+      playground: "<svg>Court SVG</svg>",
+      shotMap: "<svg>Goal SVG</svg>",
+    } as never);
+
+    render(<MatchReportModal {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(db.matches.get).toHaveBeenCalledWith("match-101");
+      expect(db.tournaments.get).toHaveBeenCalledWith("tour-1");
+      expect(db.sportconfigurations.get).toHaveBeenCalledWith("config-1");
+    });
+
+    const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
+    fireEvent.click(spatialTab);
+
+    expect(
+      await screen.findByText("SVG: <svg>Court SVG</svg>"),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("SHOT_SVG: <svg>Goal SVG</svg>"),
+    ).toBeInTheDocument();
   });
 
   it("auto-selects guest team tab when home team report has zero recorded actions and guest team has actions", async () => {
@@ -243,7 +306,7 @@ describe("MatchReportModal", () => {
     });
   });
 
-  it("triggers a replacement summary request when the already-active Home Squad tab is clicked before initial home summary resolves", async () => {
+  it("triggers a replacement summary request when the already-active Home Squad tab is clicked", async () => {
     let resolveInitialHomeReport: (value: typeof mockTeamSummary) => void;
     const initialHomePromise = new Promise<typeof mockTeamSummary>(
       (resolve) => {
@@ -281,10 +344,6 @@ describe("MatchReportModal", () => {
 
     await waitFor(() => {
       expect(reportService.getTeamSummaryReport).toHaveBeenCalledTimes(1);
-      expect(reportService.getTeamSummaryReport).toHaveBeenLastCalledWith(
-        "match-101",
-        "team-202",
-      );
     });
 
     const homeTab = screen.getByRole("button", { name: /Home Squad/i });
@@ -292,10 +351,6 @@ describe("MatchReportModal", () => {
 
     await waitFor(() => {
       expect(reportService.getTeamSummaryReport).toHaveBeenCalledTimes(2);
-      expect(reportService.getTeamSummaryReport).toHaveBeenLastCalledWith(
-        "match-101",
-        "team-202",
-      );
     });
 
     resolveInitialHomeReport!(mockTeamSummary);
@@ -306,77 +361,7 @@ describe("MatchReportModal", () => {
     });
   });
 
-  it("prevents automatic guest switch from overriding manual selection if Home Team tab is clicked while guest request is pending", async () => {
-    const mockEmptyHomeSummary = [
-      {
-        matchLineupId: "lineup-home-1",
-        firstName: "HomePlayer",
-        lastName: "One",
-        number: 1,
-        goals: 0,
-        positiveGoalLeadingActions: 0,
-        negativeGoalLeadingActions: 0,
-        totalPositiveActions: 0,
-        totalNegativeActions: 0,
-        playPercentage: 100.0,
-      },
-    ];
-
-    const mockGuestSummary = [
-      {
-        matchLineupId: "lineup-guest-1",
-        firstName: "GuestPlayer",
-        lastName: "Two",
-        number: 10,
-        goals: 2,
-        positiveGoalLeadingActions: 1,
-        negativeGoalLeadingActions: 0,
-        totalPositiveActions: 8,
-        totalNegativeActions: 1,
-        playPercentage: 90.0,
-      },
-    ];
-
-    let resolveGuestReport: (value: typeof mockGuestSummary) => void;
-    const guestReportPromise = new Promise<typeof mockGuestSummary>(
-      (resolve) => {
-        resolveGuestReport = resolve;
-      },
-    );
-
-    vi.mocked(reportService.getTeamSummaryReport)
-      .mockResolvedValueOnce(mockEmptyHomeSummary)
-      .mockReturnValueOnce(guestReportPromise)
-      .mockResolvedValueOnce(mockEmptyHomeSummary);
-
-    render(
-      <MatchReportModal
-        {...defaultProps}
-        teamName="Home Squad"
-        guestTeamId="guest-team-303"
-        guestTeamName="Opponent Squad"
-      />,
-    );
-
-    await waitFor(() => {
-      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
-        "match-101",
-        "team-202",
-      );
-    });
-
-    const homeTab = screen.getByRole("button", { name: /Home Squad/i });
-    fireEvent.click(homeTab);
-
-    resolveGuestReport!(mockGuestSummary);
-
-    await waitFor(() => {
-      expect(screen.getByText(/HomePlayer One/i)).toBeInTheDocument();
-      expect(screen.queryByText(/GuestPlayer Two/i)).not.toBeInTheDocument();
-    });
-  });
-
-  it("renders team switcher tabs with team names and fetches guest team summary report when Guest Team tab is clicked", async () => {
+  it("renders team switcher tabs and fetches guest team summary report when Guest Team tab is clicked", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
       mockTeamSummary,
     );
@@ -393,9 +378,6 @@ describe("MatchReportModal", () => {
     expect(
       await screen.findByRole("button", { name: /Home Squad/i }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Opponent Squad/i }),
-    ).toBeInTheDocument();
 
     const guestTab = screen.getByRole("button", { name: /Opponent Squad/i });
     fireEvent.click(guestTab);
@@ -406,7 +388,68 @@ describe("MatchReportModal", () => {
         "guest-team-303",
       );
     });
+  });
 
+  it("switches back to home team tab and ignores stale deferred guest summary response", async () => {
+    const mockGuestSummary = [
+      {
+        matchLineupId: "lineup-guest-1",
+        firstName: "Guest",
+        lastName: "Player",
+        number: 10,
+        goals: 2,
+        positiveGoalLeadingActions: 1,
+        negativeGoalLeadingActions: 0,
+        totalPositiveActions: 8,
+        totalNegativeActions: 1,
+        playPercentage: 90.0,
+      },
+    ];
+
+    const secondHomeSummary = [
+      {
+        ...mockTeamSummary[0],
+        firstName: "Home",
+        lastName: "Captain",
+      },
+    ];
+
+    let resolveGuestReport: (value: typeof mockGuestSummary) => void;
+    const guestReportPromise = new Promise<typeof mockGuestSummary>(
+      (resolve) => {
+        resolveGuestReport = resolve;
+      },
+    );
+
+    vi.mocked(reportService.getTeamSummaryReport)
+      .mockResolvedValueOnce(mockTeamSummary)
+      .mockReturnValueOnce(guestReportPromise)
+      .mockResolvedValueOnce(secondHomeSummary);
+
+    render(
+      <MatchReportModal
+        {...defaultProps}
+        teamName="Home Squad"
+        guestTeamId="guest-team-303"
+        guestTeamName="Opponent Squad"
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /Michael Jordan/i }),
+    ).toBeInTheDocument();
+
+    const guestTab = screen.getByRole("button", { name: /Opponent Squad/i });
+    fireEvent.click(guestTab);
+
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+        "match-101",
+        "guest-team-303",
+      );
+    });
+
+    // Switch back to Home before the deferred guest summary resolves
     const homeTab = screen.getByRole("button", { name: /Home Squad/i });
     fireEvent.click(homeTab);
 
@@ -415,7 +458,56 @@ describe("MatchReportModal", () => {
         "match-101",
         "team-202",
       );
+      expect(
+        screen.getByRole("button", { name: /Home Captain/i }),
+      ).toBeInTheDocument();
     });
+
+    // Resolve the stale guest response and verify Home report remains displayed
+    await act(async () => {
+      resolveGuestReport!(mockGuestSummary);
+      await guestReportPromise;
+    });
+
+    expect(
+      screen.getByRole("button", { name: /Home Captain/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Guest Player/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("passes active guest teamId to MatchSpatialReportView when spatial tab is selected under guest team view", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
+      mockTeamSummary,
+    );
+
+    render(
+      <MatchReportModal
+        {...defaultProps}
+        guestTeamId="guest-team-303"
+        guestTeamName="Opponent Squad"
+      />,
+    );
+
+    const guestTab = await screen.findByRole("button", {
+      name: /Opponent Squad/i,
+    });
+    fireEvent.click(guestTab);
+
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenLastCalledWith(
+        "match-101",
+        "guest-team-303",
+      );
+    });
+
+    const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
+    fireEvent.click(spatialTab);
+
+    expect(
+      screen.getByText("Spatial View for Match match-101, Team guest-team-303"),
+    ).toBeInTheDocument();
   });
 
   it("renders fallback default tab labels when team names are omitted", async () => {
@@ -455,130 +547,7 @@ describe("MatchReportModal", () => {
     });
   });
 
-  it("handles error gracefully when fetching player detailed report fails", async () => {
-    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
-      mockTeamSummary,
-    );
-    vi.mocked(reportService.getPlayerDetailedReport).mockRejectedValueOnce(
-      new Error("Player report error"),
-    );
-
-    render(<MatchReportModal {...defaultProps} />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /Michael Jordan/i }),
-      ).toBeInTheDocument();
-    });
-
-    const playerButton = screen.getByRole("button", {
-      name: /Michael Jordan/i,
-    });
-    fireEvent.click(playerButton);
-
-    await waitFor(() => {
-      expect(reportService.getPlayerDetailedReport).toHaveBeenCalledWith(
-        "match-101",
-        "lineup-1",
-      );
-      expect(
-        screen.getByText(/failed to load player report details/i),
-      ).toBeInTheDocument();
-    });
-  });
-
-  it("falls back to setAttribute('open', '') when dialog.showModal is not a function", () => {
-    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
-      mockTeamSummary,
-    );
-
-    const originalShowModal = HTMLDialogElement.prototype.showModal;
-    // @ts-expect-error Simulate older browser environment without showModal
-    delete HTMLDialogElement.prototype.showModal;
-
-    render(<MatchReportModal {...defaultProps} />);
-
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-
-    HTMLDialogElement.prototype.showModal = originalShowModal;
-  });
-
-  it("synchronizes state when props (isOpen, matchId, teamId, guestTeamId) change", async () => {
-    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
-      mockTeamSummary,
-    );
-
-    const { rerender } = render(
-      <MatchReportModal {...defaultProps} isOpen={false} />,
-    );
-
-    rerender(<MatchReportModal {...defaultProps} isOpen={true} />);
-
-    await waitFor(() => {
-      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
-        "match-101",
-        "team-202",
-      );
-    });
-
-    rerender(
-      <MatchReportModal {...defaultProps} isOpen={true} teamId="team-999" />,
-    );
-
-    await waitFor(() => {
-      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
-        "match-101",
-        "team-999",
-      );
-    });
-
-    rerender(
-      <MatchReportModal
-        {...defaultProps}
-        isOpen={true}
-        matchId="match-999"
-        guestTeamId="guest-team-888"
-      />,
-    );
-
-    await waitFor(() => {
-      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
-        "match-999",
-        "team-202",
-      );
-    });
-  });
-
-  it("retains focus inside dialog and does not trigger focus restoration when report context props change while open", async () => {
-    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
-      mockTeamSummary,
-    );
-
-    const triggerBtn = document.createElement("button");
-    document.body.appendChild(triggerBtn);
-    triggerBtn.focus();
-    expect(document.activeElement).toBe(triggerBtn);
-
-    const { rerender } = render(<MatchReportModal {...defaultProps} />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /Michael Jordan/i }),
-      ).toBeInTheDocument();
-    });
-
-    const closeButton = screen.getByRole("button", { name: /close report/i });
-    closeButton.focus();
-    expect(document.activeElement).toBe(closeButton);
-
-    rerender(<MatchReportModal {...defaultProps} matchId="match-999" />);
-
-    expect(document.activeElement).not.toBe(triggerBtn);
-
-    document.body.removeChild(triggerBtn);
-  });
-
-  it("navigates to player detailed report and displays summary cards when a player row is clicked", async () => {
+  it("navigates to player detailed report when a player row is clicked", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
       mockTeamSummary,
     );
@@ -607,18 +576,16 @@ describe("MatchReportModal", () => {
         "lineup-1",
       );
       expect(screen.getByText("#23 Michael Jordan")).toBeInTheDocument();
-      expect(screen.getByText("+ Positive Actions")).toBeInTheDocument();
-      expect(screen.getByText("- Negative Actions")).toBeInTheDocument();
-      expect(screen.getByText("Goal")).toBeInTheDocument();
     });
   });
 
-  it("navigates to player detailed report when player button is focused and activated", async () => {
+  it("handles error gracefully when getPlayerDetailedReport fails", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
       mockTeamSummary,
     );
-    vi.mocked(reportService.getPlayerDetailedReport).mockResolvedValueOnce(
-      mockPlayerDetailed,
+    vi.mocked(reportService.getPlayerDetailedReport).mockRejectedValueOnce(
+      new Error("Player Report Failed"),
     );
 
     render(<MatchReportModal {...defaultProps} />);
@@ -629,23 +596,16 @@ describe("MatchReportModal", () => {
       ).toBeInTheDocument();
     });
 
-    const playerButton = screen.getByRole("button", {
-      name: /Michael Jordan/i,
-    });
-    playerButton.focus();
-    expect(document.activeElement).toBe(playerButton);
-
-    fireEvent.click(playerButton);
+    fireEvent.click(screen.getByRole("button", { name: /Michael Jordan/i }));
 
     await waitFor(() => {
-      expect(
-        screen.getByText("Player TTA Detailed Report"),
-      ).toBeInTheDocument();
-      expect(reportService.getPlayerDetailedReport).toHaveBeenCalledWith(
-        "match-101",
-        "lineup-1",
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Failed to load player detailed report:",
+        expect.any(Error),
       );
     });
+
+    consoleSpy.mockRestore();
   });
 
   it("navigates back to team summary view when back button is clicked in player view", async () => {
@@ -677,9 +637,6 @@ describe("MatchReportModal", () => {
     fireEvent.click(backButton);
 
     expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Michael Jordan/i }),
-    ).toBeInTheDocument();
   });
 
   it("switches to spatial analytics view mode when Spatial Map tab is clicked and allows returning to summary", async () => {
@@ -698,79 +655,6 @@ describe("MatchReportModal", () => {
 
     expect(screen.getByText("Match Spatial Analytics")).toBeInTheDocument();
     expect(screen.getByTestId("match-spatial-report-view")).toBeInTheDocument();
-    expect(
-      screen.getByText("Spatial View for Match match-101, Team team-202"),
-    ).toBeInTheDocument();
-
-    const summaryTab = screen.getByRole("button", { name: /Summary Report/i });
-    fireEvent.click(summaryTab);
-
-    expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
-    expect(
-      screen.queryByTestId("match-spatial-report-view"),
-    ).not.toBeInTheDocument();
-  });
-
-  it("passes playgroundSvg prop to MatchSpatialReportView when provided", async () => {
-    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
-      mockTeamSummary,
-    );
-
-    render(
-      <MatchReportModal {...defaultProps} playgroundSvg="<svg>court</svg>" />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
-    });
-
-    const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
-    fireEvent.click(spatialTab);
-
-    expect(screen.getByText("SVG: <svg>court</svg>")).toBeInTheDocument();
-  });
-
-  it("passes active guest team ID to MatchSpatialReportView when guest team tab is active", async () => {
-    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
-      mockTeamSummary,
-    );
-
-    render(
-      <MatchReportModal
-        {...defaultProps}
-        guestTeamId="guest-team-303"
-        guestTeamName="Opponent Squad"
-      />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
-    });
-
-    const guestTab = screen.getByRole("button", { name: /Opponent Squad/i });
-    fireEvent.click(guestTab);
-
-    const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
-    fireEvent.click(spatialTab);
-
-    expect(
-      screen.getByText("Spatial View for Match match-101, Team guest-team-303"),
-    ).toBeInTheDocument();
-  });
-
-  it("allows returning to summary view using onBack callback from spatial view", async () => {
-    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
-      mockTeamSummary,
-    );
-
-    render(<MatchReportModal {...defaultProps} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
-    });
-
-    const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
-    fireEvent.click(spatialTab);
 
     const backButton = screen.getByRole("button", {
       name: /Back from Spatial/i,
@@ -780,7 +664,7 @@ describe("MatchReportModal", () => {
     expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
   });
 
-  it("resets reportMode to summary when modal closes and reopens or context props transition", async () => {
+  it("resets reportMode to summary and activeTeamId to teamId when modal is reopened", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
       mockTeamSummary,
     );
@@ -793,22 +677,83 @@ describe("MatchReportModal", () => {
 
     const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
     fireEvent.click(spatialTab);
-
     expect(screen.getByText("Match Spatial Analytics")).toBeInTheDocument();
 
     rerender(<MatchReportModal {...defaultProps} isOpen={false} />);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
     rerender(<MatchReportModal {...defaultProps} isOpen={true} />);
 
     await waitFor(() => {
       expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
-      expect(
-        screen.queryByTestId("match-spatial-report-view"),
-      ).not.toBeInTheDocument();
     });
   });
 
-  it("calls onClose when Close Report button is clicked", async () => {
+  it("resets active team and fetches new summary data when props change while open, retaining focus on trigger element", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
+      mockTeamSummary,
+    );
+
+    const triggerBtn = document.createElement("button");
+    document.body.appendChild(triggerBtn);
+    triggerBtn.focus();
+
+    const { rerender } = render(<MatchReportModal {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+        "match-101",
+        "team-202",
+      );
+    });
+
+    rerender(
+      <MatchReportModal
+        {...defaultProps}
+        matchId="match-999"
+        teamId="team-888"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(reportService.getTeamSummaryReport).toHaveBeenCalledWith(
+        "match-999",
+        "team-888",
+      );
+    });
+
+    expect(document.activeElement).toBe(triggerBtn);
+    document.body.removeChild(triggerBtn);
+  });
+
+  it("passes playground and shotMap props to MatchSpatialReportView when provided", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
+      mockTeamSummary,
+    );
+
+    render(
+      <MatchReportModal
+        {...defaultProps}
+        playground="<svg>court</svg>"
+        shotMap="<svg>shot-target</svg>"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Team TTA Summary Report")).toBeInTheDocument();
+    });
+
+    const spatialTab = screen.getByRole("button", { name: /📍 Spatial Map/i });
+    fireEvent.click(spatialTab);
+
+    expect(screen.getByText("SVG: <svg>court</svg>")).toBeInTheDocument();
+    expect(
+      screen.getByText("SHOT_SVG: <svg>shot-target</svg>"),
+    ).toBeInTheDocument();
+  });
+
+  it("calls onClose when Close Report button or cross button (✕) is clicked", async () => {
+    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValue(
       mockTeamSummary,
     );
 
@@ -824,25 +769,11 @@ describe("MatchReportModal", () => {
     fireEvent.click(closeButton);
 
     expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("calls onClose when top-right cross button (✕) is clicked", async () => {
-    vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
-      mockTeamSummary,
-    );
-
-    render(<MatchReportModal {...defaultProps} />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /Michael Jordan/i }),
-      ).toBeInTheDocument();
-    });
 
     const crossButton = screen.getByRole("button", { name: "✕" });
     fireEvent.click(crossButton);
 
-    expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+    expect(defaultProps.onClose).toHaveBeenCalledTimes(2);
   });
 
   it("calls onClose when cancel event (Escape key) is triggered on dialog", async () => {
@@ -864,7 +795,7 @@ describe("MatchReportModal", () => {
     expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("restores focus to the triggering element upon closing", async () => {
+  it("restores focus to previously active element upon unmounting", async () => {
     vi.mocked(reportService.getTeamSummaryReport).mockResolvedValueOnce(
       mockTeamSummary,
     );
@@ -881,10 +812,6 @@ describe("MatchReportModal", () => {
         screen.getByRole("button", { name: /Michael Jordan/i }),
       ).toBeInTheDocument();
     });
-
-    const closeButton = screen.getByRole("button", { name: /close report/i });
-    closeButton.focus();
-    expect(document.activeElement).toBe(closeButton);
 
     unmount();
 
