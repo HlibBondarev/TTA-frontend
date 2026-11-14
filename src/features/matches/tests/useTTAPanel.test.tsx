@@ -137,7 +137,7 @@ describe("useTTAPanel Custom Hook", () => {
     vi.mocked(db.sportconfigurations.get).mockResolvedValue({
       id: "config-1",
       playground: "<svg>Pool</svg>",
-      shotMap: "<svg>Goal Frame</svg>",
+      shotMap: '<svg viewBox="0 0 100 100">Goal Frame</svg>',
     } as unknown as Awaited<ReturnType<typeof db.sportconfigurations.get>>);
     mockWhereEqualsToArray.mockReturnValue({
       toArray: vi.fn().mockResolvedValue(mockDefinitions),
@@ -163,7 +163,9 @@ describe("useTTAPanel Custom Hook", () => {
       expect(result.current.displayedActions).toHaveLength(1);
       expect(result.current.displayedActions[0].name).toBe("Goal Shot");
       expect(result.current.playground).toBe("<svg>Pool</svg>");
-      expect(result.current.shotMap).toBe("<svg>Goal Frame</svg>");
+      expect(result.current.shotMap).toBe(
+        '<svg viewBox="0 0 100 100">Goal Frame</svg>',
+      );
     });
   });
 
@@ -361,7 +363,9 @@ describe("useTTAPanel Custom Hook", () => {
 
     await waitFor(() => {
       expect(result.current.playground).toBe("<svg>Pool</svg>");
-      expect(result.current.shotMap).toBe("<svg>Goal Frame</svg>");
+      expect(result.current.shotMap).toBe(
+        '<svg viewBox="0 0 100 100">Goal Frame</svg>',
+      );
       expect(result.current.displayedActions).toEqual([]);
     });
   });
@@ -413,6 +417,39 @@ describe("useTTAPanel Custom Hook", () => {
     });
 
     expect(result.current.shotMap).toBeNull();
+    expect(result.current.isShotSelected).toBe(false);
+
+    rerender({
+      selectedActionDefinitionId: "def-1",
+      hasShotLocation: true,
+    });
+
+    expect(result.current.isShotSelected).toBe(true);
+  });
+
+  it("should keep isShotSelected false when shotMap lacks valid dimensions and no shot coordinates exist", async () => {
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "config-1",
+      playground: "<svg>Pool</svg>",
+      shotMap: "<svg>Goal Frame</svg>",
+    } as unknown as Awaited<ReturnType<typeof db.sportconfigurations.get>>);
+
+    const store = createTestStore({
+      match: { activeMatchId: "match-123" },
+    });
+
+    const { result, rerender } = renderHook((props) => useTTAPanel(props), {
+      wrapper: createWrapper(store),
+      initialProps: {
+        selectedActionDefinitionId: "def-1",
+        hasShotLocation: false,
+      },
+    });
+
+    await waitFor(() => {
+      expect(result.current.shotMap).toBe("<svg>Goal Frame</svg>");
+    });
+
     expect(result.current.isShotSelected).toBe(false);
 
     rerender({

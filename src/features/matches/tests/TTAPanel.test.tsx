@@ -250,7 +250,7 @@ describe("TTAPanel Component", () => {
     vi.mocked(db.sportconfigurations.get).mockResolvedValue({
       id: "config-1",
       playground: "<svg>Playground</svg>",
-      shotMap: "<svg>Goal Frame</svg>",
+      shotMap: '<svg viewBox="0 0 100 100">Goal Frame</svg>',
     } as never);
 
     mockUserPresetsWhere.mockReturnValue({

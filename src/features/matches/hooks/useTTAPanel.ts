@@ -8,6 +8,7 @@ import {
   isSportHydratedForUser,
 } from "../../../db/eventService";
 import type { RootState } from "../../../store";
+import { parseSvgDimensions } from "../../../utils/svgUtils";
 
 export interface UseTTAPanelOptions {
   userId?: string;
@@ -191,9 +192,10 @@ export function useTTAPanel(options?: UseTTAPanelOptions) {
   const selectedActionDef = eventDefinitions.find(
     (def) => def.id === options?.selectedActionDefinitionId,
   );
+
   const isShotSelected =
     Boolean(selectedActionDef?.isShot) &&
-    (Boolean(shotMap) || Boolean(options?.hasShotLocation));
+    (Boolean(parseSvgDimensions(shotMap)) || Boolean(options?.hasShotLocation));
 
   // Switch away from "shots" tab during render if current action is no longer a shot
   if (activeTab === "shots" && !isShotSelected) {
