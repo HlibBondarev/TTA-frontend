@@ -146,6 +146,223 @@ describe("useEventDefinitionsConfigurator", () => {
     expect(toggledDef?.isEnabled).toBe(false);
   });
 
+  it("should reset isAllActiveCategorySelected and set indeterminate when a single item in active category is unchecked", async () => {
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.isAllActiveCategorySelected).toBe(true);
+    expect(result.current.isActiveCategoryIndeterminate).toBe(false);
+
+    // Uncheck one positive action
+    act(() => {
+      result.current.handleToggleEnabled("def-1");
+    });
+
+    expect(result.current.isAllActiveCategorySelected).toBe(false);
+    expect(result.current.isActiveCategoryIndeterminate).toBe(true);
+
+    // Uncheck the remaining positive action
+    act(() => {
+      result.current.handleToggleEnabled("def-2");
+    });
+
+    expect(result.current.isAllActiveCategorySelected).toBe(false);
+    expect(result.current.isActiveCategoryIndeterminate).toBe(false);
+  });
+
+  it("should toggle all definitions only within POSITIVE tab without affecting NEGATIVE definitions", async () => {
+    const onPresetModified = vi.fn();
+    const onChange = vi.fn();
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({
+        sportId: mockSportId,
+        onPresetModified,
+        onChange,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.activeTab).toBe("POSITIVE");
+    expect(result.current.isAllActiveCategorySelected).toBe(true);
+
+    // Unselect all POSITIVE definitions
+    act(() => {
+      result.current.handleToggleAll();
+    });
+
+    expect(result.current.isAllActiveCategorySelected).toBe(false);
+    expect(result.current.activePositiveCount).toBe(0);
+    // NEGATIVE definition remains enabled
+    expect(result.current.activeNegativeCount).toBe(1);
+    expect(onChange).toHaveBeenLastCalledWith(["def-3"]);
+    expect(onPresetModified).toHaveBeenCalledTimes(1);
+
+    // Re-select all POSITIVE definitions
+    act(() => {
+      result.current.handleToggleAll();
+    });
+
+    expect(result.current.isAllActiveCategorySelected).toBe(true);
+    expect(result.current.activePositiveCount).toBe(2);
+    expect(result.current.activeNegativeCount).toBe(1);
+    expect(onChange).toHaveBeenLastCalledWith(["def-1", "def-2", "def-3"]);
+    expect(onPresetModified).toHaveBeenCalledTimes(2);
+  });
+
+  it("should toggle all definitions only within NEGATIVE tab without affecting POSITIVE definitions", async () => {
+    const onPresetModified = vi.fn();
+    const onChange = vi.fn();
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({
+        sportId: mockSportId,
+        onPresetModified,
+        onChange,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setActiveTab("NEGATIVE");
+    });
+
+    expect(result.current.isAllActiveCategorySelected).toBe(true);
+
+    // Unselect all NEGATIVE definitions
+    act(() => {
+      result.current.handleToggleAll();
+    });
+
+    expect(result.current.isAllActiveCategorySelected).toBe(false);
+    expect(result.current.activeNegativeCount).toBe(0);
+    // POSITIVE definitions remain enabled
+    expect(result.current.activePositiveCount).toBe(2);
+    expect(onChange).toHaveBeenLastCalledWith(["def-1", "def-2"]);
+    expect(onPresetModified).toHaveBeenCalledTimes(1);
+
+    // Re-select all NEGATIVE definitions
+    act(() => {
+      result.current.handleToggleAll();
+    });
+
+    expect(result.current.isAllActiveCategorySelected).toBe(true);
+    expect(result.current.activeNegativeCount).toBe(1);
+    expect(onChange).toHaveBeenLastCalledWith(["def-1", "def-2", "def-3"]);
+    expect(onPresetModified).toHaveBeenCalledTimes(2);
+  });
+
+  it("should enable all items in active category when only a subset is currently selected", async () => {
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue([
+      {
+        id: "def-1",
+        name: "Goal",
+        shortName: "G",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+      {
+        id: "def-2",
+        name: "Assist",
+        shortName: "A",
+        isPositive: true,
+        isEnabled: false,
+        sortOrder: 2,
+      },
+    ]);
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.isAllActiveCategorySelected).toBe(false);
+    expect(result.current.isActiveCategoryIndeterminate).toBe(true);
+
+    act(() => {
+      result.current.handleToggleAll();
+    });
+
+    expect(result.current.isAllActiveCategorySelected).toBe(true);
+    expect(result.current.isActiveCategoryIndeterminate).toBe(false);
+    expect(result.current.activePositiveCount).toBe(2);
+  });
+
+  it("should report error if syncToDexie fails during handleToggleAll", async () => {
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    vi.mocked(replaceSportEventDefinitionsInDb).mockRejectedValueOnce(
+      new Error("Dexie sync failed during bulk toggle"),
+    );
+
+    act(() => {
+      result.current.handleToggleAll();
+    });
+
+    await waitFor(() => {
+      expect(result.current.error).toBe("Dexie sync failed during bulk toggle");
+    });
+  });
+
+  it("should ignore handleToggleAll when active category has no definitions", async () => {
+    vi.mocked(eventDefinitionService.getAvailableForSport).mockResolvedValue([
+      {
+        id: "def-1",
+        name: "Goal",
+        shortName: "G",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+    ]);
+
+    const onPresetModified = vi.fn();
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({
+        sportId: mockSportId,
+        onPresetModified,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setActiveTab("NEGATIVE");
+    });
+
+    expect(result.current.isAllActiveCategorySelected).toBe(false);
+    expect(result.current.isActiveCategoryIndeterminate).toBe(false);
+
+    act(() => {
+      result.current.handleToggleAll();
+    });
+
+    expect(onPresetModified).not.toHaveBeenCalled();
+  });
+
   it("should report error if syncToDexie fails during handleToggleEnabled", async () => {
     const { result } = renderHook(() =>
       useEventDefinitionsConfigurator({ sportId: mockSportId }),
@@ -788,6 +1005,7 @@ describe("useEventDefinitionsConfigurator", () => {
 
     act(() => {
       result.current.handleToggleEnabled("def-1");
+      result.current.handleToggleAll();
       result.current.handleMove("def-1", "down");
     });
 

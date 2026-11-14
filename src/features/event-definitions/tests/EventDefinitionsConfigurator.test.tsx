@@ -46,6 +46,8 @@ describe("EventDefinitionsConfigurator Component", () => {
     ],
     activePositiveCount: 1,
     activeNegativeCount: 0,
+    isAllActiveCategorySelected: true,
+    isActiveCategoryIndeterminate: false,
     setActiveTab: vi.fn(),
     setIsModalOpen: vi.fn(),
     setIsConfirmZeroModalOpen: vi.fn(),
@@ -56,6 +58,7 @@ describe("EventDefinitionsConfigurator Component", () => {
     setNewIsShot: vi.fn(),
     setCreating: vi.fn(),
     handleToggleEnabled: vi.fn(),
+    handleToggleAll: vi.fn(),
     handleMove: vi.fn(),
     handleSavePreset: vi.fn(),
     handleConfirmDefaultPreset: vi.fn(),
@@ -108,10 +111,13 @@ describe("EventDefinitionsConfigurator Component", () => {
     );
   });
 
-  it("should display empty category message when activeCategoryDefs is empty", () => {
+  it("should display empty category message and disable Select all checkbox when activeCategoryDefs is empty", () => {
     vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
       ...defaultHookReturn,
       activeCategoryDefs: [],
+      activePositiveCount: 0,
+      isAllActiveCategorySelected: false,
+      isActiveCategoryIndeterminate: false,
     });
 
     render(<EventDefinitionsConfigurator sportId="water-polo" />);
@@ -119,6 +125,10 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(
       screen.getByText("No positive definitions available."),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: /Select all positive actions/i }),
+    ).toBeDisabled();
+    expect(screen.getByText("0 / 0")).toBeInTheDocument();
   });
 
   it("should trigger setActiveTab when clicking tab buttons", () => {
@@ -130,14 +140,14 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(defaultHookReturn.setActiveTab).toHaveBeenCalledWith("NEGATIVE");
   });
 
-  it("should render badges for isShot and isCustom definitions", () => {
+  it("should render full long action name without truncation alongside shortName, Shot, and Custom badges", () => {
     vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
       ...defaultHookReturn,
       activeCategoryDefs: [
         {
           id: "def-custom-shot",
-          name: "Center Shot",
-          shortName: "CS",
+          name: "Counter Attack Goal",
+          shortName: "CAG+",
           isPositive: true,
           isShot: true,
           isCustom: true,
@@ -149,10 +159,142 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     render(<EventDefinitionsConfigurator sportId="water-polo" />);
 
-    expect(screen.getByText("Center Shot")).toBeInTheDocument();
-    expect(screen.getByText("CS")).toBeInTheDocument();
+    const titleElement = screen.getByText("Counter Attack Goal");
+    expect(titleElement).toBeInTheDocument();
+    expect(titleElement).not.toHaveClass("truncate");
+    expect(screen.getByText("CAG+")).toBeInTheDocument();
     expect(screen.getByText("Shot")).toBeInTheDocument();
     expect(screen.getByText("Custom")).toBeInTheDocument();
+  });
+
+  it("should render Delete Custom Action button before Move Up and Move Down buttons for custom rows", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      activeCategoryDefs: [
+        {
+          id: "def-custom-1",
+          name: "Counter Attack Goal",
+          shortName: "CAG+",
+          isPositive: true,
+          isShot: true,
+          isCustom: true,
+          isEnabled: true,
+          sortOrder: 1,
+        },
+      ],
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    const deleteButton = screen.getByTitle("Delete Custom Action");
+    const moveUpButton = screen.getByTitle("Move Up");
+    const moveDownButton = screen.getByTitle("Move Down");
+
+    expect(
+      deleteButton.compareDocumentPosition(moveUpButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      moveUpButton.compareDocumentPosition(moveDownButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("should render Select all checkbox for active category, reflect checked/indeterminate states, and trigger handleToggleAll", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      activeTab: "NEGATIVE",
+      activeCategoryDefs: [
+        {
+          id: "def-neg-1",
+          name: "Exclusion",
+          shortName: "EX",
+          isPositive: false,
+          isEnabled: true,
+          sortOrder: 1,
+        },
+        {
+          id: "def-neg-2",
+          name: "Turnover",
+          shortName: "TO",
+          isPositive: false,
+          isEnabled: false,
+          sortOrder: 2,
+        },
+      ],
+      activeNegativeCount: 1,
+      isAllActiveCategorySelected: false,
+      isActiveCategoryIndeterminate: true,
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    const selectAllCheckbox = screen.getByRole("checkbox", {
+      name: /Select all negative actions/i,
+    }) as HTMLInputElement;
+
+    expect(selectAllCheckbox.checked).toBe(false);
+    expect(selectAllCheckbox.indeterminate).toBe(true);
+    expect(screen.getByText("1 / 2")).toBeInTheDocument();
+
+    fireEvent.click(selectAllCheckbox);
+    expect(defaultHookReturn.handleToggleAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("should preserve indeterminate state on Select all checkbox when loading transitions from true to false", () => {
+    const partialPositiveDefs = [
+      {
+        id: "def-1",
+        name: "Goal",
+        shortName: "G",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+      {
+        id: "def-2",
+        name: "Assist",
+        shortName: "A",
+        isPositive: true,
+        isEnabled: false,
+        sortOrder: 2,
+      },
+    ];
+
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      loading: true,
+      activeCategoryDefs: partialPositiveDefs,
+      activePositiveCount: 1,
+      isAllActiveCategorySelected: false,
+      isActiveCategoryIndeterminate: true,
+    });
+
+    const { rerender } = render(
+      <EventDefinitionsConfigurator sportId="water-polo" />,
+    );
+
+    expect(
+      screen.getByText("Loading action definitions..."),
+    ).toBeInTheDocument();
+
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      loading: false,
+      activeCategoryDefs: partialPositiveDefs,
+      activePositiveCount: 1,
+      isAllActiveCategorySelected: false,
+      isActiveCategoryIndeterminate: true,
+    });
+
+    rerender(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    const selectAllCheckbox = screen.getByRole("checkbox", {
+      name: /Select all positive actions/i,
+    }) as HTMLInputElement;
+
+    expect(selectAllCheckbox.checked).toBe(false);
+    expect(selectAllCheckbox.indeterminate).toBe(true);
   });
 
   it("should trigger handleMove up and down for list items", () => {
@@ -241,6 +383,9 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     expect(
       screen.getByRole("button", { name: /^Custom Action$/i }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("checkbox", { name: /Select all positive actions/i }),
     ).toBeDisabled();
     expect(
       screen.getByRole("checkbox", { name: /Enable Custom Action/i }),
