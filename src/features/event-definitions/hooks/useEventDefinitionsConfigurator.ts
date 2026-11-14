@@ -551,6 +551,45 @@ export function useEventDefinitionsConfigurator({
     (d) => d.isEnabled,
   ).length;
 
+  const activeCategorySelectedCount =
+    activeTab === "POSITIVE" ? activePositiveCount : activeNegativeCount;
+
+  const isAllActiveCategorySelected =
+    activeCategoryDefs.length > 0 &&
+    activeCategoryDefs.every((d) => Boolean(d.isEnabled));
+
+  const isActiveCategoryIndeterminate =
+    activeCategorySelectedCount > 0 &&
+    activeCategorySelectedCount < activeCategoryDefs.length;
+
+  const handleToggleAll = () => {
+    if (isLocked || activeCategoryDefs.length === 0) return;
+
+    const shouldEnableAll = !isAllActiveCategorySelected;
+    const isTargetCategory = (def: EventDefinitionResponse) =>
+      activeTab === "POSITIVE" ? Boolean(def.isPositive) : !def.isPositive;
+
+    const updatedDefinitions = definitions.map((def) =>
+      isTargetCategory(def) ? { ...def, isEnabled: shouldEnableAll } : def,
+    );
+
+    const finalDefinitions = updatedDefinitions.map((item, idx) => ({
+      ...item,
+      sortOrder: idx + 1,
+    }));
+
+    setDefinitions(finalDefinitions);
+    notifyParent(finalDefinitions);
+    syncToDexie(finalDefinitions).catch((err) => {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to sync action definitions.",
+      );
+    });
+    onPresetModified?.();
+  };
+
   return {
     definitions,
     activeTab,
@@ -571,6 +610,8 @@ export function useEventDefinitionsConfigurator({
     activeCategoryDefs,
     activePositiveCount,
     activeNegativeCount,
+    isAllActiveCategorySelected,
+    isActiveCategoryIndeterminate,
     setActiveTab,
     setIsModalOpen,
     setIsConfirmZeroModalOpen,
@@ -581,6 +622,7 @@ export function useEventDefinitionsConfigurator({
     setNewIsShot,
     setCreating,
     handleToggleEnabled,
+    handleToggleAll,
     handleMove,
     handleSavePreset,
     handleConfirmDefaultPreset,
