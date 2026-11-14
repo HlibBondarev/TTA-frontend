@@ -46,6 +46,18 @@ export const useSpatialMap = ({
 }: UseSpatialMapParams) => {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
+  const [prevEvents, setPrevEvents] = useState(events);
+
+  if (prevEvents !== events) {
+    setPrevEvents(events);
+    if (
+      selectedEventId !== null &&
+      !events.some((e) => e.id === selectedEventId)
+    ) {
+      setSelectedEventId(null);
+    }
+  }
+
   const autoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -330,6 +342,10 @@ export const useSpatialMap = ({
     (eventId: string) => {
       isAutoDismissPausedRef.current = false;
       clearAutoDismissTimer();
+      if (!events.some((e) => e.id === eventId)) {
+        setSelectedEventId(null);
+        return;
+      }
       setSelectedEventId((prev) => {
         const clickedPt = renderablePoints.find((p) => p.event.id === eventId);
         if (!clickedPt) return prev === eventId ? null : eventId;
@@ -366,6 +382,7 @@ export const useSpatialMap = ({
     },
     [
       clearAutoDismissTimer,
+      events,
       eventOrderMap,
       renderablePoints,
       viewBoxWidth,

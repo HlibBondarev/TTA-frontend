@@ -1009,4 +1009,40 @@ describe("useSpatialMap Custom Hook", () => {
     expect(result.current.selectedEventId).toBeNull();
     expect(result.current.hoveredEventId).toBeNull();
   });
+
+  it("clears selectedEventId when the selected event is filtered out so activeEvent falls back to hoveredEventId", () => {
+    const { result, rerender } = renderHook(
+      ({ activeEvents }) =>
+        useSpatialMap({
+          events: activeEvents,
+          allEvents: mockEvents,
+          eventDefinitionsMap: mockEventDefinitionsMap,
+          viewBoxWidth: 600,
+          viewBoxHeight: 1000,
+        }),
+      {
+        initialProps: { activeEvents: mockEvents },
+      },
+    );
+
+    // Select event-1 while both event-1 and event-2 are visible
+    act(() => {
+      result.current.handleMarkerClick("event-1");
+    });
+    expect(result.current.selectedEventId).toBe("event-1");
+    expect(result.current.activeEvent?.id).toBe("event-1");
+
+    // Filter events so event-1 is removed and only event-2 remains
+    rerender({ activeEvents: [mockEvents[1]] });
+
+    expect(result.current.selectedEventId).toBeNull();
+    expect(result.current.activeEvent).toBeNull();
+
+    // Hovering visible event-2 now resolves activeEvent via hoveredEventId fallback
+    act(() => {
+      result.current.handleMarkerMouseEnter("event-2");
+    });
+    expect(result.current.hoveredEventId).toBe("event-2");
+    expect(result.current.activeEvent?.id).toBe("event-2");
+  });
 });
