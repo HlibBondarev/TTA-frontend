@@ -68,7 +68,7 @@ export const EventDefinitionsConfigurator: React.FC<
         isActiveCategoryIndeterminate,
       );
     }
-  }, [isActiveCategoryIndeterminate]);
+  }, [isActiveCategoryIndeterminate, loading]);
 
   if (loading) {
     return (

@@ -241,6 +241,62 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(defaultHookReturn.handleToggleAll).toHaveBeenCalledTimes(1);
   });
 
+  it("should preserve indeterminate state on Select all checkbox when loading transitions from true to false", () => {
+    const partialPositiveDefs = [
+      {
+        id: "def-1",
+        name: "Goal",
+        shortName: "G",
+        isPositive: true,
+        isEnabled: true,
+        sortOrder: 1,
+      },
+      {
+        id: "def-2",
+        name: "Assist",
+        shortName: "A",
+        isPositive: true,
+        isEnabled: false,
+        sortOrder: 2,
+      },
+    ];
+
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      loading: true,
+      activeCategoryDefs: partialPositiveDefs,
+      activePositiveCount: 1,
+      isAllActiveCategorySelected: false,
+      isActiveCategoryIndeterminate: true,
+    });
+
+    const { rerender } = render(
+      <EventDefinitionsConfigurator sportId="water-polo" />,
+    );
+
+    expect(
+      screen.getByText("Loading action definitions..."),
+    ).toBeInTheDocument();
+
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      loading: false,
+      activeCategoryDefs: partialPositiveDefs,
+      activePositiveCount: 1,
+      isAllActiveCategorySelected: false,
+      isActiveCategoryIndeterminate: true,
+    });
+
+    rerender(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    const selectAllCheckbox = screen.getByRole("checkbox", {
+      name: /Select all positive actions/i,
+    }) as HTMLInputElement;
+
+    expect(selectAllCheckbox.checked).toBe(false);
+    expect(selectAllCheckbox.indeterminate).toBe(true);
+  });
+
   it("should trigger handleMove up and down for list items", () => {
     const twoDefs = [
       {
