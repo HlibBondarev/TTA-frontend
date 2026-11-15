@@ -84,7 +84,6 @@ export function useEventDefinitionsConfigurator({
   const [modalError, setModalError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newShortName, setNewShortName] = useState("");
-  const [newIsPositive, setNewIsPositive] = useState(true);
   const [newIsShot, setNewIsShot] = useState(false);
 
   const onChangeRef = useRef(onChange);
@@ -93,6 +92,21 @@ export function useEventDefinitionsConfigurator({
   const definitionsRef = useRef(definitions);
 
   const isLocked = disabled || saving || creating || deleting;
+
+  const resetCustomModalForm = useCallback(() => {
+    setNewName("");
+    setNewShortName("");
+    setNewIsShot(false);
+    setModalError(null);
+  }, []);
+
+  const updateModalOpen = useCallback(
+    (open: boolean) => {
+      resetCustomModalForm();
+      setIsModalOpen(open);
+    },
+    [resetCustomModalForm],
+  );
 
   useLayoutEffect(() => {
     onChangeRef.current = onChange;
@@ -423,6 +437,7 @@ export function useEventDefinitionsConfigurator({
     if (isLocked || !newName.trim() || !newShortName.trim()) return;
 
     const requestId = requestCountRef.current;
+    const isPositive = activeTab === "POSITIVE";
 
     try {
       setCreating(true);
@@ -435,7 +450,7 @@ export function useEventDefinitionsConfigurator({
           id: clientGeneratedId,
           name: newName.trim(),
           shortName: newShortName.trim(),
-          isPositive: newIsPositive,
+          isPositive,
           isShot: newIsShot,
         },
       );
@@ -443,6 +458,9 @@ export function useEventDefinitionsConfigurator({
       if (requestId !== requestCountRef.current) return;
 
       const effectiveId = createdResponse?.id ?? clientGeneratedId;
+      const effectiveIsPositive = Boolean(
+        createdResponse?.isPositive ?? isPositive,
+      );
 
       if (db.eventdefinitions) {
         try {
@@ -451,7 +469,7 @@ export function useEventDefinitionsConfigurator({
             sportId,
             name: createdResponse?.name ?? newName.trim(),
             shortName: createdResponse?.shortName ?? newShortName.trim(),
-            isPositive: Boolean(createdResponse?.isPositive ?? newIsPositive),
+            isPositive: effectiveIsPositive,
             isShot: Boolean(createdResponse?.isShot ?? newIsShot),
             isCustom: true,
             ownerId: currentUserId ?? null,
@@ -472,7 +490,7 @@ export function useEventDefinitionsConfigurator({
         sportId: createdResponse?.sportId ?? sportId,
         name: createdResponse?.name ?? newName.trim(),
         shortName: createdResponse?.shortName ?? newShortName.trim(),
-        isPositive: Boolean(createdResponse?.isPositive ?? newIsPositive),
+        isPositive: effectiveIsPositive,
         isShot: Boolean(createdResponse?.isShot ?? newIsShot),
         isCustom: true,
         isEnabled: true,
@@ -485,12 +503,8 @@ export function useEventDefinitionsConfigurator({
       setDefinitions(reordered);
       notifyParent(reordered);
 
-      setActiveTab(newIsPositive ? "POSITIVE" : "NEGATIVE");
-      setNewName("");
-      setNewShortName("");
-      setNewIsPositive(true);
-      setNewIsShot(false);
-      setModalError(null);
+      setActiveTab(effectiveIsPositive ? "POSITIVE" : "NEGATIVE");
+      resetCustomModalForm();
       setIsModalOpen(false);
 
       onPresetModified?.();
@@ -604,7 +618,6 @@ export function useEventDefinitionsConfigurator({
     modalError,
     newName,
     newShortName,
-    newIsPositive,
     newIsShot,
     isLocked,
     activeCategoryDefs,
@@ -613,12 +626,11 @@ export function useEventDefinitionsConfigurator({
     isAllActiveCategorySelected,
     isActiveCategoryIndeterminate,
     setActiveTab,
-    setIsModalOpen,
+    setIsModalOpen: updateModalOpen,
     setIsConfirmZeroModalOpen,
     setModalError,
     setNewName,
     setNewShortName,
-    setNewIsPositive,
     setNewIsShot,
     setCreating,
     handleToggleEnabled,
