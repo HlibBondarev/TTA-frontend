@@ -129,4 +129,86 @@ describe("ModalDialog Component", () => {
     fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
     expect(secondBtn).toHaveFocus();
   });
+
+  it("preserves initial focus restoration and invokes latest onClose when onClose prop changes while open", () => {
+    const initialOnClose = vi.fn();
+    const updatedOnClose = vi.fn();
+
+    const { rerender } = render(
+      <div>
+        <button type="button">Trigger Button</button>
+        <ModalDialog
+          isOpen={false}
+          onClose={initialOnClose}
+          titleId="test-title-id"
+          title="Test Modal"
+        >
+          <input aria-label="Modal Input" />
+        </ModalDialog>
+      </div>,
+    );
+
+    const triggerBtn = screen.getByRole("button", { name: "Trigger Button" });
+    triggerBtn.focus();
+    expect(triggerBtn).toHaveFocus();
+
+    // Open modal
+    rerender(
+      <div>
+        <button type="button">Trigger Button</button>
+        <ModalDialog
+          isOpen={true}
+          onClose={initialOnClose}
+          titleId="test-title-id"
+          title="Test Modal"
+        >
+          <input aria-label="Modal Input" />
+        </ModalDialog>
+      </div>,
+    );
+
+    const input = screen.getByLabelText("Modal Input");
+    input.focus();
+    expect(input).toHaveFocus();
+
+    // Update onClose prop while modal stays open
+    rerender(
+      <div>
+        <button type="button">Trigger Button</button>
+        <ModalDialog
+          isOpen={true}
+          onClose={updatedOnClose}
+          titleId="test-title-id"
+          title="Test Modal"
+        >
+          <input aria-label="Modal Input" />
+        </ModalDialog>
+      </div>,
+    );
+
+    // Focus should stay on the input rather than resetting to close button
+    expect(input).toHaveFocus();
+
+    // Escape should invoke the updated onClose callback
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(initialOnClose).not.toHaveBeenCalled();
+    expect(updatedOnClose).toHaveBeenCalledTimes(1);
+
+    // Closing modal should restore focus to the original trigger button
+    rerender(
+      <div>
+        <button type="button">Trigger Button</button>
+        <ModalDialog
+          isOpen={false}
+          onClose={updatedOnClose}
+          titleId="test-title-id"
+          title="Test Modal"
+        >
+          <input aria-label="Modal Input" />
+        </ModalDialog>
+      </div>,
+    );
+
+    expect(triggerBtn).toHaveFocus();
+  });
 });

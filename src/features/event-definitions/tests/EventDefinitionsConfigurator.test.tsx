@@ -422,7 +422,7 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(defaultHookReturn.setIsModalOpen).toHaveBeenCalledWith(true);
   });
 
-  it("should disable background category tabs while custom action modal is open", () => {
+  it("should make background controls inert and disable category tabs while custom action modal is open", () => {
     vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
       ...defaultHookReturn,
       isModalOpen: true,
@@ -430,12 +430,83 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     render(<EventDefinitionsConfigurator sportId="water-polo" />);
 
-    expect(
-      screen.getByRole("button", { name: /^POSITIVE\s*\d+$/ }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: /^NEGATIVE\s*\d+$/ }),
-    ).toBeDisabled();
+    const positiveTab = screen.getByRole("button", {
+      name: /^POSITIVE\s*\d+$/,
+    });
+    const negativeTab = screen.getByRole("button", {
+      name: /^NEGATIVE\s*\d+$/,
+    });
+    const savePresetButton = screen.getByRole("button", {
+      name: /^Confirm Active Preset$/i,
+    });
+
+    expect(positiveTab).toBeDisabled();
+    expect(negativeTab).toBeDisabled();
+    expect(positiveTab.closest("[inert]")).not.toBeNull();
+    expect(savePresetButton.closest("[inert]")).not.toBeNull();
+  });
+
+  it("should restore focus to the header trigger on close even after creating toggles while dialog is open", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: false,
+      creating: false,
+    });
+
+    const { rerender } = render(
+      <EventDefinitionsConfigurator sportId="water-polo" />,
+    );
+
+    const headerTrigger = screen.getByRole("button", {
+      name: /^Positive Action$/i,
+    });
+    headerTrigger.focus();
+    expect(document.activeElement).toBe(headerTrigger);
+
+    // Open dialog
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: true,
+      creating: false,
+    });
+    rerender(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    const closeButton = screen.getByRole("button", { name: /Close dialog/i });
+    expect(document.activeElement).toBe(closeButton);
+
+    // Simulate user focusing an input and submitting (creating transitions false -> true -> false)
+    const nameInput = screen.getByLabelText("Action Name");
+    nameInput.focus();
+    expect(document.activeElement).toBe(nameInput);
+
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: true,
+      creating: true,
+      isLocked: true,
+    });
+    rerender(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    // Focus must not be yanked back to closeButton while creating changes
+    expect(document.activeElement).toBe(nameInput);
+
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: true,
+      creating: false,
+      isLocked: false,
+    });
+    rerender(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    // Close dialog and verify focus returns to the original header trigger
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: false,
+      creating: false,
+    });
+    rerender(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    expect(document.activeElement).toBe(headerTrigger);
   });
 
   it("should show custom action modal with POSITIVE type banner, quick-switch button, and without positive checkbox", () => {
