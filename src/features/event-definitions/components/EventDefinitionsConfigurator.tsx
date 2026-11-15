@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef } from "react";
+import React, { useCallback, useEffect, useId, useRef } from "react";
 import { ModalDialog } from "../../matches/components/ModalDialog";
 import {
   useEventDefinitionsConfigurator,
@@ -67,6 +67,12 @@ export const EventDefinitionsConfigurator: React.FC<
     }
   }, [isActiveCategoryIndeterminate, loading]);
 
+  const handleCloseCreateModal = useCallback(() => {
+    if (!creating) {
+      setIsModalOpen(false);
+    }
+  }, [creating, setIsModalOpen]);
+
   if (loading) {
     return (
       <div className="p-4 text-center text-xs text-gray-400">
@@ -79,6 +85,7 @@ export const EventDefinitionsConfigurator: React.FC<
   const activeCategorySelectedCount = isPositiveTab
     ? activePositiveCount
     : activeNegativeCount;
+  const areBackgroundTabsDisabled = isModalOpen || isConfirmZeroModalOpen;
 
   return (
     <div className="w-full bg-gray-950 text-gray-100 p-3 rounded-xl border border-gray-800 space-y-3">
@@ -133,8 +140,9 @@ export const EventDefinitionsConfigurator: React.FC<
       <div className="grid grid-cols-2 gap-1 bg-gray-900 p-1 rounded-lg border border-gray-800 text-xs font-bold">
         <button
           type="button"
+          disabled={areBackgroundTabsDisabled}
           onClick={() => setActiveTab("POSITIVE")}
-          className={`py-1.5 rounded-md transition-all flex items-center justify-center gap-1.5 ${
+          className={`py-1.5 rounded-md transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed ${
             isPositiveTab
               ? "bg-gray-800 text-emerald-400 border border-emerald-500/40 shadow-sm"
               : "text-gray-400 hover:text-gray-200"
@@ -148,8 +156,9 @@ export const EventDefinitionsConfigurator: React.FC<
 
         <button
           type="button"
+          disabled={areBackgroundTabsDisabled}
           onClick={() => setActiveTab("NEGATIVE")}
-          className={`py-1.5 rounded-md transition-all flex items-center justify-center gap-1.5 ${
+          className={`py-1.5 rounded-md transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed ${
             !isPositiveTab
               ? "bg-gray-800 text-rose-400 border border-rose-500/40 shadow-sm"
               : "text-gray-400 hover:text-gray-200"
@@ -331,139 +340,131 @@ export const EventDefinitionsConfigurator: React.FC<
       </button>
 
       {isModalOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="create-custom-action-title"
-          className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50"
+        <ModalDialog
+          isOpen={isModalOpen}
+          onClose={handleCloseCreateModal}
+          titleId="create-custom-action-title"
+          title="Create Custom Action"
+          titleClassName="text-gray-200"
         >
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 w-full max-w-sm space-y-3">
-            <h4
-              id="create-custom-action-title"
-              className="text-sm font-bold text-gray-200"
-            >
-              Create Custom Action
-            </h4>
-
-            <div
-              className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border text-xs ${
-                isPositiveTab
-                  ? "bg-emerald-950/40 border-emerald-500/40"
-                  : "bg-rose-950/40 border-rose-500/40"
-              }`}
-            >
-              <div className="flex items-center gap-1.5">
-                <span
-                  aria-hidden="true"
-                  className={`w-2 h-2 rounded-full ${
-                    isPositiveTab ? "bg-emerald-400" : "bg-rose-400"
-                  }`}
-                />
-                <span className="text-[11px] text-gray-400">Type:</span>
-                <span
-                  className={`text-[11px] font-bold tracking-wide ${
-                    isPositiveTab ? "text-emerald-400" : "text-rose-400"
-                  }`}
-                >
-                  {activeTab}
-                </span>
-              </div>
-
-              <button
-                type="button"
-                disabled={creating || isLocked}
-                onClick={() =>
-                  setActiveTab(isPositiveTab ? "NEGATIVE" : "POSITIVE")
-                }
-                className="text-[11px] font-semibold text-blue-400 hover:text-blue-300 underline underline-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          <div
+            className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border text-xs ${
+              isPositiveTab
+                ? "bg-emerald-950/40 border-emerald-500/40"
+                : "bg-rose-950/40 border-rose-500/40"
+            }`}
+          >
+            <div className="flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className={`w-2 h-2 rounded-full ${
+                  isPositiveTab ? "bg-emerald-400" : "bg-rose-400"
+                }`}
+              />
+              <span className="text-[11px] text-gray-400">Type:</span>
+              <span
+                className={`text-[11px] font-bold tracking-wide ${
+                  isPositiveTab ? "text-emerald-400" : "text-rose-400"
+                }`}
               >
-                {isPositiveTab ? "Switch to Negative" : "Switch to Positive"}
-              </button>
+                {activeTab}
+              </span>
             </div>
 
-            {modalError && (
-              <div
-                role="alert"
-                className="p-2 text-xs bg-red-950/80 border border-red-800 text-red-200 rounded-lg"
-              >
-                {modalError}
-              </div>
-            )}
-
-            <form onSubmit={handleCreateCustom} className="space-y-3">
-              <div>
-                <label
-                  htmlFor="customActionName"
-                  className="block text-[11px] text-gray-400 mb-1"
-                >
-                  Action Name
-                </label>
-                <input
-                  id="customActionName"
-                  type="text"
-                  required
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="e.g. Counter Attack Goal"
-                  className="w-full px-2.5 py-1.5 bg-gray-950 border border-gray-800 rounded text-xs text-gray-200 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="customActionShortName"
-                  className="block text-[11px] text-gray-400 mb-1"
-                >
-                  Short Name / Abbreviation
-                </label>
-                <input
-                  id="customActionShortName"
-                  type="text"
-                  required
-                  maxLength={5}
-                  value={newShortName}
-                  onChange={(e) => setNewShortName(e.target.value)}
-                  placeholder="e.g. CAG"
-                  className="w-full px-2.5 py-1.5 bg-gray-950 border border-gray-800 rounded text-xs text-gray-200 uppercase focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="isShotCheck"
-                  checked={newIsShot}
-                  onChange={(e) => setNewIsShot(e.target.checked)}
-                  className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"
-                />
-                <label
-                  htmlFor="isShotCheck"
-                  className="text-xs text-amber-300 cursor-pointer"
-                >
-                  Shot action (Goal target map enabled)
-                </label>
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  disabled={creating}
-                  onClick={() => setIsModalOpen(false)}
-                  className="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs font-semibold disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={creating || isLocked}
-                  className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold disabled:opacity-50"
-                >
-                  {creating ? "Creating..." : "Create"}
-                </button>
-              </div>
-            </form>
+            <button
+              type="button"
+              disabled={creating || isLocked}
+              onClick={() =>
+                setActiveTab(isPositiveTab ? "NEGATIVE" : "POSITIVE")
+              }
+              className="text-[11px] font-semibold text-blue-400 hover:text-blue-300 underline underline-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isPositiveTab ? "Switch to Negative" : "Switch to Positive"}
+            </button>
           </div>
-        </div>
+
+          {modalError && (
+            <div
+              role="alert"
+              className="p-2 text-xs bg-red-950/80 border border-red-800 text-red-200 rounded-lg"
+            >
+              {modalError}
+            </div>
+          )}
+
+          <form onSubmit={handleCreateCustom} className="space-y-3">
+            <div>
+              <label
+                htmlFor="customActionName"
+                className="block text-[11px] text-gray-400 mb-1"
+              >
+                Action Name
+              </label>
+              <input
+                id="customActionName"
+                type="text"
+                required
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="e.g. Counter Attack Goal"
+                className="w-full px-2.5 py-1.5 bg-gray-950 border border-gray-800 rounded text-xs text-gray-200 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="customActionShortName"
+                className="block text-[11px] text-gray-400 mb-1"
+              >
+                Short Name / Abbreviation
+              </label>
+              <input
+                id="customActionShortName"
+                type="text"
+                required
+                maxLength={5}
+                value={newShortName}
+                onChange={(e) => setNewShortName(e.target.value)}
+                placeholder="e.g. CAG"
+                className="w-full px-2.5 py-1.5 bg-gray-950 border border-gray-800 rounded text-xs text-gray-200 uppercase focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="isShotCheck"
+                checked={newIsShot}
+                onChange={(e) => setNewIsShot(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"
+              />
+              <label
+                htmlFor="isShotCheck"
+                className="text-xs text-amber-300 cursor-pointer"
+              >
+                Shot action (Goal target map enabled)
+              </label>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                disabled={creating}
+                onClick={() => setIsModalOpen(false)}
+                className="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs font-semibold disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={creating || isLocked}
+                className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold disabled:opacity-50"
+              >
+                {creating ? "Creating..." : "Create"}
+              </button>
+            </div>
+          </form>
+        </ModalDialog>
       )}
 
       {isConfirmZeroModalOpen && (

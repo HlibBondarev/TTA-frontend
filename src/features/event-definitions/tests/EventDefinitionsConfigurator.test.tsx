@@ -422,6 +422,22 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(defaultHookReturn.setIsModalOpen).toHaveBeenCalledWith(true);
   });
 
+  it("should disable background category tabs while custom action modal is open", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: true,
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    expect(
+      screen.getByRole("button", { name: /^POSITIVE\s*\d+$/ }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /^NEGATIVE\s*\d+$/ }),
+    ).toBeDisabled();
+  });
+
   it("should show custom action modal with POSITIVE type banner, quick-switch button, and without positive checkbox", () => {
     vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
       ...defaultHookReturn,
@@ -492,6 +508,81 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(
       screen.getByRole("button", { name: /Switch to Negative/i }),
     ).toBeDisabled();
+  });
+
+  it("should close custom action modal on Escape when creating is false, and ignore Escape when creating is true", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: true,
+      creating: true,
+    });
+
+    const { rerender } = render(
+      <EventDefinitionsConfigurator sportId="water-polo" />,
+    );
+
+    fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
+    expect(defaultHookReturn.setIsModalOpen).not.toHaveBeenCalled();
+
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: true,
+      creating: false,
+    });
+
+    rerender(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
+    expect(defaultHookReturn.setIsModalOpen).toHaveBeenCalledWith(false);
+  });
+
+  it("should move focus into the create-action dialog on open, trap Tab navigation, and restore focus to header trigger on close", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: false,
+    });
+
+    const { rerender } = render(
+      <EventDefinitionsConfigurator sportId="water-polo" />,
+    );
+
+    const headerTrigger = screen.getByRole("button", {
+      name: /^Positive Action$/i,
+    });
+    headerTrigger.focus();
+    expect(document.activeElement).toBe(headerTrigger);
+
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: true,
+    });
+
+    rerender(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    const closeButton = screen.getByRole("button", { name: /Close dialog/i });
+    const createButton = screen.getByRole("button", { name: /^Create$/i });
+
+    expect(document.activeElement).toBe(closeButton);
+
+    // Shift+Tab on first focusable wraps to last focusable inside dialog
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(createButton);
+
+    // Tab on last focusable wraps to first focusable inside dialog
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: false });
+    expect(document.activeElement).toBe(closeButton);
+
+    // Closing dialog restores focus to header trigger
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: false,
+    });
+
+    rerender(<EventDefinitionsConfigurator sportId="water-polo" />);
+    expect(document.activeElement).toBe(headerTrigger);
   });
 
   it("should handle custom action creation form input changes", () => {
