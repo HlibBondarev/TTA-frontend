@@ -828,4 +828,50 @@ describe("EventDefinitionsConfigurator Component", () => {
       1,
     );
   });
+
+  it("should notify parent via onModalOpenChange when a modal opens and closes", () => {
+    const onModalOpenChange = vi.fn();
+
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: false,
+    });
+
+    const { rerender } = render(
+      <EventDefinitionsConfigurator
+        sportId="water-polo"
+        onModalOpenChange={onModalOpenChange}
+      />,
+    );
+
+    expect(onModalOpenChange).toHaveBeenLastCalledWith(false);
+
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: true,
+    });
+
+    rerender(
+      <EventDefinitionsConfigurator
+        sportId="water-polo"
+        onModalOpenChange={onModalOpenChange}
+      />,
+    );
+
+    expect(onModalOpenChange).toHaveBeenLastCalledWith(true);
+
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: false,
+    });
+
+    rerender(
+      <EventDefinitionsConfigurator
+        sportId="water-polo"
+        onModalOpenChange={onModalOpenChange}
+      />,
+    );
+
+    expect(onModalOpenChange).toHaveBeenLastCalledWith(false);
+  });
 });

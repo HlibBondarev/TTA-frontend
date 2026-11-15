@@ -6,7 +6,9 @@ import {
 } from "../hooks/useEventDefinitionsConfigurator";
 
 export type EventDefinitionsConfiguratorProps =
-  UseEventDefinitionsConfiguratorOptions;
+  UseEventDefinitionsConfiguratorOptions & {
+    onModalOpenChange?: (isOpen: boolean) => void;
+  };
 
 const getTextColorClass = (
   isEnabled: boolean,
@@ -73,6 +75,16 @@ export const EventDefinitionsConfigurator: React.FC<
     }
   }, [creating, setIsModalOpen]);
 
+  const isAnyModalOpen = isModalOpen || isConfirmZeroModalOpen;
+  const { onModalOpenChange } = props;
+
+  useEffect(() => {
+    onModalOpenChange?.(isAnyModalOpen);
+    return () => {
+      onModalOpenChange?.(false);
+    };
+  }, [isAnyModalOpen, onModalOpenChange]);
+
   if (loading) {
     return (
       <div className="p-4 text-center text-xs text-gray-400">
@@ -85,7 +97,6 @@ export const EventDefinitionsConfigurator: React.FC<
   const activeCategorySelectedCount = isPositiveTab
     ? activePositiveCount
     : activeNegativeCount;
-  const isAnyModalOpen = isModalOpen || isConfirmZeroModalOpen;
 
   return (
     <div className="w-full bg-gray-950 text-gray-100 p-3 rounded-xl border border-gray-800 space-y-3">

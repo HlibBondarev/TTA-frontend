@@ -12,6 +12,7 @@ vi.mock(
       onPresetSaved: () => void;
       onPresetModified: () => void;
       onLoadStateChange: (loaded: boolean) => void;
+      onModalOpenChange?: (isOpen: boolean) => void;
     }) => (
       <div data-testid="mock-event-configurator">
         <button
@@ -34,6 +35,20 @@ vi.mock(
           onClick={() => props.onLoadStateChange(true)}
         >
           Load
+        </button>
+        <button
+          type="button"
+          data-testid="trigger-modal-open"
+          onClick={() => props.onModalOpenChange?.(true)}
+        >
+          Open Modal
+        </button>
+        <button
+          type="button"
+          data-testid="trigger-modal-close"
+          onClick={() => props.onModalOpenChange?.(false)}
+        >
+          Close Modal
         </button>
       </div>
     ),
@@ -241,5 +256,36 @@ describe("MatchSetupWizard Component", () => {
     fireEvent.click(backButton);
 
     expect(defaultHookReturn.handleBackToMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it("should mark background wizard controls inert while a configurator modal is open", () => {
+    render(<MatchSetupWizard onQuickStart={mockOnQuickStart} />);
+
+    const backButton = screen.getByRole("button", { name: /Back to Menu/i });
+    const sportButton = screen.getByRole("button", { name: /Water Polo/i });
+    const configButton = screen.getByRole("button", { name: /Periods: 4/i });
+    const homeSquadButton = screen.getByRole("button", { name: /Home Squad/i });
+    const startButton = screen.getByRole("button", {
+      name: /Start Tracking Match/i,
+    });
+    const configurator = screen.getByTestId("mock-event-configurator");
+
+    expect(backButton.closest("[inert]")).toBeNull();
+    expect(sportButton.closest("[inert]")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("trigger-modal-open"));
+
+    expect(backButton.closest("[inert]")).not.toBeNull();
+    expect(sportButton.closest("[inert]")).not.toBeNull();
+    expect(configButton.closest("[inert]")).not.toBeNull();
+    expect(homeSquadButton.closest("[inert]")).not.toBeNull();
+    expect(startButton.closest("[inert]")).not.toBeNull();
+    expect(configurator.closest("[inert]")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("trigger-modal-close"));
+
+    expect(backButton.closest("[inert]")).toBeNull();
+    expect(sportButton.closest("[inert]")).toBeNull();
+    expect(startButton.closest("[inert]")).toBeNull();
   });
 });
