@@ -36,7 +36,6 @@ export const EventDefinitionsConfigurator: React.FC<
     modalError,
     newName,
     newShortName,
-    newIsPositive,
     newIsShot,
     isLocked,
     activeCategoryDefs,
@@ -46,10 +45,8 @@ export const EventDefinitionsConfigurator: React.FC<
     isActiveCategoryIndeterminate,
     setActiveTab,
     setIsModalOpen,
-    setModalError,
     setNewName,
     setNewShortName,
-    setNewIsPositive,
     setNewIsShot,
     setCreating,
     handleToggleEnabled,
@@ -78,12 +75,14 @@ export const EventDefinitionsConfigurator: React.FC<
     );
   }
 
-  const activeCategorySelectedCount =
-    activeTab === "POSITIVE" ? activePositiveCount : activeNegativeCount;
+  const isPositiveTab = activeTab === "POSITIVE";
+  const activeCategorySelectedCount = isPositiveTab
+    ? activePositiveCount
+    : activeNegativeCount;
 
   return (
     <div className="w-full bg-gray-950 text-gray-100 p-3 rounded-xl border border-gray-800 space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-bold text-gray-200">
             Configure TTA Actions
@@ -97,10 +96,13 @@ export const EventDefinitionsConfigurator: React.FC<
           disabled={isLocked}
           onClick={() => {
             setCreating(false);
-            setModalError(null);
             setIsModalOpen(true);
           }}
-          className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors"
+          className={`px-2.5 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed rounded border text-xs font-semibold flex items-center gap-1 shrink-0 transition-colors ${
+            isPositiveTab
+              ? "bg-emerald-950/90 hover:bg-emerald-900/90 border-emerald-500/50 text-emerald-300"
+              : "bg-rose-950/90 hover:bg-rose-900/90 border-rose-500/50 text-rose-300"
+          }`}
         >
           <svg
             className="w-3.5 h-3.5"
@@ -115,7 +117,7 @@ export const EventDefinitionsConfigurator: React.FC<
               d="M12 4v16m8-8H4"
             />
           </svg>
-          Custom Action
+          {isPositiveTab ? "Positive Action" : "Negative Action"}
         </button>
       </div>
 
@@ -133,7 +135,7 @@ export const EventDefinitionsConfigurator: React.FC<
           type="button"
           onClick={() => setActiveTab("POSITIVE")}
           className={`py-1.5 rounded-md transition-all flex items-center justify-center gap-1.5 ${
-            activeTab === "POSITIVE"
+            isPositiveTab
               ? "bg-gray-800 text-emerald-400 border border-emerald-500/40 shadow-sm"
               : "text-gray-400 hover:text-gray-200"
           }`}
@@ -148,7 +150,7 @@ export const EventDefinitionsConfigurator: React.FC<
           type="button"
           onClick={() => setActiveTab("NEGATIVE")}
           className={`py-1.5 rounded-md transition-all flex items-center justify-center gap-1.5 ${
-            activeTab === "NEGATIVE"
+            !isPositiveTab
               ? "bg-gray-800 text-rose-400 border border-rose-500/40 shadow-sm"
               : "text-gray-400 hover:text-gray-200"
           }`}
@@ -329,11 +331,55 @@ export const EventDefinitionsConfigurator: React.FC<
       </button>
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="create-custom-action-title"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50"
+        >
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 w-full max-w-sm space-y-3">
-            <h4 className="text-sm font-bold text-gray-200">
+            <h4
+              id="create-custom-action-title"
+              className="text-sm font-bold text-gray-200"
+            >
               Create Custom Action
             </h4>
+
+            <div
+              className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border text-xs ${
+                isPositiveTab
+                  ? "bg-emerald-950/40 border-emerald-500/40"
+                  : "bg-rose-950/40 border-rose-500/40"
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <span
+                  aria-hidden="true"
+                  className={`w-2 h-2 rounded-full ${
+                    isPositiveTab ? "bg-emerald-400" : "bg-rose-400"
+                  }`}
+                />
+                <span className="text-[11px] text-gray-400">Type:</span>
+                <span
+                  className={`text-[11px] font-bold tracking-wide ${
+                    isPositiveTab ? "text-emerald-400" : "text-rose-400"
+                  }`}
+                >
+                  {activeTab}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                disabled={creating || isLocked}
+                onClick={() =>
+                  setActiveTab(isPositiveTab ? "NEGATIVE" : "POSITIVE")
+                }
+                className="text-[11px] font-semibold text-blue-400 hover:text-blue-300 underline underline-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isPositiveTab ? "Switch to Negative" : "Switch to Positive"}
+              </button>
+            </div>
 
             {modalError && (
               <div
@@ -382,45 +428,28 @@ export const EventDefinitionsConfigurator: React.FC<
                 />
               </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="isPositiveCheck"
-                    checked={newIsPositive}
-                    onChange={(e) => setNewIsPositive(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"
-                  />
-                  <label
-                    htmlFor="isPositiveCheck"
-                    className="text-xs text-gray-300 cursor-pointer"
-                  >
-                    Positive action (Green indicator)
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="isShotCheck"
-                    checked={newIsShot}
-                    onChange={(e) => setNewIsShot(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"
-                  />
-                  <label
-                    htmlFor="isShotCheck"
-                    className="text-xs text-amber-300 cursor-pointer"
-                  >
-                    Shot action (Goal target map enabled)
-                  </label>
-                </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="isShotCheck"
+                  checked={newIsShot}
+                  onChange={(e) => setNewIsShot(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"
+                />
+                <label
+                  htmlFor="isShotCheck"
+                  className="text-xs text-amber-300 cursor-pointer"
+                >
+                  Shot action (Goal target map enabled)
+                </label>
               </div>
 
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
+                  disabled={creating}
                   onClick={() => setIsModalOpen(false)}
-                  className="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs font-semibold"
+                  className="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs font-semibold disabled:opacity-50"
                 >
                   Cancel
                 </button>

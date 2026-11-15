@@ -30,7 +30,6 @@ describe("EventDefinitionsConfigurator Component", () => {
     modalError: null,
     newName: "",
     newShortName: "",
-    newIsPositive: true,
     newIsShot: false,
     isLocked: false,
     activeCategoryDefs: [
@@ -54,7 +53,6 @@ describe("EventDefinitionsConfigurator Component", () => {
     setModalError: vi.fn(),
     setNewName: vi.fn(),
     setNewShortName: vi.fn(),
-    setNewIsPositive: vi.fn(),
     setNewIsShot: vi.fn(),
     setCreating: vi.fn(),
     handleToggleEnabled: vi.fn(),
@@ -382,7 +380,7 @@ describe("EventDefinitionsConfigurator Component", () => {
     render(<EventDefinitionsConfigurator sportId="water-polo" />);
 
     expect(
-      screen.getByRole("button", { name: /^Custom Action$/i }),
+      screen.getByRole("button", { name: /^Positive Action$/i }),
     ).toBeDisabled();
     expect(
       screen.getByRole("checkbox", { name: /Select all positive actions/i }),
@@ -396,32 +394,104 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(screen.getByTitle("Delete Custom Action")).toBeDisabled();
   });
 
-  it("should open custom action modal when Custom Action header button is clicked", () => {
+  it("should render Negative Action header button when activeTab is NEGATIVE", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      activeTab: "NEGATIVE",
+      activeCategoryDefs: [],
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    const addButton = screen.getByRole("button", {
+      name: /^Negative Action$/i,
+    });
+    expect(addButton).toBeInTheDocument();
+    expect(addButton).not.toBeDisabled();
+  });
+
+  it("should open custom action modal when Positive Action header button is clicked", () => {
     render(<EventDefinitionsConfigurator sportId="water-polo" />);
 
     const openModalButton = screen.getByRole("button", {
-      name: /^Custom Action$/i,
+      name: /^Positive Action$/i,
     });
     fireEvent.click(openModalButton);
 
     expect(defaultHookReturn.setCreating).toHaveBeenCalledWith(false);
-    expect(defaultHookReturn.setModalError).toHaveBeenCalledWith(null);
     expect(defaultHookReturn.setIsModalOpen).toHaveBeenCalledWith(true);
   });
 
-  it("should show custom action modal when isModalOpen is true including isShot checkbox", () => {
+  it("should show custom action modal with POSITIVE type banner, quick-switch button, and without positive checkbox", () => {
     vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
       ...defaultHookReturn,
+      activeTab: "POSITIVE",
       isModalOpen: true,
     });
 
     render(<EventDefinitionsConfigurator sportId="water-polo" />);
 
     expect(screen.getByText("Create Custom Action")).toBeInTheDocument();
+    expect(screen.getByText("Type:")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Switch to Negative/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/Positive action \(Green indicator\)/i),
+    ).not.toBeInTheDocument();
     expect(screen.getByLabelText("Action Name")).toBeInTheDocument();
     expect(
       screen.getByLabelText(/Shot action \(Goal target map enabled\)/i),
     ).toBeInTheDocument();
+  });
+
+  it("should switch to NEGATIVE tab from modal quick-switch button", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      activeTab: "POSITIVE",
+      isModalOpen: true,
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    const switchButton = screen.getByRole("button", {
+      name: /Switch to Negative/i,
+    });
+    fireEvent.click(switchButton);
+
+    expect(defaultHookReturn.setActiveTab).toHaveBeenCalledWith("NEGATIVE");
+  });
+
+  it("should switch to POSITIVE tab from modal quick-switch button when activeTab is NEGATIVE", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      activeTab: "NEGATIVE",
+      isModalOpen: true,
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    const switchButton = screen.getByRole("button", {
+      name: /Switch to Positive/i,
+    });
+    fireEvent.click(switchButton);
+
+    expect(defaultHookReturn.setActiveTab).toHaveBeenCalledWith("POSITIVE");
+  });
+
+  it("should disable modal quick-switch button when creating is true", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      activeTab: "POSITIVE",
+      isModalOpen: true,
+      creating: true,
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    expect(
+      screen.getByRole("button", { name: /Switch to Negative/i }),
+    ).toBeDisabled();
   });
 
   it("should handle custom action creation form input changes", () => {
@@ -436,9 +506,6 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     const nameInput = screen.getByLabelText("Action Name");
     const shortNameInput = screen.getByLabelText("Short Name / Abbreviation");
-    const isPositiveCheckbox = screen.getByLabelText(
-      /Positive action \(Green indicator\)/i,
-    );
     const isShotCheckbox = screen.getByLabelText(
       /Shot action \(Goal target map enabled\)/i,
     );
@@ -448,9 +515,6 @@ describe("EventDefinitionsConfigurator Component", () => {
 
     fireEvent.change(shortNameInput, { target: { value: "CS" } });
     expect(defaultHookReturn.setNewShortName).toHaveBeenCalledWith("CS");
-
-    fireEvent.click(isPositiveCheckbox);
-    expect(defaultHookReturn.setNewIsPositive).toHaveBeenCalled();
 
     fireEvent.click(isShotCheckbox);
     expect(defaultHookReturn.setNewIsShot).toHaveBeenCalled();

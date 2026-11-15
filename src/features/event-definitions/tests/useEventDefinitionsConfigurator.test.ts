@@ -664,7 +664,7 @@ describe("useEventDefinitionsConfigurator", () => {
     expect(result.current.error).toBe("Failed to save user preset.");
   });
 
-  it("should create custom definition with isShot flag, persist to Dexie dict, update draft state, and switch active tab without refetching available definitions", async () => {
+  it("should create positive custom definition from POSITIVE tab with isShot flag, persist to Dexie dict, and reset form state", async () => {
     const createdCustomDef = {
       id: "custom-def-99",
       sportId: mockSportId,
@@ -698,9 +698,9 @@ describe("useEventDefinitionsConfigurator", () => {
     ).mock.calls.length;
 
     act(() => {
+      result.current.setIsModalOpen(true);
       result.current.setNewName("Penalty Goal");
       result.current.setNewShortName("PG");
-      result.current.setNewIsPositive(true);
       result.current.setNewIsShot(true);
     });
 
@@ -736,6 +736,10 @@ describe("useEventDefinitionsConfigurator", () => {
     ).toHaveLength(getAvailableCallsBefore);
 
     expect(result.current.activeTab).toBe("POSITIVE");
+    expect(result.current.isModalOpen).toBe(false);
+    expect(result.current.newName).toBe("");
+    expect(result.current.newShortName).toBe("");
+    expect(result.current.newIsShot).toBe(false);
     expect(onPresetModified).toHaveBeenCalled();
 
     const addedDef = result.current.definitions.find(
@@ -744,6 +748,137 @@ describe("useEventDefinitionsConfigurator", () => {
     expect(addedDef).toBeDefined();
     expect(addedDef?.isEnabled).toBe(true);
     expect(addedDef?.isShot).toBe(true);
+  });
+
+  it("should create negative custom definition when activeTab is NEGATIVE", async () => {
+    const createdCustomDef = {
+      id: "custom-neg-1",
+      sportId: mockSportId,
+      name: "Custom Foul",
+      shortName: "CF",
+      isPositive: false,
+      isShot: false,
+      isCustom: true,
+      isEnabled: true,
+      sortOrder: 0,
+    };
+
+    vi.mocked(eventDefinitionService.createCustom).mockResolvedValue(
+      createdCustomDef,
+    );
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setActiveTab("NEGATIVE");
+      result.current.setIsModalOpen(true);
+      result.current.setNewName("Custom Foul");
+      result.current.setNewShortName("CF");
+    });
+
+    const fakeEvent = {
+      preventDefault: vi.fn(),
+    } as unknown as React.SyntheticEvent<HTMLFormElement>;
+
+    await act(async () => {
+      await result.current.handleCreateCustom(fakeEvent);
+    });
+
+    expect(eventDefinitionService.createCustom).toHaveBeenCalledWith(
+      mockSportId,
+      expect.objectContaining({
+        name: "Custom Foul",
+        shortName: "CF",
+        isPositive: false,
+        isShot: false,
+      }),
+    );
+    expect(result.current.activeTab).toBe("NEGATIVE");
+    expect(result.current.isModalOpen).toBe(false);
+  });
+
+  it("should reset custom action form inputs and modalError when closing or reopening modal", async () => {
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setIsModalOpen(true);
+      result.current.setNewName("Half Typed Action");
+      result.current.setNewShortName("HTA");
+      result.current.setNewIsShot(true);
+      result.current.setModalError("Duplicate short name");
+    });
+
+    expect(result.current.newName).toBe("Half Typed Action");
+    expect(result.current.newShortName).toBe("HTA");
+    expect(result.current.newIsShot).toBe(true);
+    expect(result.current.modalError).toBe("Duplicate short name");
+
+    act(() => {
+      result.current.setIsModalOpen(false);
+    });
+
+    expect(result.current.isModalOpen).toBe(false);
+    expect(result.current.newName).toBe("");
+    expect(result.current.newShortName).toBe("");
+    expect(result.current.newIsShot).toBe(false);
+    expect(result.current.modalError).toBeNull();
+
+    // Populate again and verify reopening via setIsModalOpen(true) also resets fields
+    act(() => {
+      result.current.setNewName("Stale Name");
+      result.current.setNewShortName("SN");
+      result.current.setNewIsShot(true);
+      result.current.setModalError("Stale error");
+    });
+
+    act(() => {
+      result.current.setIsModalOpen(true);
+    });
+
+    expect(result.current.isModalOpen).toBe(true);
+    expect(result.current.newName).toBe("");
+    expect(result.current.newShortName).toBe("");
+    expect(result.current.newIsShot).toBe(false);
+    expect(result.current.modalError).toBeNull();
+  });
+
+  it("should preserve typed form inputs when switching activeTab while modal is open", async () => {
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setIsModalOpen(true);
+      result.current.setNewName("Turnover Pass");
+      result.current.setNewShortName("TP");
+      result.current.setNewIsShot(true);
+    });
+
+    act(() => {
+      result.current.setActiveTab("NEGATIVE");
+    });
+
+    expect(result.current.activeTab).toBe("NEGATIVE");
+    expect(result.current.isModalOpen).toBe(true);
+    expect(result.current.newName).toBe("Turnover Pass");
+    expect(result.current.newShortName).toBe("TP");
+    expect(result.current.newIsShot).toBe(true);
   });
 
   it("should fallback to client-generated UUID when server response ID is missing", async () => {
@@ -821,7 +956,6 @@ describe("useEventDefinitionsConfigurator", () => {
     act(() => {
       result.current.setNewName("Custom Timeout");
       result.current.setNewShortName("CTO");
-      result.current.setNewIsPositive(true);
     });
 
     const fakeEvent = {
@@ -1165,89 +1299,5 @@ describe("useEventDefinitionsConfigurator", () => {
       expect.any(Array),
       "test@example.com",
     );
-  });
-
-  it("should switch active tab to POSITIVE when creating a positive custom definition", async () => {
-    const createdCustomDef = {
-      id: "custom-pos-1",
-      sportId: mockSportId,
-      name: "Custom Goal",
-      shortName: "CG",
-      isPositive: true,
-      isCustom: true,
-      isEnabled: true,
-      sortOrder: 0,
-    };
-
-    vi.mocked(eventDefinitionService.createCustom).mockResolvedValue(
-      createdCustomDef,
-    );
-
-    const { result } = renderHook(() =>
-      useEventDefinitionsConfigurator({ sportId: mockSportId }),
-    );
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    act(() => {
-      result.current.setActiveTab("NEGATIVE");
-      result.current.setNewName("Custom Goal");
-      result.current.setNewShortName("CG");
-      result.current.setNewIsPositive(true);
-    });
-
-    const fakeEvent = {
-      preventDefault: vi.fn(),
-    } as unknown as React.SyntheticEvent<HTMLFormElement>;
-
-    await act(async () => {
-      await result.current.handleCreateCustom(fakeEvent);
-    });
-
-    expect(result.current.activeTab).toBe("POSITIVE");
-  });
-
-  it("should switch active tab to NEGATIVE when creating a negative custom definition", async () => {
-    const createdCustomDef = {
-      id: "custom-neg-1",
-      sportId: mockSportId,
-      name: "Custom Foul",
-      shortName: "CF",
-      isPositive: false,
-      isCustom: true,
-      isEnabled: true,
-      sortOrder: 0,
-    };
-
-    vi.mocked(eventDefinitionService.createCustom).mockResolvedValue(
-      createdCustomDef,
-    );
-
-    const { result } = renderHook(() =>
-      useEventDefinitionsConfigurator({ sportId: mockSportId }),
-    );
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    act(() => {
-      result.current.setActiveTab("POSITIVE");
-      result.current.setNewName("Custom Foul");
-      result.current.setNewShortName("CF");
-      result.current.setNewIsPositive(false);
-    });
-
-    const fakeEvent = {
-      preventDefault: vi.fn(),
-    } as unknown as React.SyntheticEvent<HTMLFormElement>;
-
-    await act(async () => {
-      await result.current.handleCreateCustom(fakeEvent);
-    });
-
-    expect(result.current.activeTab).toBe("NEGATIVE");
   });
 });
