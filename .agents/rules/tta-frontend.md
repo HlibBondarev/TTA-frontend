@@ -66,8 +66,9 @@ This document establishes the official engineering guidelines, architecture patt
   - Use Vitest and `@testing-library/react` adhering to user-centric testing best practices (querying by accessible role/text).
 - **Pre-Conclusion Verification**:
   - Before concluding any task or submitting changes, run:
-    1. `npm test -- --run`
-    2. `npm run build`
+    1. `npm run lint`
+    2. `npm test -- --run`
+    3. `npm run build`
   - Ensure all test suites pass, TypeScript types validate without errors, and no ESLint warnings/errors are introduced.
 - **Branching Strategy**:
   - Never commit or push directly to `main` or `dev`. Always work on dedicated feature or bugfix branches (`feature/...`, `fix/...`).
