@@ -319,16 +319,23 @@ describe("ActionsLog Component", () => {
     expect(eventService.updateGameEventTx).not.toHaveBeenCalled();
   });
 
-  it("disables Leads to Goal checkbox for scoring actions with score > 0", async () => {
+  it("disables Leads to Goal checkbox for custom scoring actions once positive score resolves", async () => {
+    let resolveDefs!: (value: unknown) => void;
+    mockEventDefinitionsToArray.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveDefs = resolve;
+      }),
+    );
+
     const store = createStoreWithActions([
       {
-        id: "action-1",
+        id: "action-custom-score",
         playerNumber: 5,
-        actionName: "Goal",
+        actionName: "Three Pointer",
         isPositive: true,
         timestamp: new Date().toISOString(),
         matchLineupId: "lineup-1",
-        eventDefinitionId: "def-1",
+        eventDefinitionId: "def-custom-3pt",
         isLeadToGoal: false,
         isSynced: 0,
       },
@@ -341,14 +348,76 @@ describe("ActionsLog Component", () => {
     );
 
     const checkbox = screen.getByRole("checkbox", {
-      name: /Toggle leads to goal for action #5 Goal/i,
+      name: /Toggle leads to goal for action #5 Three Pointer/i,
+    });
+    expect(checkbox).toBeDisabled();
+
+    await act(async () => {
+      resolveDefs([
+        {
+          id: "def-custom-3pt",
+          name: "Three Pointer",
+          isPositive: true,
+          score: 3,
+        },
+      ]);
     });
 
     await waitFor(() => {
-      expect(mockEventDefinitionsToArray).toHaveBeenCalled();
+      expect(checkbox.closest("label")).toHaveAttribute(
+        "title",
+        "Scoring action cannot lead to goal",
+      );
+    });
+    expect(checkbox).toBeDisabled();
+  });
+
+  it("enables Leads to Goal checkbox for zero-score Goal action once score resolves to 0", async () => {
+    let resolveDefs!: (value: unknown) => void;
+    mockEventDefinitionsToArray.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveDefs = resolve;
+      }),
+    );
+
+    const store = createStoreWithActions([
+      {
+        id: "action-zero-goal",
+        playerNumber: 9,
+        actionName: "Goal",
+        isPositive: true,
+        timestamp: new Date().toISOString(),
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-zero-goal",
+        isLeadToGoal: false,
+        isSynced: 0,
+      },
+    ]);
+
+    render(
+      <Provider store={store}>
+        <ActionsLog />
+      </Provider>,
+    );
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: /Toggle leads to goal for action #9 Goal/i,
+    });
+    expect(checkbox).toBeDisabled();
+
+    await act(async () => {
+      resolveDefs([
+        { id: "def-zero-goal", name: "Goal", isPositive: true, score: 0 },
+      ]);
     });
 
-    expect(checkbox).toBeDisabled();
+    await waitFor(() => {
+      expect(checkbox).not.toBeDisabled();
+    });
+    expect(checkbox.closest("label")).toHaveAttribute(
+      "title",
+      "Toggle Leads to Goal",
+    );
   });
 
   it("renders lock icon 🔒 and shows inline error messages when Dexie reports event as synced (isSynced === 1 in DB while Redux is 0)", async () => {
