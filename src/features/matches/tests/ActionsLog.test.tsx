@@ -13,6 +13,8 @@ import matchReducer, { type ActionEntry } from "../store/matchSlice";
 import * as eventService from "../../../db/eventService";
 import { db } from "../../../db/ttaDatabase";
 
+const mockEventDefinitionsToArray = vi.fn();
+
 vi.mock("../../../db/ttaDatabase", () => ({
   db: {
     matches: {
@@ -55,10 +57,7 @@ vi.mock("../../../db/ttaDatabase", () => ({
     eventdefinitions: {
       where: vi.fn().mockReturnValue({
         anyOf: vi.fn().mockReturnValue({
-          toArray: vi.fn().mockResolvedValue([
-            { id: "def-1", name: "Goal", isPositive: true, score: 1 },
-            { id: "def-2", name: "Turnover", isPositive: false, score: 0 },
-          ]),
+          toArray: (...args: unknown[]) => mockEventDefinitionsToArray(...args),
         }),
       }),
     },
@@ -94,6 +93,10 @@ const createStoreWithActions = (actions: ActionEntry[]) => {
 describe("ActionsLog Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEventDefinitionsToArray.mockResolvedValue([
+      { id: "def-1", name: "Goal", isPositive: true, score: 1 },
+      { id: "def-2", name: "Turnover", isPositive: false, score: 0 },
+    ]);
     vi.mocked(db.matches.get).mockResolvedValue({
       id: "test-match",
       tournamentId: "tour-1",
@@ -216,6 +219,10 @@ describe("ActionsLog Component", () => {
       name: /Toggle leads to goal for action #2 Pass/i,
     });
 
+    await waitFor(() => {
+      expect(checkbox).not.toBeDisabled();
+    });
+
     fireEvent.click(checkbox);
 
     await waitFor(() => {
@@ -230,6 +237,118 @@ describe("ActionsLog Component", () => {
         userId: undefined,
       });
     });
+  });
+
+  it("disables Leads to Goal checkbox while score lookup is pending and enables it once zero score resolves", async () => {
+    let resolveDefs!: (value: unknown) => void;
+    mockEventDefinitionsToArray.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveDefs = resolve;
+      }),
+    );
+
+    const store = createStoreWithActions([
+      {
+        id: "action-pending",
+        playerNumber: 7,
+        actionName: "Pass",
+        isPositive: true,
+        timestamp: new Date().toISOString(),
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-2",
+        isLeadToGoal: false,
+        isSynced: 0,
+      },
+    ]);
+
+    render(
+      <Provider store={store}>
+        <ActionsLog />
+      </Provider>,
+    );
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: /Toggle leads to goal for action #7 Pass/i,
+    });
+    expect(checkbox).toBeDisabled();
+
+    await act(async () => {
+      resolveDefs([{ id: "def-2", name: "Pass", isPositive: true, score: 0 }]);
+    });
+
+    await waitFor(() => {
+      expect(checkbox).not.toBeDisabled();
+    });
+  });
+
+  it("keeps Leads to Goal checkbox disabled when score lookup fails or definition is missing", async () => {
+    mockEventDefinitionsToArray.mockRejectedValueOnce(
+      new Error("IndexedDB lookup failed"),
+    );
+
+    const store = createStoreWithActions([
+      {
+        id: "action-lookup-err",
+        playerNumber: 8,
+        actionName: "Shot",
+        isPositive: true,
+        timestamp: new Date().toISOString(),
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-missing",
+        isLeadToGoal: false,
+        isSynced: 0,
+      },
+    ]);
+
+    render(
+      <Provider store={store}>
+        <ActionsLog />
+      </Provider>,
+    );
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: /Toggle leads to goal for action #8 Shot/i,
+    });
+
+    await waitFor(() => {
+      expect(mockEventDefinitionsToArray).toHaveBeenCalled();
+    });
+
+    expect(checkbox).toBeDisabled();
+    fireEvent.click(checkbox);
+    expect(eventService.updateGameEventTx).not.toHaveBeenCalled();
+  });
+
+  it("disables Leads to Goal checkbox for scoring actions with score > 0", async () => {
+    const store = createStoreWithActions([
+      {
+        id: "action-1",
+        playerNumber: 5,
+        actionName: "Goal",
+        isPositive: true,
+        timestamp: new Date().toISOString(),
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        isLeadToGoal: false,
+        isSynced: 0,
+      },
+    ]);
+
+    render(
+      <Provider store={store}>
+        <ActionsLog />
+      </Provider>,
+    );
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: /Toggle leads to goal for action #5 Goal/i,
+    });
+
+    await waitFor(() => {
+      expect(mockEventDefinitionsToArray).toHaveBeenCalled();
+    });
+
+    expect(checkbox).toBeDisabled();
   });
 
   it("renders lock icon 🔒 and shows inline error messages when Dexie reports event as synced (isSynced === 1 in DB while Redux is 0)", async () => {
@@ -383,6 +502,9 @@ describe("ActionsLog Component", () => {
     );
 
     const checkbox = screen.getByRole("checkbox");
+    await waitFor(() => {
+      expect(checkbox).not.toBeDisabled();
+    });
     fireEvent.click(checkbox);
 
     await waitFor(() => {

@@ -16,6 +16,17 @@ interface ActionLookups {
 
 const EMPTY_LOOKUPS: ActionLookups = { synced: {}, scores: {} };
 
+const getDefinitionScore = (
+  scores: Record<string, number>,
+  eventDefinitionId: string,
+): number | undefined => {
+  if (!Object.prototype.hasOwnProperty.call(scores, eventDefinitionId)) {
+    return undefined;
+  }
+  const value = scores[eventDefinitionId];
+  return typeof value === "number" ? value : undefined;
+};
+
 const loadDefinitionScores = async (
   defIds: string[],
 ): Promise<Record<string, number>> => {
@@ -27,10 +38,11 @@ const loadDefinitionScores = async (
       scores[d.id] = d.score ?? 0;
     });
   } catch {
-    // Score lookup is best-effort: fall back to treating actions as non-scoring.
+    // Leave unresolved definitions out of scores so pending/failed lookups stay disabled.
   }
   return scores;
 };
+
 export const ActionsLog: React.FC = () => {
   const activeMatchId = useAppSelector((state) => state.match.activeMatchId);
   const rawRecentActions = useAppSelector((state) => state.match.recentActions);
@@ -76,19 +88,20 @@ export const ActionsLog: React.FC = () => {
     const subscription = liveQuery(async (): Promise<ActionLookups> => {
       const ids = actionIdsKey ? actionIdsKey.split(",") : [];
       if (!db?.gameevents || ids.length === 0) return EMPTY_LOOKUPS;
+
+      const synced: Record<string, number> = {};
       try {
         const events = await db.gameevents.where("id").anyOf(ids).toArray();
-        const synced: Record<string, number> = {};
         events?.forEach((e) => {
           synced[e.id] = e.isSynced;
         });
-
-        const defIds = definitionIdsKey ? definitionIdsKey.split(",") : [];
-        const scores = await loadDefinitionScores(defIds);
-        return { synced, scores };
       } catch {
-        return EMPTY_LOOKUPS;
+        // Keep synced empty on query failure so action.isSynced fallback is used.
       }
+
+      const defIds = definitionIdsKey ? definitionIdsKey.split(",") : [];
+      const scores = await loadDefinitionScores(defIds);
+      return { synced, scores };
     }).subscribe({
       next: (result) => setLookups(result || EMPTY_LOOKUPS),
       error: (err) => console.error("Failed to query synced events:", err),
@@ -108,6 +121,14 @@ export const ActionsLog: React.FC = () => {
   const handleToggleLeadToGoal = async (action: ActionEntry) => {
     if (isActionSynced(action)) {
       setError("Cannot edit a synchronized event.");
+      return;
+    }
+
+    const definitionScore = getDefinitionScore(
+      lookups.scores,
+      action.eventDefinitionId,
+    );
+    if (definitionScore === undefined || definitionScore > 0) {
       return;
     }
 
@@ -201,13 +222,21 @@ export const ActionsLog: React.FC = () => {
                 },
               );
 
-              const isGoalAction =
-                (lookups.scores[act.eventDefinitionId] ?? 0) > 0;
+              const definitionScore = getDefinitionScore(
+                lookups.scores,
+                act.eventDefinitionId,
+              );
+              const isScoreResolved = definitionScore !== undefined;
+              const isGoalAction = isScoreResolved && definitionScore > 0;
               const isSynced = isActionSynced(act);
+              const isLeadCheckboxDisabled =
+                isSynced || !isScoreResolved || isGoalAction;
 
               let checkboxTitle = "Toggle Leads to Goal";
               if (isSynced) {
                 checkboxTitle = "Cannot edit synchronized event";
+              } else if (!isScoreResolved) {
+                checkboxTitle = "Loading action scoring details";
               } else if (isGoalAction) {
                 checkboxTitle = "Scoring action cannot lead to goal";
               }
@@ -230,7 +259,7 @@ export const ActionsLog: React.FC = () => {
                   <div className="flex items-center space-x-2 shrink-0">
                     <label
                       className={`flex items-center space-x-1 text-[9px] ${
-                        isSynced || isGoalAction
+                        isLeadCheckboxDisabled
                           ? "text-gray-600 cursor-not-allowed"
                           : "text-gray-400 cursor-pointer"
                       }`}
@@ -239,7 +268,7 @@ export const ActionsLog: React.FC = () => {
                       <input
                         type="checkbox"
                         checked={act.isLeadToGoal}
-                        disabled={isSynced || isGoalAction}
+                        disabled={isLeadCheckboxDisabled}
                         onChange={() => handleToggleLeadToGoal(act)}
                         aria-label={`Toggle leads to goal for action #${act.playerNumber} ${act.actionName}`}
                         className="w-3 h-3 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-0 disabled:opacity-30"
