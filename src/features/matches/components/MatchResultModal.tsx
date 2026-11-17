@@ -118,29 +118,31 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           }
         });
 
-        // 3. Map scoring event definitions (score > 0) to their point values
+        // 3. Map event definitions to their fallback score and polarity
         const allEventDefs = await db.eventdefinitions.toArray();
-        const scoreByDefId = new Map<string, { score: number; isPositive: boolean }>();
+        const defById = new Map<
+          string,
+          { score: number; isPositive: boolean }
+        >();
 
         allEventDefs.forEach((def) => {
-          const score = def.score ?? 0;
-          if (score <= 0) return;
           const isPositive = Boolean(
             def.isPositive ??
             (def as unknown as Record<string, unknown>).ispositive,
           );
-          scoreByDefId.set(def.id, { score, isPositive });
+          defById.set(def.id, { score: def.score ?? 0, isPositive });
         });
 
-        // 4. Fetch and aggregate game events
+        // 4. Fetch and aggregate game events using event score with definition fallback
         const events = await db.gameevents
           .where("matchLineupId")
           .anyOf(lineupIds)
           .toArray();
 
-        const scoringEvents = events.filter((e) =>
-          scoreByDefId.has(e.eventDefinitionId),
-        );
+        const scoringEvents = events.filter((e) => {
+          const def = defById.get(e.eventDefinitionId);
+          return def !== undefined && (e.score ?? def.score) > 0;
+        });
 
         if (scoringEvents.length === 0) {
           if (isMounted && !hasUserEditedRef.current) {
@@ -166,7 +168,9 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
             isHomeTeamLineup = lineupTeamId === activeTeamId;
           }
 
-          const { score, isPositive } = scoreByDefId.get(e.eventDefinitionId)!;
+          const def = defById.get(e.eventDefinitionId)!;
+          const score = e.score ?? def.score;
+          const isPositive = def.isPositive;
           // Positive: points go to the tracked team. Negative: to the opponent.
           const scoresForHome = isPositive === isHomeTeamLineup;
           if (scoresForHome) {

@@ -403,8 +403,18 @@ describe("MatchResultModal Component", () => {
     vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([
       { id: "def-two", name: "Basket", isPositive: true, score: 2 },
       { id: "def-three", name: "Long Range", isPositive: true, score: 3 },
-      { id: "def-conceded-three", name: "Conceded", isPositive: false, score: 3 },
-      { id: "def-conceded-two", name: "Conceded 2", isPositive: false, score: 2 },
+      {
+        id: "def-conceded-three",
+        name: "Conceded",
+        isPositive: false,
+        score: 3,
+      },
+      {
+        id: "def-conceded-two",
+        name: "Conceded 2",
+        isPositive: false,
+        score: 2,
+      },
       { id: "def-zero", name: "Goal", isPositive: true, score: 0 },
     ] as unknown as Record<string, unknown>[]);
 
@@ -442,6 +452,88 @@ describe("MatchResultModal Component", () => {
       expect(inputs[1]).toHaveValue("2");
     });
   });
+
+  test("should treat event.score as authoritative over definition.score while preserving definition polarity", async () => {
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: "test-match-123",
+      homeTeamId: "home-team-id",
+      guestTeamId: "guest-team-id",
+    } as unknown as Record<string, unknown>);
+
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { id: "lineup-home-1", playerRosterId: "roster-home-1" },
+          { id: "lineup-guest-gk", playerRosterId: "roster-guest-gk" },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.playerrosters.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { id: "roster-home-1", teamId: "home-team-id" },
+          { id: "roster-guest-gk", teamId: "guest-team-id" },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.playerrosters.where>);
+
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValueOnce([
+      {
+        id: "def-zero-default",
+        name: "Bonus Play",
+        isPositive: true,
+        score: 0,
+      },
+      { id: "def-three-default", name: "Shot", isPositive: true, score: 3 },
+      { id: "def-neg-default", name: "Conceded", isPositive: false, score: 1 },
+    ] as unknown as Record<string, unknown>[]);
+
+    vi.mocked(db.gameevents.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          // Authoritative event score (4) overrides zero definition score
+          {
+            matchLineupId: "lineup-home-1",
+            eventDefinitionId: "def-zero-default",
+            score: 4,
+          },
+          // Authoritative event score (0) overrides positive definition score (3)
+          {
+            matchLineupId: "lineup-home-1",
+            eventDefinitionId: "def-three-default",
+            score: 0,
+          },
+          // Undefined event score falls back to definition score (3)
+          {
+            matchLineupId: "lineup-home-1",
+            eventDefinitionId: "def-three-default",
+          },
+          // Authoritative event score (2) with negative definition polarity adds 2 to guest
+          {
+            matchLineupId: "lineup-home-1",
+            eventDefinitionId: "def-neg-default",
+            score: 2,
+          },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.gameevents.where>);
+
+    const store = createTestStore({ homeScore: 0, guestScore: 0 });
+    render(
+      <Provider store={store}>
+        <MatchResultModal isOpen={true} onClose={mockOnClose} />
+      </Provider>,
+    );
+
+    const inputs = screen.getAllByRole("textbox");
+
+    await waitFor(() => {
+      expect(inputs[0]).toHaveValue("7");
+      expect(inputs[1]).toHaveValue("2");
+    });
+  });
+
   test("should increment and decrement scores using stepper buttons", async () => {
     const store = createTestStore({ homeScore: 2, guestScore: 0 });
     render(
