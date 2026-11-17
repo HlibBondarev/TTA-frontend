@@ -20,7 +20,7 @@ const getDefinitionScore = (
   scores: Record<string, number>,
   eventDefinitionId: string,
 ): number | undefined => {
-  if (!Object.prototype.hasOwnProperty.call(scores, eventDefinitionId)) {
+  if (!Object.hasOwn(scores, eventDefinitionId)) {
     return undefined;
   }
   const value = scores[eventDefinitionId];
