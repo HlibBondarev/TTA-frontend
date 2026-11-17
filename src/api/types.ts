@@ -4174,12 +4174,12 @@ export interface components {
             shortName?: string | null;
             isPositive?: boolean;
             isShot?: boolean;
+            /** Format: int32 */
+            score?: number;
             isCustom?: boolean;
             isEnabled?: boolean;
             /** Format: int32 */
             sortOrder?: number;
-            /** Format: int32 */
-            score?: number;
         };
         GameEventResponse: {
             /** Format: uuid */
@@ -4190,6 +4190,8 @@ export interface components {
             eventDefinitionId?: string;
             eventName?: string | null;
             isPositive?: boolean;
+            /** Format: int32 */
+            score?: number;
             /** Format: int32 */
             periodNumber?: number;
             /** Format: date-time */
@@ -4211,8 +4213,6 @@ export interface components {
             /** Format: uuid */
             teamId?: string | null;
             teamName?: string | null;
-            /** Format: int32 */
-            score?: number;
         };
         /** @enum {string} */
         Gender: "Male" | "Female";

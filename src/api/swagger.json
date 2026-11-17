@@ -6375,6 +6375,10 @@
           },
           "isShot": {
             "type": "boolean"
+          },
+          "score": {
+            "type": "integer",
+            "format": "int32"
           }
         },
         "additionalProperties": false
@@ -6596,6 +6600,10 @@
           "isShot": {
             "type": "boolean"
           },
+          "score": {
+            "type": "integer",
+            "format": "int32"
+          },
           "isCustom": {
             "type": "boolean"
           },
@@ -6630,6 +6638,10 @@
           },
           "isPositive": {
             "type": "boolean"
+          },
+          "score": {
+            "type": "integer",
+            "format": "int32"
           },
           "periodNumber": {
             "type": "integer",
@@ -7296,9 +7308,9 @@
             "type": "integer",
             "format": "int32"
           },
-          "goals": {
+          "scores": {
             "type": "integer",
-            "format": "int32"
+            "format": "int64"
           },
           "positiveGoalLeadingActions": {
             "type": "integer",
