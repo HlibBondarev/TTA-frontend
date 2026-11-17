@@ -4083,6 +4083,8 @@ export interface components {
             shortName?: string | null;
             isPositive?: boolean;
             isShot?: boolean;
+            /** Format: int32 */
+            score?: number;
         };
         CreateGameEventRequest: {
             /** Format: uuid */
@@ -4172,6 +4174,8 @@ export interface components {
             shortName?: string | null;
             isPositive?: boolean;
             isShot?: boolean;
+            /** Format: int32 */
+            score?: number;
             isCustom?: boolean;
             isEnabled?: boolean;
             /** Format: int32 */
@@ -4186,6 +4190,8 @@ export interface components {
             eventDefinitionId?: string;
             eventName?: string | null;
             isPositive?: boolean;
+            /** Format: int32 */
+            score?: number;
             /** Format: int32 */
             periodNumber?: number;
             /** Format: date-time */
@@ -4434,8 +4440,8 @@ export interface components {
             lastName?: string | null;
             /** Format: int32 */
             number?: number;
-            /** Format: int32 */
-            goals?: number;
+            /** Format: int64 */
+            scores?: number;
             /** Format: int32 */
             positiveGoalLeadingActions?: number;
             /** Format: int32 */
