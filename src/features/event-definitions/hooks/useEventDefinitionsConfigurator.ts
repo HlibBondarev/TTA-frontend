@@ -45,10 +45,12 @@ const groupDefinitionsByEnabled = (
   );
 };
 
-const SCORE_ERROR_MESSAGE = "Score must be a non-negative integer.";
+export const MAX_SCORE_VALUE = 2_147_483_647;
+
+const SCORE_ERROR_MESSAGE = `Score must be an integer between 0 and ${MAX_SCORE_VALUE}.`;
 
 export const isValidScore = (value: number): boolean =>
-  Number.isInteger(value) && value >= 0;
+  Number.isInteger(value) && value >= 0 && value <= MAX_SCORE_VALUE;
 
 export function useEventDefinitionsConfigurator({
   sportId,

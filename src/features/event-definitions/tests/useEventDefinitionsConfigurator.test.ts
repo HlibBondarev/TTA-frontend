@@ -1281,7 +1281,47 @@ describe("useEventDefinitionsConfigurator", () => {
     );
   });
 
-  it.each([-1, 1.5, Number.NaN])(
+  it("should accept max int32 score 2147483647", async () => {
+    vi.mocked(eventDefinitionService.createCustom).mockResolvedValue({
+      id: "custom-score-max",
+      sportId: mockSportId,
+      name: "Max Score",
+      shortName: "MS",
+      isPositive: true,
+      isShot: false,
+      isCustom: true,
+      isEnabled: false,
+      sortOrder: 0,
+      score: 2_147_483_647,
+    });
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setNewName("Max Score");
+      result.current.setNewShortName("MS");
+      result.current.setNewScore(2_147_483_647);
+    });
+
+    await act(async () => {
+      await result.current.handleCreateCustom({
+        preventDefault: vi.fn(),
+      } as unknown as React.SyntheticEvent<HTMLFormElement>);
+    });
+
+    expect(eventDefinitionService.createCustom).toHaveBeenCalledWith(
+      mockSportId,
+      expect.objectContaining({ score: 2_147_483_647 }),
+    );
+  });
+
+  it.each([-1, 1.5, Number.NaN, 2_147_483_648])(
     "should reject invalid score %s without calling createCustom",
     async (invalidScore) => {
       const { result } = renderHook(() =>
@@ -1306,7 +1346,7 @@ describe("useEventDefinitionsConfigurator", () => {
 
       expect(eventDefinitionService.createCustom).not.toHaveBeenCalled();
       expect(result.current.modalError).toBe(
-        "Score must be a non-negative integer.",
+        "Score must be an integer between 0 and 2147483647.",
       );
     },
   );
@@ -1330,6 +1370,7 @@ describe("useEventDefinitionsConfigurator", () => {
     });
     expect(result.current.newScore).toBe(0);
   });
+
   it("should handle moving items in NEGATIVE tab category", async () => {
     const negativeDefs = [
       {

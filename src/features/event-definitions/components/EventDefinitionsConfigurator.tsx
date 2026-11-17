@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useId, useRef } from "react";
 import { ModalDialog } from "../../matches/components/ModalDialog";
 import {
+  MAX_SCORE_VALUE,
   useEventDefinitionsConfigurator,
   type UseEventDefinitionsConfiguratorOptions,
 } from "../hooks/useEventDefinitionsConfigurator";
@@ -459,6 +460,7 @@ export const EventDefinitionsConfigurator: React.FC<
                 id="customActionScore"
                 type="number"
                 min={0}
+                max={MAX_SCORE_VALUE}
                 step={1}
                 value={Number.isNaN(newScore) ? "" : newScore}
                 onChange={(e) =>

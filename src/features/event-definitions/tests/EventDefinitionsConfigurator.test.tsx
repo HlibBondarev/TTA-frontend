@@ -700,6 +700,7 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(scoreInput.type).toBe("number");
     expect(scoreInput.value).toBe("0");
     expect(scoreInput.min).toBe("0");
+    expect(scoreInput.max).toBe("2147483647");
     expect(scoreInput.step).toBe("1");
 
     fireEvent.change(scoreInput, { target: { value: "2" } });
@@ -709,7 +710,9 @@ describe("EventDefinitionsConfigurator Component", () => {
   it("should not render score badges in the action definitions list", () => {
     vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
       ...defaultHookReturn,
-      activeCategoryDefs: [{ ...defaultHookReturn.activeCategoryDefs[0], score: 7 }],
+      activeCategoryDefs: [
+        { ...defaultHookReturn.activeCategoryDefs[0], score: 7 },
+      ],
     });
 
     render(<EventDefinitionsConfigurator sportId="water-polo" />);
