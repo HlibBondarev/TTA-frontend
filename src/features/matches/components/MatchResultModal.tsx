@@ -67,7 +67,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     }
   }
 
-  // Calculate initial scores based on recorded Goal events in IndexedDB
+  // Calculate initial scores based on recorded scoring events in IndexedDB
   useEffect(() => {
     if (!isOpen || !activeMatchId) return;
 
@@ -118,23 +118,18 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           }
         });
 
-        // 3. Find Positive and Negative Goal event definition IDs
+        // 3. Map scoring event definitions (score > 0) to their point values
         const allEventDefs = await db.eventdefinitions.toArray();
-        const positiveGoalDefIds = new Set<string>();
-        const negativeGoalDefIds = new Set<string>();
+        const scoreByDefId = new Map<string, { score: number; isPositive: boolean }>();
 
         allEventDefs.forEach((def) => {
-          const isGoal = def.name?.trim().toLowerCase() === "goal";
-          if (isGoal) {
-            const isPos =
-              def.isPositive ??
-              (def as unknown as Record<string, unknown>).ispositive;
-            if (isPos) {
-              positiveGoalDefIds.add(def.id);
-            } else {
-              negativeGoalDefIds.add(def.id);
-            }
-          }
+          const score = def.score ?? 0;
+          if (score <= 0) return;
+          const isPositive = Boolean(
+            def.isPositive ??
+            (def as unknown as Record<string, unknown>).ispositive,
+          );
+          scoreByDefId.set(def.id, { score, isPositive });
         });
 
         // 4. Fetch and aggregate game events
@@ -143,13 +138,11 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           .anyOf(lineupIds)
           .toArray();
 
-        const goalEvents = events.filter(
-          (e) =>
-            positiveGoalDefIds.has(e.eventDefinitionId) ||
-            negativeGoalDefIds.has(e.eventDefinitionId),
+        const scoringEvents = events.filter((e) =>
+          scoreByDefId.has(e.eventDefinitionId),
         );
 
-        if (goalEvents.length === 0) {
+        if (scoringEvents.length === 0) {
           if (isMounted && !hasUserEditedRef.current) {
             setHomeScoreInput(String(homeScoreRef.current ?? 0));
             setGuestScoreInput(String(guestScoreRef.current ?? 0));
@@ -160,7 +153,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
         let calcHomeScore = 0;
         let calcGuestScore = 0;
 
-        goalEvents.forEach((e) => {
+        scoringEvents.forEach((e) => {
           const lineupTeamId =
             lineupTeamMap.get(e.matchLineupId) || activeTeamId;
 
@@ -173,20 +166,13 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
             isHomeTeamLineup = lineupTeamId === activeTeamId;
           }
 
-          if (positiveGoalDefIds.has(e.eventDefinitionId)) {
-            // Scored Goal (Positive Result)
-            if (isHomeTeamLineup) {
-              calcHomeScore++;
-            } else {
-              calcGuestScore++;
-            }
-          } else if (negativeGoalDefIds.has(e.eventDefinitionId)) {
-            // Conceded Goal (Negative Result for goalkeeper)
-            if (isHomeTeamLineup) {
-              calcGuestScore++;
-            } else {
-              calcHomeScore++;
-            }
+          const { score, isPositive } = scoreByDefId.get(e.eventDefinitionId)!;
+          // Positive: points go to the tracked team. Negative: to the opponent.
+          const scoresForHome = isPositive === isHomeTeamLineup;
+          if (scoresForHome) {
+            calcHomeScore += score;
+          } else {
+            calcGuestScore += score;
           }
         });
 

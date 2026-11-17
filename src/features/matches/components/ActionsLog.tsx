@@ -9,6 +9,28 @@ import { ModalDialog } from "./ModalDialog";
 
 const EMPTY_ACTIONS: ActionEntry[] = [];
 
+interface ActionLookups {
+  synced: Record<string, number>;
+  scores: Record<string, number>;
+}
+
+const EMPTY_LOOKUPS: ActionLookups = { synced: {}, scores: {} };
+
+const loadDefinitionScores = async (
+  defIds: string[],
+): Promise<Record<string, number>> => {
+  const scores: Record<string, number> = {};
+  if (!db.eventdefinitions || defIds.length === 0) return scores;
+  try {
+    const defs = await db.eventdefinitions.where("id").anyOf(defIds).toArray();
+    defs?.forEach((d) => {
+      scores[d.id] = d.score ?? 0;
+    });
+  } catch {
+    // Score lookup is best-effort: fall back to treating actions as non-scoring.
+  }
+  return scores;
+};
 export const ActionsLog: React.FC = () => {
   const activeMatchId = useAppSelector((state) => state.match.activeMatchId);
   const rawRecentActions = useAppSelector((state) => state.match.recentActions);
@@ -23,7 +45,7 @@ export const ActionsLog: React.FC = () => {
     null,
   );
   const [error, setError] = useState<string | null>(null);
-  const [syncedMap, setSyncedMap] = useState<Record<string, number>>({});
+  const [lookups, setLookups] = useState<ActionLookups>(EMPTY_LOOKUPS);
 
   useEffect(() => {
     if (!error) return;
@@ -40,32 +62,43 @@ export const ActionsLog: React.FC = () => {
     [recentActions],
   );
 
+  const definitionIdsKey = useMemo(
+    () =>
+      [...new Set(recentActions.map((a) => a.eventDefinitionId))]
+        .filter(Boolean)
+        .join(","),
+    [recentActions],
+  );
+
   useEffect(() => {
     if (!db?.gameevents) return;
 
-    const subscription = liveQuery(async () => {
+    const subscription = liveQuery(async (): Promise<ActionLookups> => {
       const ids = actionIdsKey ? actionIdsKey.split(",") : [];
-      if (!db?.gameevents || ids.length === 0) return {};
+      if (!db?.gameevents || ids.length === 0) return EMPTY_LOOKUPS;
       try {
         const events = await db.gameevents.where("id").anyOf(ids).toArray();
-        const map: Record<string, number> = {};
+        const synced: Record<string, number> = {};
         events?.forEach((e) => {
-          map[e.id] = e.isSynced;
+          synced[e.id] = e.isSynced;
         });
-        return map;
+
+        const defIds = definitionIdsKey ? definitionIdsKey.split(",") : [];
+        const scores = await loadDefinitionScores(defIds);
+        return { synced, scores };
       } catch {
-        return {};
+        return EMPTY_LOOKUPS;
       }
     }).subscribe({
-      next: (map) => setSyncedMap(map || {}),
+      next: (result) => setLookups(result || EMPTY_LOOKUPS),
       error: (err) => console.error("Failed to query synced events:", err),
     });
 
     return () => subscription.unsubscribe();
-  }, [actionIdsKey]);
+  }, [actionIdsKey, definitionIdsKey]);
 
   const isActionSynced = (action: ActionEntry): boolean => {
-    const dbSynced = syncedMap[action.id];
+    const dbSynced = lookups.synced[action.id];
     if (dbSynced !== undefined) {
       return dbSynced === 1;
     }
@@ -169,14 +202,14 @@ export const ActionsLog: React.FC = () => {
               );
 
               const isGoalAction =
-                act.actionName.trim().toLowerCase() === "goal";
+                (lookups.scores[act.eventDefinitionId] ?? 0) > 0;
               const isSynced = isActionSynced(act);
 
               let checkboxTitle = "Toggle Leads to Goal";
               if (isSynced) {
                 checkboxTitle = "Cannot edit synchronized event";
               } else if (isGoalAction) {
-                checkboxTitle = "Goal action cannot lead to goal";
+                checkboxTitle = "Scoring action cannot lead to goal";
               }
 
               return (

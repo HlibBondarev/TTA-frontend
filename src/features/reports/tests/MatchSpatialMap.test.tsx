@@ -21,6 +21,7 @@ describe("MatchSpatialMap Component", () => {
         id: "def-1",
         sportId: "sport-1",
         name: "Goal",
+        score: 1,
         shortName: "GL",
         isPositive: true,
         isShot: true,

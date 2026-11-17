@@ -39,6 +39,7 @@ export const EventDefinitionsConfigurator: React.FC<
     newName,
     newShortName,
     newIsShot,
+    newScore,
     isLocked,
     activeCategoryDefs,
     activePositiveCount,
@@ -50,6 +51,7 @@ export const EventDefinitionsConfigurator: React.FC<
     setNewName,
     setNewShortName,
     setNewIsShot,
+    setNewScore,
     setCreating,
     handleToggleEnabled,
     handleToggleAll,
@@ -443,6 +445,28 @@ export const EventDefinitionsConfigurator: React.FC<
                 onChange={(e) => setNewShortName(e.target.value)}
                 placeholder="e.g. CAG"
                 className="w-full px-2.5 py-1.5 bg-gray-950 border border-gray-800 rounded text-xs text-gray-200 uppercase focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="customActionScore"
+                className="block text-[11px] text-gray-400 mb-1"
+              >
+                Score
+              </label>
+              <input
+                id="customActionScore"
+                type="number"
+                min={0}
+                step={1}
+                value={Number.isNaN(newScore) ? "" : newScore}
+                onChange={(e) =>
+                  setNewScore(
+                    e.target.value === "" ? Number.NaN : Number(e.target.value),
+                  )
+                }
+                className="w-full px-2.5 py-1.5 bg-gray-950 border border-gray-800 rounded text-xs text-gray-200 focus:outline-none focus:border-blue-500"
               />
             </div>
 

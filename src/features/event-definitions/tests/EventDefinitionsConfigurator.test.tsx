@@ -11,6 +11,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       {
         id: "def-1",
         name: "Goal",
+        score: 1,
         shortName: "G",
         isPositive: true,
         isShot: true,
@@ -31,11 +32,13 @@ describe("EventDefinitionsConfigurator Component", () => {
     newName: "",
     newShortName: "",
     newIsShot: false,
+    newScore: 0,
     isLocked: false,
     activeCategoryDefs: [
       {
         id: "def-1",
         name: "Goal",
+        score: 1,
         shortName: "G",
         isPositive: true,
         isShot: true,
@@ -54,6 +57,7 @@ describe("EventDefinitionsConfigurator Component", () => {
     setNewName: vi.fn(),
     setNewShortName: vi.fn(),
     setNewIsShot: vi.fn(),
+    setNewScore: vi.fn(),
     setCreating: vi.fn(),
     handleToggleEnabled: vi.fn(),
     handleToggleAll: vi.fn(),
@@ -244,6 +248,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       {
         id: "def-1",
         name: "Goal",
+        score: 1,
         shortName: "G",
         isPositive: true,
         isEnabled: true,
@@ -300,6 +305,7 @@ describe("EventDefinitionsConfigurator Component", () => {
       {
         id: "def-1",
         name: "Goal",
+        score: 1,
         shortName: "G",
         isPositive: true,
         isEnabled: true,
@@ -682,6 +688,34 @@ describe("EventDefinitionsConfigurator Component", () => {
     expect(defaultHookReturn.setNewIsShot).toHaveBeenCalled();
   });
 
+  it("should render a non-negative integer Score input defaulting to 0 and report changes", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      isModalOpen: true,
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    const scoreInput = screen.getByLabelText("Score") as HTMLInputElement;
+    expect(scoreInput.type).toBe("number");
+    expect(scoreInput.value).toBe("0");
+    expect(scoreInput.min).toBe("0");
+    expect(scoreInput.step).toBe("1");
+
+    fireEvent.change(scoreInput, { target: { value: "2" } });
+    expect(defaultHookReturn.setNewScore).toHaveBeenCalledWith(2);
+  });
+
+  it("should not render score badges in the action definitions list", () => {
+    vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
+      ...defaultHookReturn,
+      activeCategoryDefs: [{ ...defaultHookReturn.activeCategoryDefs[0], score: 7 }],
+    });
+
+    render(<EventDefinitionsConfigurator sportId="water-polo" />);
+
+    expect(screen.queryByText("7")).toBeNull();
+  });
   it("should submit custom action creation form when required fields are populated", () => {
     vi.mocked(useEventDefinitionsConfigurator).mockReturnValue({
       ...defaultHookReturn,

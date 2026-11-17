@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { GameEventResponse } from "../../../services/reportService";
 import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
+import { isScoringEvent } from "../../../utils/scoreUtils";
 import { parseSvgDimensions } from "../../../utils/svgUtils";
 
 export type ShotCategory = "goal" | "conceded_goal" | "shot_on_goal" | "miss";
@@ -129,16 +130,6 @@ export const useShotMap = ({
     return clearAutoDismissTimer;
   }, [selectedEventId, clearAutoDismissTimer]);
 
-  const goalDefinitionIds = useMemo(() => {
-    const goalIds = new Set<string>();
-    eventDefinitionsMap.forEach((def, id) => {
-      if (def.name?.trim().toLowerCase() === "goal") {
-        goalIds.add(id);
-      }
-    });
-    return goalIds;
-  }, [eventDefinitionsMap]);
-
   const activeEvent = useMemo(() => {
     const activeId = hoveredEventId ?? selectedEventId;
     return events.find((e) => e.id === activeId) ?? null;
@@ -208,15 +199,13 @@ export const useShotMap = ({
       const shortCode =
         def?.shortName || e.eventName?.slice(0, 3).toUpperCase() || "SHT";
 
-      const isGoalEvent = Boolean(
-        e.eventDefinitionId && goalDefinitionIds.has(e.eventDefinitionId),
-      );
+      const isScoring = isScoringEvent(e, def);
 
       let shotCategory: ShotCategory;
       if (e.isPositive) {
-        shotCategory = isGoalEvent ? "goal" : "shot_on_goal";
+        shotCategory = isScoring ? "goal" : "shot_on_goal";
       } else {
-        shotCategory = isGoalEvent ? "conceded_goal" : "miss";
+        shotCategory = isScoring ? "conceded_goal" : "miss";
       }
 
       return {
@@ -241,7 +230,6 @@ export const useShotMap = ({
     validShotEvents,
     clusters,
     eventDefinitionsMap,
-    goalDefinitionIds,
     selectedEventId,
     hoveredEventId,
   ]);

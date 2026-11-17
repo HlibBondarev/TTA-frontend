@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { GameEventResponse } from "../../../services/reportService";
 import type { EventDefinitionLookup } from "../../../db/ttaDatabase";
+import { isScoringEvent } from "../../../utils/scoreUtils";
 
 export interface GoalLeadVector {
   id: string;
@@ -119,17 +120,6 @@ export const useSpatialMap = ({
     return clearAutoDismissTimer;
   }, [selectedEventId, scheduleAutoDismiss, clearAutoDismissTimer]);
 
-  // Set of definition IDs strictly representing "Goal" events
-  const goalDefinitionIds = useMemo(() => {
-    const goalIds = new Set<string>();
-    eventDefinitionsMap.forEach((def, id) => {
-      if (def.name?.trim().toLowerCase() === "goal") {
-        goalIds.add(id);
-      }
-    });
-    return goalIds;
-  }, [eventDefinitionsMap]);
-
   // Currently active event for tooltip display (prefers selectedEventId over hoveredEventId)
   const activeEvent = useMemo(() => {
     const activeId = selectedEventId ?? hoveredEventId;
@@ -153,12 +143,8 @@ export const useSpatialMap = ({
       const shortCode =
         def?.shortName || e.eventName?.slice(0, 3).toUpperCase() || "TTA";
 
-      // Strictly classify as goal ONLY if the event definition name is "Goal" or registered in goalDefinitionIds
-      const isGoalName = def?.name?.trim().toLowerCase() === "goal";
-      const isGoal = Boolean(
-        isGoalName ||
-        (e.eventDefinitionId && goalDefinitionIds.has(e.eventDefinitionId)),
-      );
+      // Classify as goal strictly by score (event score, then definition score)
+      const isGoal = isScoringEvent(e, def);
 
       return {
         event: e,
@@ -321,7 +307,6 @@ export const useSpatialMap = ({
   }, [
     events,
     eventDefinitionsMap,
-    goalDefinitionIds,
     selectedEventId,
     hoveredEventId,
     viewBoxWidth,
@@ -395,7 +380,12 @@ export const useSpatialMap = ({
     const leadEvents = events.filter(
       (e) =>
         Boolean(e.isLeadToGoal) &&
-        (!e.eventDefinitionId || !goalDefinitionIds.has(e.eventDefinitionId)) &&
+        !isScoringEvent(
+          e,
+          e.eventDefinitionId
+            ? eventDefinitionsMap.get(e.eventDefinitionId)
+            : undefined,
+        ) &&
         e.locationX != null &&
         e.locationY != null &&
         e.id != null,
@@ -407,9 +397,7 @@ export const useSpatialMap = ({
       const def = e.eventDefinitionId
         ? eventDefinitionsMap.get(e.eventDefinitionId)
         : undefined;
-      const isGoal =
-        def?.name?.trim().toLowerCase() === "goal" ||
-        (e.eventDefinitionId && goalDefinitionIds.has(e.eventDefinitionId));
+      const isGoal = isScoringEvent(e, def);
       return (
         isGoal && e.locationX != null && e.locationY != null && e.id != null
       );
@@ -502,7 +490,6 @@ export const useSpatialMap = ({
     events,
     allEvents,
     eventDefinitionsMap,
-    goalDefinitionIds,
     renderablePoints,
     viewBoxWidth,
     viewBoxHeight,

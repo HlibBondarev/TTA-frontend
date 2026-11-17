@@ -144,6 +144,7 @@ describe("App Bootstrapping Component", () => {
     {
       id: "def-1",
       name: "Goal",
+      score: 1,
       shortName: "G",
       isPositive: true,
       isEnabled: true,

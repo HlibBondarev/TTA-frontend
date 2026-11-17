@@ -53,10 +53,14 @@ vi.mock("../../../db/ttaDatabase", () => ({
       }),
     },
     eventdefinitions: {
-      toArray: vi.fn().mockResolvedValue([
-        { id: "def-1", name: "Goal", isPositive: true },
-        { id: "def-2", name: "Turnover", isPositive: false },
-      ]),
+      where: vi.fn().mockReturnValue({
+        anyOf: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            { id: "def-1", name: "Goal", isPositive: true, score: 1 },
+            { id: "def-2", name: "Turnover", isPositive: false, score: 0 },
+          ]),
+        }),
+      }),
     },
   },
 }));

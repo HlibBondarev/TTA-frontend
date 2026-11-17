@@ -27,6 +27,7 @@ describe("useSpatialMap Custom Hook", () => {
         id: "def-goal",
         sportId: "sport-1",
         name: "Goal",
+        score: 1,
         shortName: "GOA",
         isPositive: true,
         isShot: false,
@@ -38,6 +39,7 @@ describe("useSpatialMap Custom Hook", () => {
         id: "def-goal-conceded",
         sportId: "sport-1",
         name: "Goal",
+        score: 1,
         shortName: "GOA",
         isPositive: false,
         isShot: false,
@@ -118,6 +120,100 @@ describe("useSpatialMap Custom Hook", () => {
     expect(secondPoint.isGoal).toBe(true);
   });
 
+  it("identifies isGoal and goalLeadVectors via score > 0 regardless of event name", () => {
+    const defs = new Map<string, EventDefinitionLookup>([
+      [
+        "def-lead",
+        {
+          id: "def-lead",
+          sportId: "sport-1",
+          name: "Pass",
+          shortName: "PAS",
+          isPositive: true,
+          isShot: false,
+          score: 0,
+        },
+      ],
+      [
+        "def-basket",
+        {
+          id: "def-basket",
+          sportId: "sport-1",
+          name: "Basket",
+          shortName: "BSK",
+          isPositive: true,
+          isShot: true,
+          score: 2,
+        },
+      ],
+      [
+        "def-fake-goal",
+        {
+          id: "def-fake-goal",
+          sportId: "sport-1",
+          name: "Goal",
+          shortName: "FG",
+          isPositive: true,
+          isShot: true,
+          score: 0,
+        },
+      ],
+    ]);
+    const base = {
+      matchLineupId: "lineup-1",
+      isPositive: true,
+      periodNumber: 1,
+      teamId: "team-1",
+    };
+    const events: GameEventResponse[] = [
+      {
+        ...base,
+        id: "lead-1",
+        eventDefinitionId: "def-lead",
+        isLeadToGoal: true,
+        eventTimestamp: "2026-10-14T10:00:00Z",
+        locationX: 80,
+        locationY: 50,
+      },
+      {
+        ...base,
+        id: "named-goal-zero-score",
+        eventDefinitionId: "def-fake-goal",
+        eventName: "Goal",
+        eventTimestamp: "2026-10-14T10:03:00Z",
+        locationX: 60,
+        locationY: 60,
+      },
+      {
+        ...base,
+        id: "basket-1",
+        eventDefinitionId: "def-basket",
+        eventName: "Basket",
+        eventTimestamp: "2026-10-14T10:05:00Z",
+        locationX: 90,
+        locationY: 40,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useSpatialMap({
+        events,
+        eventDefinitionsMap: defs,
+        viewBoxWidth: 600,
+        viewBoxHeight: 1000,
+      }),
+    );
+
+    const isGoal = (id: string) =>
+      result.current.renderablePoints.find((p) => p.event.id === id)?.isGoal;
+    expect(isGoal("basket-1")).toBe(true);
+    expect(isGoal("named-goal-zero-score")).toBe(false);
+    expect(isGoal("lead-1")).toBe(false);
+
+    expect(result.current.goalLeadVectors).toHaveLength(1);
+    expect(result.current.goalLeadVectors[0].x2).toBe(240);
+    expect(result.current.goalLeadVectors[0].y2).toBe(100);
+  });
   it("applies radial spiderfy displacement when markers overlap closely", () => {
     const overlappingEvents: GameEventResponse[] = [
       {

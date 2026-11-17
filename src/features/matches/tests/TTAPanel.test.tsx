@@ -132,6 +132,7 @@ describe("TTAPanel Component", () => {
       id: "1",
       sportId: "s1",
       name: "Goal",
+      score: 1,
       shortName: "GL",
       isPositive: true,
       isShot: true,

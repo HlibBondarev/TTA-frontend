@@ -53,6 +53,7 @@ describe("useEventDefinitionsConfigurator", () => {
     {
       id: "def-1",
       name: "Goal",
+      score: 1,
       shortName: "G",
       isPositive: true,
       isShot: true,
@@ -268,6 +269,7 @@ describe("useEventDefinitionsConfigurator", () => {
       {
         id: "def-1",
         name: "Goal",
+        score: 1,
         shortName: "G",
         isPositive: true,
         isEnabled: true,
@@ -330,6 +332,7 @@ describe("useEventDefinitionsConfigurator", () => {
       {
         id: "def-1",
         name: "Goal",
+        score: 1,
         shortName: "G",
         isPositive: true,
         isEnabled: true,
@@ -519,6 +522,7 @@ describe("useEventDefinitionsConfigurator", () => {
       {
         id: "def-1",
         name: "Goal",
+        score: 1,
         shortName: "G",
         isPositive: true,
         isEnabled: false,
@@ -552,6 +556,7 @@ describe("useEventDefinitionsConfigurator", () => {
       {
         id: "def-1",
         name: "Goal",
+        score: 1,
         shortName: "G",
         isPositive: true,
         isEnabled: false,
@@ -591,6 +596,7 @@ describe("useEventDefinitionsConfigurator", () => {
       {
         id: "def-1",
         name: "Goal",
+        score: 1,
         shortName: "G",
         isPositive: true,
         isEnabled: false,
@@ -1184,6 +1190,146 @@ describe("useEventDefinitionsConfigurator", () => {
     expect(eventDefinitionService.createCustom).not.toHaveBeenCalled();
   });
 
+  it("should send integer score to createCustom, persist it to Dexie and keep it in local state", async () => {
+    vi.mocked(eventDefinitionService.createCustom).mockResolvedValue({
+      id: "custom-score-1",
+      sportId: mockSportId,
+      name: "Three Pointer",
+      shortName: "3P",
+      isPositive: true,
+      isShot: true,
+      isCustom: true,
+      isEnabled: false,
+      sortOrder: 0,
+      score: 3,
+    });
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.newScore).toBe(0);
+
+    act(() => {
+      result.current.setIsModalOpen(true);
+      result.current.setNewName("Three Pointer");
+      result.current.setNewShortName("3P");
+      result.current.setNewScore(3);
+    });
+
+    const fakeEvent = {
+      preventDefault: vi.fn(),
+    } as unknown as React.SyntheticEvent<HTMLFormElement>;
+
+    await act(async () => {
+      await result.current.handleCreateCustom(fakeEvent);
+    });
+
+    expect(eventDefinitionService.createCustom).toHaveBeenCalledWith(
+      mockSportId,
+      expect.objectContaining({ score: 3 }),
+    );
+    expect(db.eventdefinitions.put).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "custom-score-1", score: 3 }),
+    );
+    expect(
+      result.current.definitions.find((d) => d.id === "custom-score-1")?.score,
+    ).toBe(3);
+    expect(result.current.newScore).toBe(0);
+  });
+
+  it("should accept a zero score", async () => {
+    vi.mocked(eventDefinitionService.createCustom).mockResolvedValue({
+      id: "custom-score-0",
+      sportId: mockSportId,
+      name: "Neutral",
+      shortName: "NE",
+      isPositive: true,
+      isShot: false,
+      isCustom: true,
+      isEnabled: false,
+      sortOrder: 0,
+      score: 0,
+    });
+
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setNewName("Neutral");
+      result.current.setNewShortName("NE");
+    });
+
+    await act(async () => {
+      await result.current.handleCreateCustom({
+        preventDefault: vi.fn(),
+      } as unknown as React.SyntheticEvent<HTMLFormElement>);
+    });
+
+    expect(eventDefinitionService.createCustom).toHaveBeenCalledWith(
+      mockSportId,
+      expect.objectContaining({ score: 0 }),
+    );
+  });
+
+  it.each([-1, 1.5, Number.NaN])(
+    "should reject invalid score %s without calling createCustom",
+    async (invalidScore) => {
+      const { result } = renderHook(() =>
+        useEventDefinitionsConfigurator({ sportId: mockSportId }),
+      );
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false);
+      });
+
+      act(() => {
+        result.current.setNewName("Bad Score");
+        result.current.setNewShortName("BS");
+        result.current.setNewScore(invalidScore);
+      });
+
+      await act(async () => {
+        await result.current.handleCreateCustom({
+          preventDefault: vi.fn(),
+        } as unknown as React.SyntheticEvent<HTMLFormElement>);
+      });
+
+      expect(eventDefinitionService.createCustom).not.toHaveBeenCalled();
+      expect(result.current.modalError).toBe(
+        "Score must be a non-negative integer.",
+      );
+    },
+  );
+
+  it("should reset score to 0 when the modal is closed or reopened", async () => {
+    const { result } = renderHook(() =>
+      useEventDefinitionsConfigurator({ sportId: mockSportId }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
+      result.current.setNewScore(5);
+    });
+    expect(result.current.newScore).toBe(5);
+
+    act(() => {
+      result.current.setIsModalOpen(false);
+    });
+    expect(result.current.newScore).toBe(0);
+  });
   it("should handle moving items in NEGATIVE tab category", async () => {
     const negativeDefs = [
       {
@@ -1237,6 +1383,7 @@ describe("useEventDefinitionsConfigurator", () => {
       {
         id: "def-1",
         name: "Goal",
+        score: 1,
         shortName: "G",
         isPositive: true,
         isEnabled: false,
