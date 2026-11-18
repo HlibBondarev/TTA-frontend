@@ -28,6 +28,8 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({
     setSelectedPlayerId,
     consoleError,
     isSubmitting,
+    hasPendingRemovals,
+    retryPendingRemovals,
     handleFinalizeSuccess,
     handleEnter,
     handleActionSelect,
@@ -46,13 +48,33 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({
       </header>
       {activeMatchId ? (
         <div className="flex flex-col flex-1 overflow-hidden">
-          {consoleError && (
+          {hasPendingRemovals ? (
             <div
               role="alert"
-              className="mx-2 mt-2 p-1.5 text-[11px] bg-red-900/50 border border-red-800 text-red-200 rounded text-center font-medium"
+              className="mx-2 mt-2 p-1.5 text-[11px] bg-amber-950/70 border border-amber-700 text-amber-200 rounded flex items-center justify-between gap-2 font-medium"
             >
-              {consoleError}
+              <span>
+                {consoleError ||
+                  "Event saved, but automatic player removal is pending."}
+              </span>
+              <button
+                type="button"
+                onClick={() => void retryPendingRemovals()}
+                disabled={isSubmitting}
+                className="shrink-0 px-2 py-0.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-[10px] font-bold uppercase rounded"
+              >
+                Retry Removal
+              </button>
             </div>
+          ) : (
+            consoleError && (
+              <div
+                role="alert"
+                className="mx-2 mt-2 p-1.5 text-[11px] bg-red-900/50 border border-red-800 text-red-200 rounded text-center font-medium"
+              >
+                {consoleError}
+              </div>
+            )
           )}
           <div className="flex-1 overflow-y-auto w-full px-2 space-y-2">
             <MatchLifecyclePanel onFinalizeSuccess={handleFinalizeSuccess} />

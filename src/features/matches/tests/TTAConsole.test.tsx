@@ -52,6 +52,8 @@ vi.mock("../hooks/useMatchLifecycle", () => ({
 }));
 
 const mockRecordGameEvent = vi.fn();
+const mockRetryPendingDisciplinaryRemovals = vi.fn();
+let mockHasPendingRemovals = false;
 const mockHandleLocationSelect = vi.fn();
 const mockHandleShotLocationSelect = vi.fn();
 
@@ -76,6 +78,8 @@ vi.mock("../hooks/useTTAConsole", async (importOriginal) => {
 vi.mock("../hooks/useGameEvents", () => ({
   useGameEvents: () => ({
     recordGameEvent: mockRecordGameEvent,
+    hasPendingRemovals: mockHasPendingRemovals,
+    retryPendingDisciplinaryRemovals: mockRetryPendingDisciplinaryRemovals,
   }),
 }));
 
@@ -224,6 +228,8 @@ describe("TTAConsole Component", () => {
     mockPeriodNumber = 1;
     mockPendingLocation = null;
     mockPendingShotLocation = null;
+    mockHasPendingRemovals = false;
+    mockRetryPendingDisciplinaryRemovals.mockResolvedValue(true);
 
     vi.mocked(db.matches.get).mockResolvedValue({
       id: "test-id",
@@ -439,6 +445,74 @@ describe("TTAConsole Component", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Database write error",
     );
+  });
+
+  test("displays persistent pending-removal banner across console remount and retries removal via UI control without re-creating event", async () => {
+    mockRecordGameEvent.mockImplementationOnce(async () => {
+      mockHasPendingRemovals = true;
+      return {
+        eventSaved: true,
+        removalPending: true,
+        eventId: "excl-uuid-1",
+      };
+    });
+
+    const store = createTestStore();
+
+    const firstRender = render(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    const passBtn = await screen.findByText("Pass");
+    fireEvent.click(passBtn);
+    fireEvent.click(screen.getByText("Mock Player"));
+
+    fireEvent.click(screen.getByRole("button", { name: /Enter/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Event saved, but automatic player removal failed. Retry removal.",
+    );
+    expect(
+      screen.getByRole("button", { name: /Retry Removal/i }),
+    ).toBeInTheDocument();
+    expect(mockRecordGameEvent).toHaveBeenCalledTimes(1);
+
+    // Unmount and remount TTAConsole while hasPendingRemovals remains true in registry
+    firstRender.unmount();
+
+    const secondRender = render(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    expect(await secondRender.findByRole("alert")).toHaveTextContent(
+      "Event saved, but automatic player removal is pending.",
+    );
+
+    mockRetryPendingDisciplinaryRemovals.mockImplementationOnce(async () => {
+      mockHasPendingRemovals = false;
+      return true;
+    });
+
+    fireEvent.click(
+      secondRender.getByRole("button", { name: /Retry Removal/i }),
+    );
+
+    await waitFor(() => {
+      expect(mockRetryPendingDisciplinaryRemovals).toHaveBeenCalledTimes(1);
+    });
+    expect(mockRecordGameEvent).toHaveBeenCalledTimes(1);
+
+    secondRender.rerender(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   test("resets selection and action states when period transitions", () => {
