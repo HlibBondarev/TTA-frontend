@@ -4085,6 +4085,9 @@ export interface components {
             isShot?: boolean;
             /** Format: int32 */
             score?: number;
+            foulImpact?: components["schemas"]["FoulImpact"];
+            /** Format: int32 */
+            penaltyDurationSeconds?: number | null;
         };
         CreateGameEventRequest: {
             /** Format: uuid */
@@ -4176,11 +4179,16 @@ export interface components {
             isShot?: boolean;
             /** Format: int32 */
             score?: number;
+            foulImpact?: components["schemas"]["FoulImpact"];
+            /** Format: int32 */
+            penaltyDurationSeconds?: number | null;
             isCustom?: boolean;
             isEnabled?: boolean;
             /** Format: int32 */
             sortOrder?: number;
         };
+        /** @enum {string} */
+        FoulImpact: "None" | "PersonalFoul" | "DisqualificationWithSub" | "DisqualificationNoSub";
         GameEventResponse: {
             /** Format: uuid */
             id?: string;
@@ -4192,6 +4200,9 @@ export interface components {
             isPositive?: boolean;
             /** Format: int32 */
             score?: number;
+            foulImpact?: components["schemas"]["FoulImpact"];
+            /** Format: int32 */
+            penaltyDurationSeconds?: number | null;
             /** Format: int32 */
             periodNumber?: number;
             /** Format: date-time */
@@ -4412,6 +4423,8 @@ export interface components {
             /** Format: double */
             fieldWidth?: number;
             shotMap?: string | null;
+            /** Format: int32 */
+            maxPersonalFouls?: number | null;
         };
         SportResponse: {
             /** Format: uuid */
