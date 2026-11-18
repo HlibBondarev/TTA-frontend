@@ -5,7 +5,9 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useTTAConsole } from "../hooks/useTTAConsole";
 import matchReducer from "../store/matchSlice";
-import presenceReducer from "../../playerpresences/store/presenceSlice";
+import presenceReducer, {
+  optimisticRemoveFromActive,
+} from "../../playerpresences/store/presenceSlice";
 import uiReducer from "../../../store/slices/uiSlice";
 import navigationReducer from "../../../store/slices/navigationSlice";
 import type { RootState } from "../../../store";
@@ -527,5 +529,30 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     expect(result.current.isSubmitting).toBe(false);
+  });
+
+  it("should clear selectedPlayerId automatically when the selected player is removed from activeLineupIds", () => {
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+      presence: {
+        activeLineupIds: ["player-1", "player-2"],
+        benchLineupIds: ["player-3"],
+      },
+    });
+
+    const { result } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.setSelectedPlayerId("player-1");
+    });
+    expect(result.current.selectedPlayerId).toBe("player-1");
+
+    act(() => {
+      store.dispatch(optimisticRemoveFromActive("player-1"));
+    });
+
+    expect(result.current.selectedPlayerId).toBeNull();
   });
 });

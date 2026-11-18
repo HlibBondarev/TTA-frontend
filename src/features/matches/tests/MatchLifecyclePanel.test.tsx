@@ -206,6 +206,8 @@ const defaultPresenceMock = {
   startPeriodWithRoster: vi.fn().mockResolvedValue(undefined),
   endPeriodWithRoster: vi.fn().mockResolvedValue(undefined),
   executeSubstitution: vi.fn(),
+  removePlayerFromActive: vi.fn().mockResolvedValue(true),
+  enterPlayerFromBench: vi.fn().mockResolvedValue("entered-presence-id"),
 };
 
 describe("MatchLifecyclePanel Component Integration & State Machine", () => {

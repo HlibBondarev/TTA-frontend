@@ -1,12 +1,14 @@
 import Dexie from "dexie";
 import {
   db,
+  type FoulImpact,
   type GameEvent,
   type EventDefinitionLookup,
   type UserEventPresetLookup,
   type SyncQueueItem,
 } from "./ttaDatabase";
 import { matchLockService } from "../services/matchLockService";
+import { DEFAULT_FOUL_IMPACT } from "../utils/disciplinaryUtils";
 
 let eventDefinitionsCache: Map<string, EventDefinitionLookup> | null = null;
 let cachedSportId: string | undefined = undefined;
@@ -84,6 +86,8 @@ export const replaceSportEventDefinitionsInDb = async (
     isPositive: def.isPositive,
     isShot: def.isShot ?? false,
     score: def.score ?? 0,
+    foulImpact: def.foulImpact ?? DEFAULT_FOUL_IMPACT,
+    penaltyDurationSeconds: def.penaltyDurationSeconds ?? null,
     isCustom: def.isCustom,
     ownerId: def.ownerId ?? (def.isCustom ? (normalizedUserId ?? null) : null),
   }));
@@ -264,6 +268,8 @@ export interface CreateGameEventParams {
   locationY?: number | null;
   shotLocationX?: number | null;
   shotLocationY?: number | null;
+  foulImpact?: FoulImpact;
+  penaltyDurationSeconds?: number | null;
 }
 
 export interface UpdateGameEventParams {
@@ -449,6 +455,28 @@ const resolveCoordinateValue = (
   return existingVal ?? null;
 };
 
+const resolveUpdatedDisciplinaryFields = (
+  existing: GameEvent,
+  targetDef: EventDefinitionLookup | undefined,
+  isDefinitionChanged: boolean,
+): { foulImpact: FoulImpact; penaltyDurationSeconds: number | null } => {
+  if (isDefinitionChanged) {
+    return {
+      foulImpact: targetDef?.foulImpact ?? DEFAULT_FOUL_IMPACT,
+      penaltyDurationSeconds: targetDef?.penaltyDurationSeconds ?? null,
+    };
+  }
+
+  return {
+    foulImpact:
+      existing.foulImpact ?? targetDef?.foulImpact ?? DEFAULT_FOUL_IMPACT,
+    penaltyDurationSeconds:
+      existing.penaltyDurationSeconds !== undefined
+        ? existing.penaltyDurationSeconds
+        : (targetDef?.penaltyDurationSeconds ?? null),
+  };
+};
+
 export const createGameEventTx = async (
   params: CreateGameEventParams,
 ): Promise<GameEvent> => {
@@ -470,6 +498,21 @@ export const createGameEventTx = async (
     throw new Error("Missing or empty teamId for creating game event.");
   }
 
+  const needsDefinitionLookup =
+    params.foulImpact === undefined ||
+    params.penaltyDurationSeconds === undefined;
+  const eventDef =
+    needsDefinitionLookup && db.eventdefinitions?.get
+      ? await db.eventdefinitions.get(params.eventDefinitionId)
+      : undefined;
+
+  const resolvedFoulImpact: FoulImpact =
+    params.foulImpact ?? eventDef?.foulImpact ?? DEFAULT_FOUL_IMPACT;
+  const resolvedPenaltyDurationSeconds: number | null =
+    params.penaltyDurationSeconds !== undefined
+      ? params.penaltyDurationSeconds
+      : (eventDef?.penaltyDurationSeconds ?? null);
+
   let createdEvent: GameEvent | null = null;
 
   await db.transaction(
@@ -489,6 +532,8 @@ export const createGameEventTx = async (
         locationY: params.locationY ?? null,
         shotLocationX: params.shotLocationX ?? null,
         shotLocationY: params.shotLocationY ?? null,
+        foulImpact: resolvedFoulImpact,
+        penaltyDurationSeconds: resolvedPenaltyDurationSeconds,
         createdAt: new Date().toISOString(),
         sequenceNumber: nextSeq,
         isSynced: 0,
@@ -563,14 +608,22 @@ export const updateGameEventTx = async (
       }
 
       let isShot = true;
-      if (params.eventDefinitionId !== existing.eventDefinitionId) {
-        const targetDef = await db.eventdefinitions.get(
-          params.eventDefinitionId,
-        );
+      const isDefinitionChanged =
+        params.eventDefinitionId !== existing.eventDefinitionId;
+      let targetDef: EventDefinitionLookup | undefined;
+      if (isDefinitionChanged) {
+        targetDef = await db.eventdefinitions.get(params.eventDefinitionId);
         if (targetDef) {
           isShot = Boolean(targetDef.isShot);
         }
       }
+
+      const { foulImpact, penaltyDurationSeconds } =
+        resolveUpdatedDisciplinaryFields(
+          existing,
+          targetDef,
+          isDefinitionChanged,
+        );
 
       const locationX = resolveCoordinateValue(
         params.locationX,
@@ -596,6 +649,8 @@ export const updateGameEventTx = async (
         locationY,
         shotLocationX,
         shotLocationY,
+        foulImpact,
+        penaltyDurationSeconds,
       };
 
       await db.gameevents.put(updatedEvent);

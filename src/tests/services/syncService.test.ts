@@ -2504,5 +2504,82 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
       expect(db.syncQueue.delete).not.toHaveBeenCalledWith(2);
     });
+
+    it("cleanupBatchQueue removes only synced PUT /presence/terminate items when multiple terminate entries exist", async () => {
+      const matchId = "m-multi-term";
+      const exitTime1 = "2026-11-18T10:02:00.000Z";
+      const exitTime2 = "2026-11-18T10:08:00.000Z";
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            { id: "lineup-1", matchId },
+            { id: "lineup-2", matchId },
+          ]),
+        }),
+      } as never);
+
+      vi.mocked(db.playerpresences.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "pres-1",
+            matchLineupId: "lineup-1",
+            periodNumber: 1,
+            timeIn: "2026-11-18T10:00:00.000Z",
+            timeOut: exitTime1,
+            sequenceNumber: 1,
+            isSynced: 0,
+          },
+          {
+            id: "pres-2",
+            matchLineupId: "lineup-2",
+            periodNumber: 1,
+            timeIn: "2026-11-18T10:00:00.000Z",
+            timeOut: exitTime2,
+            sequenceNumber: 2,
+            isSynced: 0,
+          },
+        ]),
+      } as never);
+
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue([
+        {
+          id: 101,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["lineup-1"],
+            timeOut: exitTime1,
+          }),
+          createdAt: exitTime1,
+        },
+        {
+          id: 102,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["lineup-2"],
+            timeOut: exitTime2,
+          }),
+          createdAt: exitTime2,
+        },
+      ]);
+
+      // Only pres-1 returned as synced
+      vi.mocked(apiClient.post).mockResolvedValueOnce({
+        data: {
+          syncedEventIds: [],
+          syncedAnchorIds: [],
+          syncedPresenceIds: ["pres-1"],
+        },
+      });
+
+      await syncMatchBatch(matchId);
+
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(101);
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(102);
+    });
   });
 });

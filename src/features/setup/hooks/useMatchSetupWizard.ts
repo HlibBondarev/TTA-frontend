@@ -109,10 +109,17 @@ export function useMatchSetupWizard({
 
         if (requestId !== configRequestRef.current) return;
 
-        setConfigurations(data);
+        const normalizedConfigs: SportConfigurationLookup[] = data.map(
+          (config) => ({
+            ...config,
+            maxPersonalFouls: config.maxPersonalFouls ?? null,
+          }),
+        );
 
-        if (data.length > 0 && db.sportconfigurations) {
-          await db.sportconfigurations.bulkPut(data);
+        setConfigurations(normalizedConfigs);
+
+        if (normalizedConfigs.length > 0 && db.sportconfigurations) {
+          await db.sportconfigurations.bulkPut(normalizedConfigs);
         }
 
         if (requestId !== configRequestRef.current) return;

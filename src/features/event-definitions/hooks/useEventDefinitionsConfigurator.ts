@@ -13,6 +13,7 @@ import {
 } from "../../../services/eventDefinitionService";
 import { replaceSportEventDefinitionsInDb } from "../../../db/eventService";
 import { db, type EventDefinitionLookup } from "../../../db/ttaDatabase";
+import { DEFAULT_FOUL_IMPACT } from "../../../utils/disciplinaryUtils";
 import type { RootState } from "../../../store";
 
 export type TabType = "POSITIVE" | "NEGATIVE";
@@ -148,6 +149,8 @@ export function useEventDefinitionsConfigurator({
           isPositive: Boolean(def.isPositive),
           isShot: Boolean(def.isShot),
           score: def.score ?? 0,
+          foulImpact: def.foulImpact ?? DEFAULT_FOUL_IMPACT,
+          penaltyDurationSeconds: def.penaltyDurationSeconds ?? null,
           isCustom: def.isCustom,
           isEnabled: def.isEnabled ?? true,
           sortOrder: def.sortOrder ?? idx + 1,
@@ -487,6 +490,9 @@ export function useEventDefinitionsConfigurator({
             isPositive: effectiveIsPositive,
             isShot: Boolean(createdResponse?.isShot ?? newIsShot),
             score: createdResponse?.score ?? newScore,
+            foulImpact: createdResponse?.foulImpact ?? DEFAULT_FOUL_IMPACT,
+            penaltyDurationSeconds:
+              createdResponse?.penaltyDurationSeconds ?? null,
             isCustom: true,
             ownerId: currentUserId ?? null,
           };
@@ -509,6 +515,8 @@ export function useEventDefinitionsConfigurator({
         isPositive: effectiveIsPositive,
         isShot: Boolean(createdResponse?.isShot ?? newIsShot),
         score: createdResponse?.score ?? newScore,
+        foulImpact: createdResponse?.foulImpact ?? DEFAULT_FOUL_IMPACT,
+        penaltyDurationSeconds: createdResponse?.penaltyDurationSeconds ?? null,
         isCustom: true,
         isEnabled: true,
         sortOrder: 0,

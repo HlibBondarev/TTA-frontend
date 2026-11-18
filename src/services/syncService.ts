@@ -1,5 +1,5 @@
 import { apiClient } from "../api/client";
-import { db } from "../db/ttaDatabase";
+import { db, type PlayerPresence } from "../db/ttaDatabase";
 import {
   UNRECOVERABLE_STATUS_CODES,
   extractErrorStatus,
@@ -68,35 +68,38 @@ const fetchAndFormatBatchPayloads = async (normalizedMatchId: string) => {
     .toArray();
 
   return {
-    events: unsyncedEvents.map((e) => ({
-      id: e.id,
-      matchLineupId: e.matchLineupId,
-      eventDefinitionId: e.eventDefinitionId,
-      periodNumber: e.periodNumber,
-      eventTimestamp: e.eventTimestamp
-        ? new Date(e.eventTimestamp).toISOString()
-        : e.eventTimestamp,
-      isLeadToGoal: e.isLeadToGoal,
-      locationX: e.locationX ?? null,
-      locationY: e.locationY ?? null,
-      shotLocationX: e.shotLocationX ?? null,
-      shotLocationY: e.shotLocationY ?? null,
-    })),
-    anchors: unsyncedAnchors.map((a) => ({
-      id: a.id,
-      periodNumber: a.periodNumber,
-      type: a.type,
-      timestamp: a.timestamp
-        ? new Date(a.timestamp).toISOString()
-        : a.timestamp,
-    })),
-    presences: unsyncedPresences.map((p) => ({
-      id: p.id,
-      matchLineupId: p.matchLineupId,
-      periodNumber: p.periodNumber,
-      ...(p.timeIn ? { timeIn: new Date(p.timeIn).toISOString() } : {}),
-      ...(p.timeOut ? { timeOut: new Date(p.timeOut).toISOString() } : {}),
-    })),
+    requestPayload: {
+      events: unsyncedEvents.map((e) => ({
+        id: e.id,
+        matchLineupId: e.matchLineupId,
+        eventDefinitionId: e.eventDefinitionId,
+        periodNumber: e.periodNumber,
+        eventTimestamp: e.eventTimestamp
+          ? new Date(e.eventTimestamp).toISOString()
+          : e.eventTimestamp,
+        isLeadToGoal: e.isLeadToGoal,
+        locationX: e.locationX ?? null,
+        locationY: e.locationY ?? null,
+        shotLocationX: e.shotLocationX ?? null,
+        shotLocationY: e.shotLocationY ?? null,
+      })),
+      anchors: unsyncedAnchors.map((a) => ({
+        id: a.id,
+        periodNumber: a.periodNumber,
+        type: a.type,
+        timestamp: a.timestamp
+          ? new Date(a.timestamp).toISOString()
+          : a.timestamp,
+      })),
+      presences: unsyncedPresences.map((p) => ({
+        id: p.id,
+        matchLineupId: p.matchLineupId,
+        periodNumber: p.periodNumber,
+        ...(p.timeIn ? { timeIn: new Date(p.timeIn).toISOString() } : {}),
+        ...(p.timeOut ? { timeOut: new Date(p.timeOut).toISOString() } : {}),
+      })),
+    },
+    unsyncedPresences,
   };
 };
 
@@ -199,13 +202,67 @@ const isSyncedAnchorItem = (
   return ids.length > 0 && ids.every((id) => syncedAnchors.has(id));
 };
 
+const normalizeIsoTimestamp = (value: unknown): string | null => {
+  if (typeof value !== "string" || !value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+};
+
+const isTerminateQueueItemSynced = (
+  payload: unknown,
+  syncedPresences: Set<string>,
+  unsyncedPresences: PlayerPresence[],
+): boolean => {
+  if (syncedPresences.size === 0) return false;
+  if (typeof payload !== "object" || payload === null) return true;
+
+  const terminatePayload = payload as {
+    periodNumber?: number;
+    playerLineupIds?: string[];
+    timeOut?: string;
+  };
+  const lineupIds = Array.isArray(terminatePayload.playerLineupIds)
+    ? new Set(terminatePayload.playerLineupIds)
+    : null;
+  const targetTimeOut = normalizeIsoTimestamp(terminatePayload.timeOut);
+
+  if (
+    typeof terminatePayload.periodNumber !== "number" ||
+    !lineupIds ||
+    lineupIds.size === 0
+  ) {
+    return true;
+  }
+
+  const matchingPresences = unsyncedPresences.filter((p) => {
+    if (
+      p.periodNumber !== terminatePayload.periodNumber ||
+      !lineupIds.has(p.matchLineupId)
+    ) {
+      return false;
+    }
+    if (!targetTimeOut) return p.timeOut !== null;
+    return normalizeIsoTimestamp(p.timeOut) === targetTimeOut;
+  });
+
+  if (matchingPresences.length === 0) {
+    return true;
+  }
+
+  return matchingPresences.every((p) => syncedPresences.has(p.id));
+};
+
 const isSyncedPresenceItem = (
   item: SyncQueueItem,
   payload: unknown,
   syncedPresences: Set<string>,
+  unsyncedPresences: PlayerPresence[],
 ): boolean => {
   if (item.endpoint.includes("/presence/terminate")) {
-    return item.actionType === "PUT" && syncedPresences.size > 0;
+    return (
+      item.actionType === "PUT" &&
+      isTerminateQueueItemSynced(payload, syncedPresences, unsyncedPresences)
+    );
   }
 
   if (item.actionType !== "POST") return false;
@@ -216,6 +273,7 @@ const isSyncedPresenceItem = (
 const shouldDeleteQueueItem = (
   item: SyncQueueItem,
   syncedSets: SyncedEntitySets,
+  unsyncedPresences: PlayerPresence[],
 ): boolean => {
   const payload = parsePayload(item.payload);
   if (payload === null) return false;
@@ -232,7 +290,12 @@ const shouldDeleteQueueItem = (
     item.endpoint.includes("/presence") ||
     item.endpoint.includes("/substitutions")
   ) {
-    return isSyncedPresenceItem(item, payload, syncedSets.presences);
+    return isSyncedPresenceItem(
+      item,
+      payload,
+      syncedSets.presences,
+      unsyncedPresences,
+    );
   }
 
   return false;
@@ -241,6 +304,7 @@ const shouldDeleteQueueItem = (
 const cleanupBatchQueue = async (
   normalizedMatchId: string,
   batchData: MatchSyncBatchResponse,
+  unsyncedPresences: PlayerPresence[],
 ): Promise<void> => {
   if (!db.syncQueue) return;
 
@@ -263,7 +327,7 @@ const cleanupBatchQueue = async (
       continue;
     }
 
-    if (shouldDeleteQueueItem(item, syncedSets)) {
+    if (shouldDeleteQueueItem(item, syncedSets, unsyncedPresences)) {
       idsToDelete.push(item.id);
     }
   }
@@ -284,7 +348,8 @@ export const syncMatchBatch = async (
   }
   const normalizedMatchId = matchId.trim();
 
-  const requestPayload = await fetchAndFormatBatchPayloads(normalizedMatchId);
+  const { requestPayload, unsyncedPresences } =
+    await fetchAndFormatBatchPayloads(normalizedMatchId);
   const batchData = await postSyncBatch(normalizedMatchId, requestPayload);
 
   const syncedEventIds = batchData?.syncedEventIds ?? [];
@@ -314,7 +379,7 @@ export const syncMatchBatch = async (
           .modify({ isSynced: 1 });
       }
 
-      await cleanupBatchQueue(normalizedMatchId, batchData);
+      await cleanupBatchQueue(normalizedMatchId, batchData, unsyncedPresences);
     },
   );
 

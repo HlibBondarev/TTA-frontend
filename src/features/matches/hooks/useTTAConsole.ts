@@ -15,6 +15,9 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   const activeMatchId = useSelector(
     (state: RootState) => state.match.activeMatchId,
   );
+  const activeLineupIds = useSelector(
+    (state: RootState) => state.presence?.activeLineupIds ?? [],
+  );
   const { periodNumber, isPeriodActive, isInsideStoppage } =
     useMatchLifecycle();
 
@@ -38,6 +41,8 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [prevPeriod, setPrevPeriod] = useState(periodNumber);
+  const [prevActiveLineupIds, setPrevActiveLineupIds] =
+    useState<string[]>(activeLineupIds);
 
   if (periodNumber !== prevPeriod) {
     setPrevPeriod(periodNumber);
@@ -46,6 +51,20 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     setPendingShotLocation(null);
     setSelectedPlayerId(null);
     setConsoleError(null);
+  }
+
+  if (activeLineupIds !== prevActiveLineupIds) {
+    const wasSelectedPreviouslyActive =
+      selectedPlayerId !== null &&
+      prevActiveLineupIds.includes(selectedPlayerId);
+    setPrevActiveLineupIds(activeLineupIds);
+    if (
+      selectedPlayerId !== null &&
+      !activeLineupIds.includes(selectedPlayerId) &&
+      (wasSelectedPreviouslyActive || activeLineupIds.length > 0)
+    ) {
+      setSelectedPlayerId(null);
+    }
   }
 
   const isRecordingEnabled = isPeriodActive && !isInsideStoppage;

@@ -226,6 +226,8 @@ describe("Hydration Service", () => {
         isPositive: true,
         isShot: true,
         score: 2,
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
         isCustom: undefined,
         ownerId: null,
       },
@@ -237,6 +239,8 @@ describe("Hydration Service", () => {
         isPositive: false,
         isShot: false,
         score: 0,
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
         isCustom: undefined,
         ownerId: null,
       },
@@ -892,7 +896,10 @@ describe("Hydration Service", () => {
       sportId,
       configurationId: configId,
     });
-    expect(db.sportconfigurations.put).toHaveBeenCalledWith(mockConfig);
+    expect(db.sportconfigurations.put).toHaveBeenCalledWith({
+      ...mockConfig,
+      maxPersonalFouls: null,
+    });
     expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
 
@@ -2233,6 +2240,7 @@ describe("Hydration Service", () => {
       activePlayersLimit: 6,
       playground: "<svg>Cached Field SVG</svg>",
       shotMap: "<svg>Goal SVG</svg>",
+      maxPersonalFouls: null,
     });
   });
 
@@ -2291,6 +2299,7 @@ describe("Hydration Service", () => {
       id: "cfg-1",
       activePlayersLimit: 6,
       shotMap: "<svg>Existing SVG</svg>",
+      maxPersonalFouls: 3,
     } as never);
 
     await getMatchRecoveryState(matchId);
@@ -2408,6 +2417,7 @@ describe("Hydration Service", () => {
       periodsCount: 8,
       playground: "<svg>Cached Field</svg>",
       shotMap: "<svg>Remote ShotMap</svg>",
+      maxPersonalFouls: null,
     });
   });
 });

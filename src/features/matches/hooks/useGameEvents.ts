@@ -11,7 +11,110 @@ import {
   updateGameEventTx,
   deleteGameEventTx,
 } from "../../../db/eventService";
-import { db } from "../../../db/ttaDatabase";
+import { exitPlayerPresenceTx } from "../../../db/presenceService";
+import {
+  db,
+  type EventDefinitionLookup,
+  type GameEvent,
+} from "../../../db/ttaDatabase";
+import { optimisticRemoveFromActive } from "../../playerpresences/store/presenceSlice";
+import { shouldAutoRemoveActivePlayer } from "../../../utils/disciplinaryUtils";
+import type { AppDispatch } from "../../../store";
+
+const loadDisciplinaryContext = async (
+  matchId: string,
+  event: GameEvent,
+): Promise<{
+  maxPersonalFouls: number | null;
+  playerGameEvents: GameEvent[];
+  eventDefinitionsById: Map<string, EventDefinitionLookup>;
+}> => {
+  let maxPersonalFouls: number | null = null;
+  if (db.matches?.get && db.tournaments?.get && db.sportconfigurations?.get) {
+    const match = await db.matches.get(matchId);
+    const tournament = match?.tournamentId
+      ? await db.tournaments.get(match.tournamentId)
+      : undefined;
+    const config = tournament?.configurationId
+      ? await db.sportconfigurations.get(tournament.configurationId)
+      : undefined;
+    if (typeof config?.maxPersonalFouls === "number") {
+      maxPersonalFouls = config.maxPersonalFouls;
+    }
+  }
+
+  const loadedEvents = db.gameevents?.where
+    ? await db.gameevents
+        .where("matchLineupId")
+        .equals(event.matchLineupId)
+        .toArray()
+    : [];
+  const playerGameEvents = loadedEvents.some((e) => e.id === event.id)
+    ? loadedEvents
+    : [...loadedEvents, event];
+
+  const eventDefinitionsById = new Map<string, EventDefinitionLookup>();
+  const defIds = Array.from(
+    new Set(playerGameEvents.map((e) => e.eventDefinitionId).filter(Boolean)),
+  );
+  if (defIds.length > 0 && db.eventdefinitions) {
+    if (typeof db.eventdefinitions.bulkGet === "function") {
+      const defs = await db.eventdefinitions.bulkGet(defIds);
+      for (const def of defs) {
+        if (def) {
+          eventDefinitionsById.set(def.id, def);
+        }
+      }
+    } else if (typeof db.eventdefinitions.get === "function") {
+      const defs = await Promise.all(
+        defIds.map((id) => db.eventdefinitions.get(id)),
+      );
+      for (const def of defs) {
+        if (def) {
+          eventDefinitionsById.set(def.id, def);
+        }
+      }
+    }
+  }
+
+  return { maxPersonalFouls, playerGameEvents, eventDefinitionsById };
+};
+
+const applyDisciplinaryAutoRemovalIfNeeded = async (
+  matchId: string,
+  event: GameEvent,
+  currentPeriod: number,
+  isPeriodActive: boolean,
+  dispatch: AppDispatch,
+): Promise<void> => {
+  if (!isPeriodActive) return;
+
+  const { maxPersonalFouls, playerGameEvents, eventDefinitionsById } =
+    await loadDisciplinaryContext(matchId, event);
+
+  const shouldRemove = shouldAutoRemoveActivePlayer({
+    event,
+    eventDefinition: eventDefinitionsById.get(event.eventDefinitionId),
+    playerGameEvents,
+    eventDefinitionsById,
+    maxPersonalFouls,
+    currentPeriod,
+    isPeriodActive,
+  });
+
+  if (!shouldRemove) return;
+
+  const didExit = await exitPlayerPresenceTx(
+    matchId,
+    currentPeriod,
+    event.matchLineupId,
+    event.eventTimestamp,
+  );
+
+  if (didExit) {
+    dispatch(optimisticRemoveFromActive(event.matchLineupId));
+  }
+};
 
 export interface RecordGameEventParams {
   selectedPlayerId: string;
@@ -40,7 +143,9 @@ export interface UpdateGameEventHookParams {
 
 export const useGameEvents = (matchId: string, userId?: string) => {
   const dispatch = useAppDispatch();
-  const { periodNumber, activeTeamId } = useAppSelector((state) => state.match);
+  const { periodNumber, activeTeamId, isPeriodActive } = useAppSelector(
+    (state) => state.match,
+  );
   const { user } = useAuth0();
   const auth0UserId = user?.sub ?? user?.email;
   const reduxUserId = useAppSelector(
@@ -157,6 +262,14 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       }),
     );
 
+    await applyDisciplinaryAutoRemovalIfNeeded(
+      normalizedMatchId,
+      createdEvent,
+      periodNumber,
+      isPeriodActive,
+      dispatch,
+    );
+
     return true;
   };
 
@@ -225,6 +338,14 @@ export const useGameEvents = (matchId: string, userId?: string) => {
         eventDefinitionId: resolvedEventDefId,
         isLeadToGoal: updatedEvent.isLeadToGoal,
       }),
+    );
+
+    await applyDisciplinaryAutoRemovalIfNeeded(
+      normalizedMatchId,
+      updatedEvent,
+      periodNumber,
+      isPeriodActive,
+      dispatch,
     );
 
     return true;

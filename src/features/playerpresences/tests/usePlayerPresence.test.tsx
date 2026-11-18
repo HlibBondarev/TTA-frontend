@@ -11,6 +11,8 @@ import {
   initializePeriodPresenceTx,
   terminatePeriodPresenceTx,
   substitutePlayerTx,
+  exitPlayerPresenceTx,
+  enterPlayerPresenceTx,
 } from "../../../db/presenceService";
 
 // Mock the IndexedDB module to isolate the hook from real database connections
@@ -55,6 +57,8 @@ vi.mock("../../../db/presenceService", () => {
     initializePeriodPresenceTx: vi.fn().mockResolvedValue(undefined),
     terminatePeriodPresenceTx: vi.fn().mockResolvedValue(undefined),
     substitutePlayerTx: vi.fn().mockResolvedValue("new-presence-uuid"),
+    exitPlayerPresenceTx: vi.fn().mockResolvedValue(true),
+    enterPlayerPresenceTx: vi.fn().mockResolvedValue("entered-presence-uuid"),
   };
 });
 
@@ -438,5 +442,82 @@ describe("usePlayerPresence Hook", () => {
     ).rejects.toThrow("The active players limit is not configured.");
 
     expect(initializePeriodPresenceTx).not.toHaveBeenCalled();
+  });
+
+  it("should remove an active player via removePlayerFromActive and rollback on error", async () => {
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await result.current.refreshPresenceFromDB();
+    });
+    expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
+
+    await act(async () => {
+      const didExit = await result.current.removePlayerFromActive(
+        "lineup-1",
+        "2026-07-16T10:02:00.000Z",
+      );
+      expect(didExit).toBe(true);
+    });
+
+    expect(exitPlayerPresenceTx).toHaveBeenCalledWith(
+      "test-match",
+      1,
+      "lineup-1",
+      "2026-07-16T10:02:00.000Z",
+    );
+    expect(result.current.activeLineupIds).toEqual([]);
+    expect(result.current.benchLineupIds).toContain("lineup-1");
+
+    vi.mocked(exitPlayerPresenceTx).mockRejectedValueOnce(
+      new Error("Exit failed"),
+    );
+
+    await expect(
+      act(async () => {
+        await result.current.removePlayerFromActive(
+          "lineup-1",
+          "2026-07-16T10:03:00.000Z",
+        );
+      }),
+    ).rejects.toThrow("Exit failed");
+    expect(db.matchlineups.where).toHaveBeenCalled();
+  });
+
+  it("should enter a bench player when shorthanded via enterPlayerFromBench and enforce activePlayersLimit", async () => {
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 2, period: 1 }));
+    });
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await result.current.refreshPresenceFromDB();
+    });
+    expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
+
+    await act(async () => {
+      const newId = await result.current.enterPlayerFromBench("lineup-2");
+      expect(newId).toBe("entered-presence-uuid");
+    });
+
+    expect(enterPlayerPresenceTx).toHaveBeenCalledWith(
+      "test-match",
+      1,
+      "lineup-2",
+    );
+    expect(result.current.activeLineupIds).toEqual(["lineup-1", "lineup-2"]);
+    expect(result.current.benchLineupIds).toEqual([]);
+
+    // Now at full strength (2 of 2) -> entering another player rejects
+    await expect(
+      act(async () => {
+        await result.current.enterPlayerFromBench("lineup-3");
+      }),
+    ).rejects.toThrow("Cannot exceed the limit of 2 active players.");
   });
 });

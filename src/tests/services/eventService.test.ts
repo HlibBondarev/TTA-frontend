@@ -254,6 +254,8 @@ describe("Event Database Service (eventService)", () => {
         isPositive: true,
         isShot: false,
         score: 3,
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
         isCustom: undefined,
         ownerId: "user-1",
       },
@@ -364,6 +366,8 @@ describe("Event Database Service (eventService)", () => {
         isPositive: true,
         isShot: false,
         score: 0,
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
         isCustom: undefined,
         ownerId: "user-1",
       },
@@ -375,6 +379,8 @@ describe("Event Database Service (eventService)", () => {
         isPositive: true,
         isShot: false,
         score: 0,
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
         isCustom: undefined,
         ownerId: "user-1",
       },
@@ -459,6 +465,8 @@ describe("Event Database Service (eventService)", () => {
       locationY: null,
       shotLocationX: null,
       shotLocationY: null,
+      foulImpact: "None",
+      penaltyDurationSeconds: null,
       createdAt: expect.any(String),
       sequenceNumber: 5,
       isSynced: 0,
@@ -1167,6 +1175,8 @@ describe("Event Database Service (eventService)", () => {
         isPositive: true,
         isShot: false,
         score: 0,
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
         isCustom: false,
         ownerId: null,
       },
@@ -1178,6 +1188,8 @@ describe("Event Database Service (eventService)", () => {
         isPositive: true,
         isShot: false,
         score: 0,
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
         isCustom: true,
         ownerId: "user-1",
       },
@@ -1344,5 +1356,31 @@ describe("Event Database Service (eventService)", () => {
         shotLocationY: null,
       }),
     );
+  });
+
+  it("should snapshot foulImpact and penaltyDurationSeconds from event definition on createGameEventTx and updateGameEventTx", async () => {
+    mockEventDefinitionsGet.mockResolvedValueOnce({
+      id: "def-exclusion",
+      sportId: "sport-1",
+      name: "Exclusion",
+      shortName: "EX",
+      isPositive: false,
+      isShot: false,
+      foulImpact: "PersonalFoul",
+      penaltyDurationSeconds: 20,
+    });
+
+    const created = await createGameEventTx({
+      matchId: "match-123",
+      teamId: "team-456",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-exclusion",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: false,
+    });
+
+    expect(created.foulImpact).toBe("PersonalFoul");
+    expect(created.penaltyDurationSeconds).toBe(20);
   });
 });

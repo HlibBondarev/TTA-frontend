@@ -5,6 +5,8 @@ import {
   initializePeriodPresenceTx,
   terminatePeriodPresenceTx,
   substitutePlayerTx,
+  exitPlayerPresenceTx,
+  enterPlayerPresenceTx,
 } from "../../../db/presenceService";
 import {
   loadRosterState,
@@ -12,6 +14,8 @@ import {
   commitStartingLineup,
   clearActiveRosterToBench,
   optimisticSubstitute,
+  optimisticRemoveFromActive,
+  optimisticEnterFromBench,
   setLoading,
 } from "../store/presenceSlice";
 
@@ -181,6 +185,64 @@ export function usePlayerPresence(matchId: string) {
     [matchId, dispatch, refreshPresenceFromDB],
   );
 
+  const removePlayerFromActive = useCallback(
+    async (
+      outLineupId: string,
+      exitTimestamp: string,
+      overridePeriodNumber?: number,
+    ): Promise<boolean> => {
+      const targetPeriod = overridePeriodNumber ?? currentPeriodRef.current;
+      dispatch(optimisticRemoveFromActive(outLineupId));
+      try {
+        const didExit = await exitPlayerPresenceTx(
+          matchId,
+          targetPeriod,
+          outLineupId,
+          exitTimestamp,
+        );
+        if (!didExit) {
+          await refreshPresenceFromDB(targetPeriod);
+        }
+        return didExit;
+      } catch (error) {
+        console.error("Failed to remove player from active roster in DB:", error);
+        await refreshPresenceFromDB(targetPeriod);
+        throw error;
+      }
+    },
+    [matchId, dispatch, refreshPresenceFromDB],
+  );
+
+  const enterPlayerFromBench = useCallback(
+    async (
+      inLineupId: string,
+      overridePeriodNumber?: number,
+    ): Promise<string> => {
+      const targetPeriod = overridePeriodNumber ?? currentPeriodRef.current;
+      if (activePlayersLimit <= 0) {
+        throw new Error("The active players limit is not configured.");
+      }
+      if (activeLineupIds.length >= activePlayersLimit) {
+        throw new Error(
+          `Cannot exceed the limit of ${activePlayersLimit} active players.`,
+        );
+      }
+      if (activeLineupIds.includes(inLineupId)) {
+        throw new Error("Player is already active.");
+      }
+
+      dispatch(optimisticEnterFromBench(inLineupId));
+      try {
+        return await enterPlayerPresenceTx(matchId, targetPeriod, inLineupId);
+      } catch (error) {
+        console.error("Failed to enter player from bench in DB:", error);
+        await refreshPresenceFromDB(targetPeriod);
+        throw error;
+      }
+    },
+    [matchId, activePlayersLimit, activeLineupIds, dispatch, refreshPresenceFromDB],
+  );
+
   return {
     currentPeriod,
     activeLineupIds,
@@ -192,5 +254,7 @@ export function usePlayerPresence(matchId: string) {
     startPeriodWithRoster,
     endPeriodWithRoster,
     executeSubstitution,
+    removePlayerFromActive,
+    enterPlayerFromBench,
   };
 }

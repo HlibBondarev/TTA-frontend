@@ -1,4 +1,7 @@
 import Dexie, { type Table } from "dexie";
+import type { components } from "../api/types";
+
+export type FoulImpact = components["schemas"]["FoulImpact"];
 
 export interface SportLookup {
   id: string;
@@ -63,6 +66,7 @@ export interface SportConfigurationLookup {
   shotMap?: string | null;
   fieldLength?: number;
   fieldWidth?: number;
+  maxPersonalFouls?: number | null;
 }
 
 export interface MatchLookup {
@@ -106,6 +110,8 @@ export interface EventDefinitionLookup {
   ownerId?: string | null;
   sortOrder?: number;
   score?: number;
+  foulImpact?: FoulImpact;
+  penaltyDurationSeconds?: number | null;
 }
 
 export interface UserEventPresetLookup {
@@ -129,6 +135,8 @@ export interface GameEvent {
   shotLocationX?: number | null;
   shotLocationY?: number | null;
   score?: number;
+  foulImpact?: FoulImpact;
+  penaltyDurationSeconds?: number | null;
   createdAt: string;
   sequenceNumber: number;
   isSynced: number;

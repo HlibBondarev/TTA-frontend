@@ -6,6 +6,8 @@ import { useGameEvents } from "../hooks/useGameEvents";
 import matchReducer from "../store/matchSlice";
 import { db } from "../../../db/ttaDatabase";
 import * as eventService from "../../../db/eventService";
+import * as presenceService from "../../../db/presenceService";
+import presenceReducer from "../../playerpresences/store/presenceSlice";
 
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
@@ -34,6 +36,10 @@ vi.mock("../../../db/eventService", () => ({
   createGameEventTx: vi.fn(),
   updateGameEventTx: vi.fn(),
   deleteGameEventTx: vi.fn(),
+}));
+
+vi.mock("../../../db/presenceService", () => ({
+  exitPlayerPresenceTx: vi.fn().mockResolvedValue(true),
 }));
 
 const createTestStore = (preloadedState = {}, currentUserId = "user-123") => {
@@ -834,5 +840,93 @@ describe("useGameEvents Custom Hook", () => {
       });
       expect(success).toBe(true);
     });
+  });
+
+  it("should auto-remove active player on timed exclusion or DQ event during active period", async () => {
+    const store = configureStore({
+      reducer: {
+        match: matchReducer,
+        presence: presenceReducer,
+        auth: (state = { currentUserId: "user-123" }) => state,
+      },
+      preloadedState: {
+        match: {
+          activeMatchId: "test-match-id",
+          activeTeamId: "team-456",
+          periodNumber: 2,
+          homeScore: 0,
+          guestScore: 0,
+          isPeriodActive: true,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+          globalSequenceNumber: 10,
+          recentActions: [],
+          hydrationVersion: 0,
+        },
+        presence: {
+          currentPeriod: 2,
+          activeLineupIds: ["lineup-uuid-7", "lineup-uuid-8"],
+          benchLineupIds: ["lineup-uuid-9"],
+          selectedStartingIds: [],
+          activePlayersLimit: 7,
+          isLoading: false,
+        },
+        auth: { currentUserId: "user-123" },
+      },
+    });
+
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-7",
+      matchId: "test-match-id",
+      playerRosterId: "roster-7",
+      number: 7,
+      positionId: null,
+    });
+
+    const eventTimestamp = "2026-11-18T10:05:00.000Z";
+    vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce({
+      id: "excl-event-uuid",
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-excl-id",
+      periodNumber: 2,
+      eventTimestamp,
+      isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
+      shotLocationX: null,
+      shotLocationY: null,
+      foulImpact: "PersonalFoul",
+      penaltyDurationSeconds: 20,
+      createdAt: eventTimestamp,
+      sequenceNumber: 11,
+      isSynced: 0,
+    });
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-7",
+        actionName: "Exclusion",
+        isPositive: false,
+        isLeadToGoal: false,
+        eventDefinitionId: "def-excl-id",
+      });
+    });
+
+    expect(presenceService.exitPlayerPresenceTx).toHaveBeenCalledWith(
+      "test-match-id",
+      2,
+      "lineup-uuid-7",
+      eventTimestamp,
+    );
+    expect(store.getState().presence.activeLineupIds).toEqual([
+      "lineup-uuid-8",
+    ]);
+    expect(store.getState().presence.benchLineupIds).toContain(
+      "lineup-uuid-7",
+    );
   });
 });

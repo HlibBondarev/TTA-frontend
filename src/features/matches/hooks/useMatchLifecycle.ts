@@ -334,10 +334,13 @@ const deleteEndAnchorAndSyncQueue = async (
 
 /**
  * Removes pending /presence/terminate sync requests from queue for a given period.
+ * When targetTimeOut is provided, only removes the matching period-end terminate entry
+ * so earlier mid-period disciplinary exits are preserved.
  */
 const purgeTerminateSyncQueueItems = async (
   matchId: string,
   periodNumber: number,
+  targetTimeOut?: string | null,
 ): Promise<void> => {
   if (!matchId || !db?.syncQueue) return;
 
@@ -346,8 +349,15 @@ const purgeTerminateSyncQueueItems = async (
     .filter((item) => {
       if (item.endpoint !== terminateEndpoint) return false;
       try {
-        const data = JSON.parse(item.payload);
-        return data.periodNumber === periodNumber;
+        const data = JSON.parse(item.payload) as {
+          periodNumber?: number;
+          timeOut?: string;
+        };
+        if (data.periodNumber !== periodNumber) return false;
+        if (targetTimeOut && typeof data.timeOut === "string") {
+          return data.timeOut === targetTimeOut;
+        }
+        return true;
       } catch {
         return false;
       }
@@ -365,12 +375,13 @@ const purgeTerminateSyncQueueItems = async (
 
 /**
  * Reopens player presences closed at period termination by clearing their timeOut timestamp.
+ * Returns the closed timestamp (maxTimeOut) that was reopened, if any.
  */
 const reopenClosedPlayerPresences = async (
   matchId: string,
   periodNumber: number,
-): Promise<void> => {
-  if (!matchId || !db?.playerpresences || !db?.matchlineups) return;
+): Promise<string | null> => {
+  if (!matchId || !db?.playerpresences || !db?.matchlineups) return null;
 
   const lineups = await db.matchlineups
     .where("matchId")
@@ -384,7 +395,7 @@ const reopenClosedPlayerPresences = async (
     .filter((p) => p.timeOut !== null && lineupIds.has(p.matchLineupId))
     .toArray();
 
-  if (presences.length === 0) return;
+  if (presences.length === 0) return null;
 
   const maxTimeOut = presences.reduce(
     (max, p) => {
@@ -394,7 +405,7 @@ const reopenClosedPlayerPresences = async (
     null as string | null,
   );
 
-  if (!maxTimeOut) return;
+  if (!maxTimeOut) return null;
 
   const presencesToReopen = presences.filter((p) => p.timeOut === maxTimeOut);
 
@@ -406,6 +417,8 @@ const reopenClosedPlayerPresences = async (
       }),
     ),
   );
+
+  return maxTimeOut;
 };
 
 export const useMatchLifecycle = () => {
@@ -744,8 +757,15 @@ export const useMatchLifecycle = () => {
             } is locked for finalization.`,
           );
         }
-        await purgeTerminateSyncQueueItems(normalizedMatchId, currentPeriod);
-        await reopenClosedPlayerPresences(normalizedMatchId, currentPeriod);
+        const reopenedTimeOut = await reopenClosedPlayerPresences(
+          normalizedMatchId,
+          currentPeriod,
+        );
+        await purgeTerminateSyncQueueItems(
+          normalizedMatchId,
+          currentPeriod,
+          reopenedTimeOut,
+        );
       },
     );
 

@@ -4,6 +4,8 @@ import {
   initializePeriodPresenceTx,
   terminatePeriodPresenceTx,
   substitutePlayerTx,
+  exitPlayerPresenceTx,
+  enterPlayerPresenceTx,
 } from "../../db/presenceService";
 
 vi.mock("../../db/ttaDatabase", () => ({
@@ -254,5 +256,122 @@ describe("presenceService Database Transactions", () => {
         "lineup-in",
       ),
     ).rejects.toThrow("No active presence found for the outgoing player.");
+  });
+
+  it("exitPlayerPresenceTx should close a single open presence and enqueue PUT /presence/terminate", async () => {
+    const exitTime = "2026-07-22T10:03:00.000Z";
+    const filterMock = vi.fn().mockReturnValue({
+      first: vi.fn().mockResolvedValue({
+        id: "pres-out",
+        matchLineupId: "lineup-1",
+        periodNumber: mockPeriodNumber,
+        timeIn: "2026-07-22T10:00:00.000Z",
+        timeOut: null,
+      }),
+    });
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      filter: filterMock,
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const didExit = await exitPlayerPresenceTx(
+      mockMatchId,
+      mockPeriodNumber,
+      "lineup-1",
+      exitTime,
+    );
+
+    expect(didExit).toBe(true);
+    expect(db.playerpresences.update).toHaveBeenCalledWith("pres-out", {
+      timeOut: exitTime,
+      isSynced: 0,
+    });
+    expect(db.syncQueue.add).toHaveBeenCalledWith({
+      actionType: "PUT",
+      endpoint: `/Matches/${mockMatchId}/presence/terminate`,
+      payload: JSON.stringify({
+        periodNumber: mockPeriodNumber,
+        playerLineupIds: ["lineup-1"],
+        timeOut: exitTime,
+      }),
+      createdAt: exitTime,
+    });
+  });
+
+  it("exitPlayerPresenceTx should return false cleanly when no open presence exists", async () => {
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      filter: vi.fn().mockReturnValue({
+        first: vi.fn().mockResolvedValue(undefined),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const didExit = await exitPlayerPresenceTx(
+      mockMatchId,
+      mockPeriodNumber,
+      "lineup-bench",
+      "2026-07-22T10:03:00.000Z",
+    );
+
+    expect(didExit).toBe(false);
+    expect(db.playerpresences.update).not.toHaveBeenCalled();
+    expect(db.syncQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("enterPlayerPresenceTx should open a standalone presence and enqueue POST /presence/initialize", async () => {
+    const entryTime = "2026-07-22T10:04:00.000Z";
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      filter: vi.fn().mockReturnValue({
+        first: vi.fn().mockResolvedValue(undefined),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const newPresenceId = await enterPlayerPresenceTx(
+      mockMatchId,
+      mockPeriodNumber,
+      "lineup-in",
+      entryTime,
+    );
+
+    expect(newPresenceId).toBeDefined();
+    expect(db.playerpresences.add).toHaveBeenCalledWith({
+      id: newPresenceId,
+      matchLineupId: "lineup-in",
+      periodNumber: mockPeriodNumber,
+      timeIn: entryTime,
+      timeOut: null,
+      sequenceNumber: expect.any(Number),
+      isSynced: 0,
+    });
+    expect(db.syncQueue.add).toHaveBeenCalledWith({
+      actionType: "POST",
+      endpoint: `/Matches/${mockMatchId}/presence/initialize`,
+      payload: JSON.stringify({
+        periodNumber: mockPeriodNumber,
+        timeIn: entryTime,
+        presenceItems: [
+          {
+            id: newPresenceId,
+            matchLineupId: "lineup-in",
+          },
+        ],
+      }),
+      createdAt: entryTime,
+    });
+  });
+
+  it("enterPlayerPresenceTx should throw if player already has an active presence", async () => {
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      filter: vi.fn().mockReturnValue({
+        first: vi.fn().mockResolvedValue({
+          id: "pres-existing",
+          matchLineupId: "lineup-in",
+          timeOut: null,
+        }),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    await expect(
+      enterPlayerPresenceTx(mockMatchId, mockPeriodNumber, "lineup-in"),
+    ).rejects.toThrow("Player already has an active presence in this period.");
   });
 });

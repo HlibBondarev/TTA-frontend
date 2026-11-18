@@ -6,6 +6,8 @@ import presenceReducer, {
   commitStartingLineup,
   clearActiveRosterToBench,
   optimisticSubstitute,
+  optimisticRemoveFromActive,
+  optimisticEnterFromBench,
   setLoading,
   resetPresenceState,
 } from "../store/presenceSlice";
@@ -91,6 +93,40 @@ describe("presenceSlice reducers", () => {
 
     expect(state.activeLineupIds).toEqual(["p1", "p3"]);
     expect(state.benchLineupIds).toEqual(["p2", "p4"]);
+  });
+
+  it("should handle optimisticRemoveFromActive and move player to bench without duplicates", () => {
+    const startingState = {
+      ...initialState,
+      activeLineupIds: ["p1", "p2"],
+      benchLineupIds: ["p3"],
+    };
+    const state = presenceReducer(
+      startingState,
+      optimisticRemoveFromActive("p2"),
+    );
+
+    expect(state.activeLineupIds).toEqual(["p1"]);
+    expect(state.benchLineupIds).toEqual(["p3", "p2"]);
+
+    // No-op when player is not active
+    const unchanged = presenceReducer(state, optimisticRemoveFromActive("p2"));
+    expect(unchanged).toEqual(state);
+  });
+
+  it("should handle optimisticEnterFromBench and move player to active without duplicates", () => {
+    const startingState = {
+      ...initialState,
+      activeLineupIds: ["p1"],
+      benchLineupIds: ["p2", "p3"],
+    };
+    const state = presenceReducer(
+      startingState,
+      optimisticEnterFromBench("p2"),
+    );
+
+    expect(state.activeLineupIds).toEqual(["p1", "p2"]);
+    expect(state.benchLineupIds).toEqual(["p3"]);
   });
 
   it("should handle setLoading", () => {

@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { PlayerPresencePanel } from "../components/PlayerPresencePanel";
 import { usePlayerPresence } from "../hooks/usePlayerPresence";
+import { useMatchDisciplinaryState } from "../hooks/useMatchDisciplinaryState";
 import { Provider } from "react-redux";
 import { configureStore, combineReducers } from "@reduxjs/toolkit";
 import matchReducer from "../../matches/store/matchSlice";
@@ -10,6 +11,7 @@ import presenceReducer from "../store/presenceSlice";
 import { db } from "../../../db/ttaDatabase";
 
 vi.mock("../hooks/usePlayerPresence");
+vi.mock("../hooks/useMatchDisciplinaryState");
 vi.mock("../../../db/ttaDatabase");
 
 const rootReducer = combineReducers({
@@ -41,10 +43,17 @@ const createTestStore = (preloadedState?: Record<string, unknown>) =>
 
 describe("PlayerPresencePanel Component", () => {
   const mockExecuteSubstitution = vi.fn().mockResolvedValue("new-id");
+  const mockEnterPlayerFromBench = vi.fn().mockResolvedValue("entered-id");
+  const mockRemovePlayerFromActive = vi.fn().mockResolvedValue(true);
   const mockStageStartingLineup = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+
+    vi.mocked(useMatchDisciplinaryState).mockReturnValue({
+      maxPersonalFouls: null,
+      disciplinaryByLineupId: {},
+    });
 
     vi.mocked(db.matchlineups.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
@@ -64,6 +73,8 @@ describe("PlayerPresencePanel Component", () => {
       refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
       stageStartingLineup: mockStageStartingLineup,
       executeSubstitution: mockExecuteSubstitution,
+      removePlayerFromActive: mockRemovePlayerFromActive,
+      enterPlayerFromBench: mockEnterPlayerFromBench,
       startPeriodWithRoster: vi.fn(),
       endPeriodWithRoster: vi.fn(),
     });
@@ -109,6 +120,8 @@ describe("PlayerPresencePanel Component", () => {
       refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
       stageStartingLineup: mockStageStartingLineup,
       executeSubstitution: mockExecuteSubstitution,
+      removePlayerFromActive: mockRemovePlayerFromActive,
+      enterPlayerFromBench: mockEnterPlayerFromBench,
       startPeriodWithRoster: vi.fn(),
       endPeriodWithRoster: vi.fn(),
     });
@@ -152,12 +165,12 @@ describe("PlayerPresencePanel Component", () => {
 
     renderWithRedux(<TestWrapper />);
 
-    const activeBtn = await screen.findByText("#5");
+    const activeBtn = await screen.findByRole("button", { name: "#5" });
     fireEvent.click(activeBtn);
 
     expect(activeBtn).toHaveClass("bg-blue-600");
 
-    const benchBtn = await screen.findByText("#10");
+    const benchBtn = await screen.findByRole("button", { name: "#10" });
     fireEvent.click(benchBtn);
 
     await waitFor(() => {
@@ -187,7 +200,22 @@ describe("PlayerPresencePanel Component", () => {
     );
   });
 
-  it("should prompt user if bench player is tapped without active selection", async () => {
+  it("should prompt user if bench player is tapped without active selection at full strength", async () => {
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      currentPeriod: 1,
+      activeLineupIds: ["lineup-1"],
+      benchLineupIds: ["lineup-2"],
+      selectedStartingIds: [],
+      activePlayersLimit: 1,
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      executeSubstitution: mockExecuteSubstitution,
+      removePlayerFromActive: mockRemovePlayerFromActive,
+      enterPlayerFromBench: mockEnterPlayerFromBench,
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    });
+
     renderWithRedux(
       <PlayerPresencePanel
         matchId="test-match"
@@ -196,12 +224,113 @@ describe("PlayerPresencePanel Component", () => {
       />,
     );
 
-    const benchBtn = await screen.findByText("#10");
+    const benchBtn = await screen.findByRole("button", { name: "#10" });
     fireEvent.click(benchBtn);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Please select an active player in the water first to substitute out.",
     );
+    expect(mockEnterPlayerFromBench).not.toHaveBeenCalled();
+  });
+
+  it("should enter eligible bench player directly when shorthanded and no active player is selected", async () => {
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
+
+    const benchBtn = await screen.findByRole("button", { name: "#10" });
+    fireEvent.click(benchBtn);
+
+    await waitFor(() => {
+      expect(mockEnterPlayerFromBench).toHaveBeenCalledWith("lineup-2", 1);
+    });
+    expect(mockExecuteSubstitution).not.toHaveBeenCalled();
+  });
+
+  it("should render foul pips with warning state when maxPersonalFouls is set and hide pips when null", async () => {
+    vi.mocked(useMatchDisciplinaryState).mockReturnValue({
+      maxPersonalFouls: 3,
+      disciplinaryByLineupId: {
+        "lineup-1": {
+          personalFouls: 2,
+          isWarning: true,
+          isDisqualified: false,
+          disqualificationReason: null,
+          isServingTimedExclusion: false,
+        },
+        "lineup-2": {
+          personalFouls: 1,
+          isWarning: false,
+          isDisqualified: false,
+          disqualificationReason: null,
+          isServingTimedExclusion: true,
+        },
+      },
+    });
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
+
+    const activeBtn = await screen.findByRole("button", {
+      name: /#5 \(2 of 3 personal fouls, foul warning\)/i,
+    });
+    expect(
+      activeBtn.querySelectorAll('[data-foul-pip="filled"]').length,
+    ).toBe(2);
+    expect(
+      activeBtn.querySelectorAll('[data-foul-pip="empty"]').length,
+    ).toBe(1);
+    expect(activeBtn.querySelector('[data-foul-warning="true"]')).toBeTruthy();
+
+    const excludedBenchBtn = await screen.findByRole("button", {
+      name: /#10 \(serving timed exclusion, 1 of 3 personal fouls\)/i,
+    });
+    expect(excludedBenchBtn).toHaveAttribute("data-exclusion-active", "true");
+    expect(excludedBenchBtn).toHaveClass("border-orange-400");
+    expect(excludedBenchBtn.textContent?.trim()).toBe("#10");
+  });
+
+  it("should disable and lock DQ players on BENCH so they cannot re-enter or be staged", async () => {
+    vi.mocked(useMatchDisciplinaryState).mockReturnValue({
+      maxPersonalFouls: 3,
+      disciplinaryByLineupId: {
+        "lineup-2": {
+          personalFouls: 3,
+          isWarning: false,
+          isDisqualified: true,
+          disqualificationReason: "PersonalFoulLimit",
+          isServingTimedExclusion: false,
+        },
+      },
+    });
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
+
+    const dqBtn = await screen.findByRole("button", {
+      name: /#10 \(disqualified, 3 of 3 personal fouls\)/i,
+    });
+    expect(dqBtn).toBeDisabled();
+    expect(dqBtn).toHaveAttribute("data-disqualified", "true");
+    expect(dqBtn).toHaveClass("line-through");
+
+    fireEvent.click(dqBtn);
+    expect(mockEnterPlayerFromBench).not.toHaveBeenCalled();
+    expect(mockExecuteSubstitution).not.toHaveBeenCalled();
   });
 
   it("should display custom descriptive strings if staging throws string errors", async () => {
@@ -267,6 +396,8 @@ describe("PlayerPresencePanel Component", () => {
       refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
       stageStartingLineup: mockStageStartingLineup,
       executeSubstitution: vi.fn(),
+      removePlayerFromActive: mockRemovePlayerFromActive,
+      enterPlayerFromBench: mockEnterPlayerFromBench,
       startPeriodWithRoster: vi.fn(),
       endPeriodWithRoster: vi.fn(),
     });

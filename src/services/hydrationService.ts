@@ -26,6 +26,7 @@ import {
   deleteMatchLocally,
   type DeleteMatchLocallyOptions,
 } from "./matchCleanupService";
+import { DEFAULT_FOUL_IMPACT } from "../utils/disciplinaryUtils";
 
 export class StaleUserError extends Error {
   constructor(message = "Operation aborted due to user account change.") {
@@ -114,7 +115,12 @@ const syncEvents = async (
     );
     const syncedEvents = events
       .filter((e) => !pendingEventIds.has(e.id))
-      .map((e) => ({ ...e, isSynced: 1 }));
+      .map((e) => ({
+        ...e,
+        foulImpact: e.foulImpact ?? DEFAULT_FOUL_IMPACT,
+        penaltyDurationSeconds: e.penaltyDurationSeconds ?? null,
+        isSynced: 1,
+      }));
     if (syncedEvents.length > 0) {
       await db.gameevents.bulkPut(syncedEvents);
     }
@@ -232,7 +238,7 @@ const recoverPeriodFromAnchors = async (matchId: string): Promise<number> => {
     : 1;
 };
 
-const refreshShotMapBackground = (
+const refreshSportConfigBackground = (
   sportId?: string,
   configurationId?: string,
 ): void => {
@@ -246,12 +252,16 @@ const refreshShotMapBackground = (
         await db.transaction("rw", db.sportconfigurations, async () => {
           const cachedConfig =
             await db.sportconfigurations.get(configurationId);
-          const updatedConfig = {
+          const updatedConfig: SportConfigurationLookup = {
             ...freshConfig,
             ...cachedConfig,
             playground:
               cachedConfig?.playground || freshConfig.playground || null,
             shotMap: cachedConfig?.shotMap || freshConfig.shotMap || null,
+            maxPersonalFouls:
+              freshConfig.maxPersonalFouls ??
+              cachedConfig?.maxPersonalFouls ??
+              null,
           };
           await db.sportconfigurations.put(updatedConfig);
         });
@@ -295,8 +305,11 @@ const recoverActivePlayersLimit = async (matchId: string): Promise<number> => {
     );
   }
 
-  if (tournament.sportId && !config.shotMap) {
-    refreshShotMapBackground(tournament.sportId, tournament.configurationId);
+  if (
+    tournament.sportId &&
+    (!config.shotMap || config.maxPersonalFouls === undefined)
+  ) {
+    refreshSportConfigBackground(tournament.sportId, tournament.configurationId);
   }
 
   return config.activePlayersLimit;
@@ -648,6 +661,8 @@ const persistHydrationPayloads = async (
         isPositive: Boolean(def.isPositive),
         isShot: Boolean(def.isShot),
         score: def.score ?? 0,
+        foulImpact: def.foulImpact ?? DEFAULT_FOUL_IMPACT,
+        penaltyDurationSeconds: def.penaltyDurationSeconds ?? null,
         isCustom: def.isCustom,
         isEnabled: def.isEnabled ?? true,
         sortOrder: def.sortOrder ?? idx + 1,
@@ -700,7 +715,12 @@ const executeMatchTransaction = async (
 
       await verifyAndStoreMatch(matchId, match, userId, teamId);
       if (tournament) await db.tournaments.put(tournament);
-      if (sportConfig) await db.sportconfigurations.put(sportConfig);
+      if (sportConfig) {
+        await db.sportconfigurations.put({
+          ...sportConfig,
+          maxPersonalFouls: sportConfig.maxPersonalFouls ?? null,
+        });
+      }
 
       await persistHydrationPayloads(
         matchId,

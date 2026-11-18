@@ -171,3 +171,123 @@ export async function substitutePlayerTx(
 
   return newPresenceId;
 }
+
+/**
+ * Closes a single active player's presence session without pairing an incoming substitute
+ * (e.g., timed exclusion or disqualification). Safe no-op returning false if the player
+ * is not currently active in the specified period.
+ */
+export async function exitPlayerPresenceTx(
+  matchId: string,
+  periodNumber: number,
+  playerOutLineupId: string,
+  exitTimestamp: string,
+): Promise<boolean> {
+  let didExit = false;
+
+  await db.transaction("rw", [db.playerpresences, db.syncQueue], async () => {
+    const activePresence = await db.playerpresences
+      .where({ matchLineupId: playerOutLineupId, periodNumber })
+      .filter((p) => p.timeOut === null)
+      .first();
+
+    if (!activePresence) {
+      return;
+    }
+
+    const effectiveTimeOut =
+      exitTimestamp >= activePresence.timeIn
+        ? exitTimestamp
+        : new Date().toISOString();
+
+    await db.playerpresences.update(activePresence.id, {
+      timeOut: effectiveTimeOut,
+      isSynced: 0,
+    });
+
+    const payload = JSON.stringify({
+      periodNumber,
+      playerLineupIds: [playerOutLineupId],
+      timeOut: effectiveTimeOut,
+    });
+
+    const syncItem: SyncQueueItem = {
+      actionType: "PUT",
+      endpoint: `/Matches/${matchId}/presence/terminate`,
+      payload,
+      createdAt: effectiveTimeOut,
+    };
+
+    await db.syncQueue.add(syncItem);
+    didExit = true;
+  });
+
+  return didExit;
+}
+
+/**
+ * Opens a standalone presence session for an eligible bench player entering a shorthanded
+ * active roster without pairing an outgoing player.
+ * Aligned with backend InitializePresenceRequest DTO contract.
+ */
+export async function enterPlayerPresenceTx(
+  matchId: string,
+  periodNumber: number,
+  playerInLineupId: string,
+  entryTimestamp?: string,
+): Promise<string> {
+  let newPresenceId = "";
+
+  await db.transaction(
+    "rw",
+    [db.playerpresences, db.gameevents, db.timeanchors, db.syncQueue],
+    async () => {
+      const existingActive = await db.playerpresences
+        .where({ matchLineupId: playerInLineupId, periodNumber })
+        .filter((p) => p.timeOut === null)
+        .first();
+
+      if (existingActive) {
+        throw new Error("Player already has an active presence in this period.");
+      }
+
+      const timestamp = entryTimestamp ?? new Date().toISOString();
+      const nextSeq = await getNextSequenceNumber();
+      newPresenceId = crypto.randomUUID();
+
+      const incomingPresence: PlayerPresence = {
+        id: newPresenceId,
+        matchLineupId: playerInLineupId,
+        periodNumber,
+        timeIn: timestamp,
+        timeOut: null,
+        sequenceNumber: nextSeq,
+        isSynced: 0,
+      };
+
+      await db.playerpresences.add(incomingPresence);
+
+      const payload = JSON.stringify({
+        periodNumber,
+        timeIn: timestamp,
+        presenceItems: [
+          {
+            id: newPresenceId,
+            matchLineupId: playerInLineupId,
+          },
+        ],
+      });
+
+      const syncItem: SyncQueueItem = {
+        actionType: "POST",
+        endpoint: `/Matches/${matchId}/presence/initialize`,
+        payload,
+        createdAt: timestamp,
+      };
+
+      await db.syncQueue.add(syncItem);
+    },
+  );
+
+  return newPresenceId;
+}

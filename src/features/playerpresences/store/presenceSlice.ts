@@ -74,6 +74,23 @@ export const presenceSlice = createSlice({
         new Set(state.benchLineupIds.map((id) => (id === inId ? outId : id))),
       );
     },
+    optimisticRemoveFromActive: (state, action: PayloadAction<string>) => {
+      const outId = action.payload;
+      if (!state.activeLineupIds.includes(outId)) return;
+      state.activeLineupIds = state.activeLineupIds.filter(
+        (id) => id !== outId,
+      );
+      state.benchLineupIds = Array.from(
+        new Set([...state.benchLineupIds, outId]),
+      );
+    },
+    optimisticEnterFromBench: (state, action: PayloadAction<string>) => {
+      const inId = action.payload;
+      state.activeLineupIds = Array.from(
+        new Set([...state.activeLineupIds, inId]),
+      );
+      state.benchLineupIds = state.benchLineupIds.filter((id) => id !== inId);
+    },
     setLoading: (state, action: PayloadAction<boolean>) => {
       state.isLoading = action.payload;
     },
@@ -88,6 +105,8 @@ export const {
   commitStartingLineup,
   clearActiveRosterToBench,
   optimisticSubstitute,
+  optimisticRemoveFromActive,
+  optimisticEnterFromBench,
   setLoading,
   resetPresenceState,
 } = presenceSlice.actions;
