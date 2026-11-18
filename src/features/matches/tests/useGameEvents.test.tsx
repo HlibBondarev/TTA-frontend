@@ -925,8 +925,66 @@ describe("useGameEvents Custom Hook", () => {
     expect(store.getState().presence.activeLineupIds).toEqual([
       "lineup-uuid-8",
     ]);
-    expect(store.getState().presence.benchLineupIds).toContain(
-      "lineup-uuid-7",
+    expect(store.getState().presence.benchLineupIds).toContain("lineup-uuid-7");
+  });
+
+  it("should resolve true and preserve committed event without duplicating if disciplinary auto-removal fails", async () => {
+    const store = createTestStore();
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-7",
+      matchId: "test-match-id",
+      playerRosterId: "roster-7",
+      number: 7,
+      positionId: null,
+    });
+
+    const eventTimestamp = "2026-11-18T10:05:00.000Z";
+    vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce({
+      id: "excl-event-uuid",
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-excl-id",
+      periodNumber: 2,
+      eventTimestamp,
+      isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
+      shotLocationX: null,
+      shotLocationY: null,
+      foulImpact: "PersonalFoul",
+      penaltyDurationSeconds: 18,
+      createdAt: eventTimestamp,
+      sequenceNumber: 11,
+      isSynced: 0,
+    });
+
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockRejectedValueOnce(
+      new Error("Presence DB write failed"),
     );
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    let success = false;
+    await act(async () => {
+      success = await result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-7",
+        actionName: "Exclusion",
+        isPositive: false,
+        isLeadToGoal: false,
+        eventDefinitionId: "def-excl-id",
+      });
+    });
+
+    expect(success).toBe(true);
+    expect(eventService.createGameEventTx).toHaveBeenCalledTimes(1);
+    expect(store.getState().match.recentActions).toHaveLength(1);
+    expect(store.getState().match.recentActions[0].id).toBe("excl-event-uuid");
+
+    consoleErrorSpy.mockRestore();
   });
 });

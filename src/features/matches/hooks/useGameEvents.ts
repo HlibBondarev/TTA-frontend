@@ -89,30 +89,37 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
 ): Promise<void> => {
   if (!isPeriodActive) return;
 
-  const { maxPersonalFouls, playerGameEvents, eventDefinitionsById } =
-    await loadDisciplinaryContext(matchId, event);
+  try {
+    const { maxPersonalFouls, playerGameEvents, eventDefinitionsById } =
+      await loadDisciplinaryContext(matchId, event);
 
-  const shouldRemove = shouldAutoRemoveActivePlayer({
-    event,
-    eventDefinition: eventDefinitionsById.get(event.eventDefinitionId),
-    playerGameEvents,
-    eventDefinitionsById,
-    maxPersonalFouls,
-    currentPeriod,
-    isPeriodActive,
-  });
+    const shouldRemove = shouldAutoRemoveActivePlayer({
+      event,
+      eventDefinition: eventDefinitionsById.get(event.eventDefinitionId),
+      playerGameEvents,
+      eventDefinitionsById,
+      maxPersonalFouls,
+      currentPeriod,
+      isPeriodActive,
+    });
 
-  if (!shouldRemove) return;
+    if (!shouldRemove) return;
 
-  const didExit = await exitPlayerPresenceTx(
-    matchId,
-    currentPeriod,
-    event.matchLineupId,
-    event.eventTimestamp,
-  );
+    const didExit = await exitPlayerPresenceTx(
+      matchId,
+      currentPeriod,
+      event.matchLineupId,
+      event.eventTimestamp,
+    );
 
-  if (didExit) {
-    dispatch(optimisticRemoveFromActive(event.matchLineupId));
+    if (didExit) {
+      dispatch(optimisticRemoveFromActive(event.matchLineupId));
+    }
+  } catch (error) {
+    console.error(
+      `Disciplinary auto-removal failed for committed event ${event.id}:`,
+      error,
+    );
   }
 };
 
