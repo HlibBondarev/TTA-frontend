@@ -647,6 +647,7 @@ const persistHydrationPayloads = async (
         shortName: def.shortName ?? "",
         isPositive: Boolean(def.isPositive),
         isShot: Boolean(def.isShot),
+        score: def.score ?? 0,
         isCustom: def.isCustom,
         isEnabled: def.isEnabled ?? true,
         sortOrder: def.sortOrder ?? idx + 1,

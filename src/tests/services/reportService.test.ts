@@ -20,7 +20,7 @@ describe("reportService", () => {
         firstName: "John",
         lastName: "Doe",
         number: 10,
-        goals: 2,
+        scores: 2,
         positiveGoalLeadingActions: 1,
         negativeGoalLeadingActions: 0,
         totalPositiveActions: 5,

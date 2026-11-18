@@ -18,6 +18,7 @@ describe("MatchShotMap Component", () => {
         id: goalDefId,
         sportId: "wp",
         name: "Goal",
+        score: 1,
         shortName: "G",
         isPositive: true,
         isShot: true,

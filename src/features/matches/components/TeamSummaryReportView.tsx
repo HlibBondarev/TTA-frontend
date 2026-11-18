@@ -40,7 +40,7 @@ export const TeamSummaryReportView: React.FC<TeamSummaryReportViewProps> = ({
             <tr>
               <th className="py-2 px-1.5 text-center w-6">#</th>
               <th className="py-2 px-2">Player</th>
-              <th className="py-2 px-1 text-center text-emerald-400">G</th>
+              <th className="py-2 px-1 text-center text-emerald-400">Scores</th>
               <th className="py-2 px-1 text-center text-blue-400">+TTA</th>
               <th className="py-2 px-1 text-center text-rose-400">-TTA</th>
               <th className="py-2 px-1 text-center text-emerald-300">+GL</th>
@@ -72,7 +72,7 @@ export const TeamSummaryReportView: React.FC<TeamSummaryReportViewProps> = ({
                     </button>
                   </td>
                   <td className="py-2 px-1 text-center font-bold text-emerald-400">
-                    {p.goals ?? 0}
+                    {p.scores ?? 0}
                   </td>
                   <td className="py-2 px-1 text-center text-blue-300">
                     {p.totalPositiveActions ?? 0}

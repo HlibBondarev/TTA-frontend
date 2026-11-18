@@ -106,6 +106,7 @@ describe("useSpatialReport Custom Hook", () => {
       id: "def-1",
       sportId: "s-1",
       name: "Goal",
+      score: 1,
       shortName: "GL",
       isPositive: true,
       isShot: true,

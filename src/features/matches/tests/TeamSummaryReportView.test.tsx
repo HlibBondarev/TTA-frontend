@@ -9,7 +9,7 @@ describe("TeamSummaryReportView", () => {
       firstName: "Michael",
       lastName: "Jordan",
       number: 23,
-      goals: 5,
+      scores: 5,
       positiveGoalLeadingActions: 2,
       negativeGoalLeadingActions: 1,
       totalPositiveActions: 12,
@@ -60,6 +60,8 @@ describe("TeamSummaryReportView", () => {
     expect(screen.getByText("Michael Jordan")).toBeInTheDocument();
     expect(screen.getByText("23")).toBeInTheDocument();
     expect(screen.getByText("5")).toBeInTheDocument();
+    expect(screen.getByText("Scores")).toBeInTheDocument();
+    expect(screen.queryByText("G")).toBeNull();
     expect(screen.getByText("95%")).toBeInTheDocument();
 
     const playerButton = screen.getByRole("button", {
