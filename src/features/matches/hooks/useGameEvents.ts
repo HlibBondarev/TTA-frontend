@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import {
@@ -20,6 +21,19 @@ import {
 import { optimisticRemoveFromActive } from "../../playerpresences/store/presenceSlice";
 import { shouldAutoRemoveActivePlayer } from "../../../utils/disciplinaryUtils";
 import type { AppDispatch } from "../../../store";
+
+export type GameEventMutationResult =
+  | true
+  | {
+      eventSaved: true;
+      removalPending: true;
+      eventId: string;
+    };
+
+interface PendingDisciplinaryRemoval {
+  event: GameEvent;
+  periodNumber: number;
+}
 
 const loadDisciplinaryContext = async (
   matchId: string,
@@ -86,8 +100,8 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
   currentPeriod: number,
   isPeriodActive: boolean,
   dispatch: AppDispatch,
-): Promise<void> => {
-  if (!isPeriodActive) return;
+): Promise<boolean> => {
+  if (!isPeriodActive) return true;
 
   try {
     const { maxPersonalFouls, playerGameEvents, eventDefinitionsById } =
@@ -103,7 +117,7 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
       isPeriodActive,
     });
 
-    if (!shouldRemove) return;
+    if (!shouldRemove) return true;
 
     const didExit = await exitPlayerPresenceTx(
       matchId,
@@ -115,11 +129,14 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
     if (didExit) {
       dispatch(optimisticRemoveFromActive(event.matchLineupId));
     }
+
+    return true;
   } catch (error) {
     console.error(
       `Disciplinary auto-removal failed for committed event ${event.id}:`,
       error,
     );
+    return false;
   }
 };
 
@@ -153,6 +170,8 @@ export const useGameEvents = (matchId: string, userId?: string) => {
   const { periodNumber, activeTeamId, isPeriodActive } = useAppSelector(
     (state) => state.match,
   );
+  const initialPendingRemovals: Record<string, PendingDisciplinaryRemoval> = {};
+  const pendingRemovalsRef = useRef(initialPendingRemovals);
   const { user } = useAuth0();
   const auth0UserId = user?.sub ?? user?.email;
   const reduxUserId = useAppSelector(
@@ -170,9 +189,6 @@ export const useGameEvents = (matchId: string, userId?: string) => {
   );
   const currentUserId = userId?.trim() || auth0UserId || reduxUserId;
 
-  /**
-   * Helper to resolve sportId for the active match and verify user ownership.
-   */
   const resolveSportId = async (normalizedMatchId: string): Promise<string> => {
     const match = await db.matches.get(normalizedMatchId);
     if (!match?.tournamentId) {
@@ -191,13 +207,62 @@ export const useGameEvents = (matchId: string, userId?: string) => {
     return tournament.sportId.trim();
   };
 
-  /**
-   * Resolves player jersey number, event definition ID, persists GameEvent to Dexie DB,
-   * and dispatches state updates to Redux.
-   */
+  const retryPendingDisciplinaryRemovals = async (): Promise<boolean> => {
+    const normalizedMatchId = matchId?.trim();
+    const entries = Object.entries(pendingRemovalsRef.current);
+    if (!normalizedMatchId || entries.length === 0) {
+      return true;
+    }
+
+    for (const [eventId, pending] of entries) {
+      const completed = await applyDisciplinaryAutoRemovalIfNeeded(
+        normalizedMatchId,
+        pending.event,
+        pending.periodNumber,
+        isPeriodActive,
+        dispatch,
+      );
+      if (completed) {
+        delete pendingRemovalsRef.current[eventId];
+      }
+    }
+
+    return Object.keys(pendingRemovalsRef.current).length === 0;
+  };
+
+  const finalizeDisciplinaryRemoval = async (
+    normalizedMatchId: string,
+    committedEvent: GameEvent,
+  ): Promise<GameEventMutationResult> => {
+    await retryPendingDisciplinaryRemovals();
+
+    const removalCompleted = await applyDisciplinaryAutoRemovalIfNeeded(
+      normalizedMatchId,
+      committedEvent,
+      periodNumber,
+      isPeriodActive,
+      dispatch,
+    );
+
+    if (!removalCompleted) {
+      pendingRemovalsRef.current[committedEvent.id] = {
+        event: committedEvent,
+        periodNumber,
+      };
+      return {
+        eventSaved: true,
+        removalPending: true,
+        eventId: committedEvent.id,
+      };
+    }
+
+    delete pendingRemovalsRef.current[committedEvent.id];
+    return true;
+  };
+
   const recordGameEvent = async (
     params: RecordGameEventParams,
-  ): Promise<boolean> => {
+  ): Promise<GameEventMutationResult> => {
     const {
       selectedPlayerId,
       actionName,
@@ -269,23 +334,12 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       }),
     );
 
-    await applyDisciplinaryAutoRemovalIfNeeded(
-      normalizedMatchId,
-      createdEvent,
-      periodNumber,
-      isPeriodActive,
-      dispatch,
-    );
-
-    return true;
+    return finalizeDisciplinaryRemoval(normalizedMatchId, createdEvent);
   };
 
-  /**
-   * Updates an existing unsynchronized game event in Dexie DB and syncQueue, then updates Redux store.
-   */
   const updateGameEvent = async (
     params: UpdateGameEventHookParams,
-  ): Promise<boolean> => {
+  ): Promise<GameEventMutationResult> => {
     const {
       eventId,
       selectedPlayerId,
@@ -347,20 +401,9 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       }),
     );
 
-    await applyDisciplinaryAutoRemovalIfNeeded(
-      normalizedMatchId,
-      updatedEvent,
-      periodNumber,
-      isPeriodActive,
-      dispatch,
-    );
-
-    return true;
+    return finalizeDisciplinaryRemoval(normalizedMatchId, updatedEvent);
   };
 
-  /**
-   * Deletes an unsynchronized game event from Dexie DB and syncQueue, then removes it from Redux store.
-   */
   const deleteGameEvent = async (eventId: string): Promise<boolean> => {
     const normalizedMatchId = matchId?.trim();
     if (!normalizedMatchId) {
@@ -388,9 +431,15 @@ export const useGameEvents = (matchId: string, userId?: string) => {
     await resolveSportId(normalizedMatchId);
 
     await deleteGameEventTx(eventId);
+    delete pendingRemovalsRef.current[eventId];
     dispatch(deleteRecentAction(eventId));
     return true;
   };
 
-  return { recordGameEvent, updateGameEvent, deleteGameEvent };
+  return {
+    recordGameEvent,
+    updateGameEvent,
+    deleteGameEvent,
+    retryPendingDisciplinaryRemovals,
+  };
 };

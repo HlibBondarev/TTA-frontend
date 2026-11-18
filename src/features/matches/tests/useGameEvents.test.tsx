@@ -928,8 +928,38 @@ describe("useGameEvents Custom Hook", () => {
     expect(store.getState().presence.benchLineupIds).toContain("lineup-uuid-7");
   });
 
-  it("should resolve true and preserve committed event without duplicating if disciplinary auto-removal fails", async () => {
-    const store = createTestStore();
+  it("should return distinct removalPending result and allow retrying only unfinished removal without duplicating committed event", async () => {
+    const store = configureStore({
+      reducer: {
+        match: matchReducer,
+        presence: presenceReducer,
+        auth: (state = { currentUserId: "user-123" }) => state,
+      },
+      preloadedState: {
+        match: {
+          activeMatchId: "test-match-id",
+          activeTeamId: "team-456",
+          periodNumber: 2,
+          homeScore: 0,
+          guestScore: 0,
+          isPeriodActive: true,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+          globalSequenceNumber: 10,
+          recentActions: [],
+          hydrationVersion: 0,
+        },
+        presence: {
+          currentPeriod: 2,
+          activeLineupIds: ["lineup-uuid-7", "lineup-uuid-8"],
+          benchLineupIds: ["lineup-uuid-9"],
+          selectedStartingIds: [],
+          activePlayersLimit: 7,
+          isLoading: false,
+        },
+        auth: { currentUserId: "user-123" },
+      },
+    });
     const consoleErrorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
@@ -969,9 +999,9 @@ describe("useGameEvents Custom Hook", () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
 
-    let success = false;
+    let outcome: unknown;
     await act(async () => {
-      success = await result.current.recordGameEvent({
+      outcome = await result.current.recordGameEvent({
         selectedPlayerId: "lineup-uuid-7",
         actionName: "Exclusion",
         isPositive: false,
@@ -980,10 +1010,40 @@ describe("useGameEvents Custom Hook", () => {
       });
     });
 
-    expect(success).toBe(true);
+    expect(outcome).toEqual({
+      eventSaved: true,
+      removalPending: true,
+      eventId: "excl-event-uuid",
+    });
     expect(eventService.createGameEventTx).toHaveBeenCalledTimes(1);
+    expect(presenceService.exitPlayerPresenceTx).toHaveBeenCalledTimes(1);
+    expect(presenceService.exitPlayerPresenceTx).toHaveBeenCalledWith(
+      "test-match-id",
+      2,
+      "lineup-uuid-7",
+      eventTimestamp,
+    );
     expect(store.getState().match.recentActions).toHaveLength(1);
     expect(store.getState().match.recentActions[0].id).toBe("excl-event-uuid");
+    expect(store.getState().presence.activeLineupIds).toEqual([
+      "lineup-uuid-7",
+      "lineup-uuid-8",
+    ]);
+
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockResolvedValueOnce(true);
+
+    let retrySucceeded = false;
+    await act(async () => {
+      retrySucceeded = await result.current.retryPendingDisciplinaryRemovals();
+    });
+
+    expect(retrySucceeded).toBe(true);
+    expect(eventService.createGameEventTx).toHaveBeenCalledTimes(1);
+    expect(presenceService.exitPlayerPresenceTx).toHaveBeenCalledTimes(2);
+    expect(store.getState().presence.activeLineupIds).toEqual([
+      "lineup-uuid-8",
+    ]);
+    expect(store.getState().presence.benchLineupIds).toContain("lineup-uuid-7");
 
     consoleErrorSpy.mockRestore();
   });
