@@ -6379,6 +6379,14 @@
           "score": {
             "type": "integer",
             "format": "int32"
+          },
+          "foulImpact": {
+            "$ref": "#/components/schemas/FoulImpact"
+          },
+          "penaltyDurationSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -6604,6 +6612,14 @@
             "type": "integer",
             "format": "int32"
           },
+          "foulImpact": {
+            "$ref": "#/components/schemas/FoulImpact"
+          },
+          "penaltyDurationSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
           "isCustom": {
             "type": "boolean"
           },
@@ -6616,6 +6632,15 @@
           }
         },
         "additionalProperties": false
+      },
+      "FoulImpact": {
+        "enum": [
+          "None",
+          "PersonalFoul",
+          "DisqualificationWithSub",
+          "DisqualificationNoSub"
+        ],
+        "type": "string"
       },
       "GameEventResponse": {
         "type": "object",
@@ -6642,6 +6667,14 @@
           "score": {
             "type": "integer",
             "format": "int32"
+          },
+          "foulImpact": {
+            "$ref": "#/components/schemas/FoulImpact"
+          },
+          "penaltyDurationSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
           },
           "periodNumber": {
             "type": "integer",
@@ -7236,6 +7269,11 @@
           },
           "shotMap": {
             "type": "string",
+            "nullable": true
+          },
+          "maxPersonalFouls": {
+            "type": "integer",
+            "format": "int32",
             "nullable": true
           }
         },
