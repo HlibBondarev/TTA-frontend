@@ -195,7 +195,12 @@ export function useEditGameEventModal({
   const reduxUserId = useSelector(selectReduxUserId);
   const currentUserId = auth0UserId || reduxUserId;
 
-  const { updateGameEvent } = useGameEvents(matchId);
+  const {
+    updateGameEvent,
+    hasPendingRemovals = false,
+    retryPendingDisciplinaryRemovals,
+  } = useGameEvents(matchId);
+  const [isRemovalRetryPending, setIsRemovalRetryPending] = useState(false);
 
   const [lineups, setLineups] = useState<MatchLineupLookup[]>([]);
   const [eventDefinitions, setEventDefinitions] = useState<
@@ -452,7 +457,18 @@ export function useEditGameEventModal({
     setError(null);
 
     try {
-      await updateGameEvent({
+      if (isRemovalRetryPending && retryPendingDisciplinaryRemovals) {
+        const completed = await retryPendingDisciplinaryRemovals();
+        if (!completed) {
+          setError("Action saved, but player removal is still pending retry.");
+          return;
+        }
+        setIsRemovalRetryPending(false);
+        onClose();
+        return;
+      }
+
+      const result = await updateGameEvent({
         eventId: action.id,
         selectedPlayerId: selectedMatchLineupId,
         actionName: effectiveActionName,
@@ -464,6 +480,18 @@ export function useEditGameEventModal({
         shotLocationX: isShotDefinition ? shotLocationX : null,
         shotLocationY: isShotDefinition ? shotLocationY : null,
       });
+
+      if (
+        typeof result === "object" &&
+        result !== null &&
+        "removalPending" in result &&
+        result.removalPending
+      ) {
+        setIsRemovalRetryPending(true);
+        setError("Action saved, but player removal is pending retry.");
+        return;
+      }
+
       onClose();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to update action.");
@@ -491,6 +519,7 @@ export function useEditGameEventModal({
     isDefinitionsLoaded,
     isSaving,
     error,
+    hasPendingRemovals: hasPendingRemovals || isRemovalRetryPending,
     setSelectedMatchLineupId,
     handleActionSelect,
     handleTabClick,

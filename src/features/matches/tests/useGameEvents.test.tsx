@@ -1047,4 +1047,117 @@ describe("useGameEvents Custom Hook", () => {
 
     consoleErrorSpy.mockRestore();
   });
+
+  it("should preserve pending disciplinary removal across hook unmount and retry removal from a new hook instance", async () => {
+    const store = configureStore({
+      reducer: {
+        match: matchReducer,
+        presence: presenceReducer,
+        auth: (state = { currentUserId: "user-123" }) => state,
+      },
+      preloadedState: {
+        match: {
+          activeMatchId: "test-match-id",
+          activeTeamId: "team-456",
+          periodNumber: 2,
+          homeScore: 0,
+          guestScore: 0,
+          isPeriodActive: true,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+          globalSequenceNumber: 10,
+          recentActions: [],
+          hydrationVersion: 0,
+        },
+        presence: {
+          currentPeriod: 2,
+          activeLineupIds: ["lineup-uuid-7", "lineup-uuid-8"],
+          benchLineupIds: ["lineup-uuid-9"],
+          selectedStartingIds: [],
+          activePlayersLimit: 7,
+          isLoading: false,
+        },
+        auth: { currentUserId: "user-123" },
+      },
+    });
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-7",
+      matchId: "test-match-id",
+      playerRosterId: "roster-7",
+      number: 7,
+      positionId: null,
+    });
+
+    const eventTimestamp = "2026-11-18T10:05:00.000Z";
+    vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce({
+      id: "unmount-excl-uuid",
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-excl-id",
+      periodNumber: 2,
+      eventTimestamp,
+      isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
+      shotLocationX: null,
+      shotLocationY: null,
+      foulImpact: "PersonalFoul",
+      penaltyDurationSeconds: 18,
+      createdAt: eventTimestamp,
+      sequenceNumber: 11,
+      isSynced: 0,
+    });
+
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockRejectedValueOnce(
+      new Error("Temporary IndexedDB failure"),
+    );
+
+    const firstMount = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      const outcome = await firstMount.result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-7",
+        actionName: "Exclusion",
+        isPositive: false,
+        isLeadToGoal: false,
+        eventDefinitionId: "def-excl-id",
+      });
+      expect(outcome).toEqual({
+        eventSaved: true,
+        removalPending: true,
+        eventId: "unmount-excl-uuid",
+      });
+    });
+
+    firstMount.unmount();
+
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockResolvedValueOnce(true);
+
+    const secondMount = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    expect(secondMount.result.current.hasPendingRemovals).toBe(true);
+
+    let retried = false;
+    await act(async () => {
+      retried =
+        await secondMount.result.current.retryPendingDisciplinaryRemovals();
+    });
+
+    expect(retried).toBe(true);
+    expect(secondMount.result.current.hasPendingRemovals).toBe(false);
+    expect(eventService.createGameEventTx).toHaveBeenCalledTimes(1);
+    expect(presenceService.exitPlayerPresenceTx).toHaveBeenCalledTimes(2);
+    expect(store.getState().presence.activeLineupIds).toEqual([
+      "lineup-uuid-8",
+    ]);
+
+    consoleErrorSpy.mockRestore();
+  });
 });

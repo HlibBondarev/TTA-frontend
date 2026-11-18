@@ -134,7 +134,7 @@ export const ActionsLog: React.FC = () => {
 
     try {
       setError(null);
-      await updateGameEvent({
+      const result = await updateGameEvent({
         eventId: action.id,
         selectedPlayerId: action.matchLineupId,
         actionName: action.actionName,
@@ -142,6 +142,14 @@ export const ActionsLog: React.FC = () => {
         isPositive: action.isPositive,
         isLeadToGoal: !action.isLeadToGoal,
       });
+      if (
+        typeof result === "object" &&
+        result !== null &&
+        "removalPending" in result &&
+        result.removalPending
+      ) {
+        setError("Action saved, but player removal is pending.");
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to update Goal Lead flag.",

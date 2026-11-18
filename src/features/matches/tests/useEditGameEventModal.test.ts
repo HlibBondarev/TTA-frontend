@@ -58,10 +58,13 @@ vi.mock("react-redux", () => ({
 }));
 
 const mockUpdateGameEvent = vi.fn();
+const mockRetryPendingDisciplinaryRemovals = vi.fn();
 
 vi.mock("../hooks/useGameEvents", () => ({
   useGameEvents: () => ({
     updateGameEvent: mockUpdateGameEvent,
+    hasPendingRemovals: false,
+    retryPendingDisciplinaryRemovals: mockRetryPendingDisciplinaryRemovals,
   }),
 }));
 
@@ -114,7 +117,13 @@ vi.mock("../../../db/ttaDatabase", () => ({
       get: vi.fn().mockImplementation((id: string) => {
         const defs: Record<
           string,
-          { id: string; name: string; isPositive: boolean; isShot?: boolean; score?: number }
+          {
+            id: string;
+            name: string;
+            isPositive: boolean;
+            isShot?: boolean;
+            score?: number;
+          }
         > = {
           "def-1": {
             id: "def-1",
@@ -142,7 +151,13 @@ vi.mock("../../../db/ttaDatabase", () => ({
         equals: vi.fn().mockReturnValue({
           toArray: vi.fn().mockResolvedValue([
             { id: "def-1", name: "Pass", isPositive: true, isShot: false },
-            { id: "def-2", name: "Goal", isPositive: true, isShot: true, score: 1 },
+            {
+              id: "def-2",
+              name: "Goal",
+              isPositive: true,
+              isShot: true,
+              score: 1,
+            },
             { id: "def-3", name: "Foul", isPositive: false, isShot: false },
           ]),
         }),
@@ -187,6 +202,7 @@ describe("useEditGameEventModal Custom Hook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     liveQueryCallback = null;
+    mockRetryPendingDisciplinaryRemovals.mockResolvedValue(true);
     mockAuth0User = { sub: "user-123", email: "test@example.com" };
     mockReduxState = {
       auth: { currentUserId: "user-123" },
@@ -323,7 +339,7 @@ describe("useEditGameEventModal Custom Hook", () => {
       },
     };
 
-    mockUpdateGameEvent.mockResolvedValue(undefined);
+    mockUpdateGameEvent.mockResolvedValue(true);
 
     const { result } = renderHook(() =>
       useEditGameEventModal({
@@ -451,7 +467,7 @@ describe("useEditGameEventModal Custom Hook", () => {
   });
 
   it("should force isLeadToGoal to false when selecting Goal action during save", async () => {
-    mockUpdateGameEvent.mockResolvedValue(undefined);
+    mockUpdateGameEvent.mockResolvedValue(true);
 
     const { result } = renderHook(() =>
       useEditGameEventModal({
@@ -563,7 +579,7 @@ describe("useEditGameEventModal Custom Hook", () => {
   });
 
   it("should execute handleSave successfully and call updateGameEvent with expected payload", async () => {
-    mockUpdateGameEvent.mockResolvedValue(undefined);
+    mockUpdateGameEvent.mockResolvedValue(true);
 
     const onClose = vi.fn();
     const { result } = renderHook(() =>
@@ -857,7 +873,13 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     vi.mocked(db.eventdefinitions.bulkGet).mockResolvedValueOnce([
       { id: "def-enabled-1", name: "Steal", isPositive: true, isShot: false },
-      { id: "def-enabled-2", name: "Goal", isPositive: true, isShot: true, score: 1 },
+      {
+        id: "def-enabled-2",
+        name: "Goal",
+        isPositive: true,
+        isShot: true,
+        score: 1,
+      },
     ] as never);
 
     const { result } = renderHook(() =>
@@ -1014,7 +1036,7 @@ describe("useEditGameEventModal Custom Hook", () => {
   });
 
   it("should hide SHOTS tab when shot action has neither valid shotMap nor saved target while preserving shot classification on save", async () => {
-    mockUpdateGameEvent.mockResolvedValue(undefined);
+    mockUpdateGameEvent.mockResolvedValue(true);
     vi.mocked(db.sportconfigurations.get).mockResolvedValue({
       id: "config-1",
       playground: '<svg viewBox="0 0 600 1000">Court</svg>',
@@ -1136,8 +1158,8 @@ describe("useEditGameEventModal Custom Hook", () => {
   });
 
   it("should ignore shot location updates while a save is pending", async () => {
-    let resolveSave!: () => void;
-    const pendingSave = new Promise<void>((resolve) => {
+    let resolveSave!: (value: boolean) => void;
+    const pendingSave = new Promise<boolean>((resolve) => {
       resolveSave = resolve;
     });
     mockUpdateGameEvent.mockReturnValueOnce(pendingSave);
@@ -1179,7 +1201,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     // Finish save
     await act(async () => {
-      resolveSave();
+      resolveSave(true);
       await pendingSave;
     });
 
@@ -1275,5 +1297,45 @@ describe("useEditGameEventModal Custom Hook", () => {
     expect(result.current.locationY).toBe(99.0);
     expect(result.current.shotLocationX).toBe(44.0);
     expect(result.current.shotLocationY).toBe(55.0);
+  });
+
+  it("should surface error and retry only removal without re-calling updateGameEvent when removalPending is returned", async () => {
+    mockUpdateGameEvent.mockResolvedValueOnce({
+      eventSaved: true,
+      removalPending: true,
+      eventId: "action-123",
+    });
+
+    const onClose = vi.fn();
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: sampleAction,
+        matchId: "match-1",
+        onClose,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockUpdateGameEvent).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBe(
+      "Action saved, but player removal is pending retry.",
+    );
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockUpdateGameEvent).toHaveBeenCalledTimes(1);
+    expect(mockRetryPendingDisciplinaryRemovals).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

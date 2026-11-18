@@ -13,6 +13,9 @@ import navigationReducer from "../../../store/slices/navigationSlice";
 import type { RootState } from "../../../store";
 
 const mockRecordGameEvent = vi.fn();
+const mockRetryPendingDisciplinaryRemovals = vi.fn();
+let mockHasPendingRemovals = false;
+
 const mockUseMatchLifecycle = vi.fn().mockReturnValue({
   periodNumber: 1,
   isPeriodActive: true,
@@ -24,8 +27,11 @@ vi.mock("../hooks/useMatchLifecycle", () => ({
 }));
 
 vi.mock("../hooks/useGameEvents", () => ({
+  clearPendingDisciplinaryRemovals: vi.fn(),
   useGameEvents: () => ({
     recordGameEvent: mockRecordGameEvent,
+    hasPendingRemovals: mockHasPendingRemovals,
+    retryPendingDisciplinaryRemovals: mockRetryPendingDisciplinaryRemovals,
   }),
 }));
 
@@ -57,7 +63,9 @@ const createWrapper = (store: ReturnType<typeof createTestStore>) => {
 describe("useTTAConsole Custom Hook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockRecordGameEvent.mockResolvedValue(undefined);
+    mockHasPendingRemovals = false;
+    mockRecordGameEvent.mockResolvedValue(true);
+    mockRetryPendingDisciplinaryRemovals.mockResolvedValue(true);
     mockUseMatchLifecycle.mockReturnValue({
       periodNumber: 1,
       isPeriodActive: true,
@@ -476,7 +484,7 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     await act(async () => {
-      resolveRecord!(undefined);
+      resolveRecord!(true);
       await enterPromise;
     });
 
@@ -524,7 +532,7 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     await act(async () => {
-      resolveRecord!(undefined);
+      resolveRecord!(true);
       await enterPromise;
     });
 
@@ -554,5 +562,55 @@ describe("useTTAConsole Custom Hook", () => {
     });
 
     expect(result.current.selectedPlayerId).toBeNull();
+  });
+
+  it("should handle removalPending outcome by clearing input form, surfacing warning, and retrying removal without re-recording event", async () => {
+    mockRecordGameEvent.mockResolvedValueOnce({
+      eventSaved: true,
+      removalPending: true,
+      eventId: "excl-1",
+    });
+
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+    });
+
+    const { result, rerender } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.handleActionSelect(
+        "Exclusion",
+        false,
+        "def-excl-1",
+        false,
+      );
+      result.current.setSelectedPlayerId("player-7");
+    });
+
+    await act(async () => {
+      await result.current.handleEnter();
+    });
+
+    expect(result.current.pendingAction).toBeNull();
+    expect(result.current.selectedPlayerId).toBeNull();
+    expect(result.current.consoleError).toBe(
+      "Event saved, but automatic player removal failed. Retry removal.",
+    );
+
+    mockHasPendingRemovals = true;
+    rerender();
+    expect(result.current.hasPendingRemovals).toBe(true);
+
+    let retried = false;
+    await act(async () => {
+      retried = await result.current.retryPendingRemovals();
+    });
+
+    expect(retried).toBe(true);
+    expect(mockRecordGameEvent).toHaveBeenCalledTimes(1);
+    expect(mockRetryPendingDisciplinaryRemovals).toHaveBeenCalledTimes(1);
+    expect(result.current.consoleError).toBeNull();
   });
 });

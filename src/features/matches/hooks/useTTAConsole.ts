@@ -10,6 +10,12 @@ export interface UseTTAConsoleOptions {
   onCompleteMatch?: () => void;
 }
 
+const isPendingRemovalOutcome = (result: unknown): boolean =>
+  typeof result === "object" &&
+  result !== null &&
+  "removalPending" in result &&
+  (result as { removalPending?: unknown }).removalPending === true;
+
 export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   const dispatch = useDispatch<AppDispatch>();
   const activeMatchId = useSelector(
@@ -21,7 +27,12 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   const { periodNumber, isPeriodActive, isInsideStoppage } =
     useMatchLifecycle();
 
-  const { recordGameEvent } = useGameEvents(activeMatchId || "");
+  const {
+    recordGameEvent,
+    hasPendingRemovals = false,
+    retryPendingDisciplinaryRemovals,
+    clearPendingRemovals,
+  } = useGameEvents(activeMatchId || "");
 
   const [pendingAction, setPendingAction] = useState<{
     name: string;
@@ -70,6 +81,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   const isRecordingEnabled = isPeriodActive && !isInsideStoppage;
 
   const handleFinalizeSuccess = () => {
+    clearPendingRemovals?.();
     dispatch(resetMatchState());
     dispatch(resetPresenceState());
     if (onCompleteMatch) {
@@ -112,7 +124,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
       setIsSubmitting(true);
       setConsoleError(null);
       try {
-        await recordGameEvent({
+        const result = await recordGameEvent({
           selectedPlayerId,
           actionName: pendingAction.name,
           isPositive: pendingAction.isPositive,
@@ -128,6 +140,12 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
         setPendingLocation(null);
         setPendingShotLocation(null);
         setSelectedPlayerId(null);
+
+        if (isPendingRemovalOutcome(result)) {
+          setConsoleError(
+            "Event saved, but automatic player removal failed. Retry removal.",
+          );
+        }
       } catch (err: unknown) {
         console.error("Failed to record game event:", err);
         setConsoleError(
@@ -138,6 +156,21 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
       } finally {
         setIsSubmitting(false);
       }
+    }
+  };
+
+  const retryPendingRemovals = async (): Promise<boolean> => {
+    if (isSubmitting || !retryPendingDisciplinaryRemovals) return false;
+    setIsSubmitting(true);
+    setConsoleError(null);
+    try {
+      const completed = await retryPendingDisciplinaryRemovals();
+      if (!completed) {
+        setConsoleError("Player removal is still pending. Please retry again.");
+      }
+      return completed;
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -166,6 +199,8 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     setSelectedPlayerId,
     consoleError,
     isSubmitting,
+    hasPendingRemovals,
+    retryPendingRemovals,
     handleFinalizeSuccess,
     handleEnter,
     handleActionSelect,

@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import {
@@ -30,10 +30,83 @@ export type GameEventMutationResult =
       eventId: string;
     };
 
+export const isGameEventRemovalPending = (
+  result: unknown,
+): result is { eventSaved: true; removalPending: true; eventId: string } =>
+  typeof result === "object" &&
+  result !== null &&
+  "removalPending" in result &&
+  (result as { removalPending?: unknown }).removalPending === true;
+
 interface PendingDisciplinaryRemoval {
   event: GameEvent;
   periodNumber: number;
 }
+
+const pendingRemovalsByMatch = new Map<
+  string,
+  Map<string, PendingDisciplinaryRemoval>
+>();
+const pendingRemovalListeners = new Set<() => void>();
+
+const emitPendingRemovalChange = () => {
+  for (const listener of pendingRemovalListeners) {
+    listener();
+  }
+};
+
+const subscribePendingRemovals = (listener: () => void): (() => void) => {
+  pendingRemovalListeners.add(listener);
+  return () => {
+    pendingRemovalListeners.delete(listener);
+  };
+};
+
+const getPendingRemovalCountForMatch = (normalizedMatchId: string): number => {
+  if (!normalizedMatchId) return 0;
+  return pendingRemovalsByMatch.get(normalizedMatchId)?.size ?? 0;
+};
+
+const setPendingRemovalEntry = (
+  normalizedMatchId: string,
+  entry: PendingDisciplinaryRemoval,
+): void => {
+  let matchMap = pendingRemovalsByMatch.get(normalizedMatchId);
+  if (!matchMap) {
+    matchMap = new Map();
+    pendingRemovalsByMatch.set(normalizedMatchId, matchMap);
+  }
+  matchMap.set(entry.event.id, entry);
+  emitPendingRemovalChange();
+};
+
+const deletePendingRemovalEntry = (
+  normalizedMatchId: string,
+  eventId: string,
+): void => {
+  const matchMap = pendingRemovalsByMatch.get(normalizedMatchId);
+  if (!matchMap?.delete(eventId)) return;
+  if (matchMap.size === 0) {
+    pendingRemovalsByMatch.delete(normalizedMatchId);
+  }
+  emitPendingRemovalChange();
+};
+
+export const clearPendingDisciplinaryRemovals = (matchId?: string): void => {
+  if (matchId === undefined) {
+    if (pendingRemovalsByMatch.size === 0) return;
+    pendingRemovalsByMatch.clear();
+    emitPendingRemovalChange();
+    return;
+  }
+
+  const normalizedMatchId = matchId.trim();
+  if (!normalizedMatchId || !pendingRemovalsByMatch.has(normalizedMatchId)) {
+    return;
+  }
+  pendingRemovalsByMatch.delete(normalizedMatchId);
+  emitPendingRemovalChange();
+};
 
 const loadDisciplinaryContext = async (
   matchId: string,
@@ -170,8 +243,14 @@ export const useGameEvents = (matchId: string, userId?: string) => {
   const { periodNumber, activeTeamId, isPeriodActive } = useAppSelector(
     (state) => state.match,
   );
-  const initialPendingRemovals: Record<string, PendingDisciplinaryRemoval> = {};
-  const pendingRemovalsRef = useRef(initialPendingRemovals);
+  const normalizedHookMatchId = matchId?.trim() || "";
+  const pendingRemovalCount = useSyncExternalStore(
+    subscribePendingRemovals,
+    () => getPendingRemovalCountForMatch(normalizedHookMatchId),
+    () => 0,
+  );
+  const hasPendingRemovals = pendingRemovalCount > 0;
+
   const { user } = useAuth0();
   const auth0UserId = user?.sub ?? user?.email;
   const reduxUserId = useAppSelector(
@@ -207,28 +286,32 @@ export const useGameEvents = (matchId: string, userId?: string) => {
     return tournament.sportId.trim();
   };
 
-  const retryPendingDisciplinaryRemovals = async (): Promise<boolean> => {
-    const normalizedMatchId = matchId?.trim();
-    const entries = Object.entries(pendingRemovalsRef.current);
-    if (!normalizedMatchId || entries.length === 0) {
-      return true;
-    }
+  const retryPendingDisciplinaryRemovals =
+    useCallback(async (): Promise<boolean> => {
+      const normalizedMatchId = matchId?.trim();
+      if (!normalizedMatchId) return true;
 
-    for (const [eventId, pending] of entries) {
-      const completed = await applyDisciplinaryAutoRemovalIfNeeded(
-        normalizedMatchId,
-        pending.event,
-        pending.periodNumber,
-        isPeriodActive,
-        dispatch,
-      );
-      if (completed) {
-        delete pendingRemovalsRef.current[eventId];
+      const matchMap = pendingRemovalsByMatch.get(normalizedMatchId);
+      if (!matchMap || matchMap.size === 0) {
+        return true;
       }
-    }
 
-    return Object.keys(pendingRemovalsRef.current).length === 0;
-  };
+      const entries = Array.from(matchMap.entries());
+      for (const [eventId, pending] of entries) {
+        const completed = await applyDisciplinaryAutoRemovalIfNeeded(
+          normalizedMatchId,
+          pending.event,
+          pending.periodNumber,
+          isPeriodActive,
+          dispatch,
+        );
+        if (completed) {
+          deletePendingRemovalEntry(normalizedMatchId, eventId);
+        }
+      }
+
+      return getPendingRemovalCountForMatch(normalizedMatchId) === 0;
+    }, [matchId, isPeriodActive, dispatch]);
 
   const finalizeDisciplinaryRemoval = async (
     normalizedMatchId: string,
@@ -245,10 +328,10 @@ export const useGameEvents = (matchId: string, userId?: string) => {
     );
 
     if (!removalCompleted) {
-      pendingRemovalsRef.current[committedEvent.id] = {
+      setPendingRemovalEntry(normalizedMatchId, {
         event: committedEvent,
         periodNumber,
-      };
+      });
       return {
         eventSaved: true,
         removalPending: true,
@@ -256,7 +339,7 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       };
     }
 
-    delete pendingRemovalsRef.current[committedEvent.id];
+    deletePendingRemovalEntry(normalizedMatchId, committedEvent.id);
     return true;
   };
 
@@ -431,15 +514,24 @@ export const useGameEvents = (matchId: string, userId?: string) => {
     await resolveSportId(normalizedMatchId);
 
     await deleteGameEventTx(eventId);
-    delete pendingRemovalsRef.current[eventId];
+    deletePendingRemovalEntry(normalizedMatchId, eventId);
     dispatch(deleteRecentAction(eventId));
     return true;
   };
+
+  const clearPendingRemovals = useCallback(() => {
+    const normalizedMatchId = matchId?.trim();
+    if (normalizedMatchId) {
+      clearPendingDisciplinaryRemovals(normalizedMatchId);
+    }
+  }, [matchId]);
 
   return {
     recordGameEvent,
     updateGameEvent,
     deleteGameEvent,
+    hasPendingRemovals,
     retryPendingDisciplinaryRemovals,
+    clearPendingRemovals,
   };
 };
