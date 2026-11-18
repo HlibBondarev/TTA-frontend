@@ -610,10 +610,13 @@ export const updateGameEventTx = async (
       let isShot = true;
       const isDefinitionChanged =
         params.eventDefinitionId !== existing.eventDefinitionId;
+      const needsDisciplinaryBackfill =
+        existing.foulImpact === undefined ||
+        existing.penaltyDurationSeconds === undefined;
       let targetDef: EventDefinitionLookup | undefined;
-      if (isDefinitionChanged) {
+      if (isDefinitionChanged || needsDisciplinaryBackfill) {
         targetDef = await db.eventdefinitions.get(params.eventDefinitionId);
-        if (targetDef) {
+        if (isDefinitionChanged && targetDef) {
           isShot = Boolean(targetDef.isShot);
         }
       }

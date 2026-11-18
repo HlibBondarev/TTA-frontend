@@ -1015,6 +1015,7 @@ describe("Event Database Service (eventService)", () => {
       }
       return Promise.resolve(undefined);
     });
+    mockEventDefinitionsGet.mockResolvedValueOnce(undefined);
 
     mockSyncQueueFilter.mockReturnValueOnce({
       toArray: vi.fn().mockResolvedValue([
@@ -1036,7 +1037,9 @@ describe("Event Database Service (eventService)", () => {
     });
 
     expect(updated.isLeadToGoal).toBe(true);
-    expect(mockEventDefinitionsGet).not.toHaveBeenCalled();
+    expect(updated.foulImpact).toBe("None");
+    expect(updated.penaltyDurationSeconds).toBeNull();
+    expect(mockEventDefinitionsGet).toHaveBeenCalledWith("def-removed");
   });
 
   it("should successfully update event when expectedSportId matches definition sportId", async () => {
@@ -1382,5 +1385,57 @@ describe("Event Database Service (eventService)", () => {
 
     expect(created.foulImpact).toBe("PersonalFoul");
     expect(created.penaltyDurationSeconds).toBe(20);
+  });
+
+  it("should backfill missing disciplinary fields from definition when eventDefinitionId is unchanged while preserving explicit stored values", async () => {
+    const existingEvent = {
+      id: "event-legacy-1",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-exclusion",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: false,
+      foulImpact: "DisqualificationWithSub" as const,
+      createdAt: "2026-07-22T12:00:00.000Z",
+      sequenceNumber: 1,
+      isSynced: 0 as const,
+    };
+
+    mockGameEventsGet.mockResolvedValueOnce(existingEvent);
+    mockMatchLineupsGet.mockResolvedValue({
+      id: "lineup-1",
+      matchId: "match-123",
+    });
+    mockEventDefinitionsGet.mockResolvedValueOnce({
+      id: "def-exclusion",
+      sportId: "sport-1",
+      name: "Exclusion",
+      shortName: "E",
+      isPositive: false,
+      isShot: false,
+      foulImpact: "PersonalFoul",
+      penaltyDurationSeconds: 18,
+    });
+    mockSyncQueueFilter.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 10,
+          endpoint: "/Matches/match-123/teams/team-456/events",
+          payload: JSON.stringify([
+            { id: "event-legacy-1", matchLineupId: "lineup-1" },
+          ]),
+        },
+      ]),
+    });
+
+    const updated = await updateGameEventTx({
+      eventId: "event-legacy-1",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-exclusion",
+      isLeadToGoal: true,
+    });
+
+    expect(updated.foulImpact).toBe("DisqualificationWithSub");
+    expect(updated.penaltyDurationSeconds).toBe(18);
   });
 });
