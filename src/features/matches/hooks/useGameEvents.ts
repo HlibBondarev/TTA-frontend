@@ -173,8 +173,9 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
   currentPeriod: number,
   isPeriodActive: boolean,
   dispatch: AppDispatch,
+  ignorePeriodInactive = false,
 ): Promise<boolean> => {
-  if (!isPeriodActive) return true;
+  if (!isPeriodActive && !ignorePeriodInactive) return true;
 
   try {
     const { maxPersonalFouls, playerGameEvents, eventDefinitionsById } =
@@ -187,7 +188,7 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
       eventDefinitionsById,
       maxPersonalFouls,
       currentPeriod,
-      isPeriodActive,
+      isPeriodActive: true,
     });
 
     if (!shouldRemove) return true;
@@ -201,9 +202,10 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
 
     if (didExit) {
       dispatch(optimisticRemoveFromActive(event.matchLineupId));
+      return true;
     }
 
-    return true;
+    return isPeriodActive;
   } catch (error) {
     console.error(
       `Disciplinary auto-removal failed for committed event ${event.id}:`,
@@ -304,6 +306,7 @@ export const useGameEvents = (matchId: string, userId?: string) => {
           pending.periodNumber,
           isPeriodActive,
           dispatch,
+          true,
         );
         if (completed) {
           deletePendingRemovalEntry(normalizedMatchId, eventId);

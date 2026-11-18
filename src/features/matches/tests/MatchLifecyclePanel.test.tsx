@@ -1068,4 +1068,49 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     expect(db.timeanchors.add).not.toHaveBeenCalled();
     expect(defaultPresenceMock.startPeriodWithRoster).not.toHaveBeenCalled();
   });
+
+  test("should block ending period and surface error when pending disciplinary removal cannot be completed", async () => {
+    const useGameEventsModule = await import("../hooks/useGameEvents");
+    const mockRetry = vi.fn().mockResolvedValue(false);
+    vi.spyOn(useGameEventsModule, "useGameEvents").mockReturnValue({
+      recordGameEvent: vi.fn(),
+      updateGameEvent: vi.fn(),
+      deleteGameEvent: vi.fn(),
+      hasPendingRemovals: true,
+      retryPendingDisciplinaryRemovals: mockRetry,
+      clearPendingRemovals: vi.fn(),
+    });
+
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 1,
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        isPeriodEnded: false,
+        globalSequenceNumber: 1,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const endBtn = await screen.findByRole("button", { name: "END PERIOD" });
+    await waitFor(() => expect(endBtn).not.toBeDisabled());
+
+    fireEvent.click(endBtn);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Cannot end period while automatic player removal is pending. Retry removal first.",
+    );
+    expect(mockRetry).toHaveBeenCalledTimes(1);
+    expect(store.getState().match.isPeriodActive).toBe(true);
+    expect(store.getState().match.isPeriodEnded).toBe(false);
+    expect(defaultPresenceMock.endPeriodWithRoster).not.toHaveBeenCalled();
+  });
 });

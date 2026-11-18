@@ -1160,4 +1160,115 @@ describe("useGameEvents Custom Hook", () => {
 
     consoleErrorSpy.mockRestore();
   });
+
+  it("should not report false success or clear pending removal when retried after period has ended and presence was not exited", async () => {
+    const store = configureStore({
+      reducer: {
+        match: matchReducer,
+        presence: presenceReducer,
+        auth: (state = { currentUserId: "user-123" }) => state,
+      },
+      preloadedState: {
+        match: {
+          activeMatchId: "test-match-id",
+          activeTeamId: "team-456",
+          periodNumber: 2,
+          homeScore: 0,
+          guestScore: 0,
+          isPeriodActive: true,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+          globalSequenceNumber: 10,
+          recentActions: [],
+          hydrationVersion: 0,
+        },
+        presence: {
+          currentPeriod: 2,
+          activeLineupIds: ["lineup-uuid-7", "lineup-uuid-8"],
+          benchLineupIds: ["lineup-uuid-9"],
+          selectedStartingIds: [],
+          activePlayersLimit: 7,
+          isLoading: false,
+        },
+        auth: { currentUserId: "user-123" },
+      },
+    });
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-7",
+      matchId: "test-match-id",
+      playerRosterId: "roster-7",
+      number: 7,
+      positionId: null,
+    });
+
+    const eventTimestamp = "2026-11-18T10:05:00.000Z";
+    vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce({
+      id: "end-period-excl-uuid",
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-excl-id",
+      periodNumber: 2,
+      eventTimestamp,
+      isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
+      shotLocationX: null,
+      shotLocationY: null,
+      foulImpact: "PersonalFoul",
+      penaltyDurationSeconds: 18,
+      createdAt: eventTimestamp,
+      sequenceNumber: 11,
+      isSynced: 0,
+    });
+
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockRejectedValueOnce(
+      new Error("DB lock during exclusion"),
+    );
+
+    const { result, rerender } = renderHook(
+      () => useGameEvents("test-match-id"),
+      {
+        wrapper: ({ children }) => (
+          <Provider store={store}>{children}</Provider>
+        ),
+      },
+    );
+
+    await act(async () => {
+      await result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-7",
+        actionName: "Exclusion",
+        isPositive: false,
+        isLeadToGoal: false,
+        eventDefinitionId: "def-excl-id",
+      });
+    });
+
+    expect(result.current.hasPendingRemovals).toBe(true);
+
+    // Simulate period ending while removal is still pending
+    act(() => {
+      store.dispatch({ type: "match/endPeriodState" });
+    });
+    rerender();
+
+    // Presence was already closed by period end, so exitPlayerPresenceTx returns false
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockResolvedValueOnce(
+      false,
+    );
+
+    let retried = true;
+    await act(async () => {
+      retried = await result.current.retryPendingDisciplinaryRemovals();
+    });
+
+    expect(retried).toBe(false);
+    expect(result.current.hasPendingRemovals).toBe(true);
+    expect(presenceService.exitPlayerPresenceTx).toHaveBeenCalledTimes(2);
+
+    consoleErrorSpy.mockRestore();
+  });
 });

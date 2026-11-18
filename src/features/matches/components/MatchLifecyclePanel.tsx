@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useSelector } from "react-redux";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
+import { useGameEvents } from "../hooks/useGameEvents";
 import { usePlayerPresence } from "../../../features/playerpresences/hooks/usePlayerPresence";
 import { MatchResultModal } from "./MatchResultModal";
 import type { RootState } from "../../../store";
@@ -43,6 +44,9 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
     endPeriodWithRoster,
     refreshPresenceFromDB,
   } = usePlayerPresence(activeMatchId);
+
+  const { hasPendingRemovals = false, retryPendingDisciplinaryRemovals } =
+    useGameEvents(activeMatchId);
 
   const [panelError, setPanelError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -90,6 +94,22 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
   const handleEndPeriod = async () => {
     if (isProcessing) return;
     setPanelError(null);
+
+    if (hasPendingRemovals) {
+      setIsProcessing(true);
+      try {
+        const removalCompleted = await retryPendingDisciplinaryRemovals();
+        if (!removalCompleted) {
+          setPanelError(
+            "Cannot end period while automatic player removal is pending. Retry removal first.",
+          );
+          return;
+        }
+      } finally {
+        setIsProcessing(false);
+      }
+    }
+
     let anchorId: string | null | undefined = null;
     try {
       setIsProcessing(true);
