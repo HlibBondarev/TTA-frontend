@@ -45,6 +45,13 @@ const groupDefinitionsByEnabled = (
   );
 };
 
+export const MAX_SCORE_VALUE = 2_147_483_647;
+
+const SCORE_ERROR_MESSAGE = `Score must be an integer between 0 and ${MAX_SCORE_VALUE}.`;
+
+export const isValidScore = (value: number): boolean =>
+  Number.isInteger(value) && value >= 0 && value <= MAX_SCORE_VALUE;
+
 export function useEventDefinitionsConfigurator({
   sportId,
   disabled = false,
@@ -85,6 +92,7 @@ export function useEventDefinitionsConfigurator({
   const [newName, setNewName] = useState("");
   const [newShortName, setNewShortName] = useState("");
   const [newIsShot, setNewIsShot] = useState(false);
+  const [newScore, setNewScore] = useState(0);
 
   const onChangeRef = useRef(onChange);
   const onLoadStateChangeRef = useRef(onLoadStateChange);
@@ -97,6 +105,7 @@ export function useEventDefinitionsConfigurator({
     setNewName("");
     setNewShortName("");
     setNewIsShot(false);
+    setNewScore(0);
     setModalError(null);
   }, []);
 
@@ -138,6 +147,7 @@ export function useEventDefinitionsConfigurator({
           shortName: def.shortName ?? "",
           isPositive: Boolean(def.isPositive),
           isShot: Boolean(def.isShot),
+          score: def.score ?? 0,
           isCustom: def.isCustom,
           isEnabled: def.isEnabled ?? true,
           sortOrder: def.sortOrder ?? idx + 1,
@@ -435,6 +445,10 @@ export function useEventDefinitionsConfigurator({
   ) => {
     e.preventDefault();
     if (isLocked || !newName.trim() || !newShortName.trim()) return;
+    if (!isValidScore(newScore)) {
+      setModalError(SCORE_ERROR_MESSAGE);
+      return;
+    }
 
     const requestId = requestCountRef.current;
     const isPositive = activeTab === "POSITIVE";
@@ -452,6 +466,7 @@ export function useEventDefinitionsConfigurator({
           shortName: newShortName.trim(),
           isPositive,
           isShot: newIsShot,
+          score: newScore,
         },
       );
 
@@ -471,6 +486,7 @@ export function useEventDefinitionsConfigurator({
             shortName: createdResponse?.shortName ?? newShortName.trim(),
             isPositive: effectiveIsPositive,
             isShot: Boolean(createdResponse?.isShot ?? newIsShot),
+            score: createdResponse?.score ?? newScore,
             isCustom: true,
             ownerId: currentUserId ?? null,
           };
@@ -492,6 +508,7 @@ export function useEventDefinitionsConfigurator({
         shortName: createdResponse?.shortName ?? newShortName.trim(),
         isPositive: effectiveIsPositive,
         isShot: Boolean(createdResponse?.isShot ?? newIsShot),
+        score: createdResponse?.score ?? newScore,
         isCustom: true,
         isEnabled: true,
         sortOrder: 0,
@@ -619,6 +636,7 @@ export function useEventDefinitionsConfigurator({
     newName,
     newShortName,
     newIsShot,
+    newScore,
     isLocked,
     activeCategoryDefs,
     activePositiveCount,
@@ -632,6 +650,7 @@ export function useEventDefinitionsConfigurator({
     setNewName,
     setNewShortName,
     setNewIsShot,
+    setNewScore,
     setCreating,
     handleToggleEnabled,
     handleToggleAll,

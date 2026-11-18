@@ -394,7 +394,7 @@ export function useEditGameEventModal({
     activeTab === "positive" ? positiveActions : negativeActions;
 
   const effectiveActionName = selectedEventDef?.name ?? selectedActionName;
-  const isGoalAction = effectiveActionName.trim().toLowerCase() === "goal";
+  const isGoalAction = (selectedEventDef?.score ?? 0) > 0;
 
   const handleActionSelect = (def: EventDefinitionLookup) => {
     const isPos = checkIsPositive(def);

@@ -105,6 +105,7 @@ export interface EventDefinitionLookup {
   isCustom?: boolean;
   ownerId?: string | null;
   sortOrder?: number;
+  score?: number;
 }
 
 export interface UserEventPresetLookup {
@@ -127,6 +128,7 @@ export interface GameEvent {
   locationY?: number | null;
   shotLocationX?: number | null;
   shotLocationY?: number | null;
+  score?: number;
   createdAt: string;
   sequenceNumber: number;
   isSynced: number;

@@ -108,13 +108,13 @@ vi.mock("../../../db/ttaDatabase", () => ({
     eventdefinitions: {
       bulkGet: vi.fn().mockResolvedValue([
         { id: "def-1", name: "Pass", isPositive: true, isShot: false },
-        { id: "def-2", name: "Goal", isPositive: true, isShot: true },
+        { id: "def-2", name: "Goal", isPositive: true, isShot: true, score: 1 },
         { id: "def-3", name: "Foul", isPositive: false, isShot: false },
       ]),
       get: vi.fn().mockImplementation((id: string) => {
         const defs: Record<
           string,
-          { id: string; name: string; isPositive: boolean; isShot?: boolean }
+          { id: string; name: string; isPositive: boolean; isShot?: boolean; score?: number }
         > = {
           "def-1": {
             id: "def-1",
@@ -127,6 +127,7 @@ vi.mock("../../../db/ttaDatabase", () => ({
             name: "Goal",
             isPositive: true,
             isShot: true,
+            score: 1,
           },
           "def-3": {
             id: "def-3",
@@ -141,7 +142,7 @@ vi.mock("../../../db/ttaDatabase", () => ({
         equals: vi.fn().mockReturnValue({
           toArray: vi.fn().mockResolvedValue([
             { id: "def-1", name: "Pass", isPositive: true, isShot: false },
-            { id: "def-2", name: "Goal", isPositive: true, isShot: true },
+            { id: "def-2", name: "Goal", isPositive: true, isShot: true, score: 1 },
             { id: "def-3", name: "Foul", isPositive: false, isShot: false },
           ]),
         }),
@@ -471,6 +472,7 @@ describe("useEditGameEventModal Custom Hook", () => {
         name: "Goal",
         isPositive: true,
         isShot: true,
+        score: 1,
         sportId: "sport-1",
         shortName: "G",
       });
@@ -855,7 +857,7 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     vi.mocked(db.eventdefinitions.bulkGet).mockResolvedValueOnce([
       { id: "def-enabled-1", name: "Steal", isPositive: true, isShot: false },
-      { id: "def-enabled-2", name: "Goal", isPositive: true, isShot: true },
+      { id: "def-enabled-2", name: "Goal", isPositive: true, isShot: true, score: 1 },
     ] as never);
 
     const { result } = renderHook(() =>
@@ -1211,6 +1213,7 @@ describe("useEditGameEventModal Custom Hook", () => {
         name: "Goal",
         isPositive: true,
         isShot: true,
+        score: 1,
         sportId: "sport-1",
         shortName: "G",
       });

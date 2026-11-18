@@ -67,7 +67,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     }
   }
 
-  // Calculate initial scores based on recorded Goal events in IndexedDB
+  // Calculate initial scores based on recorded scoring events in IndexedDB
   useEffect(() => {
     if (!isOpen || !activeMatchId) return;
 
@@ -118,38 +118,33 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           }
         });
 
-        // 3. Find Positive and Negative Goal event definition IDs
+        // 3. Map event definitions to their fallback score and polarity
         const allEventDefs = await db.eventdefinitions.toArray();
-        const positiveGoalDefIds = new Set<string>();
-        const negativeGoalDefIds = new Set<string>();
+        const defById = new Map<
+          string,
+          { score: number; isPositive: boolean }
+        >();
 
         allEventDefs.forEach((def) => {
-          const isGoal = def.name?.trim().toLowerCase() === "goal";
-          if (isGoal) {
-            const isPos =
-              def.isPositive ??
-              (def as unknown as Record<string, unknown>).ispositive;
-            if (isPos) {
-              positiveGoalDefIds.add(def.id);
-            } else {
-              negativeGoalDefIds.add(def.id);
-            }
-          }
+          const isPositive = Boolean(
+            def.isPositive ??
+            (def as unknown as Record<string, unknown>).ispositive,
+          );
+          defById.set(def.id, { score: def.score ?? 0, isPositive });
         });
 
-        // 4. Fetch and aggregate game events
+        // 4. Fetch and aggregate game events using event score with definition fallback
         const events = await db.gameevents
           .where("matchLineupId")
           .anyOf(lineupIds)
           .toArray();
 
-        const goalEvents = events.filter(
-          (e) =>
-            positiveGoalDefIds.has(e.eventDefinitionId) ||
-            negativeGoalDefIds.has(e.eventDefinitionId),
-        );
+        const scoringEvents = events.filter((e) => {
+          const def = defById.get(e.eventDefinitionId);
+          return def !== undefined && (e.score ?? def.score) > 0;
+        });
 
-        if (goalEvents.length === 0) {
+        if (scoringEvents.length === 0) {
           if (isMounted && !hasUserEditedRef.current) {
             setHomeScoreInput(String(homeScoreRef.current ?? 0));
             setGuestScoreInput(String(guestScoreRef.current ?? 0));
@@ -160,7 +155,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
         let calcHomeScore = 0;
         let calcGuestScore = 0;
 
-        goalEvents.forEach((e) => {
+        scoringEvents.forEach((e) => {
           const lineupTeamId =
             lineupTeamMap.get(e.matchLineupId) || activeTeamId;
 
@@ -173,20 +168,15 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
             isHomeTeamLineup = lineupTeamId === activeTeamId;
           }
 
-          if (positiveGoalDefIds.has(e.eventDefinitionId)) {
-            // Scored Goal (Positive Result)
-            if (isHomeTeamLineup) {
-              calcHomeScore++;
-            } else {
-              calcGuestScore++;
-            }
-          } else if (negativeGoalDefIds.has(e.eventDefinitionId)) {
-            // Conceded Goal (Negative Result for goalkeeper)
-            if (isHomeTeamLineup) {
-              calcGuestScore++;
-            } else {
-              calcHomeScore++;
-            }
+          const def = defById.get(e.eventDefinitionId)!;
+          const score = e.score ?? def.score;
+          const isPositive = def.isPositive;
+          // Positive: points go to the tracked team. Negative: to the opponent.
+          const scoresForHome = isPositive === isHomeTeamLineup;
+          if (scoresForHome) {
+            calcHomeScore += score;
+          } else {
+            calcGuestScore += score;
           }
         });
 

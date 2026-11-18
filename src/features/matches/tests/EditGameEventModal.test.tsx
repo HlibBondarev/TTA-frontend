@@ -62,13 +62,13 @@ vi.mock("../../../db/ttaDatabase", () => ({
     eventdefinitions: {
       bulkGet: vi.fn().mockResolvedValue([
         { id: "def-1", name: "Pass", isPositive: true, isShot: false },
-        { id: "def-2", name: "Goal", isPositive: true, isShot: true },
+        { id: "def-2", name: "Goal", isPositive: true, isShot: true, score: 1 },
         { id: "def-3", name: "Foul", isPositive: false, isShot: false },
       ]),
       get: vi.fn().mockImplementation((id: string) => {
         const defs: Record<
           string,
-          { id: string; name: string; isPositive: boolean; isShot?: boolean }
+          { id: string; name: string; isPositive: boolean; isShot?: boolean; score?: number }
         > = {
           "def-1": {
             id: "def-1",
@@ -81,6 +81,7 @@ vi.mock("../../../db/ttaDatabase", () => ({
             name: "Goal",
             isPositive: true,
             isShot: true,
+            score: 1,
           },
           "def-3": {
             id: "def-3",
@@ -95,7 +96,7 @@ vi.mock("../../../db/ttaDatabase", () => ({
         equals: vi.fn().mockReturnValue({
           toArray: vi.fn().mockResolvedValue([
             { id: "def-1", name: "Pass", isPositive: true, isShot: false },
-            { id: "def-2", name: "Goal", isPositive: true, isShot: true },
+            { id: "def-2", name: "Goal", isPositive: true, isShot: true, score: 1 },
             { id: "def-3", name: "Foul", isPositive: false, isShot: false },
           ]),
         }),

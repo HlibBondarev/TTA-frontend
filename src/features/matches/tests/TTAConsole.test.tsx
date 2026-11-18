@@ -203,6 +203,7 @@ describe("TTAConsole Component", () => {
       id: "def-goal",
       sportId: "sport-1",
       name: "Goal",
+      score: 1,
       shortName: "GL",
       isPositive: true,
       isEnabled: true,

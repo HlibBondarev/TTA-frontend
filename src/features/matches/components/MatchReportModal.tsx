@@ -176,7 +176,7 @@ export const MatchReportModal: React.FC<MatchReportModalProps> = ({
       (r) =>
         (r.totalPositiveActions ?? 0) > 0 ||
         (r.totalNegativeActions ?? 0) > 0 ||
-        (r.goals ?? 0) > 0 ||
+        (r.scores ?? 0) > 0 ||
         (r.positiveGoalLeadingActions ?? 0) > 0 ||
         (r.negativeGoalLeadingActions ?? 0) > 0,
     );

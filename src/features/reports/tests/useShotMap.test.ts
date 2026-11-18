@@ -18,6 +18,7 @@ describe("useShotMap hook", () => {
         id: goalDefId,
         sportId: "wp-sport",
         name: "Goal",
+        score: 1,
         shortName: "G",
         isPositive: true,
         isShot: true,
@@ -293,6 +294,89 @@ describe("useShotMap hook", () => {
     );
   });
 
+  it("classifies scoring events via score > 0 regardless of event name", () => {
+    const defs = new Map<string, EventDefinitionLookup>([
+      [
+        "def-basket",
+        {
+          id: "def-basket",
+          sportId: "wp-sport",
+          name: "Basket",
+          shortName: "BSK",
+          isPositive: true,
+          isShot: true,
+          score: 2,
+        },
+      ],
+      [
+        "def-fake-goal",
+        {
+          id: "def-fake-goal",
+          sportId: "wp-sport",
+          name: "Goal",
+          shortName: "FG",
+          isPositive: true,
+          isShot: true,
+          score: 0,
+        },
+      ],
+    ]);
+    const events: GameEventResponse[] = [
+      {
+        id: "e-basket-pos",
+        eventDefinitionId: "def-basket",
+        isPositive: true,
+        shotLocationX: 10,
+        shotLocationY: 10,
+      },
+      {
+        id: "e-basket-neg",
+        eventDefinitionId: "def-basket",
+        isPositive: false,
+        shotLocationX: 30,
+        shotLocationY: 30,
+      },
+      {
+        id: "e-goal-name-zero",
+        eventDefinitionId: "def-fake-goal",
+        isPositive: true,
+        shotLocationX: 50,
+        shotLocationY: 50,
+      },
+      {
+        id: "e-goal-name-zero-neg",
+        eventDefinitionId: "def-fake-goal",
+        isPositive: false,
+        shotLocationX: 70,
+        shotLocationY: 70,
+      },
+      {
+        id: "e-event-score",
+        eventDefinitionId: "def-fake-goal",
+        isPositive: true,
+        score: 3,
+        shotLocationX: 90,
+        shotLocationY: 90,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useShotMap({
+        events,
+        eventDefinitionsMap: defs,
+        shotMap: defaultShotMap,
+      }),
+    );
+
+    const category = (id: string) =>
+      result.current.renderablePoints.find((p) => p.event.id === id)
+        ?.shotCategory;
+    expect(category("e-basket-pos")).toBe("goal");
+    expect(category("e-basket-neg")).toBe("conceded_goal");
+    expect(category("e-goal-name-zero")).toBe("shot_on_goal");
+    expect(category("e-goal-name-zero-neg")).toBe("miss");
+    expect(category("e-event-score")).toBe("goal");
+  });
   it("handles marker selection and auto-dismiss after 3500ms", () => {
     const { result } = renderHook(() =>
       useShotMap({
