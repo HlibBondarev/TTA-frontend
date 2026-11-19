@@ -48,11 +48,47 @@ const pendingRemovalsByMatch = new Map<
   string,
   Map<string, PendingDisciplinaryRemoval>
 >();
+const inFlightRemovalsByMatch = new Map<string, Set<Promise<unknown>>>();
 const pendingRemovalListeners = new Set<() => void>();
 
 const emitPendingRemovalChange = () => {
   for (const listener of pendingRemovalListeners) {
     listener();
+  }
+};
+
+const trackInFlightRemoval = <T>(
+  normalizedMatchId: string,
+  promise: Promise<T>,
+): Promise<T> => {
+  let inFlightSet = inFlightRemovalsByMatch.get(normalizedMatchId);
+  if (!inFlightSet) {
+    inFlightSet = new Set();
+    inFlightRemovalsByMatch.set(normalizedMatchId, inFlightSet);
+  }
+  inFlightSet.add(promise);
+  emitPendingRemovalChange();
+
+  return promise.finally(() => {
+    const currentSet = inFlightRemovalsByMatch.get(normalizedMatchId);
+    if (!currentSet) return;
+    currentSet.delete(promise);
+    if (currentSet.size === 0) {
+      inFlightRemovalsByMatch.delete(normalizedMatchId);
+    }
+    emitPendingRemovalChange();
+  });
+};
+
+const waitForInFlightRemovals = async (
+  normalizedMatchId: string,
+): Promise<void> => {
+  while (true) {
+    const inFlightSet = inFlightRemovalsByMatch.get(normalizedMatchId);
+    if (!inFlightSet || inFlightSet.size === 0) {
+      return;
+    }
+    await Promise.allSettled(Array.from(inFlightSet));
   }
 };
 
@@ -217,6 +253,34 @@ const loadDisciplinaryContext = async (
   };
 };
 
+const isTimestampAfter = (candidate: string, reference: string): boolean => {
+  const candidateMs = Date.parse(candidate);
+  const referenceMs = Date.parse(reference);
+  if (!Number.isNaN(candidateMs) && !Number.isNaN(referenceMs)) {
+    return candidateMs > referenceMs;
+  }
+  return candidate > reference;
+};
+
+const isPlayerAlreadyOutBeforeEvent = async (
+  matchLineupId: string,
+  currentPeriod: number,
+  eventTimestamp: string,
+): Promise<boolean> => {
+  const latestPresences = await loadPlayerPeriodPresences(
+    matchLineupId,
+    currentPeriod,
+  );
+  if (latestPresences.some((presence) => presence.timeOut === null)) {
+    return false;
+  }
+  return !latestPresences.some(
+    (presence) =>
+      presence.timeOut !== null &&
+      isTimestampAfter(presence.timeOut, eventTimestamp),
+  );
+};
+
 const applyDisciplinaryAutoRemovalIfNeeded = async (
   matchId: string,
   event: GameEvent,
@@ -260,7 +324,15 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
       return true;
     }
 
-    return isPeriodActive;
+    if (!isPeriodActive) {
+      return false;
+    }
+
+    return isPlayerAlreadyOutBeforeEvent(
+      event.matchLineupId,
+      currentPeriod,
+      event.eventTimestamp,
+    );
   } catch (error) {
     console.error(
       `Disciplinary auto-removal failed for committed event ${event.id}:`,
@@ -382,11 +454,8 @@ export const useGameEvents = (matchId: string, userId?: string) => {
     return tournament.sportId.trim();
   };
 
-  const retryPendingDisciplinaryRemovals =
-    useCallback(async (): Promise<boolean> => {
-      const normalizedMatchId = matchId?.trim();
-      if (!normalizedMatchId) return true;
-
+  const retryQueuedPendingRemovals = useCallback(
+    async (normalizedMatchId: string): Promise<boolean> => {
       const matchMap = pendingRemovalsByMatch.get(normalizedMatchId);
       if (!matchMap || matchMap.size === 0) {
         return true;
@@ -412,37 +481,52 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       }
 
       return getPendingRemovalCountForMatch(normalizedMatchId) === 0;
-    }, [matchId, isPeriodActive, dispatch]);
+    },
+    [isPeriodActive, dispatch],
+  );
 
-  const finalizeDisciplinaryRemoval = async (
+  const retryPendingDisciplinaryRemovals =
+    useCallback(async (): Promise<boolean> => {
+      const normalizedMatchId = matchId?.trim();
+      if (!normalizedMatchId) return true;
+
+      await waitForInFlightRemovals(normalizedMatchId);
+      return retryQueuedPendingRemovals(normalizedMatchId);
+    }, [matchId, retryQueuedPendingRemovals]);
+
+  const finalizeDisciplinaryRemoval = (
     normalizedMatchId: string,
     committedEvent: GameEvent,
-  ): Promise<GameEventMutationResult> => {
-    deletePendingRemovalEntry(normalizedMatchId, committedEvent.id);
-    await retryPendingDisciplinaryRemovals();
-
-    const removalCompleted = await applyDisciplinaryAutoRemovalIfNeeded(
+  ): Promise<GameEventMutationResult> =>
+    trackInFlightRemoval(
       normalizedMatchId,
-      committedEvent,
-      periodNumber,
-      isPeriodActive,
-      dispatch,
+      (async (): Promise<GameEventMutationResult> => {
+        deletePendingRemovalEntry(normalizedMatchId, committedEvent.id);
+        await retryQueuedPendingRemovals(normalizedMatchId);
+
+        const removalCompleted = await applyDisciplinaryAutoRemovalIfNeeded(
+          normalizedMatchId,
+          committedEvent,
+          periodNumber,
+          isPeriodActive,
+          dispatch,
+        );
+
+        if (!removalCompleted) {
+          setPendingRemovalEntry(normalizedMatchId, {
+            event: committedEvent,
+            periodNumber,
+          });
+          return {
+            eventSaved: true,
+            removalPending: true,
+            eventId: committedEvent.id,
+          };
+        }
+
+        return true;
+      })(),
     );
-
-    if (!removalCompleted) {
-      setPendingRemovalEntry(normalizedMatchId, {
-        event: committedEvent,
-        periodNumber,
-      });
-      return {
-        eventSaved: true,
-        removalPending: true,
-        eventId: committedEvent.id,
-      };
-    }
-
-    return true;
-  };
 
   const recordGameEvent = async (
     params: RecordGameEventParams,

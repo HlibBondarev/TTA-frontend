@@ -425,6 +425,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledWith(
         expect.any(String),
         1,
+        expect.any(String),
       );
       expect(store.getState().match.periodNumber).toBe(1);
       expect(store.getState().match.isPeriodEnded).toBe(true);
@@ -463,6 +464,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       expect(defaultPresenceMock.endPeriodWithRoster).toHaveBeenCalledWith(
         expect.any(String),
         4,
+        expect.any(String),
       );
       expect(store.getState().match.periodNumber).toBe(4);
       expect(store.getState().match.isPeriodEnded).toBe(true);
@@ -1111,6 +1113,68 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     expect(mockRetry).toHaveBeenCalledTimes(1);
     expect(store.getState().match.isPeriodActive).toBe(true);
     expect(store.getState().match.isPeriodEnded).toBe(false);
+    expect(defaultPresenceMock.endPeriodWithRoster).not.toHaveBeenCalled();
+  });
+
+  test("should await in-flight disciplinary removal before ending period even when hasPendingRemovals is initially false", async () => {
+    const useGameEventsModule = await import("../hooks/useGameEvents");
+    let resolveInFlightRetry!: (value: boolean) => void;
+    const mockRetry = vi.fn().mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveInFlightRetry = resolve;
+        }),
+    );
+
+    vi.spyOn(useGameEventsModule, "useGameEvents").mockReturnValue({
+      recordGameEvent: vi.fn(),
+      updateGameEvent: vi.fn(),
+      deleteGameEvent: vi.fn(),
+      hasPendingRemovals: false,
+      retryPendingDisciplinaryRemovals: mockRetry,
+      clearPendingRemovals: vi.fn(),
+    });
+
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 1,
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        isPeriodEnded: false,
+        globalSequenceNumber: 1,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const endBtn = await screen.findByRole("button", { name: "END PERIOD" });
+    await waitFor(() => expect(endBtn).not.toBeDisabled());
+
+    fireEvent.click(endBtn);
+
+    await waitFor(() => {
+      expect(mockRetry).toHaveBeenCalledTimes(1);
+    });
+    // Period must NOT end while in-flight disciplinary finalization is still running
+    expect(store.getState().match.isPeriodActive).toBe(true);
+    expect(defaultPresenceMock.endPeriodWithRoster).not.toHaveBeenCalled();
+
+    // Once in-flight removal settles as failed, END PERIOD is blocked with alert
+    await act(async () => {
+      resolveInFlightRetry(false);
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Cannot end period while automatic player removal is pending. Retry removal first.",
+    );
+    expect(store.getState().match.isPeriodActive).toBe(true);
     expect(defaultPresenceMock.endPeriodWithRoster).not.toHaveBeenCalled();
   });
 });

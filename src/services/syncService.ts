@@ -1,5 +1,6 @@
 import { apiClient } from "../api/client";
 import { db, type PlayerPresence, type SyncQueueItem } from "../db/ttaDatabase";
+import { anchorClaimService } from "./anchorClaimService";
 import {
   UNRECOVERABLE_STATUS_CODES,
   extractErrorStatus,
@@ -38,6 +39,44 @@ interface SyncedEntitySets {
 
 const MATCH_TEAM_ENDPOINT_REGEX = /\/Matches\/([^/]+)\/teams\/([^/]+)/;
 const ALLOWED_BATCH_CLEANUP_ACTIONS = new Set(["POST", "PUT"]);
+
+const claimAnchorIdsForSync = (
+  anchorIds: string[],
+): { claimedIds: string[]; allClaimed: boolean } => {
+  const claimedIds: string[] = [];
+  const uniqueIds = Array.from(new Set(anchorIds));
+
+  for (const id of uniqueIds) {
+    if (!anchorClaimService.claim(id, "sync")) {
+      return { claimedIds, allClaimed: false };
+    }
+    claimedIds.push(id);
+  }
+
+  return { claimedIds, allClaimed: true };
+};
+
+const releaseAnchorIdsFromSync = (anchorIds: string[]): void => {
+  for (const id of anchorIds) {
+    anchorClaimService.release(id, "sync");
+  }
+};
+
+const areQueueItemsStillPending = async (
+  batchItems: SyncQueueItem[],
+): Promise<boolean> => {
+  if (typeof db?.syncQueue?.get !== "function") {
+    return true;
+  }
+
+  const ids = batchItems
+    .map((item) => item.id)
+    .filter((id): id is number => id !== undefined);
+  if (ids.length === 0) return true;
+
+  const records = await Promise.all(ids.map((id) => db.syncQueue.get(id)));
+  return records.every(Boolean);
+};
 
 const fetchAndFormatBatchPayloads = async (normalizedMatchId: string) => {
   const lineups = await db.matchlineups
@@ -502,38 +541,69 @@ export const syncMatchBatch = async (
 
   const { requestPayload, unsyncedPresences } =
     await fetchAndFormatBatchPayloads(normalizedMatchId);
-  const batchData = await postSyncBatch(normalizedMatchId, requestPayload);
 
-  const syncedEventIds = batchData?.syncedEventIds ?? [];
-  const syncedAnchorIds = batchData?.syncedAnchorIds ?? [];
-  const syncedPresenceIds = batchData?.syncedPresenceIds ?? [];
+  const claimedAnchorIds: string[] = [];
+  const claimedAnchorSet = new Set<string>();
+  for (const anchor of requestPayload.anchors) {
+    if (anchorClaimService.claim(anchor.id, "sync")) {
+      claimedAnchorIds.push(anchor.id);
+      claimedAnchorSet.add(anchor.id);
+    }
+  }
 
-  await db.transaction(
-    "rw",
-    [db.gameevents, db.timeanchors, db.playerpresences, db.syncQueue],
-    async () => {
-      if (syncedEventIds.length > 0) {
-        await db.gameevents
-          .where("id")
-          .anyOf(syncedEventIds)
-          .modify({ isSynced: 1 });
-      }
-      if (syncedAnchorIds.length > 0) {
-        await db.timeanchors
-          .where("id")
-          .anyOf(syncedAnchorIds)
-          .modify({ isSynced: 1 });
-      }
-      await markSyncedPresencesIfUnchanged(
-        syncedPresenceIds,
-        unsyncedPresences,
-      );
+  const effectiveRequestPayload =
+    claimedAnchorIds.length === requestPayload.anchors.length
+      ? requestPayload
+      : {
+          ...requestPayload,
+          anchors: requestPayload.anchors.filter((a) =>
+            claimedAnchorSet.has(a.id),
+          ),
+        };
 
-      await cleanupBatchQueue(normalizedMatchId, batchData, unsyncedPresences);
-    },
-  );
+  try {
+    const batchData = await postSyncBatch(
+      normalizedMatchId,
+      effectiveRequestPayload,
+    );
 
-  return batchData;
+    const syncedEventIds = batchData?.syncedEventIds ?? [];
+    const syncedAnchorIds = batchData?.syncedAnchorIds ?? [];
+    const syncedPresenceIds = batchData?.syncedPresenceIds ?? [];
+
+    await db.transaction(
+      "rw",
+      [db.gameevents, db.timeanchors, db.playerpresences, db.syncQueue],
+      async () => {
+        if (syncedEventIds.length > 0) {
+          await db.gameevents
+            .where("id")
+            .anyOf(syncedEventIds)
+            .modify({ isSynced: 1 });
+        }
+        if (syncedAnchorIds.length > 0) {
+          await db.timeanchors
+            .where("id")
+            .anyOf(syncedAnchorIds)
+            .modify({ isSynced: 1 });
+        }
+        await markSyncedPresencesIfUnchanged(
+          syncedPresenceIds,
+          unsyncedPresences,
+        );
+
+        await cleanupBatchQueue(
+          normalizedMatchId,
+          batchData,
+          unsyncedPresences,
+        );
+      },
+    );
+
+    return batchData;
+  } finally {
+    releaseAnchorIdsFromSync(claimedAnchorIds);
+  }
 };
 
 const extractPresenceLineupIds = (
@@ -1263,7 +1333,26 @@ const processSyncBatch = async (
   batchItems: SyncQueueItem[],
   cache?: SyncCacheContext,
 ): Promise<BatchResult> => {
+  const anchorIdsToClaim =
+    currentItem.actionType === "POST" &&
+    currentItem.endpoint.includes("/anchors")
+      ? extractAnchorIds(currentItem.endpoint, effectivePayload)
+      : [];
+
+  const { claimedIds, allClaimed } = claimAnchorIdsForSync(anchorIdsToClaim);
+  if (!allClaimed) {
+    releaseAnchorIdsFromSync(claimedIds);
+    return { syncedCount: 0, shouldContinue: false };
+  }
+
   try {
+    if (
+      anchorIdsToClaim.length > 0 &&
+      !(await areQueueItemsStillPending(batchItems))
+    ) {
+      return { syncedCount: 0, shouldContinue: true };
+    }
+
     const targetEndpoint = await normalizeTeamEndpoint(
       currentItem.endpoint,
       effectivePayload,
@@ -1311,6 +1400,8 @@ const processSyncBatch = async (
       err,
     );
     return { syncedCount: 0, shouldContinue: false };
+  } finally {
+    releaseAnchorIdsFromSync(claimedIds);
   }
 };
 

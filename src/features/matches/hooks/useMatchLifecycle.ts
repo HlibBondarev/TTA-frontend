@@ -15,6 +15,7 @@ import {
 } from "../../../db/ttaDatabase";
 import { getNextSequenceNumber } from "../../../db/eventService";
 import { apiClient } from "../../../api/client";
+import { anchorClaimService } from "../../../services/anchorClaimService";
 import { matchLockService } from "../../../services/matchLockService";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import {
@@ -294,7 +295,10 @@ const checkUnsyncedEndAnchorExists = async (
     .equals(matchId)
     .filter(
       (a) =>
-        a.periodNumber === periodNumber && a.type === 1 && a.isSynced === 0,
+        a.periodNumber === periodNumber &&
+        a.type === 1 &&
+        a.isSynced === 0 &&
+        !anchorClaimService.isClaimed(a.id),
     )
     .toArray();
 
@@ -315,6 +319,27 @@ interface DeletedEndAnchorInfo {
 }
 
 /**
+ * Verifies that a PeriodEnd anchor is still pending (unsynced) and claims it for Undo
+ * so an in-flight sync POST cannot race with Undo deletion.
+ */
+const claimPendingEndAnchorForUndo = (
+  anchor: Pick<TimeAnchor, "id" | "isSynced">,
+  onClaim?: (claimedId: string) => void,
+): void => {
+  if (anchor.isSynced !== 0) {
+    throw new Error(
+      `Cannot revert period end: anchor ${anchor.id} is already synced.`,
+    );
+  }
+  if (!anchorClaimService.claim(anchor.id, "undo")) {
+    throw new Error(
+      `Cannot revert period end: anchor ${anchor.id} is currently being synced.`,
+    );
+  }
+  onClaim?.(anchor.id);
+};
+
+/**
  * Resolves and deletes the period end time anchor along with its matching sync queue entry.
  * Returns whether an end anchor was found, its timestamp, and whether it used period-end metadata tracking.
  */
@@ -322,6 +347,7 @@ const deleteEndAnchorAndSyncQueue = async (
   matchId: string,
   periodNumber: number,
   anchorId?: string | null,
+  onClaim?: (claimedId: string) => void,
 ): Promise<DeletedEndAnchorInfo> => {
   let targetAnchorId = anchorId;
   let targetAnchorFound = false;
@@ -331,11 +357,13 @@ const deleteEndAnchorAndSyncQueue = async (
   if (targetAnchorId && db?.timeanchors?.get) {
     const existingAnchor = await db.timeanchors.get(targetAnchorId);
     if (existingAnchor) {
+      claimPendingEndAnchorForUndo(existingAnchor, onClaim);
       targetAnchorFound = true;
       targetAnchorTimestamp = existingAnchor.timestamp ?? null;
       usesPeriodEndMeta = Boolean(existingAnchor.usesPeriodEndMeta);
     }
   } else if (targetAnchorId) {
+    claimPendingEndAnchorForUndo({ id: targetAnchorId, isSynced: 0 }, onClaim);
     targetAnchorFound = true;
   }
 
@@ -352,6 +380,7 @@ const deleteEndAnchorAndSyncQueue = async (
           b.sequenceNumber - a.sequenceNumber ||
           b.timestamp.localeCompare(a.timestamp),
       );
+      claimPendingEndAnchorForUndo(endAnchors[0], onClaim);
       targetAnchorId = endAnchors[0].id;
       targetAnchorFound = true;
       targetAnchorTimestamp = endAnchors[0].timestamp ?? null;
@@ -447,7 +476,7 @@ const purgeTerminateSyncQueueItems = async (
           if (Array.isArray(data.playerLineupIds)) {
             return (
               data.playerLineupIds.length > 0 &&
-              data.playerLineupIds.every((id) => reopened.lineupIds.has(id))
+              data.playerLineupIds.some((id) => reopened.lineupIds.has(id))
             );
           }
           return true;
@@ -636,6 +665,14 @@ export const useMatchLifecycle = () => {
     };
   }, [activeMatchId]);
 
+  const [anchorClaimVersion, setAnchorClaimVersion] = useState(0);
+
+  useEffect(() => {
+    return anchorClaimService.subscribe(() => {
+      setAnchorClaimVersion((version) => version + 1);
+    });
+  }, []);
+
   useEffect(() => {
     const normalizedMatchId = activeMatchId?.trim();
 
@@ -647,7 +684,13 @@ export const useMatchLifecycle = () => {
     });
 
     return () => subscription.unsubscribe();
-  }, [activeMatchId, periodNumber, isPeriodEnded, isMatchLocked]);
+  }, [
+    activeMatchId,
+    periodNumber,
+    isPeriodEnded,
+    isMatchLocked,
+    anchorClaimVersion,
+  ]);
 
   const isCurrentContext = useCallback(
     (targetMatchId?: string, targetPeriodNumber?: number) => {
@@ -849,67 +892,78 @@ export const useMatchLifecycle = () => {
     }
 
     const currentPeriod = periodNumberRef.current;
+    let claimedAnchorId: string | null = null;
 
-    await db.transaction(
-      "rw",
-      [db.timeanchors, db.syncQueue, db.playerpresences, db.matchlineups],
-      async () => {
-        if (!normalizedMatchId) return;
-        const {
-          found: foundEndAnchor,
-          timestamp: periodEndTimestamp,
-          usesPeriodEndMeta: anchorUsesPeriodEndMeta,
-        } = await deleteEndAnchorAndSyncQueue(
-          normalizedMatchId,
-          currentPeriod,
-          anchorId,
-        );
-        if (
-          normalizedMatchId &&
-          matchLockService.isMatchLocked(normalizedMatchId)
-        ) {
-          throw new Error(
-            `Cannot complete period end revert: match ${
-              normalizedMatchId
-            } is locked for finalization.`,
+    try {
+      await db.transaction(
+        "rw",
+        [db.timeanchors, db.syncQueue, db.playerpresences, db.matchlineups],
+        async () => {
+          if (!normalizedMatchId) return;
+          const {
+            found: foundEndAnchor,
+            timestamp: periodEndTimestamp,
+            usesPeriodEndMeta: anchorUsesPeriodEndMeta,
+          } = await deleteEndAnchorAndSyncQueue(
+            normalizedMatchId,
+            currentPeriod,
+            anchorId,
+            (id) => {
+              claimedAnchorId = id;
+            },
           );
-        }
-
-        if (options?.skipPresenceReopen || !foundEndAnchor) {
-          return;
-        }
-
-        const trackedTerminationItem = await findPeriodEndTerminationQueueItem(
-          normalizedMatchId,
-          currentPeriod,
-        );
-
-        if (trackedTerminationItem?.periodEndMeta) {
-          await reopenPresencesByIds(
-            trackedTerminationItem.periodEndMeta.closedPresenceIds,
-          );
-          if (trackedTerminationItem.id !== undefined) {
-            await db.syncQueue.delete(trackedTerminationItem.id);
+          if (
+            normalizedMatchId &&
+            matchLockService.isMatchLocked(normalizedMatchId)
+          ) {
+            throw new Error(
+              `Cannot complete period end revert: match ${
+                normalizedMatchId
+              } is locked for finalization.`,
+            );
           }
-        } else if (!anchorUsesPeriodEndMeta) {
-          // Legacy PeriodEnd anchors (created before atomic periodEndMeta tracking)
-          // fall back to timestamp-scoped presence reopening and queue purging.
-          // Anchors with usesPeriodEndMeta === true and no trackedTerminationItem indicate
-          // an interrupted period end before termination ran, so no presences were closed.
-          const reopened = await reopenClosedPlayerPresences(
-            normalizedMatchId,
-            currentPeriod,
-            periodEndTimestamp,
-          );
-          await purgeTerminateSyncQueueItems(
-            normalizedMatchId,
-            currentPeriod,
-            reopened,
-            periodEndTimestamp,
-          );
-        }
-      },
-    );
+
+          if (options?.skipPresenceReopen || !foundEndAnchor) {
+            return;
+          }
+
+          const trackedTerminationItem =
+            await findPeriodEndTerminationQueueItem(
+              normalizedMatchId,
+              currentPeriod,
+            );
+
+          if (trackedTerminationItem?.periodEndMeta) {
+            await reopenPresencesByIds(
+              trackedTerminationItem.periodEndMeta.closedPresenceIds,
+            );
+            if (trackedTerminationItem.id !== undefined) {
+              await db.syncQueue.delete(trackedTerminationItem.id);
+            }
+          } else if (!anchorUsesPeriodEndMeta) {
+            // Legacy PeriodEnd anchors (created before atomic periodEndMeta tracking)
+            // fall back to timestamp-scoped presence reopening and queue purging.
+            // Anchors with usesPeriodEndMeta === true and no trackedTerminationItem indicate
+            // an interrupted period end before termination ran, so no presences were closed.
+            const reopened = await reopenClosedPlayerPresences(
+              normalizedMatchId,
+              currentPeriod,
+              periodEndTimestamp,
+            );
+            await purgeTerminateSyncQueueItems(
+              normalizedMatchId,
+              currentPeriod,
+              reopened,
+              periodEndTimestamp,
+            );
+          }
+        },
+      );
+    } finally {
+      if (claimedAnchorId) {
+        anchorClaimService.release(claimedAnchorId, "undo");
+      }
+    }
 
     if (!isCurrentContext(normalizedMatchId, currentPeriod)) {
       return;

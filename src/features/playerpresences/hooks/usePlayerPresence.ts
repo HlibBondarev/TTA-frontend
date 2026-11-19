@@ -159,17 +159,31 @@ export function usePlayerPresence(matchId: string) {
   );
 
   const endPeriodWithRoster = useCallback(
-    async (endTimestamp: string, overridePeriodNumber?: number) => {
+    async (
+      endTimestamp: string,
+      overridePeriodNumber?: number,
+      periodEndAnchorId?: string,
+    ) => {
       const targetPeriod = overridePeriodNumber ?? currentPeriodRef.current;
       const activeIdsToClose = [...activeLineupIds];
       dispatch(clearActiveRosterToBench());
       try {
-        await terminatePeriodPresenceTx(
-          matchId,
-          targetPeriod,
-          activeIdsToClose,
-          endTimestamp,
-        );
+        if (periodEndAnchorId) {
+          await terminatePeriodPresenceTx(
+            matchId,
+            targetPeriod,
+            activeIdsToClose,
+            endTimestamp,
+            periodEndAnchorId,
+          );
+        } else {
+          await terminatePeriodPresenceTx(
+            matchId,
+            targetPeriod,
+            activeIdsToClose,
+            endTimestamp,
+          );
+        }
       } catch (error) {
         console.error("Failed to terminate period presence in DB:", error);
         await refreshPresenceFromDB(targetPeriod);

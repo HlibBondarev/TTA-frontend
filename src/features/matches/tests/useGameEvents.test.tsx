@@ -1803,4 +1803,144 @@ describe("useGameEvents Custom Hook", () => {
 
     consoleErrorSpy.mockRestore();
   });
+
+  it("should NOT treat exitPlayerPresenceTx returning false as complete when presence was closed after event timestamp, and retryPendingDisciplinaryRemovals should wait for in-flight finalization", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: true,
+    });
+
+    const eventTimestamp = "2026-11-19T10:05:00.000Z";
+    const laterPeriodEndTimestamp = "2026-11-19T10:06:00.000Z";
+
+    const createdEvent = {
+      id: "in-flight-excl-uuid",
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-excl-id",
+      periodNumber: 1,
+      eventTimestamp,
+      isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
+      shotLocationX: null,
+      shotLocationY: null,
+      foulImpact: "PersonalFoul" as const,
+      penaltyDurationSeconds: 20,
+      createdAt: eventTimestamp,
+      sequenceNumber: 20,
+      isSynced: 0,
+    };
+
+    vi.mocked(db.matchlineups.get).mockResolvedValue({
+      id: "lineup-uuid-7",
+      matchId: "test-match-id",
+      playerRosterId: "roster-7",
+      number: 7,
+      positionId: null,
+    });
+
+    // First loadDisciplinaryContext sees active presence; after exitPlayerPresenceTx returns false,
+    // re-read sees the presence closed at a LATER timestamp (not already out before event).
+    const originalPlayerPresences = (
+      db as unknown as { playerpresences?: unknown }
+    ).playerpresences;
+    const whereMock = vi
+      .fn()
+      .mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "pres-1",
+            matchLineupId: "lineup-uuid-7",
+            periodNumber: 1,
+            timeIn: "2026-11-19T10:00:00.000Z",
+            timeOut: null,
+          },
+        ]),
+      })
+      .mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "pres-1",
+            matchLineupId: "lineup-uuid-7",
+            periodNumber: 1,
+            timeIn: "2026-11-19T10:00:00.000Z",
+            timeOut: laterPeriodEndTimestamp,
+          },
+        ]),
+      });
+    (db as unknown as { playerpresences?: unknown }).playerpresences = {
+      where: whereMock,
+    };
+
+    try {
+      vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce(
+        createdEvent,
+      );
+      vi.mocked(db.gameevents.get).mockResolvedValue(createdEvent);
+
+      let resolveExit!: (value: boolean) => void;
+      const inFlightExitPromise = new Promise<boolean>((resolve) => {
+        resolveExit = resolve;
+      });
+
+      vi.mocked(presenceService.exitPlayerPresenceTx)
+        .mockReturnValueOnce(inFlightExitPromise)
+        .mockResolvedValueOnce(false);
+
+      const { result } = renderHook(() => useGameEvents("test-match-id"), {
+        wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+      });
+
+      let recordPromise!: Promise<unknown>;
+      let retryPromise!: Promise<boolean>;
+      let retrySettled = false;
+
+      await act(async () => {
+        recordPromise = result.current.recordGameEvent({
+          selectedPlayerId: "lineup-uuid-7",
+          actionName: "Exclusion",
+          isPositive: false,
+          isLeadToGoal: false,
+          eventDefinitionId: "def-excl-id",
+        });
+
+        // Wait for recordGameEvent to reach exitPlayerPresenceTx (in-flight)
+        await vi.waitFor(() => {
+          expect(presenceService.exitPlayerPresenceTx).toHaveBeenCalledTimes(1);
+        });
+
+        // END PERIOD calls retryPendingDisciplinaryRemovals while finalization is still in-flight
+        retryPromise = result.current
+          .retryPendingDisciplinaryRemovals()
+          .then((res) => {
+            retrySettled = true;
+            return res;
+          });
+
+        await Promise.resolve();
+        expect(retrySettled).toBe(false);
+
+        // In-flight exit returns false while presence was closed after event timestamp
+        resolveExit(false);
+
+        const [recordResult, retryResult] = await Promise.all([
+          recordPromise,
+          retryPromise,
+        ]);
+
+        expect(recordResult).toEqual({
+          eventSaved: true,
+          removalPending: true,
+          eventId: "in-flight-excl-uuid",
+        });
+        // After waiting for in-flight finalization, retry sees the pending removal and fails to complete it
+        expect(retryResult).toBe(false);
+      });
+
+      expect(result.current.hasPendingRemovals).toBe(true);
+    } finally {
+      (db as unknown as { playerpresences?: unknown }).playerpresences =
+        originalPlayerPresences;
+    }
+  });
 });

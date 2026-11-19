@@ -2869,66 +2869,82 @@ describe("useMatchLifecycle Hook & State Machine", () => {
 
   test("should roll back presence closures atomically when syncQueue persistence is interrupted during terminatePeriodPresenceTx", async () => {
     const equalTimestamp = "2020-01-01T10:10:00Z";
+    const { TTADatabase } = await vi.importActual<
+      typeof import("../../../db/ttaDatabase")
+    >("../../../db/ttaDatabase");
 
-    mockPlayerPresences = [
-      {
-        id: "presence-active",
-        periodNumber: 1,
-        timeOut: null,
-        matchLineupId: "lineup-active",
-      },
-      {
-        id: "presence-disciplinary",
-        periodNumber: 1,
-        timeOut: equalTimestamp,
-        matchLineupId: "lineup-disciplinary",
-      },
-    ];
+    const realDb = new TTADatabase();
+    await realDb.open();
 
-    vi.mocked(db.playerpresences.where).mockReturnValue({
-      equals: vi.fn().mockReturnValue({
-        filter: vi
-          .fn()
-          .mockImplementation(
-            (
-              predicate: (p: {
-                matchLineupId: string;
-                timeOut: string | null;
-              }) => boolean,
-            ) => ({
-              toArray: vi
-                .fn()
-                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
-            }),
-          ),
-      }),
-    } as unknown as ReturnType<typeof db.playerpresences.where>);
+    const originalTransaction = db.transaction;
+    const originalPlayerPresences = db.playerpresences;
+    const originalSyncQueue = db.syncQueue;
+    const originalTimeAnchors = db.timeanchors;
 
-    vi.mocked(db.syncQueue.add).mockRejectedValueOnce(
-      new Error("Interrupted IndexedDB persistence"),
-    );
+    try {
+      await realDb.playerpresences.bulkPut([
+        {
+          id: "presence-active",
+          periodNumber: 1,
+          timeIn: "2020-01-01T10:00:00Z",
+          timeOut: null,
+          matchLineupId: "lineup-active",
+          sequenceNumber: 1,
+          isSynced: 0,
+        },
+        {
+          id: "presence-disciplinary",
+          periodNumber: 1,
+          timeIn: "2020-01-01T10:00:00Z",
+          timeOut: equalTimestamp,
+          matchLineupId: "lineup-disciplinary",
+          sequenceNumber: 2,
+          isSynced: 0,
+        },
+      ]);
 
-    await expect(
-      terminatePeriodPresenceTx(
-        "test-match-id",
-        1,
-        ["lineup-active"],
-        equalTimestamp,
-      ),
-    ).rejects.toThrow("Interrupted IndexedDB persistence");
+      Object.assign(db, {
+        transaction: realDb.transaction.bind(realDb),
+        playerpresences: realDb.playerpresences,
+        syncQueue: realDb.syncQueue,
+        timeanchors: realDb.timeanchors,
+      });
 
-    expect(
-      mockPlayerPresences.find((p) => p.id === "presence-active")?.timeOut,
-    ).toBeNull();
-    expect(
-      mockPlayerPresences.find((p) => p.id === "presence-disciplinary")
-        ?.timeOut,
-    ).toBe(equalTimestamp);
-    expect(
-      mockSyncQueue.some(
-        (i) => i.endpoint === "/Matches/test-match-id/presence/terminate",
-      ),
-    ).toBe(false);
+      const addSpy = vi
+        .spyOn(realDb.syncQueue, "add")
+        .mockRejectedValueOnce(new Error("Interrupted IndexedDB persistence"));
+
+      await expect(
+        terminatePeriodPresenceTx(
+          "test-match-id",
+          1,
+          ["lineup-active"],
+          equalTimestamp,
+        ),
+      ).rejects.toThrow("Interrupted IndexedDB persistence");
+
+      expect(addSpy).toHaveBeenCalledTimes(1);
+
+      const activeAfterAbort = await realDb.playerpresences.get(
+        "presence-active",
+      );
+      const disciplinaryAfterAbort = await realDb.playerpresences.get(
+        "presence-disciplinary",
+      );
+      const queueAfterAbort = await realDb.syncQueue.toArray();
+
+      expect(activeAfterAbort?.timeOut).toBeNull();
+      expect(disciplinaryAfterAbort?.timeOut).toBe(equalTimestamp);
+      expect(queueAfterAbort).toEqual([]);
+    } finally {
+      Object.assign(db, {
+        transaction: originalTransaction,
+        playerpresences: originalPlayerPresences,
+        syncQueue: originalSyncQueue,
+        timeanchors: originalTimeAnchors,
+      });
+      await realDb.delete();
+    }
   });
 
   test("should preserve equal-timestamp disciplinary exit and its queue item during compensation revertEndPeriod when skipPresenceReopen is true", async () => {
@@ -3257,5 +3273,167 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(mockPlayerPresences[0].timeOut).toBe(disciplinaryTimestamp);
     expect(db.syncQueue.delete).not.toHaveBeenCalledWith(407);
     expect(mockSyncQueue.some((i) => i.id === 407)).toBe(true);
+  });
+
+  test("should block revertEndPeriod when PeriodEnd anchor is claimed by an in-flight sync or already synced", async () => {
+    const { anchorClaimService } = await import(
+      "../../../services/anchorClaimService"
+    );
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodEnded: true,
+    });
+
+    mockTimeAnchors = [
+      {
+        id: "in-flight-end-anchor",
+        matchId: "test-match-id",
+        periodNumber: 1,
+        type: 1,
+        timestamp: "2020-01-01T10:10:00Z",
+        sequenceNumber: 3,
+        isSynced: 0,
+      },
+    ];
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    anchorClaimService.claim("in-flight-end-anchor", "sync");
+    try {
+      await act(async () => {
+        await expect(result.current.revertEndPeriod()).rejects.toThrow(
+          /currently being synced/i,
+        );
+      });
+
+      expect(db.timeanchors.delete).not.toHaveBeenCalledWith(
+        "in-flight-end-anchor",
+      );
+      expect(store.getState().match.isPeriodEnded).toBe(true);
+    } finally {
+      anchorClaimService.release("in-flight-end-anchor", "sync");
+    }
+
+    // Already-synced PeriodEnd anchor must also be rejected
+    mockTimeAnchors[0].isSynced = 1;
+    await act(async () => {
+      await expect(result.current.revertEndPeriod()).rejects.toThrow(
+        /already synced/i,
+      );
+    });
+    expect(db.timeanchors.delete).not.toHaveBeenCalledWith(
+      "in-flight-end-anchor",
+    );
+  });
+
+  test("should purge legacy period-end PUT when not all its lineup IDs were reopened while retaining earlier exit request", async () => {
+    const earlierExitTime = "2020-01-01T10:08:00Z";
+    const periodEndTime = "2020-01-01T10:10:00Z";
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([
+              { id: "lineup-active" },
+              { id: "lineup-already-out" },
+            ]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    mockPlayerPresences = [
+      {
+        id: "presence-active",
+        periodNumber: 1,
+        timeOut: periodEndTime,
+        matchLineupId: "lineup-active",
+      },
+      {
+        id: "presence-earlier-exit",
+        periodNumber: 1,
+        timeOut: earlierExitTime,
+        matchLineupId: "lineup-already-out",
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodEnded: true,
+    });
+
+    // Legacy PeriodEnd anchor (without usesPeriodEndMeta)
+    mockTimeAnchors = [
+      {
+        id: "legacy-end-anchor",
+        matchId: "test-match-id",
+        periodNumber: 1,
+        type: 1,
+        timestamp: periodEndTime,
+        sequenceNumber: 3,
+        isSynced: 0,
+      },
+    ];
+
+    mockSyncQueue.push(
+      {
+        id: 501,
+        actionType: "PUT",
+        endpoint: "/Matches/test-match-id/presence/terminate",
+        payload: JSON.stringify({
+          periodNumber: 1,
+          playerLineupIds: ["lineup-already-out"],
+          timeOut: earlierExitTime,
+        }),
+        createdAt: earlierExitTime,
+      },
+      {
+        id: 502,
+        actionType: "PUT",
+        endpoint: "/Matches/test-match-id/presence/terminate",
+        payload: JSON.stringify({
+          periodNumber: 1,
+          playerLineupIds: ["lineup-active", "lineup-already-out"],
+          timeOut: periodEndTime,
+        }),
+        createdAt: periodEndTime,
+      },
+    );
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod("legacy-end-anchor");
+    });
+
+    // Period-end PUT (502) is removed even though lineup-already-out was not reopened,
+    // while the earlier exit request (501) is retained.
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(502);
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(501);
+    expect(mockSyncQueue.some((i) => i.id === 501)).toBe(true);
+    expect(mockSyncQueue.some((i) => i.id === 502)).toBe(false);
   });
 });

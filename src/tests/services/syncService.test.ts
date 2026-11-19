@@ -2629,13 +2629,36 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
         }),
       } as never);
 
-      // Batch started before period end: only disciplinary presence was unsynced, no PeriodEnd anchor yet
+      // Batch started before period end: no PeriodEnd anchor yet during request preparation
+      const localAnchors: Array<{
+        id: string;
+        matchId: string;
+        periodNumber: number;
+        type: number;
+        timestamp: string;
+        sequenceNumber: number;
+        isSynced: number;
+      }> = [];
+
       vi.mocked(db.timeanchors.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          filter: vi.fn().mockReturnValue({
-            toArray: vi.fn().mockResolvedValue([]),
-          }),
-        }),
+        equals: vi.fn().mockImplementation((targetMatchId: string) => ({
+          filter: vi
+            .fn()
+            .mockImplementation(
+              (predicate: (a: (typeof localAnchors)[number]) => boolean) => ({
+                toArray: vi
+                  .fn()
+                  .mockImplementation(() =>
+                    Promise.resolve(
+                      localAnchors
+                        .filter((a) => a.matchId === targetMatchId)
+                        .filter(predicate)
+                        .map((a) => ({ ...a })),
+                    ),
+                  ),
+              }),
+            ),
+        })),
         anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
       } as never);
 
@@ -2653,8 +2676,7 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
         ]),
       } as never);
 
-      // By the time the batch response returns, a new empty-lineup period-end termination is in syncQueue
-      vi.mocked(db.syncQueue.toArray).mockResolvedValue([
+      const queueItems: Record<string, unknown>[] = [
         {
           id: 201,
           actionType: "PUT",
@@ -2666,36 +2688,61 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
           }),
           createdAt: equalTimestamp,
         },
-        {
-          id: 202,
-          actionType: "PUT",
-          endpoint: `/Matches/${matchId}/presence/terminate`,
-          payload: JSON.stringify({
-            periodNumber: 1,
-            playerLineupIds: [],
-            timeOut: equalTimestamp,
-          }),
-          createdAt: equalTimestamp,
-          periodEndMeta: {
+      ];
+
+      vi.mocked(db.syncQueue.toArray).mockImplementation(
+        () => Promise.resolve([...queueItems]) as never,
+      );
+
+      let submittedAnchors: unknown[] = [];
+
+      // While the batch request is in-flight, the period ends locally:
+      // a new unsynced PeriodEnd anchor and an empty-lineup period-end termination appear.
+      vi.mocked(apiClient.post).mockImplementationOnce(
+        async (_url, payload) => {
+          submittedAnchors = (payload as { anchors: unknown[] }).anchors;
+          localAnchors.push({
+            id: "anchor-period-end-empty",
             matchId,
             periodNumber: 1,
-            timeOut: equalTimestamp,
-            closedPresenceIds: [],
-            closedLineupIds: [],
-          },
-        },
-      ] as never);
+            type: 1,
+            timestamp: equalTimestamp,
+            sequenceNumber: 5,
+            isSynced: 0,
+          });
+          queueItems.push({
+            id: 202,
+            actionType: "PUT",
+            endpoint: `/Matches/${matchId}/presence/terminate`,
+            payload: JSON.stringify({
+              periodNumber: 1,
+              playerLineupIds: [],
+              timeOut: equalTimestamp,
+            }),
+            createdAt: equalTimestamp,
+            periodEndMeta: {
+              matchId,
+              periodNumber: 1,
+              timeOut: equalTimestamp,
+              closedPresenceIds: [],
+              closedLineupIds: [],
+            },
+          });
 
-      vi.mocked(apiClient.post).mockResolvedValueOnce({
-        data: {
-          syncedEventIds: [],
-          syncedAnchorIds: [],
-          syncedPresenceIds: ["pres-disciplinary"],
+          return {
+            data: {
+              syncedEventIds: [],
+              syncedAnchorIds: [],
+              syncedPresenceIds: ["pres-disciplinary"],
+            },
+          };
         },
-      });
+      );
 
       await syncMatchBatch(matchId);
 
+      // The new PeriodEnd anchor was not part of the submitted batch snapshot
+      expect(submittedAnchors).toEqual([]);
       // Disciplinary exit queue item is cleaned up, while the new empty-lineup period-end item is preserved
       expect(db.syncQueue.delete).toHaveBeenCalledWith(201);
       expect(db.syncQueue.delete).not.toHaveBeenCalledWith(202);
@@ -2714,13 +2761,36 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
         }),
       } as never);
 
-      // Batch started before period end: no PeriodEnd anchor yet
+      // Batch started before period end: no PeriodEnd anchor yet during request preparation
+      const localAnchors: Array<{
+        id: string;
+        matchId: string;
+        periodNumber: number;
+        type: number;
+        timestamp: string;
+        sequenceNumber: number;
+        isSynced: number;
+      }> = [];
+
       vi.mocked(db.timeanchors.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          filter: vi.fn().mockReturnValue({
-            toArray: vi.fn().mockResolvedValue([]),
-          }),
-        }),
+        equals: vi.fn().mockImplementation((targetMatchId: string) => ({
+          filter: vi
+            .fn()
+            .mockImplementation(
+              (predicate: (a: (typeof localAnchors)[number]) => boolean) => ({
+                toArray: vi
+                  .fn()
+                  .mockImplementation(() =>
+                    Promise.resolve(
+                      localAnchors
+                        .filter((a) => a.matchId === targetMatchId)
+                        .filter(predicate)
+                        .map((a) => ({ ...a })),
+                    ),
+                  ),
+              }),
+            ),
+        })),
         anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
       } as never);
 
@@ -2797,40 +2867,58 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
         () => Promise.resolve([...queueItems]) as never,
       );
 
+      let submittedAnchors: unknown[] = [];
+
       // While the batch request is in-flight, the period ends locally:
-      // pres-active is closed and a nonempty period-end termination with periodEndMeta is queued.
-      vi.mocked(apiClient.post).mockImplementationOnce(async () => {
-        localPresences[0].timeOut = equalTimestamp;
-        localPresences[0].isSynced = 0;
-        queueItems.push({
-          id: 302,
-          actionType: "PUT",
-          endpoint: `/Matches/${matchId}/presence/terminate`,
-          payload: JSON.stringify({
-            periodNumber: 1,
-            playerLineupIds: ["lineup-active"],
-            timeOut: equalTimestamp,
-          }),
-          createdAt: equalTimestamp,
-          periodEndMeta: {
+      // a new unsynced PeriodEnd anchor is persisted, pres-active is closed, and
+      // a nonempty period-end termination with periodEndMeta is queued.
+      vi.mocked(apiClient.post).mockImplementationOnce(
+        async (_url, payload) => {
+          submittedAnchors = (payload as { anchors: unknown[] }).anchors;
+          localAnchors.push({
+            id: "anchor-period-end-nonempty",
             matchId,
             periodNumber: 1,
-            timeOut: equalTimestamp,
-            closedPresenceIds: ["pres-active"],
-            closedLineupIds: ["lineup-active"],
-          },
-        });
+            type: 1,
+            timestamp: equalTimestamp,
+            sequenceNumber: 5,
+            isSynced: 0,
+          });
+          localPresences[0].timeOut = equalTimestamp;
+          localPresences[0].isSynced = 0;
+          queueItems.push({
+            id: 302,
+            actionType: "PUT",
+            endpoint: `/Matches/${matchId}/presence/terminate`,
+            payload: JSON.stringify({
+              periodNumber: 1,
+              playerLineupIds: ["lineup-active"],
+              timeOut: equalTimestamp,
+            }),
+            createdAt: equalTimestamp,
+            periodEndMeta: {
+              matchId,
+              periodNumber: 1,
+              timeOut: equalTimestamp,
+              closedPresenceIds: ["pres-active"],
+              closedLineupIds: ["lineup-active"],
+            },
+          });
 
-        return {
-          data: {
-            syncedEventIds: [],
-            syncedAnchorIds: [],
-            syncedPresenceIds: ["pres-active", "pres-disciplinary"],
-          },
-        };
-      });
+          return {
+            data: {
+              syncedEventIds: [],
+              syncedAnchorIds: [],
+              syncedPresenceIds: ["pres-active", "pres-disciplinary"],
+            },
+          };
+        },
+      );
 
       await syncMatchBatch(matchId);
+
+      // The new PeriodEnd anchor was not part of the submitted batch snapshot
+      expect(submittedAnchors).toEqual([]);
 
       // The presence mutated after the batch snapshot must remain unsynced; the unchanged one is marked synced.
       expect(localPresences[0].isSynced).toBe(0);
@@ -4177,6 +4265,53 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       expect(queueItems.map((q) => q.id)).toEqual([803]);
 
       consoleWarnSpy.mockRestore();
+    });
+
+    it("processSyncQueue claims PeriodEnd anchor during in-flight POST and skips sending when anchor is claimed by undo", async () => {
+      const { anchorClaimService } = await import(
+        "../../services/anchorClaimService"
+      );
+      const anchorId = "anchor-claim-race-1";
+      const anchorQueueItem = {
+        id: 901,
+        actionType: "POST" as const,
+        endpoint: "/Matches/m-claim-race/anchors",
+        payload: JSON.stringify([
+          {
+            id: anchorId,
+            periodNumber: 1,
+            type: 1,
+            timestamp: "2026-11-19T10:10:00.000Z",
+          },
+        ]),
+        createdAt: "2026-11-19T10:10:00.000Z",
+      };
+
+      vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([anchorQueueItem]),
+      } as never);
+
+      // 1. When Undo holds the claim, processSyncQueue must NOT send the POST
+      anchorClaimService.claim(anchorId, "undo");
+      try {
+        const syncedWhileUndoClaimed = await processSyncQueue("m-claim-race");
+        expect(syncedWhileUndoClaimed).toBe(0);
+        expect(apiClient.post).not.toHaveBeenCalled();
+      } finally {
+        anchorClaimService.release(anchorId, "undo");
+      }
+
+      // 2. When unclaimed, processSyncQueue claims the anchor while POST is in-flight and releases after
+      let wasClaimedDuringPost = false;
+      vi.mocked(apiClient.post).mockImplementationOnce(async () => {
+        wasClaimedDuringPost = anchorClaimService.isClaimed(anchorId);
+        return { status: 200 };
+      });
+
+      const syncedCount = await processSyncQueue("m-claim-race");
+      expect(syncedCount).toBe(1);
+      expect(wasClaimedDuringPost).toBe(true);
+      expect(anchorClaimService.isClaimed(anchorId)).toBe(false);
     });
   });
 });

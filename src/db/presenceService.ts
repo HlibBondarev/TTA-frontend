@@ -218,10 +218,31 @@ export async function terminatePeriodPresenceTx(
   periodNumber: number,
   playerLineupIds: string[],
   endTimestamp: string,
+  periodEndAnchorId?: string,
 ): Promise<void> {
   const normalizedMatchId = matchId.trim();
+  const txTables =
+    periodEndAnchorId && db.timeanchors
+      ? [db.playerpresences, db.syncQueue, db.timeanchors]
+      : [db.playerpresences, db.syncQueue];
 
-  await db.transaction("rw", [db.playerpresences, db.syncQueue], async () => {
+  await db.transaction("rw", txTables, async () => {
+    if (periodEndAnchorId) {
+      const anchor = db.timeanchors?.get
+        ? await db.timeanchors.get(periodEndAnchorId)
+        : undefined;
+      const isMatchingEndAnchor =
+        anchor?.matchId?.trim() === normalizedMatchId &&
+        anchor.periodNumber === periodNumber &&
+        anchor.type === 1;
+
+      if (!isMatchingEndAnchor) {
+        throw new Error(
+          "Cannot terminate period presence: period end anchor was cancelled or missing.",
+        );
+      }
+    }
+
     // 1. Find all active presences (where timeOut is null) for this period
     const activePresences = await db.playerpresences
       .where("periodNumber")
@@ -232,6 +253,9 @@ export async function terminatePeriodPresenceTx(
       .toArray();
 
     const closedPresenceIds = activePresences.map((presence) => presence.id);
+    const closedLineupIds = Array.from(
+      new Set(activePresences.map((presence) => presence.matchLineupId)),
+    );
 
     // 2. Update each active player session with the end timestamp in parallel
     await Promise.all(
@@ -247,7 +271,7 @@ export async function terminatePeriodPresenceTx(
     //    alongside atomic client-only undo metadata in the same IndexedDB transaction.
     const payload = JSON.stringify({
       periodNumber,
-      playerLineupIds,
+      playerLineupIds: closedLineupIds,
       timeOut: endTimestamp,
     });
 
@@ -261,7 +285,7 @@ export async function terminatePeriodPresenceTx(
         periodNumber,
         timeOut: endTimestamp,
         closedPresenceIds,
-        closedLineupIds: [...playerLineupIds],
+        closedLineupIds,
       },
     };
 

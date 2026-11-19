@@ -1003,5 +1003,93 @@ describe("presenceService Database Transactions", () => {
         db.eventdefinitions.bulkGet = originalBulkGet;
       }
     });
+
+    it("terminatePeriodPresenceTx queues only actually closed lineup IDs and aborts when periodEndAnchorId is missing", async () => {
+      const mockEndTimestamp = "2026-07-22T10:08:00.000Z";
+      const originalGet = (db.timeanchors as unknown as { get?: unknown }).get;
+
+      try {
+        // 1. Missing/cancelled periodEndAnchorId aborts before closing presences or queuing
+        (db.timeanchors as unknown as { get: unknown }).get = vi
+          .fn()
+          .mockResolvedValueOnce(undefined);
+
+        await expect(
+          terminatePeriodPresenceTx(
+            mockMatchId,
+            mockPeriodNumber,
+            ["lineup-1", "lineup-already-closed"],
+            mockEndTimestamp,
+            "cancelled-end-anchor",
+          ),
+        ).rejects.toThrow(/period end anchor was cancelled or missing/i);
+
+        expect(db.playerpresences.update).not.toHaveBeenCalled();
+        expect(db.syncQueue.add).not.toHaveBeenCalled();
+
+        // 2. Valid periodEndAnchorId closes only active presences and queues only closed lineup IDs
+        (db.timeanchors as unknown as { get: unknown }).get = vi
+          .fn()
+          .mockResolvedValueOnce({
+            id: "valid-end-anchor",
+            matchId: mockMatchId,
+            periodNumber: mockPeriodNumber,
+            type: 1,
+            timestamp: mockEndTimestamp,
+            sequenceNumber: 10,
+            isSynced: 0,
+          });
+
+        const mockPresencesDataset = [
+          { id: "pres-active", matchLineupId: "lineup-1", timeOut: null },
+          {
+            id: "pres-already-out",
+            matchLineupId: "lineup-already-closed",
+            timeOut: "2026-07-22T10:05:00.000Z",
+          },
+        ];
+
+        vi.mocked(db.playerpresences.where).mockReturnValue({
+          equals: vi.fn().mockReturnValue({
+            filter: vi.fn((predicate: (p: (typeof mockPresencesDataset)[0]) => boolean) => ({
+              toArray: vi.fn().mockResolvedValue(mockPresencesDataset.filter(predicate)),
+            })),
+          }),
+        } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+        await terminatePeriodPresenceTx(
+          mockMatchId,
+          mockPeriodNumber,
+          ["lineup-1", "lineup-already-closed"],
+          mockEndTimestamp,
+          "valid-end-anchor",
+        );
+
+        expect(db.playerpresences.update).toHaveBeenCalledTimes(1);
+        expect(db.playerpresences.update).toHaveBeenCalledWith("pres-active", {
+          timeOut: mockEndTimestamp,
+          isSynced: 0,
+        });
+        expect(db.syncQueue.add).toHaveBeenCalledWith({
+          actionType: "PUT",
+          endpoint: `/Matches/${mockMatchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: mockPeriodNumber,
+            playerLineupIds: ["lineup-1"],
+            timeOut: mockEndTimestamp,
+          }),
+          createdAt: mockEndTimestamp,
+          periodEndMeta: {
+            matchId: mockMatchId,
+            periodNumber: mockPeriodNumber,
+            timeOut: mockEndTimestamp,
+            closedPresenceIds: ["pres-active"],
+            closedLineupIds: ["lineup-1"],
+          },
+        });
+      } finally {
+        (db.timeanchors as unknown as { get?: unknown }).get = originalGet;
+      }
+    });
   });
 });

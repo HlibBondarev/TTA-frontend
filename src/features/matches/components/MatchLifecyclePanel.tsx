@@ -45,8 +45,7 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
     refreshPresenceFromDB,
   } = usePlayerPresence(activeMatchId);
 
-  const { hasPendingRemovals = false, retryPendingDisciplinaryRemovals } =
-    useGameEvents(activeMatchId);
+  const { retryPendingDisciplinaryRemovals } = useGameEvents(activeMatchId);
 
   const [panelError, setPanelError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -95,9 +94,11 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
     if (isProcessing) return;
     setPanelError(null);
 
-    if (hasPendingRemovals) {
+    let anchorId: string | null | undefined = null;
+    try {
       setIsProcessing(true);
-      try {
+
+      if (retryPendingDisciplinaryRemovals) {
         const removalCompleted = await retryPendingDisciplinaryRemovals();
         if (!removalCompleted) {
           setPanelError(
@@ -105,18 +106,16 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
           );
           return;
         }
-      } finally {
-        setIsProcessing(false);
       }
-    }
 
-    let anchorId: string | null | undefined = null;
-    try {
-      setIsProcessing(true);
       const endResult = await endPeriod();
       anchorId = endResult?.anchorId;
 
-      await endPeriodWithRoster(new Date().toISOString(), periodNumber);
+      await endPeriodWithRoster(
+        new Date().toISOString(),
+        periodNumber,
+        anchorId ?? undefined,
+      );
 
       if (endResult?.isFinal) {
         setIsResultModalOpen(true);
