@@ -383,6 +383,7 @@ export async function exitPlayerPresenceTx(
       endpoint: `/Matches/${matchId}/presence/terminate`,
       payload,
       createdAt: effectiveTimeOut,
+      closedPresenceIds: [activePresence.id],
     };
 
     await db.syncQueue.add(syncItem);

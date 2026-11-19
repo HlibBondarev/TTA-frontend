@@ -324,6 +324,7 @@ describe("presenceService Database Transactions", () => {
         timeOut: exitTime,
       }),
       createdAt: exitTime,
+      closedPresenceIds: ["pres-out"],
     });
   });
 

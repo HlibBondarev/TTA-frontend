@@ -347,7 +347,14 @@ const isTerminateQueueItemSynced = async (
     return true;
   }
 
+  const targetPresenceIds = Array.isArray(item.closedPresenceIds)
+    ? new Set(item.closedPresenceIds)
+    : null;
+
   const matchingPresences = unsyncedPresences.filter((p) => {
+    if (targetPresenceIds && !targetPresenceIds.has(p.id)) {
+      return false;
+    }
     if (
       p.periodNumber !== terminatePayload.periodNumber ||
       !lineupIds.has(p.matchLineupId)
@@ -659,7 +666,11 @@ const matchesTerminatePresencePayload = (
   presence: PlayerPresence,
   affectedLineupIds: Set<string>,
   targetTimeOut: string | null,
+  targetPresenceIds: Set<string> | null,
 ): boolean => {
+  if (targetPresenceIds && !targetPresenceIds.has(presence.id)) {
+    return false;
+  }
   if (
     !affectedLineupIds.has(presence.matchLineupId) ||
     presence.timeIn === null ||
@@ -675,6 +686,7 @@ const matchesTerminatePresencePayload = (
 
 const buildManualPresenceFilter = (
   presencePayload: Record<string, unknown>,
+  closedPresenceIds?: string[],
 ): ((presence: PlayerPresence) => boolean) => {
   if (Array.isArray(presencePayload.presenceItems)) {
     const presenceItems =
@@ -696,13 +708,22 @@ const buildManualPresenceFilter = (
     extractPresenceLineupIds(presencePayload),
   );
   const targetTimeOut = normalizeIsoTimestamp(presencePayload.timeOut);
+  const targetPresenceIds = Array.isArray(closedPresenceIds)
+    ? new Set(closedPresenceIds)
+    : null;
   return (presence) =>
-    matchesTerminatePresencePayload(presence, affectedLineupIds, targetTimeOut);
+    matchesTerminatePresencePayload(
+      presence,
+      affectedLineupIds,
+      targetTimeOut,
+      targetPresenceIds,
+    );
 };
 
 const syncPresences = async (
   payload: unknown,
   targetStatus: number = 1,
+  closedPresenceIds?: string[],
 ): Promise<void> => {
   const presencePayload = (payload ?? {}) as Record<string, unknown>;
   if (
@@ -712,7 +733,10 @@ const syncPresences = async (
     return;
   }
 
-  const matchesPresence = buildManualPresenceFilter(presencePayload);
+  const matchesPresence = buildManualPresenceFilter(
+    presencePayload,
+    closedPresenceIds,
+  );
 
   await db.playerpresences
     .where("periodNumber")
@@ -762,11 +786,12 @@ export const markEntitiesSynced = async (
   endpoint: string,
   payload: unknown,
   targetStatus: number = 1,
+  closedPresenceIds?: string[],
 ): Promise<void> => {
   if (!endpoint || payload === null || payload === undefined) return;
 
   if (endpoint.includes("/presence") || endpoint.includes("/substitutions")) {
-    await syncPresences(payload, targetStatus);
+    await syncPresences(payload, targetStatus, closedPresenceIds);
   } else if (endpoint.includes("/events")) {
     await syncEvents(endpoint, payload, targetStatus);
   } else if (endpoint.includes("/anchors")) {
@@ -1058,6 +1083,28 @@ const isUnrecoverableStatus = (status?: number): boolean => {
   return UNRECOVERABLE_STATUS_CODES.has(status);
 };
 
+const extractClosedPresenceIdsFromBatch = (
+  batchItems: SyncQueueItem[],
+): string[] | undefined => {
+  let hasMetadata = false;
+  const ids = new Set<string>();
+
+  for (const item of batchItems) {
+    const itemIds =
+      item.closedPresenceIds ?? item.periodEndMeta?.closedPresenceIds;
+    if (Array.isArray(itemIds)) {
+      hasMetadata = true;
+      for (const id of itemIds) {
+        if (typeof id === "string") {
+          ids.add(id);
+        }
+      }
+    }
+  }
+
+  return hasMetadata ? Array.from(ids) : undefined;
+};
+
 const purgeBatchFromSyncQueue = async (
   batchItems: SyncQueueItem[],
   endpoint: string,
@@ -1065,8 +1112,10 @@ const purgeBatchFromSyncQueue = async (
 ): Promise<void> => {
   if (!db) return;
 
+  const closedPresenceIds = extractClosedPresenceIdsFromBatch(batchItems);
+
   const performPurge = async (): Promise<void> => {
-    await markEntitiesSynced(endpoint, payload, -1);
+    await markEntitiesSynced(endpoint, payload, -1, closedPresenceIds);
 
     await Promise.all(
       batchItems.map(async (item) => {
@@ -1097,8 +1146,10 @@ const finalizeBatchSync = async (
 ): Promise<number> => {
   if (!db) return 0;
 
+  const closedPresenceIds = extractClosedPresenceIdsFromBatch(batchItems);
+
   const performFinalization = async (): Promise<number> => {
-    await markEntitiesSynced(endpoint, payload, 1);
+    await markEntitiesSynced(endpoint, payload, 1, closedPresenceIds);
     let count = 0;
 
     await Promise.all(

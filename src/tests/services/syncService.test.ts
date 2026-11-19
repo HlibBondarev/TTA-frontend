@@ -3675,5 +3675,248 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
 
       consoleWarnSpy.mockRestore();
     });
+
+    it("keeps re-entered presence unsynced and retains period-end queue item even when earlier exit and period-end share the exact same timeOut", async () => {
+      const matchId = "m-equal-timeout-reentry";
+      const equalExitTime = "2026-11-18T10:10:00.000Z";
+
+      const localPresences = [
+        {
+          id: "pres-earlier-exit",
+          matchLineupId: "lineup-1",
+          periodNumber: 1,
+          timeIn: "2026-11-18T10:00:00.000Z",
+          timeOut: equalExitTime,
+          sequenceNumber: 1,
+          isSynced: 0,
+        },
+        {
+          id: "pres-reentered",
+          matchLineupId: "lineup-1",
+          periodNumber: 1,
+          timeIn: equalExitTime,
+          timeOut: equalExitTime,
+          sequenceNumber: 2,
+          isSynced: 0,
+        },
+      ];
+
+      const localAnchors = [
+        {
+          id: "anchor-period-end-1",
+          matchId,
+          periodNumber: 1,
+          type: 1,
+          timestamp: equalExitTime,
+          sequenceNumber: 3,
+          isSynced: 1,
+        },
+      ];
+
+      const queueItems = [
+        {
+          id: 701,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["lineup-1"],
+            timeOut: equalExitTime,
+          }),
+          createdAt: equalExitTime,
+          closedPresenceIds: ["pres-earlier-exit"],
+        },
+        {
+          id: 702,
+          actionType: "POST",
+          endpoint: `/Matches/${matchId}/presence/initialize`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            timeIn: equalExitTime,
+            presenceItems: [
+              { id: "pres-reentered", matchLineupId: "lineup-1" },
+            ],
+          }),
+          createdAt: equalExitTime,
+        },
+        {
+          id: 703,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["lineup-1"],
+            timeOut: equalExitTime,
+          }),
+          createdAt: equalExitTime,
+          periodEndMeta: {
+            matchId,
+            periodNumber: 1,
+            timeOut: equalExitTime,
+            closedPresenceIds: ["pres-reentered"],
+            closedLineupIds: ["lineup-1"],
+          },
+        },
+      ];
+
+      vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockImplementation(() => Promise.resolve([...queueItems])),
+      } as never);
+      vi.mocked(db.syncQueue.toArray).mockImplementation(
+        () => Promise.resolve([...queueItems]) as never,
+      );
+      vi.mocked(db.syncQueue.delete).mockImplementation((async (id: number) => {
+        const idx = queueItems.findIndex((item) => item.id === id);
+        if (idx !== -1) queueItems.splice(idx, 1);
+      }) as never);
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([{ id: "lineup-1", matchId }]),
+        }),
+      } as never);
+
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi
+            .fn()
+            .mockImplementation(
+              (predicate: (a: (typeof localAnchors)[number]) => boolean) => ({
+                toArray: vi
+                  .fn()
+                  .mockResolvedValue(localAnchors.filter(predicate)),
+              }),
+            ),
+        }),
+        anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
+      } as never);
+
+      vi.mocked(db.playerpresences.filter).mockImplementation(((
+        predicate: (p: (typeof localPresences)[number]) => boolean,
+      ) => ({
+        toArray: vi
+          .fn()
+          .mockImplementation(() =>
+            Promise.resolve(
+              localPresences.filter(predicate).map((p) => ({ ...p })),
+            ),
+          ),
+      })) as never);
+
+      vi.mocked(db.playerpresences.where).mockImplementation(((
+        field: string,
+      ) => {
+        if (field === "periodNumber") {
+          return {
+            equals: vi.fn().mockImplementation((period: number) => ({
+              filter: vi
+                .fn()
+                .mockImplementation(
+                  (
+                    predicate: (p: (typeof localPresences)[number]) => boolean,
+                  ) => ({
+                    modify: vi
+                      .fn()
+                      .mockImplementation(
+                        (changes: Record<string, unknown>) => {
+                          for (const record of localPresences) {
+                            if (
+                              record.periodNumber === period &&
+                              predicate(record)
+                            ) {
+                              Object.assign(record, changes);
+                            }
+                          }
+                          return Promise.resolve(1);
+                        },
+                      ),
+                  }),
+                ),
+            })),
+          };
+        }
+
+        return {
+          anyOf: vi.fn().mockImplementation((ids: string[]) => ({
+            toArray: vi
+              .fn()
+              .mockImplementation(() =>
+                Promise.resolve(
+                  localPresences
+                    .filter((p) => ids.includes(p.id))
+                    .map((p) => ({ ...p })),
+                ),
+              ),
+            modify: vi
+              .fn()
+              .mockImplementation(
+                (
+                  updater:
+                    | Record<string, unknown>
+                    | ((record: (typeof localPresences)[number]) => void),
+                ) => {
+                  for (const record of localPresences) {
+                    if (!ids.includes(record.id)) continue;
+                    if (typeof updater === "function") {
+                      updater(record);
+                    } else {
+                      Object.assign(record, updater);
+                    }
+                  }
+                  return Promise.resolve(ids.length);
+                },
+              ),
+          })),
+        };
+      }) as never);
+
+      const consoleWarnSpy = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => {});
+
+      // Earlier exit PUT and re-entry POST succeed, period-end PUT fails transiently
+      vi.mocked(apiClient.put)
+        .mockResolvedValueOnce({ status: 200 })
+        .mockRejectedValueOnce(new Error("Network timeout on period-end PUT"));
+      vi.mocked(apiClient.post).mockResolvedValueOnce({ status: 201 });
+
+      const processed = await processSyncQueue();
+      expect(processed).toBe(2);
+
+      // Even with identical timeOut, closedPresenceIds isolates pres-earlier-exit from pres-reentered
+      expect(localPresences[0].isSynced).toBe(1);
+      expect(localPresences[1].isSynced).toBe(0);
+      expect(queueItems.map((q) => q.id)).toEqual([703]);
+
+      // Subsequent syncMatchBatch still submits pres-reentered and retains item 703 until acknowledged
+      vi.mocked(apiClient.post).mockResolvedValueOnce({
+        data: {
+          syncedEventIds: [],
+          syncedAnchorIds: [],
+          syncedPresenceIds: [],
+        },
+      });
+
+      await syncMatchBatch(matchId);
+
+      expect(apiClient.post).toHaveBeenLastCalledWith(
+        `/Matches/${matchId}/sync-batch`,
+        expect.objectContaining({
+          presences: [
+            expect.objectContaining({
+              id: "pres-reentered",
+              timeIn: equalExitTime,
+              timeOut: equalExitTime,
+            }),
+          ],
+        }),
+      );
+      expect(localPresences[1].isSynced).toBe(0);
+      expect(queueItems.map((q) => q.id)).toEqual([703]);
+
+      consoleWarnSpy.mockRestore();
+    });
   });
 });

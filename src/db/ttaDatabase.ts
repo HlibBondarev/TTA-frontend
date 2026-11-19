@@ -177,6 +177,7 @@ export interface SyncQueueItem {
   endpoint: string;
   payload: string;
   createdAt: string;
+  closedPresenceIds?: string[];
   periodEndMeta?: PeriodEndTerminationMeta;
 }
 
