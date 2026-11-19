@@ -150,6 +150,7 @@ export interface TimeAnchor {
   timestamp: string;
   sequenceNumber: number;
   isSynced: number;
+  usesPeriodEndMeta?: boolean;
 }
 
 export interface PlayerPresence {

@@ -3011,4 +3011,162 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(mockSyncQueue.some((i) => i.id === 405)).toBe(true);
     expect(store.getState().match.isPeriodActive).toBe(true);
   });
+
+  test("should preserve equal-timestamp disciplinary exit and its queue item on reload undo when interrupted between endPeriod and endPeriodWithRoster", async () => {
+    const equalTimestamp = "2020-01-01T10:10:00.000Z";
+    const toIsoSpy = vi
+      .spyOn(Date.prototype, "toISOString")
+      .mockReturnValue(equalTimestamp);
+
+    try {
+      // Seed an active Period 1 (start anchor only)
+      mockTimeAnchors = [
+        {
+          id: "seed-start-anchor",
+          matchId: "test-match-id",
+          periodNumber: 1,
+          type: 0,
+          timestamp: "2020-01-01T10:00:00.000Z",
+          sequenceNumber: 1,
+          isSynced: 0,
+        },
+      ];
+
+      vi.mocked(db.matchlineups.where).mockImplementation(
+        () =>
+          ({
+            equals: vi.fn().mockReturnValue({
+              toArray: vi
+                .fn()
+                .mockResolvedValue([{ id: "lineup-disciplinary" }]),
+            }),
+          }) as unknown as ReturnType<typeof db.matchlineups.where>,
+      );
+
+      mockPlayerPresences = [
+        {
+          id: "presence-disciplinary",
+          periodNumber: 1,
+          timeOut: equalTimestamp,
+          matchLineupId: "lineup-disciplinary",
+        },
+      ];
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi
+            .fn()
+            .mockImplementation(
+              (
+                predicate: (p: {
+                  matchLineupId: string;
+                  timeOut: string | null;
+                }) => boolean,
+              ) => ({
+                toArray: vi
+                  .fn()
+                  .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+              }),
+            ),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      // 1. First session: Period 1 is active, disciplinary exit already closed at equalTimestamp
+      const firstStore = createTestStore({
+        periodNumber: 1,
+        isPeriodActive: true,
+        isPeriodEnded: false,
+      });
+
+      const disciplinaryQueueItem = {
+        id: 406,
+        actionType: "PUT",
+        endpoint: "/Matches/test-match-id/presence/terminate",
+        payload: JSON.stringify({
+          periodNumber: 1,
+          playerLineupIds: ["lineup-disciplinary"],
+          timeOut: equalTimestamp,
+        }),
+        createdAt: equalTimestamp,
+      };
+      mockSyncQueue.push(disciplinaryQueueItem);
+
+      const firstRender = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={firstStore}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(firstRender.result.current.isPeriodActive).toBe(true);
+        expect(firstRender.result.current.periodsCount).not.toBeNull();
+      });
+
+      let createdAnchorId: string | undefined;
+      await act(async () => {
+        const endResult = await firstRender.result.current.endPeriod();
+        createdAnchorId = endResult?.anchorId;
+      });
+
+      expect(createdAnchorId).toBeDefined();
+      const persistedEndAnchor = mockTimeAnchors.find(
+        (a) => a.id === createdAnchorId,
+      );
+      expect(persistedEndAnchor).toMatchObject({
+        type: 1,
+        timestamp: equalTimestamp,
+        usesPeriodEndMeta: true,
+      });
+
+      // Unmount before endPeriodWithRoster / terminatePeriodPresenceTx runs (no periodEndMeta in syncQueue)
+      firstRender.unmount();
+
+      // 2. Reloaded session: fresh Redux store hydrated from the persisted IndexedDB state
+      const reloadedStore = configureStore({
+        reducer: { match: matchReducer },
+        preloadedState: {
+          match: {
+            activeMatchId: "test-match-id",
+            activeTeamId: "test-team-id",
+            periodNumber: 1,
+            homeScore: 0,
+            guestScore: 0,
+            isPeriodActive: false,
+            isInsideStoppage: false,
+            isPeriodEnded: false,
+            globalSequenceNumber: 0,
+            recentActions: [],
+            hydrationVersion: 0,
+          },
+        },
+      });
+      const reloadedRender = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => (
+          <Provider store={reloadedStore}>{children}</Provider>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(reloadedRender.result.current.isPeriodEnded).toBe(true);
+        expect(reloadedRender.result.current.canUndoEndPeriod).toBe(true);
+      });
+
+      // User clicks Undo after reload (calls revertEndPeriod() with no args)
+      await act(async () => {
+        await reloadedRender.result.current.revertEndPeriod();
+      });
+
+      // Interrupted PeriodEnd anchor is removed and period returns to active,
+      // while the equal-timestamp disciplinary exit and its queue item remain intact.
+      expect(db.timeanchors.delete).toHaveBeenCalledWith(createdAnchorId);
+      expect(db.playerpresences.update).not.toHaveBeenCalled();
+      expect(mockPlayerPresences[0].timeOut).toBe(equalTimestamp);
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(406);
+      expect(mockSyncQueue.some((i) => i.id === 406)).toBe(true);
+      expect(reloadedStore.getState().match.isPeriodActive).toBe(true);
+      expect(reloadedStore.getState().match.isPeriodEnded).toBe(false);
+    } finally {
+      toIsoSpy.mockRestore();
+    }
+  });
 });

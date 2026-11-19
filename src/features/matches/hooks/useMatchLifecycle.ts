@@ -208,7 +208,7 @@ const createAndSaveTimeAnchor = async (
       const nextSeq = await getNextSequenceNumber();
       const timestamp = new Date().toISOString();
 
-      const anchorData = {
+      const anchorData: TimeAnchor = {
         id: anchorId,
         matchId,
         periodNumber,
@@ -216,6 +216,7 @@ const createAndSaveTimeAnchor = async (
         timestamp,
         sequenceNumber: nextSeq,
         isSynced: 0,
+        ...(type === 1 ? { usesPeriodEndMeta: true } : {}),
       };
 
       await db.timeanchors.add(anchorData);
@@ -307,21 +308,28 @@ const checkUnsyncedEndAnchorExists = async (
   return pendingItems.length > 0;
 };
 
+interface DeletedEndAnchorInfo {
+  timestamp: string | null;
+  usesPeriodEndMeta: boolean;
+}
+
 /**
  * Resolves and deletes the period end time anchor along with its matching sync queue entry.
- * Returns the deleted PeriodEnd anchor timestamp if resolved.
+ * Returns the deleted PeriodEnd anchor timestamp and whether it was created with period-end metadata tracking.
  */
 const deleteEndAnchorAndSyncQueue = async (
   matchId: string,
   periodNumber: number,
   anchorId?: string | null,
-): Promise<string | null> => {
+): Promise<DeletedEndAnchorInfo> => {
   let targetAnchorId = anchorId;
   let targetAnchorTimestamp: string | null = null;
+  let usesPeriodEndMeta = false;
 
   if (targetAnchorId && db?.timeanchors?.get) {
     const existingAnchor = await db.timeanchors.get(targetAnchorId);
     targetAnchorTimestamp = existingAnchor?.timestamp ?? null;
+    usesPeriodEndMeta = Boolean(existingAnchor?.usesPeriodEndMeta);
   }
 
   if (!targetAnchorId && matchId && db?.timeanchors) {
@@ -339,13 +347,16 @@ const deleteEndAnchorAndSyncQueue = async (
       );
       targetAnchorId = endAnchors[0].id;
       targetAnchorTimestamp = endAnchors[0].timestamp ?? null;
+      usesPeriodEndMeta = Boolean(endAnchors[0].usesPeriodEndMeta);
     }
   }
 
-  if (!targetAnchorId) return null;
+  if (!targetAnchorId) {
+    return { timestamp: null, usesPeriodEndMeta: false };
+  }
 
   await deleteTimeAnchorWithQueue(targetAnchorId);
-  return targetAnchorTimestamp;
+  return { timestamp: targetAnchorTimestamp, usesPeriodEndMeta };
 };
 
 /**
@@ -836,7 +847,10 @@ export const useMatchLifecycle = () => {
       [db.timeanchors, db.syncQueue, db.playerpresences, db.matchlineups],
       async () => {
         if (!normalizedMatchId) return;
-        const periodEndTimestamp = await deleteEndAnchorAndSyncQueue(
+        const {
+          timestamp: periodEndTimestamp,
+          usesPeriodEndMeta: anchorUsesPeriodEndMeta,
+        } = await deleteEndAnchorAndSyncQueue(
           normalizedMatchId,
           currentPeriod,
           anchorId,
@@ -868,7 +882,11 @@ export const useMatchLifecycle = () => {
           if (trackedTerminationItem.id !== undefined) {
             await db.syncQueue.delete(trackedTerminationItem.id);
           }
-        } else {
+        } else if (!anchorUsesPeriodEndMeta) {
+          // Legacy PeriodEnd anchors (created before atomic periodEndMeta tracking)
+          // fall back to timestamp-scoped presence reopening and queue purging.
+          // Anchors with usesPeriodEndMeta === true and no trackedTerminationItem indicate
+          // an interrupted period end before termination ran, so no presences were closed.
           const reopened = await reopenClosedPlayerPresences(
             normalizedMatchId,
             currentPeriod,
