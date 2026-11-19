@@ -48,14 +48,20 @@ interface ClaimedAnchorHandle {
 const claimBatchAnchorsForSync = async (
   anchorIds: string[],
 ): Promise<ClaimedAnchorHandle[]> => {
-  const claimed: ClaimedAnchorHandle[] = [];
-  for (const id of Array.from(new Set(anchorIds))) {
-    const result = await anchorClaimService.claimAcrossTabs([id], "sync");
-    if (result.allClaimed && result.claimedIds.length > 0) {
-      claimed.push({ anchorId: id, token: result.token });
-    }
-  }
-  return claimed;
+  const uniqueIds = Array.from(new Set(anchorIds));
+  const results = await Promise.all(
+    uniqueIds.map(async (anchorId) => ({
+      anchorId,
+      result: await anchorClaimService.claimAcrossTabs([anchorId], "sync"),
+    })),
+  );
+
+  return results
+    .filter(({ result }) => result.allClaimed && result.claimedIds.length > 0)
+    .map(({ anchorId, result }) => ({
+      anchorId,
+      token: result.token,
+    }));
 };
 
 const releaseBatchAnchorClaims = async (
