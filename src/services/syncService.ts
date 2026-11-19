@@ -1338,17 +1338,62 @@ const evaluateResponseStatus = async (
   return null;
 };
 
+const getAnchorIdsToClaim = (
+  currentItem: SyncQueueItem,
+  effectivePayload: unknown,
+): string[] => {
+  if (
+    currentItem.actionType !== "POST" ||
+    !currentItem.endpoint.includes("/anchors")
+  ) {
+    return [];
+  }
+  return extractAnchorIds(currentItem.endpoint, effectivePayload);
+};
+
+const clearClaimedAmbiguousIfNeeded = async (
+  claimedIds: string[],
+  result: BatchResult,
+): Promise<void> => {
+  if (claimedIds.length > 0 && result.shouldContinue) {
+    await anchorClaimService.clearAmbiguousAcrossTabs(claimedIds);
+  }
+};
+
+const handleBatchExecutionError = async (
+  err: unknown,
+  currentItem: SyncQueueItem,
+  effectivePayload: unknown,
+  batchItems: SyncQueueItem[],
+  claimedIds: string[],
+): Promise<BatchResult> => {
+  const status = extractErrorStatus(err);
+
+  if (isUnrecoverableStatus(status)) {
+    const purgeResult = await handleUnrecoverableError(
+      batchItems,
+      currentItem.endpoint,
+      effectivePayload,
+      status,
+    );
+    await clearClaimedAmbiguousIfNeeded(claimedIds, purgeResult);
+    return purgeResult;
+  }
+
+  console.error(
+    `Sync batch execution failed for endpoint ${currentItem.endpoint}:`,
+    err,
+  );
+  return { syncedCount: 0, shouldContinue: false };
+};
+
 const processSyncBatch = async (
   currentItem: SyncQueueItem,
   effectivePayload: unknown,
   batchItems: SyncQueueItem[],
   cache?: SyncCacheContext,
 ): Promise<BatchResult> => {
-  const anchorIdsToClaim =
-    currentItem.actionType === "POST" &&
-    currentItem.endpoint.includes("/anchors")
-      ? extractAnchorIds(currentItem.endpoint, effectivePayload)
-      : [];
+  const anchorIdsToClaim = getAnchorIdsToClaim(currentItem, effectivePayload);
 
   const {
     claimedIds,
@@ -1397,34 +1442,19 @@ const processSyncBatch = async (
     );
 
     if (evaluatedResult) {
-      if (claimedIds.length > 0 && evaluatedResult.shouldContinue) {
-        await anchorClaimService.clearAmbiguousAcrossTabs(claimedIds);
-      }
+      await clearClaimedAmbiguousIfNeeded(claimedIds, evaluatedResult);
       return evaluatedResult;
     }
 
     return { syncedCount: 0, shouldContinue: false };
   } catch (err) {
-    const status = extractErrorStatus(err);
-
-    if (isUnrecoverableStatus(status)) {
-      const purgeResult = await handleUnrecoverableError(
-        batchItems,
-        currentItem.endpoint,
-        effectivePayload,
-        status,
-      );
-      if (claimedIds.length > 0 && purgeResult.shouldContinue) {
-        await anchorClaimService.clearAmbiguousAcrossTabs(claimedIds);
-      }
-      return purgeResult;
-    }
-
-    console.error(
-      `Sync batch execution failed for endpoint ${currentItem.endpoint}:`,
+    return handleBatchExecutionError(
       err,
+      currentItem,
+      effectivePayload,
+      batchItems,
+      claimedIds,
     );
-    return { syncedCount: 0, shouldContinue: false };
   } finally {
     await anchorClaimService.releaseAcrossTabs(claimedIds, claimToken, "sync");
   }
