@@ -2581,5 +2581,89 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       expect(db.syncQueue.delete).toHaveBeenCalledWith(101);
       expect(db.syncQueue.delete).not.toHaveBeenCalledWith(102);
     });
+
+    it("cleanupBatchQueue preserves newly queued empty-lineup period-end termination when batch started before period end", async () => {
+      const matchId = "m-concurrent-end";
+      const equalTimestamp = "2026-11-18T10:10:00.000Z";
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi
+            .fn()
+            .mockResolvedValue([{ id: "lineup-disciplinary", matchId }]),
+        }),
+      } as never);
+
+      // Batch started before period end: only disciplinary presence was unsynced, no PeriodEnd anchor yet
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+        anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
+      } as never);
+
+      vi.mocked(db.playerpresences.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "pres-disciplinary",
+            matchLineupId: "lineup-disciplinary",
+            periodNumber: 1,
+            timeIn: "2026-11-18T10:00:00.000Z",
+            timeOut: equalTimestamp,
+            sequenceNumber: 1,
+            isSynced: 0,
+          },
+        ]),
+      } as never);
+
+      // By the time the batch response returns, a new empty-lineup period-end termination is in syncQueue
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue([
+        {
+          id: 201,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["lineup-disciplinary"],
+            timeOut: equalTimestamp,
+          }),
+          createdAt: equalTimestamp,
+        },
+        {
+          id: 202,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: [],
+            timeOut: equalTimestamp,
+          }),
+          createdAt: equalTimestamp,
+          periodEndMeta: {
+            matchId,
+            periodNumber: 1,
+            timeOut: equalTimestamp,
+            closedPresenceIds: [],
+            closedLineupIds: [],
+          },
+        },
+      ] as never);
+
+      vi.mocked(apiClient.post).mockResolvedValueOnce({
+        data: {
+          syncedEventIds: [],
+          syncedAnchorIds: [],
+          syncedPresenceIds: ["pres-disciplinary"],
+        },
+      });
+
+      await syncMatchBatch(matchId);
+
+      // Disciplinary exit queue item is cleaned up, while the new empty-lineup period-end item is preserved
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(201);
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(202);
+    });
   });
 });

@@ -2930,4 +2930,85 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       ),
     ).toBe(false);
   });
+
+  test("should preserve equal-timestamp disciplinary exit and its queue item during compensation revertEndPeriod when skipPresenceReopen is true", async () => {
+    const equalTimestamp = "2020-01-01T10:10:00Z";
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([{ id: "lineup-disciplinary" }]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    mockPlayerPresences = [
+      {
+        id: "presence-disciplinary",
+        periodNumber: 1,
+        timeOut: equalTimestamp,
+        matchLineupId: "lineup-disciplinary",
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    const disciplinaryQueueItem = {
+      id: 405,
+      actionType: "PUT",
+      endpoint: "/Matches/test-match-id/presence/terminate",
+      payload: JSON.stringify({
+        periodNumber: 1,
+        playerLineupIds: ["lineup-disciplinary"],
+        timeOut: equalTimestamp,
+      }),
+      createdAt: equalTimestamp,
+    };
+    mockSyncQueue.push(disciplinaryQueueItem);
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod("seed-end-anchor", {
+        skipPresenceReopen: true,
+      });
+    });
+
+    expect(db.timeanchors.delete).toHaveBeenCalledWith("seed-end-anchor");
+    expect(db.playerpresences.update).not.toHaveBeenCalled();
+    expect(mockPlayerPresences[0].timeOut).toBe(equalTimestamp);
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(405);
+    expect(mockSyncQueue.some((i) => i.id === 405)).toBe(true);
+    expect(store.getState().match.isPeriodActive).toBe(true);
+  });
 });

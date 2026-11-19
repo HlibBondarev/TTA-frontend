@@ -125,7 +125,7 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
       console.error(err);
       try {
         if (anchorId) {
-          await revertEndPeriod(anchorId);
+          await revertEndPeriod(anchorId, { skipPresenceReopen: true });
         }
         await refreshPresenceFromDB(periodNumber);
         setPanelError("Failed to end period. Transaction fully reverted.");

@@ -1,5 +1,10 @@
 import { apiClient } from "../api/client";
-import { db, type PlayerPresence } from "../db/ttaDatabase";
+import {
+  db,
+  type PlayerPresence,
+  type SyncQueueItem,
+  type TimeAnchor,
+} from "../db/ttaDatabase";
 import {
   UNRECOVERABLE_STATUS_CODES,
   extractErrorStatus,
@@ -11,13 +16,6 @@ export interface MatchSyncBatchResponse {
   syncedEventIds?: string[];
   syncedAnchorIds?: string[];
   syncedPresenceIds?: string[];
-}
-
-interface SyncQueueItem {
-  id?: number;
-  actionType: string;
-  endpoint: string;
-  payload: string;
 }
 
 interface PresenceItemPayload {
@@ -100,6 +98,7 @@ const fetchAndFormatBatchPayloads = async (normalizedMatchId: string) => {
       })),
     },
     unsyncedPresences,
+    unsyncedAnchors,
   };
 };
 
@@ -209,11 +208,29 @@ const normalizeIsoTimestamp = (value: unknown): string | null => {
 };
 
 const isTerminateQueueItemSynced = (
+  item: SyncQueueItem,
   payload: unknown,
-  syncedPresences: Set<string>,
+  syncedSets: SyncedEntitySets,
   unsyncedPresences: PlayerPresence[],
+  unsyncedAnchors: TimeAnchor[],
 ): boolean => {
-  if (syncedPresences.size === 0) return false;
+  if (item.periodEndMeta) {
+    const { closedPresenceIds, periodNumber } = item.periodEndMeta;
+    if (closedPresenceIds.length > 0) {
+      return closedPresenceIds.every((id) => syncedSets.presences.has(id));
+    }
+
+    // Empty-lineup period-end termination: only remove once the corresponding PeriodEnd anchor
+    // from the same period has been synced by this batch.
+    return unsyncedAnchors.some(
+      (anchor) =>
+        anchor.type === 1 &&
+        anchor.periodNumber === periodNumber &&
+        syncedSets.anchors.has(anchor.id),
+    );
+  }
+
+  if (syncedSets.presences.size === 0) return false;
   if (typeof payload !== "object" || payload === null) return true;
 
   const terminatePayload = payload as {
@@ -249,31 +266,39 @@ const isTerminateQueueItemSynced = (
     return true;
   }
 
-  return matchingPresences.every((p) => syncedPresences.has(p.id));
+  return matchingPresences.every((p) => syncedSets.presences.has(p.id));
 };
 
 const isSyncedPresenceItem = (
   item: SyncQueueItem,
   payload: unknown,
-  syncedPresences: Set<string>,
+  syncedSets: SyncedEntitySets,
   unsyncedPresences: PlayerPresence[],
+  unsyncedAnchors: TimeAnchor[],
 ): boolean => {
   if (item.endpoint.includes("/presence/terminate")) {
     return (
       item.actionType === "PUT" &&
-      isTerminateQueueItemSynced(payload, syncedPresences, unsyncedPresences)
+      isTerminateQueueItemSynced(
+        item,
+        payload,
+        syncedSets,
+        unsyncedPresences,
+        unsyncedAnchors,
+      )
     );
   }
 
   if (item.actionType !== "POST") return false;
   const ids = extractPresenceIds(payload);
-  return ids.length > 0 && ids.every((id) => syncedPresences.has(id));
+  return ids.length > 0 && ids.every((id) => syncedSets.presences.has(id));
 };
 
 const shouldDeleteQueueItem = (
   item: SyncQueueItem,
   syncedSets: SyncedEntitySets,
   unsyncedPresences: PlayerPresence[],
+  unsyncedAnchors: TimeAnchor[],
 ): boolean => {
   const payload = parsePayload(item.payload);
   if (payload === null) return false;
@@ -293,8 +318,9 @@ const shouldDeleteQueueItem = (
     return isSyncedPresenceItem(
       item,
       payload,
-      syncedSets.presences,
+      syncedSets,
       unsyncedPresences,
+      unsyncedAnchors,
     );
   }
 
@@ -305,6 +331,7 @@ const cleanupBatchQueue = async (
   normalizedMatchId: string,
   batchData: MatchSyncBatchResponse,
   unsyncedPresences: PlayerPresence[],
+  unsyncedAnchors: TimeAnchor[],
 ): Promise<void> => {
   if (!db.syncQueue) return;
 
@@ -327,7 +354,14 @@ const cleanupBatchQueue = async (
       continue;
     }
 
-    if (shouldDeleteQueueItem(item, syncedSets, unsyncedPresences)) {
+    if (
+      shouldDeleteQueueItem(
+        item,
+        syncedSets,
+        unsyncedPresences,
+        unsyncedAnchors,
+      )
+    ) {
       idsToDelete.push(item.id);
     }
   }
@@ -348,7 +382,7 @@ export const syncMatchBatch = async (
   }
   const normalizedMatchId = matchId.trim();
 
-  const { requestPayload, unsyncedPresences } =
+  const { requestPayload, unsyncedPresences, unsyncedAnchors } =
     await fetchAndFormatBatchPayloads(normalizedMatchId);
   const batchData = await postSyncBatch(normalizedMatchId, requestPayload);
 
@@ -379,7 +413,12 @@ export const syncMatchBatch = async (
           .modify({ isSynced: 1 });
       }
 
-      await cleanupBatchQueue(normalizedMatchId, batchData, unsyncedPresences);
+      await cleanupBatchQueue(
+        normalizedMatchId,
+        batchData,
+        unsyncedPresences,
+        unsyncedAnchors,
+      );
     },
   );
 

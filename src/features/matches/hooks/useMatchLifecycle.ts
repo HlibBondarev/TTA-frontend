@@ -812,7 +812,10 @@ export const useMatchLifecycle = () => {
     await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
   };
 
-  const revertEndPeriod = async (anchorId?: string | null) => {
+  const revertEndPeriod = async (
+    anchorId?: string | null,
+    options?: { skipPresenceReopen?: boolean },
+  ) => {
     ++syncRequestIdRef.current;
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (
@@ -847,6 +850,10 @@ export const useMatchLifecycle = () => {
               normalizedMatchId
             } is locked for finalization.`,
           );
+        }
+
+        if (options?.skipPresenceReopen) {
+          return;
         }
 
         const trackedTerminationItem = await findPeriodEndTerminationQueueItem(
