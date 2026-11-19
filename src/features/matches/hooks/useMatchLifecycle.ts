@@ -9,15 +9,11 @@ import {
 import { liveQuery } from "dexie";
 import {
   db,
+  type SyncQueueItem,
   type TimeAnchor,
   type TournamentLookup,
 } from "../../../db/ttaDatabase";
 import { getNextSequenceNumber } from "../../../db/eventService";
-import {
-  getPeriodEndTermination,
-  clearPeriodEndTermination,
-  type PeriodEndTerminationRecord,
-} from "../../../db/presenceService";
 import { apiClient } from "../../../api/client";
 import { matchLockService } from "../../../services/matchLockService";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
@@ -369,56 +365,40 @@ const reopenPresencesByIds = async (presenceIds: string[]): Promise<void> => {
 };
 
 /**
- * Deletes the exact /presence/terminate sync queue item created by a tracked period-end operation,
- * including empty-lineup period-end terminations, without touching disciplinary exits.
+ * Finds the latest pending /presence/terminate queue item persisted with
+ * atomic period-end metadata for the given match and period.
  */
-const purgePeriodEndTerminationQueueItem = async (
+const findPeriodEndTerminationQueueItem = async (
   matchId: string,
   periodNumber: number,
-  record: PeriodEndTerminationRecord,
-): Promise<void> => {
-  if (!matchId || !db?.syncQueue) return;
+): Promise<SyncQueueItem | undefined> => {
+  if (!matchId || !db?.syncQueue) return undefined;
 
-  if (typeof record.queueItemId === "number") {
-    await db.syncQueue.delete(record.queueItemId);
-    return;
-  }
+  const normalizedMatchId = matchId.trim();
+  const terminateEndpoint = `/Matches/${normalizedMatchId}/presence/terminate`;
 
-  const terminateEndpoint = `/Matches/${matchId}/presence/terminate`;
-  const expectedLineupIds = new Set(record.closedLineupIds);
-  const matchingItems = await db.syncQueue
-    .filter((item) => {
-      if (item.endpoint !== terminateEndpoint) return false;
-      try {
-        const data = JSON.parse(item.payload) as {
-          periodNumber?: number;
-          timeOut?: string;
-          playerLineupIds?: string[];
-        };
-        if (data.periodNumber !== periodNumber) return false;
-        if (data.timeOut !== record.timeOut) return false;
-        if (!Array.isArray(data.playerLineupIds)) return false;
-        return (
-          data.playerLineupIds.length === expectedLineupIds.size &&
-          data.playerLineupIds.every((id) => expectedLineupIds.has(id))
-        );
-      } catch {
-        return false;
-      }
-    })
+  const matches = await db.syncQueue
+    .filter(
+      (item) =>
+        item.endpoint === terminateEndpoint &&
+        item.periodEndMeta?.matchId === normalizedMatchId &&
+        item.periodEndMeta?.periodNumber === periodNumber,
+    )
     .toArray();
 
-  await Promise.all(
-    matchingItems.map(async (item) => {
-      if (item.id !== undefined) {
-        await db.syncQueue.delete(item.id);
-      }
-    }),
-  );
+  if (matches.length === 0) return undefined;
+
+  matches.sort((a, b) => {
+    const timeDiff = b.createdAt.localeCompare(a.createdAt);
+    if (timeDiff !== 0) return timeDiff;
+    return (b.id ?? 0) - (a.id ?? 0);
+  });
+
+  return matches[0];
 };
 
 /**
- * Fallback queue purge when no in-memory period-end termination record exists.
+ * Fallback queue purge when no persisted period-end metadata exists on syncQueue items.
  * Preserves earlier substitutions and disciplinary exits; when no presences were reopened,
  * only purges empty-lineup period-end termination requests.
  */
@@ -847,9 +827,6 @@ export const useMatchLifecycle = () => {
     }
 
     const currentPeriod = periodNumberRef.current;
-    const terminationRecord = normalizedMatchId
-      ? getPeriodEndTermination(normalizedMatchId, currentPeriod)
-      : undefined;
 
     await db.transaction(
       "rw",
@@ -872,13 +849,18 @@ export const useMatchLifecycle = () => {
           );
         }
 
-        if (terminationRecord) {
-          await reopenPresencesByIds(terminationRecord.closedPresenceIds);
-          await purgePeriodEndTerminationQueueItem(
-            normalizedMatchId,
-            currentPeriod,
-            terminationRecord,
+        const trackedTerminationItem = await findPeriodEndTerminationQueueItem(
+          normalizedMatchId,
+          currentPeriod,
+        );
+
+        if (trackedTerminationItem?.periodEndMeta) {
+          await reopenPresencesByIds(
+            trackedTerminationItem.periodEndMeta.closedPresenceIds,
           );
+          if (trackedTerminationItem.id !== undefined) {
+            await db.syncQueue.delete(trackedTerminationItem.id);
+          }
         } else {
           const reopened = await reopenClosedPlayerPresences(
             normalizedMatchId,
@@ -894,10 +876,6 @@ export const useMatchLifecycle = () => {
         }
       },
     );
-
-    if (normalizedMatchId && terminationRecord) {
-      clearPeriodEndTermination(normalizedMatchId, currentPeriod);
-    }
 
     if (!isCurrentContext(normalizedMatchId, currentPeriod)) {
       return;

@@ -6,10 +6,6 @@ import {
   substitutePlayerTx,
   exitPlayerPresenceTx,
   enterPlayerPresenceTx,
-  getPeriodEndTermination,
-  clearPeriodEndTermination,
-  clearAllPeriodEndTerminations,
-  clearInMemoryPeriodEndTerminations,
 } from "../../db/presenceService";
 
 vi.mock("../../db/ttaDatabase", () => ({
@@ -48,7 +44,6 @@ describe("presenceService Database Transactions", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    clearAllPeriodEndTerminations();
   });
 
   it("initializePeriodPresenceTx should bulk-add presences and add a sync queue item matching InitializePresenceRequest DTO contract", async () => {
@@ -175,6 +170,13 @@ describe("presenceService Database Transactions", () => {
         timeOut: mockEndTimestamp,
       }),
       createdAt: mockEndTimestamp,
+      periodEndMeta: {
+        matchId: mockMatchId,
+        periodNumber: mockPeriodNumber,
+        timeOut: mockEndTimestamp,
+        closedPresenceIds: ["pres-1", "pres-2"],
+        closedLineupIds: mockPlayerLineupIds,
+      },
     });
   });
 
@@ -380,11 +382,10 @@ describe("presenceService Database Transactions", () => {
     ).rejects.toThrow("Player already has an active presence in this period.");
   });
 
-  it("terminatePeriodPresenceTx should record closed presence IDs and queueItemId and allow clearing via registry helpers", async () => {
+  it("terminatePeriodPresenceTx should persist periodEndMeta inside the same IndexedDB transaction and reject if queue persistence fails", async () => {
     const mockEndTimestamp = "2026-07-22T10:08:00.000Z";
     const mockPresencesDataset = [
       { id: "pres-1", matchLineupId: "lineup-1", timeOut: null },
-      { id: "pres-2", matchLineupId: "lineup-2", timeOut: null },
     ];
 
     vi.mocked(db.playerpresences.where).mockReturnValue({
@@ -399,42 +400,27 @@ describe("presenceService Database Transactions", () => {
       }),
     } as unknown as ReturnType<typeof db.playerpresences.where>);
 
-    vi.mocked(db.syncQueue.add).mockResolvedValueOnce(42 as never);
-
-    await terminatePeriodPresenceTx(
-      `  ${mockMatchId}  `,
-      mockPeriodNumber,
-      mockPlayerLineupIds,
-      mockEndTimestamp,
+    vi.mocked(db.syncQueue.add).mockRejectedValueOnce(
+      new Error("IndexedDB queue write interrupted"),
     );
 
-    const expectedRecord = {
-      matchId: mockMatchId,
-      periodNumber: mockPeriodNumber,
-      timeOut: mockEndTimestamp,
-      closedPresenceIds: ["pres-1", "pres-2"],
-      closedLineupIds: mockPlayerLineupIds,
-      queueItemId: 42,
-    };
+    await expect(
+      terminatePeriodPresenceTx(
+        `  ${mockMatchId}  `,
+        mockPeriodNumber,
+        ["lineup-1"],
+        mockEndTimestamp,
+      ),
+    ).rejects.toThrow("IndexedDB queue write interrupted");
 
-    expect(getPeriodEndTermination(mockMatchId, mockPeriodNumber)).toEqual(
-      expectedRecord,
+    expect(db.transaction).toHaveBeenCalledWith(
+      "rw",
+      [db.playerpresences, db.syncQueue],
+      expect.any(Function),
     );
-
-    // Simulate a page reload by clearing only the in-memory cache
-    clearInMemoryPeriodEndTerminations();
-
-    expect(getPeriodEndTermination(mockMatchId, mockPeriodNumber)).toEqual(
-      expectedRecord,
-    );
-
-    clearPeriodEndTermination(mockMatchId, mockPeriodNumber);
-    expect(
-      getPeriodEndTermination(mockMatchId, mockPeriodNumber),
-    ).toBeUndefined();
   });
 
-  it("exitPlayerPresenceTx should not register a period-end termination record", async () => {
+  it("exitPlayerPresenceTx should not attach periodEndMeta to its sync queue item", async () => {
     const exitTime = "2026-07-22T10:03:00.000Z";
     vi.mocked(db.playerpresences.where).mockReturnValue({
       filter: vi.fn().mockReturnValue({
@@ -448,8 +434,6 @@ describe("presenceService Database Transactions", () => {
       }),
     } as unknown as ReturnType<typeof db.playerpresences.where>);
 
-    vi.mocked(db.syncQueue.add).mockResolvedValueOnce(99 as never);
-
     await exitPlayerPresenceTx(
       mockMatchId,
       mockPeriodNumber,
@@ -457,8 +441,7 @@ describe("presenceService Database Transactions", () => {
       exitTime,
     );
 
-    expect(
-      getPeriodEndTermination(mockMatchId, mockPeriodNumber),
-    ).toBeUndefined();
+    const addedItem = vi.mocked(db.syncQueue.add).mock.calls[0][0];
+    expect(addedItem).not.toHaveProperty("periodEndMeta");
   });
 });

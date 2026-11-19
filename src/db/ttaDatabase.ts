@@ -162,12 +162,21 @@ export interface PlayerPresence {
   isSynced: number;
 }
 
+export interface PeriodEndTerminationMeta {
+  matchId: string;
+  periodNumber: number;
+  timeOut: string;
+  closedPresenceIds: string[];
+  closedLineupIds: string[];
+}
+
 export interface SyncQueueItem {
   id?: number;
   actionType: "POST" | "PUT" | "DELETE";
   endpoint: string;
   payload: string;
   createdAt: string;
+  periodEndMeta?: PeriodEndTerminationMeta;
 }
 
 export class TTADatabase extends Dexie {

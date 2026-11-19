@@ -1,158 +1,6 @@
 import { db, type PlayerPresence, type SyncQueueItem } from "./ttaDatabase";
 import { getNextSequenceNumber } from "./eventService";
 
-export interface PeriodEndTerminationRecord {
-  matchId: string;
-  periodNumber: number;
-  timeOut: string;
-  closedPresenceIds: string[];
-  closedLineupIds: string[];
-  queueItemId?: number;
-}
-
-const PERIOD_END_STORAGE_PREFIX = "tta:periodEndTermination:";
-const periodEndTerminations = new Map<string, PeriodEndTerminationRecord>();
-
-const getPeriodEndTerminationKey = (
-  matchId: string,
-  periodNumber: number,
-): string => `${matchId.trim()}:${periodNumber}`;
-
-const getLocalStorageSafe = (): Storage | null => {
-  try {
-    return typeof globalThis.localStorage !== "undefined"
-      ? globalThis.localStorage
-      : null;
-  } catch {
-    return null;
-  }
-};
-
-const readPersistedTermination = (
-  key: string,
-): PeriodEndTerminationRecord | undefined => {
-  const storage = getLocalStorageSafe();
-  if (!storage) return undefined;
-
-  try {
-    const raw = storage.getItem(`${PERIOD_END_STORAGE_PREFIX}${key}`);
-    if (!raw) return undefined;
-
-    const parsed = JSON.parse(raw) as Partial<PeriodEndTerminationRecord>;
-    if (
-      typeof parsed.matchId !== "string" ||
-      typeof parsed.periodNumber !== "number" ||
-      typeof parsed.timeOut !== "string" ||
-      !Array.isArray(parsed.closedPresenceIds) ||
-      !Array.isArray(parsed.closedLineupIds)
-    ) {
-      return undefined;
-    }
-
-    return {
-      matchId: parsed.matchId,
-      periodNumber: parsed.periodNumber,
-      timeOut: parsed.timeOut,
-      closedPresenceIds: [...parsed.closedPresenceIds],
-      closedLineupIds: [...parsed.closedLineupIds],
-      queueItemId:
-        typeof parsed.queueItemId === "number" ? parsed.queueItemId : undefined,
-    };
-  } catch {
-    return undefined;
-  }
-};
-
-const writePersistedTermination = (
-  key: string,
-  record: PeriodEndTerminationRecord,
-): void => {
-  const storage = getLocalStorageSafe();
-  if (!storage) return;
-
-  try {
-    storage.setItem(
-      `${PERIOD_END_STORAGE_PREFIX}${key}`,
-      JSON.stringify(record),
-    );
-  } catch {
-    // Ignore storage quota or privacy-mode errors; in-memory map still holds the record
-  }
-};
-
-const removePersistedTermination = (key: string): void => {
-  const storage = getLocalStorageSafe();
-  if (!storage) return;
-
-  try {
-    storage.removeItem(`${PERIOD_END_STORAGE_PREFIX}${key}`);
-  } catch {
-    // Ignore storage errors
-  }
-};
-
-const clearPersistedTerminations = (): void => {
-  const storage = getLocalStorageSafe();
-  if (!storage) return;
-
-  try {
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < storage.length; i++) {
-      const k = storage.key(i);
-      if (k && k.startsWith(PERIOD_END_STORAGE_PREFIX)) {
-        keysToRemove.push(k);
-      }
-    }
-    keysToRemove.forEach((k) => storage.removeItem(k));
-  } catch {
-    // Ignore storage errors
-  }
-};
-
-export const getPeriodEndTermination = (
-  matchId: string,
-  periodNumber: number,
-): PeriodEndTerminationRecord | undefined => {
-  const normalizedMatchId = matchId.trim();
-  if (!normalizedMatchId) return undefined;
-  const key = getPeriodEndTerminationKey(normalizedMatchId, periodNumber);
-
-  const inMemory = periodEndTerminations.get(key);
-  if (inMemory) return inMemory;
-
-  const persisted = readPersistedTermination(key);
-  if (persisted) {
-    periodEndTerminations.set(key, persisted);
-    return persisted;
-  }
-
-  return undefined;
-};
-
-export const clearPeriodEndTermination = (
-  matchId: string,
-  periodNumber: number,
-): void => {
-  const normalizedMatchId = matchId.trim();
-  if (!normalizedMatchId) return;
-  const key = getPeriodEndTerminationKey(normalizedMatchId, periodNumber);
-  periodEndTerminations.delete(key);
-  removePersistedTermination(key);
-};
-
-/**
- * Clears only the in-memory cache while preserving persisted storage entries
- * (used to simulate a full page reload in tests).
- */
-export const clearInMemoryPeriodEndTerminations = (): void => {
-  periodEndTerminations.clear();
-};
-
-export const clearAllPeriodEndTerminations = (): void => {
-  periodEndTerminations.clear();
-  clearPersistedTerminations();
-};
-
 /**
  * Bulk initializes active player presence at the exact moment the period starts.
  * Uses the timestamp provided by the match lifecycle timer.
@@ -208,8 +56,8 @@ export async function initializePeriodPresenceTx(
 /**
  * Atomically closes all active player presence sessions when the period ends.
  * Uses the timestamp provided by the match lifecycle timer.
- * Enqueues the period-end synchronization payload in db.syncQueue and persists
- * the exact closed presence IDs and queue item ID for scoped period-end undo across reloads.
+ * Enqueues the period-end synchronization payload in db.syncQueue alongside
+ * client-only undo metadata in the same IndexedDB transaction.
  */
 export async function terminatePeriodPresenceTx(
   matchId: string,
@@ -217,8 +65,7 @@ export async function terminatePeriodPresenceTx(
   playerLineupIds: string[],
   endTimestamp: string,
 ): Promise<void> {
-  let closedPresenceIds: string[] = [];
-  let queueItemId: number | undefined;
+  const normalizedMatchId = matchId.trim();
 
   await db.transaction("rw", [db.playerpresences, db.syncQueue], async () => {
     // 1. Find all active presences (where timeOut is null) for this period
@@ -230,7 +77,7 @@ export async function terminatePeriodPresenceTx(
       )
       .toArray();
 
-    closedPresenceIds = activePresences.map((presence) => presence.id);
+    const closedPresenceIds = activePresences.map((presence) => presence.id);
 
     // 2. Update each active player session with the end timestamp in parallel
     await Promise.all(
@@ -243,6 +90,7 @@ export async function terminatePeriodPresenceTx(
     );
 
     // 3. Enqueue the period-end synchronization payload matching TerminatePresenceRequest DTO
+    //    alongside atomic client-only undo metadata in the same IndexedDB transaction.
     const payload = JSON.stringify({
       periodNumber,
       playerLineupIds,
@@ -254,28 +102,17 @@ export async function terminatePeriodPresenceTx(
       endpoint: `/Matches/${matchId}/presence/terminate`,
       payload,
       createdAt: endTimestamp,
+      periodEndMeta: {
+        matchId: normalizedMatchId,
+        periodNumber,
+        timeOut: endTimestamp,
+        closedPresenceIds,
+        closedLineupIds: [...playerLineupIds],
+      },
     };
 
-    const addedId = await db.syncQueue.add(syncItem);
-    if (typeof addedId === "number") {
-      queueItemId = addedId;
-    }
+    await db.syncQueue.add(syncItem);
   });
-
-  const normalizedMatchId = matchId.trim();
-  if (normalizedMatchId) {
-    const key = getPeriodEndTerminationKey(normalizedMatchId, periodNumber);
-    const record: PeriodEndTerminationRecord = {
-      matchId: normalizedMatchId,
-      periodNumber,
-      timeOut: endTimestamp,
-      closedPresenceIds,
-      closedLineupIds: [...playerLineupIds],
-      queueItemId,
-    };
-    periodEndTerminations.set(key, record);
-    writePersistedTermination(key, record);
-  }
 }
 
 /**
