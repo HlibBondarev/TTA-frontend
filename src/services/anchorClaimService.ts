@@ -117,14 +117,7 @@ class AnchorClaimService {
     );
     if (uniqueIds.length === 0) return;
 
-    for (const id of uniqueIds) {
-      this.ambiguousAnchors.add(id);
-    }
-    this.notify();
-
-    if (!canPersistClaimsInDb()) return;
-
-    try {
+    if (canPersistClaimsInDb()) {
       await runAnchorWriteTx(async () => {
         for (const id of uniqueIds) {
           const existing = await db.timeanchors.get(id);
@@ -133,12 +126,12 @@ class AnchorClaimService {
           }
         }
       });
-    } catch (err) {
-      console.error(
-        "[AnchorClaimService] Failed to persist ambiguous sync state:",
-        err,
-      );
     }
+
+    for (const id of uniqueIds) {
+      this.ambiguousAnchors.add(id);
+    }
+    this.notify();
   }
 
   async clearAmbiguousAcrossTabs(anchorIds: string[]): Promise<void> {

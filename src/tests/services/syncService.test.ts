@@ -4313,5 +4313,121 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       expect(wasClaimedDuringPost).toBe(true);
       expect(anchorClaimService.isClaimed(anchorId)).toBe(false);
     });
+
+    it("aborts both processSyncQueue and syncMatchBatch without sending HTTP requests when persisting syncOutcomeAmbiguous fails", async () => {
+      const { anchorClaimService } = await import(
+        "../../services/anchorClaimService"
+      );
+      const matchId = "m-ambiguous-write-fail";
+      const anchorId = "anchor-ambiguous-fail-1";
+      const endTimestamp = "2026-11-19T10:15:00.000Z";
+
+      const localAnchor: {
+        id: string;
+        matchId: string;
+        periodNumber: number;
+        type: number;
+        timestamp: string;
+        sequenceNumber: number;
+        isSynced: number;
+        syncClaim?: { owner: "sync" | "undo"; token: string; expiresAt: number };
+        syncOutcomeAmbiguous?: boolean;
+      } = {
+        id: anchorId,
+        matchId,
+        periodNumber: 1,
+        type: 1,
+        timestamp: endTimestamp,
+        sequenceNumber: 5,
+        isSynced: 0,
+      };
+
+      const originalGet = (db.timeanchors as unknown as { get?: unknown }).get;
+      const originalUpdate = (
+        db.timeanchors as unknown as { update?: unknown }
+      ).update;
+      const consoleErrorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+
+      try {
+        (db.timeanchors as unknown as { get?: unknown }).get = vi
+          .fn()
+          .mockImplementation((id: string) =>
+            Promise.resolve(id === anchorId ? { ...localAnchor } : undefined),
+          );
+        (db.timeanchors as unknown as { update?: unknown }).update = vi
+          .fn()
+          .mockImplementation(
+            (id: string, changes: Record<string, unknown>) => {
+              if (id === anchorId && changes.syncOutcomeAmbiguous === true) {
+                return Promise.reject(
+                  new Error("IndexedDB quota error persisting ambiguity flag"),
+                );
+              }
+              if (id === anchorId) {
+                Object.assign(localAnchor, changes);
+              }
+              return Promise.resolve(1);
+            },
+          );
+
+        // 1. Manual sync (processSyncQueue) must abort without calling apiClient.post
+        vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            {
+              id: 951,
+              actionType: "POST",
+              endpoint: `/Matches/${matchId}/anchors`,
+              payload: JSON.stringify([
+                {
+                  id: anchorId,
+                  periodNumber: 1,
+                  type: 1,
+                  timestamp: endTimestamp,
+                },
+              ]),
+              createdAt: endTimestamp,
+            },
+          ]),
+        } as never);
+
+        const manualSynced = await processSyncQueue(matchId);
+        expect(manualSynced).toBe(0);
+        expect(apiClient.post).not.toHaveBeenCalled();
+        expect(anchorClaimService.isClaimed(anchorId)).toBe(false);
+        expect(localAnchor.syncClaim).toBeUndefined();
+        expect(anchorClaimService.hasAmbiguousOutcome(localAnchor)).toBe(false);
+
+        // 2. Batch sync (syncMatchBatch) must also abort without calling apiClient.post
+        vi.mocked(db.matchlineups.where).mockReturnValue({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        } as never);
+        vi.mocked(db.timeanchors.where).mockReturnValue({
+          equals: vi.fn().mockReturnValue({
+            filter: vi.fn().mockReturnValue({
+              toArray: vi.fn().mockResolvedValue([{ ...localAnchor }]),
+            }),
+          }),
+          anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
+        } as never);
+
+        await expect(syncMatchBatch(matchId)).rejects.toThrow(
+          "IndexedDB quota error persisting ambiguity flag",
+        );
+        expect(apiClient.post).not.toHaveBeenCalled();
+        expect(anchorClaimService.isClaimed(anchorId)).toBe(false);
+        expect(localAnchor.syncClaim).toBeUndefined();
+        expect(anchorClaimService.hasAmbiguousOutcome(localAnchor)).toBe(false);
+      } finally {
+        consoleErrorSpy.mockRestore();
+        anchorClaimService.clearAll();
+        (db.timeanchors as unknown as { get?: unknown }).get = originalGet;
+        (db.timeanchors as unknown as { update?: unknown }).update =
+          originalUpdate;
+      }
+    });
   });
 });
