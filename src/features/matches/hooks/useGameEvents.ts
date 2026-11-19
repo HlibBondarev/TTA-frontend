@@ -126,13 +126,12 @@ const trackInFlightRemoval = <T>(
 const waitForInFlightRemovals = async (
   normalizedMatchId: string,
 ): Promise<void> => {
-  while (true) {
-    const inFlightSet = inFlightRemovalsByMatch.get(normalizedMatchId);
-    if (!inFlightSet || inFlightSet.size === 0) {
-      return;
-    }
-    await Promise.allSettled(Array.from(inFlightSet));
+  const inFlightSet = inFlightRemovalsByMatch.get(normalizedMatchId);
+  if (!inFlightSet || inFlightSet.size === 0) {
+    return;
   }
+  await Promise.allSettled(Array.from(inFlightSet));
+  return waitForInFlightRemovals(normalizedMatchId);
 };
 
 const subscribePendingRemovals = (listener: () => void): (() => void) => {
@@ -198,9 +197,7 @@ const loadPlayerPeriodPresences = async (
   periodNumber: number,
 ): Promise<PlayerPresence[]> => {
   if (!db.playerpresences?.where) return [];
-  return db.playerpresences
-    .where({ matchLineupId, periodNumber })
-    .toArray();
+  return db.playerpresences.where({ matchLineupId, periodNumber }).toArray();
 };
 
 const loadMaxPersonalFouls = async (
@@ -226,9 +223,7 @@ const loadMaxPersonalFouls = async (
     : null;
 };
 
-const loadPlayerGameEvents = async (
-  event: GameEvent,
-): Promise<GameEvent[]> => {
+const loadPlayerGameEvents = async (event: GameEvent): Promise<GameEvent[]> => {
   const loadedEvents = db.gameevents?.where
     ? await db.gameevents
         .where("matchLineupId")
@@ -255,9 +250,7 @@ const loadEventDefinitionsById = async (
   if (typeof db.eventdefinitions.bulkGet === "function") {
     defs = await db.eventdefinitions.bulkGet(defIds);
   } else if (typeof db.eventdefinitions.get === "function") {
-    defs = await Promise.all(
-      defIds.map((id) => db.eventdefinitions.get(id)),
-    );
+    defs = await Promise.all(defIds.map((id) => db.eventdefinitions.get(id)));
   }
 
   for (const def of defs) {
@@ -524,9 +517,11 @@ const groupPendingRemovalsByPlayer = (
     }
   }
 
-  return Array.from(byPlayer.values()).map((playerEntries) =>
-    playerEntries.sort(comparePendingRemovalEntriesAsc),
-  );
+  const grouped = Array.from(byPlayer.values());
+  for (const playerEntries of grouped) {
+    playerEntries.sort(comparePendingRemovalEntriesAsc);
+  }
+  return grouped;
 };
 
 const retryPlayerPendingRemovals = async (
@@ -699,16 +694,12 @@ export const useGameEvents = (matchId: string, userId?: string) => {
   ): Promise<GameEventMutationResult> => {
     const normalizedMatchId = matchId?.trim();
     if (!normalizedMatchId) {
-      return Promise.reject(
-        new Error("Active match ID is missing or empty."),
-      );
+      return Promise.reject(new Error("Active match ID is missing or empty."));
     }
 
     if (isPeriodEndInProgressForMatch(normalizedMatchId)) {
       return Promise.reject(
-        new Error(
-          "Cannot record game event while period end is in progress.",
-        ),
+        new Error("Cannot record game event while period end is in progress."),
       );
     }
 
@@ -793,16 +784,12 @@ export const useGameEvents = (matchId: string, userId?: string) => {
   ): Promise<GameEventMutationResult> => {
     const normalizedMatchId = matchId?.trim();
     if (!normalizedMatchId) {
-      return Promise.reject(
-        new Error("Active match ID is missing or empty."),
-      );
+      return Promise.reject(new Error("Active match ID is missing or empty."));
     }
 
     if (isPeriodEndInProgressForMatch(normalizedMatchId)) {
       return Promise.reject(
-        new Error(
-          "Cannot update game event while period end is in progress.",
-        ),
+        new Error("Cannot update game event while period end is in progress."),
       );
     }
 
