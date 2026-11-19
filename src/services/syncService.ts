@@ -623,6 +623,7 @@ const matchesInitializePresencePayload = (
 const matchesSubstitutionPresencePayload = (
   presence: PlayerPresence,
   presencePayload: Record<string, unknown>,
+  targetClosedPresenceIds: Set<string> | null,
 ): boolean => {
   const playerOutId =
     typeof presencePayload.playerOutLineupId === "string"
@@ -639,6 +640,12 @@ const matchesSubstitutionPresencePayload = (
   const targetSubTime = normalizeIsoTimestamp(presencePayload.substitutionTime);
 
   if (playerOutId && presence.matchLineupId === playerOutId) {
+    if (
+      targetClosedPresenceIds &&
+      !targetClosedPresenceIds.has(presence.id)
+    ) {
+      return false;
+    }
     if (presence.timeIn === null || presence.timeOut === null) {
       return false;
     }
@@ -696,27 +703,32 @@ const buildManualPresenceFilter = (
       matchesInitializePresencePayload(presence, presenceItems, targetTimeIn);
   }
 
+  const targetClosedPresenceIds = Array.isArray(closedPresenceIds)
+    ? new Set(closedPresenceIds)
+    : null;
+
   if (
     typeof presencePayload.playerOutLineupId === "string" ||
     typeof presencePayload.playerInLineupId === "string"
   ) {
     return (presence) =>
-      matchesSubstitutionPresencePayload(presence, presencePayload);
+      matchesSubstitutionPresencePayload(
+        presence,
+        presencePayload,
+        targetClosedPresenceIds,
+      );
   }
 
   const affectedLineupIds = new Set<string>(
     extractPresenceLineupIds(presencePayload),
   );
   const targetTimeOut = normalizeIsoTimestamp(presencePayload.timeOut);
-  const targetPresenceIds = Array.isArray(closedPresenceIds)
-    ? new Set(closedPresenceIds)
-    : null;
   return (presence) =>
     matchesTerminatePresencePayload(
       presence,
       affectedLineupIds,
       targetTimeOut,
-      targetPresenceIds,
+      targetClosedPresenceIds,
     );
 };
 

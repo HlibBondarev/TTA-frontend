@@ -330,6 +330,7 @@ export async function substitutePlayerTx(
         endpoint: `/Matches/${matchId}/substitutions`,
         payload,
         createdAt: timestamp,
+        closedPresenceIds: [activePresence.id],
       };
 
       await db.syncQueue.add(syncItem);

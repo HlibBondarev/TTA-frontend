@@ -256,6 +256,7 @@ describe("presenceService Database Transactions", () => {
       actionType: "POST",
       endpoint: `/Matches/${mockMatchId}/substitutions`,
       createdAt: expect.any(String),
+      closedPresenceIds: ["pres-out"],
     });
 
     const parsedPayload = JSON.parse(syncCall.payload);
