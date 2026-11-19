@@ -9,6 +9,7 @@ import {
   getPeriodEndTermination,
   clearPeriodEndTermination,
   clearAllPeriodEndTerminations,
+  clearInMemoryPeriodEndTerminations,
 } from "../../db/presenceService";
 
 vi.mock("../../db/ttaDatabase", () => ({
@@ -407,14 +408,25 @@ describe("presenceService Database Transactions", () => {
       mockEndTimestamp,
     );
 
-    expect(getPeriodEndTermination(mockMatchId, mockPeriodNumber)).toEqual({
+    const expectedRecord = {
       matchId: mockMatchId,
       periodNumber: mockPeriodNumber,
       timeOut: mockEndTimestamp,
       closedPresenceIds: ["pres-1", "pres-2"],
       closedLineupIds: mockPlayerLineupIds,
       queueItemId: 42,
-    });
+    };
+
+    expect(getPeriodEndTermination(mockMatchId, mockPeriodNumber)).toEqual(
+      expectedRecord,
+    );
+
+    // Simulate a page reload by clearing only the in-memory cache
+    clearInMemoryPeriodEndTerminations();
+
+    expect(getPeriodEndTermination(mockMatchId, mockPeriodNumber)).toEqual(
+      expectedRecord,
+    );
 
     clearPeriodEndTermination(mockMatchId, mockPeriodNumber);
     expect(
