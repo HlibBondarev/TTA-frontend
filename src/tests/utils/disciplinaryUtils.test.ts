@@ -453,5 +453,60 @@ describe("disciplinaryUtils", () => {
         }),
       ).toBe(true);
     });
+
+    it("preserves re-entry after an earlier timed penalty while still removing on a new timed penalty after re-entry", () => {
+      const earlierPenalty = makeEvent({
+        id: "evt-penalty-1",
+        matchLineupId: "p1",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-18T10:02:00.000Z",
+        sequenceNumber: 10,
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: 20,
+      });
+      const reEntryPresence = makePresence({
+        id: "pres-reentry",
+        matchLineupId: "p1",
+        periodNumber: 1,
+        timeIn: "2026-11-18T10:03:00.000Z",
+        timeOut: null,
+        sequenceNumber: 15,
+      });
+      const laterPenalty = makeEvent({
+        id: "evt-penalty-2",
+        matchLineupId: "p1",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-18T10:05:00.000Z",
+        sequenceNumber: 20,
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: 20,
+      });
+
+      // Editing or retrying earlierPenalty after re-entry should NOT auto-remove
+      expect(
+        shouldAutoRemoveActivePlayer({
+          event: earlierPenalty,
+          playerGameEvents: [earlierPenalty],
+          eventDefinitionsById: new Map(),
+          periodPresences: [reEntryPresence],
+          maxPersonalFouls: 3,
+          currentPeriod: 1,
+          isPeriodActive: true,
+        }),
+      ).toBe(false);
+
+      // A new timed penalty after re-entry MUST auto-remove
+      expect(
+        shouldAutoRemoveActivePlayer({
+          event: laterPenalty,
+          playerGameEvents: [earlierPenalty, laterPenalty],
+          eventDefinitionsById: new Map(),
+          periodPresences: [reEntryPresence],
+          maxPersonalFouls: 3,
+          currentPeriod: 1,
+          isPeriodActive: true,
+        }),
+      ).toBe(true);
+    });
   });
 });

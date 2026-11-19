@@ -444,4 +444,46 @@ describe("presenceService Database Transactions", () => {
     const addedItem = vi.mocked(db.syncQueue.add).mock.calls[0][0];
     expect(addedItem).not.toHaveProperty("periodEndMeta");
   });
+
+  it("initializePeriodPresenceTx should reject disqualified players before writing presences or enqueuing sync POST", async () => {
+    const originalWhere = (db.gameevents as unknown as { where?: unknown })
+      .where;
+    (db.gameevents as unknown as { where: unknown }).where = vi
+      .fn()
+      .mockReturnValue({
+        anyOf: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            {
+              id: "evt-dq",
+              matchLineupId: "lineup-2",
+              eventDefinitionId: "def-dq",
+              periodNumber: 1,
+              eventTimestamp: "2026-07-22T10:05:00.000Z",
+              foulImpact: "DisqualificationWithSub",
+              penaltyDurationSeconds: null,
+              sequenceNumber: 10,
+              isSynced: 0,
+            },
+          ]),
+        }),
+      });
+
+    try {
+      await expect(
+        initializePeriodPresenceTx(
+          mockMatchId,
+          2,
+          ["lineup-1", "lineup-2"],
+          "2026-07-22T10:15:00.000Z",
+        ),
+      ).rejects.toThrow(
+        "Cannot start period with disqualified players in the starting lineup.",
+      );
+
+      expect(db.playerpresences.bulkAdd).not.toHaveBeenCalled();
+      expect(db.syncQueue.add).not.toHaveBeenCalled();
+    } finally {
+      (db.gameevents as unknown as { where?: unknown }).where = originalWhere;
+    }
+  });
 });

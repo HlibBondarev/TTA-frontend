@@ -8,6 +8,7 @@ import presenceReducer, { setPresenceLimits } from "../store/presenceSlice";
 import matchReducer from "../../matches/store/matchSlice";
 import { db } from "../../../db/ttaDatabase";
 import {
+  findDisqualifiedLineupIds,
   initializePeriodPresenceTx,
   terminatePeriodPresenceTx,
   substitutePlayerTx,
@@ -54,6 +55,7 @@ vi.mock("../../../db/ttaDatabase", () => {
 // Mock the transactional service functions
 vi.mock("../../../db/presenceService", () => {
   return {
+    findDisqualifiedLineupIds: vi.fn().mockResolvedValue([]),
     initializePeriodPresenceTx: vi.fn().mockResolvedValue(undefined),
     terminatePeriodPresenceTx: vi.fn().mockResolvedValue(undefined),
     substitutePlayerTx: vi.fn().mockResolvedValue("new-presence-uuid"),
@@ -471,6 +473,15 @@ describe("usePlayerPresence Hook", () => {
     expect(result.current.activeLineupIds).toEqual([]);
     expect(result.current.benchLineupIds).toContain("lineup-1");
 
+    // Restore lineup-1 to active roster before testing rejection rollback
+    await act(async () => {
+      await result.current.refreshPresenceFromDB();
+    });
+    expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
+    expect(result.current.benchLineupIds).toEqual(["lineup-2"]);
+
+    const whereCallsBeforeReject = vi.mocked(db.matchlineups.where).mock.calls
+      .length;
     vi.mocked(exitPlayerPresenceTx).mockRejectedValueOnce(
       new Error("Exit failed"),
     );
@@ -483,7 +494,39 @@ describe("usePlayerPresence Hook", () => {
         );
       }),
     ).rejects.toThrow("Exit failed");
-    expect(db.matchlineups.where).toHaveBeenCalled();
+
+    expect(db.matchlineups.where).toHaveBeenCalledTimes(
+      whereCallsBeforeReject + 1,
+    );
+    expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
+    expect(result.current.benchLineupIds).toEqual(["lineup-2"]);
+  });
+
+  it("should reject startPeriodWithRoster and unstage disqualified players before initializing presences", async () => {
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 2, period: 2 }));
+    });
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    act(() => {
+      result.current.stageStartingLineup(["lineup-1", "lineup-2"]);
+    });
+
+    vi.mocked(findDisqualifiedLineupIds).mockResolvedValueOnce(["lineup-2"]);
+
+    await expect(
+      act(async () => {
+        await result.current.startPeriodWithRoster("2026-07-16T10:15:00.000Z");
+      }),
+    ).rejects.toThrow(
+      "Cannot start period with disqualified players in the starting lineup.",
+    );
+
+    expect(initializePeriodPresenceTx).not.toHaveBeenCalled();
+    expect(result.current.selectedStartingIds).toEqual(["lineup-1"]);
   });
 
   it("should enter a bench player when shorthanded via enterPlayerFromBench and enforce activePlayersLimit", async () => {

@@ -1271,4 +1271,110 @@ describe("useGameEvents Custom Hook", () => {
 
     consoleErrorSpy.mockRestore();
   });
+
+  it("should not auto-remove an active player when updating an earlier timed penalty after the player re-entered", async () => {
+    const store = configureStore({
+      reducer: {
+        match: matchReducer,
+        presence: presenceReducer,
+        auth: (state = { currentUserId: "user-123" }) => state,
+      },
+      preloadedState: {
+        match: {
+          activeMatchId: "test-match-id",
+          activeTeamId: "team-456",
+          periodNumber: 2,
+          homeScore: 0,
+          guestScore: 0,
+          isPeriodActive: true,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+          globalSequenceNumber: 20,
+          recentActions: [],
+          hydrationVersion: 0,
+        },
+        presence: {
+          currentPeriod: 2,
+          activeLineupIds: ["lineup-uuid-7", "lineup-uuid-8"],
+          benchLineupIds: ["lineup-uuid-9"],
+          selectedStartingIds: [],
+          activePlayersLimit: 7,
+          isLoading: false,
+        },
+        auth: { currentUserId: "user-123" },
+      },
+    });
+
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-7",
+      matchId: "test-match-id",
+      playerRosterId: "roster-7",
+      number: 7,
+      positionId: null,
+    });
+
+    const originalPresences = (db as unknown as { playerpresences?: unknown })
+      .playerpresences;
+    (db as unknown as { playerpresences: unknown }).playerpresences = {
+      where: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "pres-reentered",
+            matchLineupId: "lineup-uuid-7",
+            periodNumber: 2,
+            timeIn: "2026-11-18T10:07:00.000Z",
+            timeOut: null,
+            sequenceNumber: 15,
+            isSynced: 0,
+          },
+        ]),
+      }),
+    };
+
+    try {
+      vi.mocked(eventService.updateGameEventTx).mockResolvedValueOnce({
+        id: "earlier-excl-uuid",
+        matchLineupId: "lineup-uuid-7",
+        eventDefinitionId: "def-excl-id",
+        periodNumber: 2,
+        eventTimestamp: "2026-11-18T10:05:00.000Z",
+        isLeadToGoal: false,
+        locationX: 10,
+        locationY: 20,
+        shotLocationX: null,
+        shotLocationY: null,
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: 20,
+        createdAt: "2026-11-18T10:05:00.000Z",
+        sequenceNumber: 11,
+        isSynced: 0,
+      });
+
+      const { result } = renderHook(() => useGameEvents("test-match-id"), {
+        wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+      });
+
+      await act(async () => {
+        const outcome = await result.current.updateGameEvent({
+          eventId: "earlier-excl-uuid",
+          selectedPlayerId: "lineup-uuid-7",
+          actionName: "Exclusion",
+          isPositive: false,
+          isLeadToGoal: false,
+          eventDefinitionId: "def-excl-id",
+          locationX: 10,
+          locationY: 20,
+        });
+        expect(outcome).toBe(true);
+      });
+
+      expect(presenceService.exitPlayerPresenceTx).not.toHaveBeenCalled();
+      expect(store.getState().presence.activeLineupIds).toContain(
+        "lineup-uuid-7",
+      );
+    } finally {
+      (db as unknown as { playerpresences?: unknown }).playerpresences =
+        originalPresences;
+    }
+  });
 });

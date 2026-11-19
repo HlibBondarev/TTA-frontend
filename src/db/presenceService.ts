@@ -1,5 +1,108 @@
-import { db, type PlayerPresence, type SyncQueueItem } from "./ttaDatabase";
+import {
+  db,
+  type EventDefinitionLookup,
+  type PlayerPresence,
+  type SyncQueueItem,
+} from "./ttaDatabase";
 import { getNextSequenceNumber } from "./eventService";
+import { computePlayerDisciplinaryMap } from "../utils/disciplinaryUtils";
+
+const DISQUALIFIED_STARTER_ERROR =
+  "Cannot start period with disqualified players in the starting lineup.";
+
+const loadMatchMaxPersonalFouls = async (
+  matchId: string,
+): Promise<number | null> => {
+  if (
+    !db.matches?.get ||
+    !db.tournaments?.get ||
+    !db.sportconfigurations?.get
+  ) {
+    return null;
+  }
+
+  const match = await db.matches.get(matchId);
+  const tournament = match?.tournamentId
+    ? await db.tournaments.get(match.tournamentId)
+    : undefined;
+  const config = tournament?.configurationId
+    ? await db.sportconfigurations.get(tournament.configurationId)
+    : undefined;
+
+  return typeof config?.maxPersonalFouls === "number"
+    ? config.maxPersonalFouls
+    : null;
+};
+
+const loadEventDefinitionsById = async (
+  definitionIds: string[],
+): Promise<Map<string, EventDefinitionLookup>> => {
+  const definitionsById = new Map<string, EventDefinitionLookup>();
+  if (definitionIds.length === 0 || !db.eventdefinitions) {
+    return definitionsById;
+  }
+
+  let defs: Array<EventDefinitionLookup | undefined> = [];
+  if (typeof db.eventdefinitions.bulkGet === "function") {
+    defs = await db.eventdefinitions.bulkGet(definitionIds);
+  } else if (typeof db.eventdefinitions.get === "function") {
+    defs = await Promise.all(
+      definitionIds.map((id) => db.eventdefinitions.get(id)),
+    );
+  }
+
+  for (const def of defs) {
+    if (def) {
+      definitionsById.set(def.id, def);
+    }
+  }
+  return definitionsById;
+};
+
+/**
+ * Returns any lineup IDs from the provided list that are currently disqualified
+ * based on persisted game events and match sport configuration.
+ */
+export async function findDisqualifiedLineupIds(
+  matchId: string,
+  lineupIds: string[],
+): Promise<string[]> {
+  if (lineupIds.length === 0 || !db.gameevents?.where) {
+    return [];
+  }
+
+  const whereClause = db.gameevents.where("matchLineupId");
+  if (!whereClause || typeof whereClause.anyOf !== "function") {
+    return [];
+  }
+
+  const events = await whereClause.anyOf(lineupIds).toArray();
+  if (events.length === 0) {
+    return [];
+  }
+
+  const defIds = Array.from(
+    new Set(events.map((e) => e.eventDefinitionId).filter(Boolean)),
+  );
+  const [maxPersonalFouls, eventDefinitionsById] = await Promise.all([
+    loadMatchMaxPersonalFouls(matchId),
+    loadEventDefinitionsById(defIds),
+  ]);
+
+  const disciplinaryMap = computePlayerDisciplinaryMap({
+    lineupIds,
+    gameEvents: events,
+    eventDefinitionsById,
+    periodPresences: [],
+    currentPeriod: 1,
+    isPeriodActive: false,
+    activeLineupIds: [],
+    activePlayersLimit: 0,
+    maxPersonalFouls,
+  });
+
+  return lineupIds.filter((id) => disciplinaryMap[id]?.isDisqualified);
+}
 
 /**
  * Bulk initializes active player presence at the exact moment the period starts.
@@ -12,6 +115,13 @@ export async function initializePeriodPresenceTx(
   playerLineupIds: string[],
   startTimestamp: string,
 ): Promise<void> {
+  const disqualifiedIds = await findDisqualifiedLineupIds(
+    matchId,
+    playerLineupIds,
+  );
+  if (disqualifiedIds.length > 0) {
+    throw new Error(DISQUALIFIED_STARTER_ERROR);
+  }
   await db.transaction(
     "rw",
     [db.playerpresences, db.gameevents, db.timeanchors, db.syncQueue],

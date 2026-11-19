@@ -2931,5 +2931,107 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       expect(localPresences[0].isSynced).toBe(1);
       expect(db.syncQueue.delete).toHaveBeenCalledWith(401);
     });
+
+    it("keeps non-period-end PUT /presence/terminate queue item for retry when no submitted presence matches its timeOut", async () => {
+      const matchId = "m-concurrent-disciplinary-exit";
+      const exitTimestamp = "2026-11-18T10:12:00.000Z";
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi
+            .fn()
+            .mockResolvedValue([{ id: "lineup-active", matchId }]),
+        }),
+      } as never);
+
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+        anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
+      } as never);
+
+      const localPresences = [
+        {
+          id: "pres-active",
+          matchLineupId: "lineup-active",
+          periodNumber: 1,
+          timeIn: "2026-11-18T10:00:00.000Z",
+          timeOut: null as string | null,
+          sequenceNumber: 1,
+          isSynced: 0,
+        },
+      ];
+
+      vi.mocked(db.playerpresences.filter).mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockImplementation(() =>
+            Promise.resolve(localPresences.map((p) => ({ ...p }))),
+          ),
+      } as never);
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        anyOf: vi.fn().mockImplementation((ids: string[]) => ({
+          modify: vi
+            .fn()
+            .mockImplementation(
+              (
+                updater:
+                  | Record<string, unknown>
+                  | ((record: (typeof localPresences)[number]) => void),
+              ) => {
+                for (const record of localPresences) {
+                  if (!ids.includes(record.id)) continue;
+                  if (typeof updater === "function") {
+                    updater(record);
+                  } else {
+                    Object.assign(record, updater);
+                  }
+                }
+                return Promise.resolve(ids.length);
+              },
+            ),
+        })),
+      } as never);
+
+      const queueItems: Record<string, unknown>[] = [];
+      vi.mocked(db.syncQueue.toArray).mockImplementation(
+        () => Promise.resolve([...queueItems]) as never,
+      );
+
+      // While batch is in-flight, player is exited via disciplinary removal (no periodEndMeta)
+      vi.mocked(apiClient.post).mockImplementationOnce(async () => {
+        localPresences[0].timeOut = exitTimestamp;
+        localPresences[0].isSynced = 0;
+        queueItems.push({
+          id: 501,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["lineup-active"],
+            timeOut: exitTimestamp,
+          }),
+          createdAt: exitTimestamp,
+        });
+
+        return {
+          data: {
+            syncedEventIds: [],
+            syncedAnchorIds: [],
+            syncedPresenceIds: ["pres-active"],
+          },
+        };
+      });
+
+      await syncMatchBatch(matchId);
+
+      // Mutated presence must stay unsynced, and termination item without matching close time must stay queued
+      expect(localPresences[0].isSynced).toBe(0);
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(501);
+    });
   });
 });

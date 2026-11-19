@@ -16,6 +16,7 @@ import type {
   GameEvent,
   TournamentLookup,
   SportConfigurationLookup,
+  EventDefinitionLookup,
 } from "../db/ttaDatabase";
 import type { EventDefinitionResponse } from "./eventDefinitionService";
 import {
@@ -26,7 +27,11 @@ import {
   deleteMatchLocally,
   type DeleteMatchLocallyOptions,
 } from "./matchCleanupService";
-import { DEFAULT_FOUL_IMPACT } from "../utils/disciplinaryUtils";
+import {
+  DEFAULT_FOUL_IMPACT,
+  resolveEventFoulImpact,
+  resolveEventPenaltyDuration,
+} from "../utils/disciplinaryUtils";
 
 export class StaleUserError extends Error {
   constructor(message = "Operation aborted due to user account change.") {
@@ -89,9 +94,68 @@ const syncPresence = async (
   }
 };
 
+type EventDefinitionDisciplinaryFields = Pick<
+  EventDefinitionLookup,
+  "foulImpact" | "penaltyDurationSeconds"
+>;
+
+const loadStoredEventDefinitions = async (
+  definitionIds: string[],
+): Promise<Array<EventDefinitionLookup | undefined>> => {
+  if (!db.eventdefinitions || definitionIds.length === 0) {
+    return [];
+  }
+  if (typeof db.eventdefinitions.bulkGet === "function") {
+    return db.eventdefinitions.bulkGet(definitionIds);
+  }
+  if (typeof db.eventdefinitions.get === "function") {
+    return Promise.all(
+      definitionIds.map((id) => db.eventdefinitions.get(id)),
+    );
+  }
+  return [];
+};
+
+const buildEventDefinitionLookupMap = async (
+  events: GameEvent[],
+  payloadDefinitions?: EventDefinitionResponse[],
+): Promise<Map<string, EventDefinitionDisciplinaryFields>> => {
+  const definitionsById = new Map<string, EventDefinitionDisciplinaryFields>();
+
+  for (const def of payloadDefinitions ?? []) {
+    if (def.id) {
+      definitionsById.set(def.id, {
+        foulImpact: def.foulImpact,
+        penaltyDurationSeconds: def.penaltyDurationSeconds,
+      });
+    }
+  }
+
+  const missingDefIds = Array.from(
+    new Set(
+      events
+        .map((e) => e.eventDefinitionId)
+        .filter((id): id is string => Boolean(id) && !definitionsById.has(id)),
+    ),
+  );
+
+  const storedDefs = await loadStoredEventDefinitions(missingDefIds);
+  for (const def of storedDefs) {
+    if (def?.id) {
+      definitionsById.set(def.id, {
+        foulImpact: def.foulImpact,
+        penaltyDurationSeconds: def.penaltyDurationSeconds,
+      });
+    }
+  }
+
+  return definitionsById;
+};
+
 const syncEvents = async (
   matchLineupIds: Set<string>,
   events?: GameEvent[],
+  payloadDefinitions?: EventDefinitionResponse[],
 ) => {
   if (!events) return;
 
@@ -113,14 +177,21 @@ const syncEvents = async (
         .filter((e) => e.isSynced === 0)
         .primaryKeys()) as string[],
     );
+    const definitionsById = await buildEventDefinitionLookupMap(
+      events,
+      payloadDefinitions,
+    );
     const syncedEvents = events
       .filter((e) => !pendingEventIds.has(e.id))
-      .map((e) => ({
-        ...e,
-        foulImpact: e.foulImpact ?? DEFAULT_FOUL_IMPACT,
-        penaltyDurationSeconds: e.penaltyDurationSeconds ?? null,
-        isSynced: 1,
-      }));
+      .map((e) => {
+        const definition = definitionsById.get(e.eventDefinitionId);
+        return {
+          ...e,
+          foulImpact: resolveEventFoulImpact(e, definition),
+          penaltyDurationSeconds: resolveEventPenaltyDuration(e, definition),
+          isSynced: 1,
+        };
+      });
     if (syncedEvents.length > 0) {
       await db.gameevents.bulkPut(syncedEvents);
     }
@@ -238,6 +309,16 @@ const recoverPeriodFromAnchors = async (matchId: string): Promise<number> => {
     : 1;
 };
 
+const resolveRefreshedMaxPersonalFouls = (
+  freshValue: number | null | undefined,
+  cachedValue: number | null | undefined,
+): number | null => {
+  if (freshValue !== undefined) {
+    return freshValue;
+  }
+  return cachedValue ?? null;
+};
+
 const refreshSportConfigBackground = (
   sportId?: string,
   configurationId?: string,
@@ -258,10 +339,10 @@ const refreshSportConfigBackground = (
             playground:
               cachedConfig?.playground || freshConfig.playground || null,
             shotMap: cachedConfig?.shotMap || freshConfig.shotMap || null,
-            maxPersonalFouls:
-              freshConfig.maxPersonalFouls ??
-              cachedConfig?.maxPersonalFouls ??
-              null,
+            maxPersonalFouls: resolveRefreshedMaxPersonalFouls(
+              freshConfig.maxPersonalFouls,
+              cachedConfig?.maxPersonalFouls,
+            ),
           };
           await db.sportconfigurations.put(updatedConfig);
         });
@@ -646,7 +727,7 @@ const persistHydrationPayloads = async (
   await syncLineups(matchId, payloads.lineups);
   await syncAnchors(matchId, payloads.anchors);
   await syncPresence(matchLineupIds, payloads.presence);
-  await syncEvents(matchLineupIds, payloads.events);
+  await syncEvents(matchLineupIds, payloads.events, payloads.definitions);
 
   if (payloads.definitions && sportId) {
     const definitions = payloads.definitions

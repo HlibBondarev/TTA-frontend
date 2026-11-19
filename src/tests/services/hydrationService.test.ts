@@ -2420,4 +2420,139 @@ describe("Hydration Service", () => {
       maxPersonalFouls: null,
     });
   });
+
+  it("should preserve explicit fresh null maxPersonalFouls as unlimited and fall back to cached only when fresh is undefined", async () => {
+    const setupRecoveryMocks = (
+      cachedMaxPersonalFouls: number | null | undefined,
+      freshMaxPersonalFouls: number | null | undefined,
+    ) => {
+      vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+        equals: vi.fn().mockReturnValueOnce({
+          toArray: vi.fn().mockResolvedValueOnce([]),
+        }),
+      } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+      vi.mocked(db.matches.get).mockResolvedValueOnce({
+        id: matchId,
+        tournamentId: "t-1",
+      } as never);
+      vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+        id: "t-1",
+        sportId: "sport-1",
+        configurationId: "cfg-1",
+      } as never);
+
+      const cachedConfig = {
+        id: "cfg-1",
+        sportId: "sport-1",
+        activePlayersLimit: 6,
+        shotMap: null,
+        maxPersonalFouls: cachedMaxPersonalFouls,
+      };
+      vi.mocked(db.sportconfigurations.get)
+        .mockResolvedValueOnce(cachedConfig as never)
+        .mockResolvedValueOnce(cachedConfig as never);
+
+      vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+        {
+          id: "cfg-1",
+          sportId: "sport-1",
+          activePlayersLimit: 6,
+          shotMap: "<svg>ShotMap</svg>",
+          ...(freshMaxPersonalFouls !== undefined
+            ? { maxPersonalFouls: freshMaxPersonalFouls }
+            : {}),
+        },
+      ] as never);
+    };
+
+    // Case 1: Fresh null (unlimited) overrides cached numeric limit (5)
+    setupRecoveryMocks(5, null);
+    await getMatchRecoveryState(matchId);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(db.sportconfigurations.put).toHaveBeenLastCalledWith(
+      expect.objectContaining({ maxPersonalFouls: null }),
+    );
+
+    // Case 2: Fresh numeric limit (3) overrides cached numeric limit (5)
+    setupRecoveryMocks(5, 3);
+    await getMatchRecoveryState(matchId);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(db.sportconfigurations.put).toHaveBeenLastCalledWith(
+      expect.objectContaining({ maxPersonalFouls: 3 }),
+    );
+
+    // Case 3: Fresh undefined falls back to cached numeric limit (5)
+    setupRecoveryMocks(5, undefined);
+    await getMatchRecoveryState(matchId);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(db.sportconfigurations.put).toHaveBeenLastCalledWith(
+      expect.objectContaining({ maxPersonalFouls: 5 }),
+    );
+  });
+
+  it("should resolve omitted foulImpact and penaltyDurationSeconds from event definitions during hydration while preserving explicit response values", async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId })
+      .mockResolvedValueOnce([{ id: "l1", matchId }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "e-from-def",
+          matchLineupId: "l1",
+          eventDefinitionId: "def-excl",
+        },
+        {
+          id: "e-explicit",
+          matchLineupId: "l1",
+          eventDefinitionId: "def-excl",
+          foulImpact: "DisqualificationWithSub",
+          penaltyDurationSeconds: null,
+        },
+        {
+          id: "e-no-def",
+          matchLineupId: "l1",
+          eventDefinitionId: "def-unknown",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "def-excl",
+          name: "Exclusion",
+          shortName: "EX",
+          foulImpact: "PersonalFoul",
+          penaltyDurationSeconds: 20,
+        },
+      ]);
+
+    vi.mocked(db.gameevents.filter).mockReturnValue({
+      primaryKeys: vi.fn().mockResolvedValue([]),
+      toArray: vi.fn().mockResolvedValue([]),
+    } as unknown as ReturnType<typeof db.gameevents.filter>);
+
+    const result = await hydrateMatchData(matchId, teamId);
+
+    expect(result).toEqual({ success: true });
+    expect(db.gameevents.bulkPut).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: "e-from-def",
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: 20,
+        isSynced: 1,
+      }),
+      expect.objectContaining({
+        id: "e-explicit",
+        foulImpact: "DisqualificationWithSub",
+        penaltyDurationSeconds: null,
+        isSynced: 1,
+      }),
+      expect.objectContaining({
+        id: "e-no-def",
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
+        isSynced: 1,
+      }),
+    ]);
+  });
 });

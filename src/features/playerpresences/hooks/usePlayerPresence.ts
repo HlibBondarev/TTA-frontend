@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useAppDispatch, useAppSelector } from "../../../hooks/hooks";
 import { db } from "../../../db/ttaDatabase";
 import {
+  findDisqualifiedLineupIds,
   initializePeriodPresenceTx,
   terminatePeriodPresenceTx,
   substitutePlayerTx,
@@ -115,6 +116,23 @@ export function usePlayerPresence(matchId: string) {
         throw new Error(
           `Starting lineup must contain exactly ${activePlayersLimit} players.`,
         );
+      }
+      if (typeof findDisqualifiedLineupIds === "function") {
+        const disqualifiedIds = await findDisqualifiedLineupIds(
+          matchId,
+          selectedStartingIds,
+        );
+        if (disqualifiedIds.length > 0) {
+          const disqualifiedSet = new Set(disqualifiedIds);
+          dispatch(
+            setSelectedStartingIds(
+              selectedStartingIds.filter((id) => !disqualifiedSet.has(id)),
+            ),
+          );
+          throw new Error(
+            "Cannot start period with disqualified players in the starting lineup.",
+          );
+        }
       }
       try {
         await initializePeriodPresenceTx(

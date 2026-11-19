@@ -487,4 +487,62 @@ describe("PlayerPresencePanel Component", () => {
       expect(screen.queryByRole("alert")).toBeNull();
     });
   });
+
+  it("should reconcile disqualified staged players and allow unstaging a disqualified staged player without allowing re-selection", async () => {
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      currentPeriod: 2,
+      activeLineupIds: [],
+      benchLineupIds: ["lineup-1", "lineup-2"],
+      selectedStartingIds: ["lineup-1", "lineup-2"],
+      activePlayersLimit: 7,
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      executeSubstitution: mockExecuteSubstitution,
+      removePlayerFromActive: mockRemovePlayerFromActive,
+      enterPlayerFromBench: mockEnterPlayerFromBench,
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    });
+
+    vi.mocked(useMatchDisciplinaryState).mockReturnValue({
+      maxPersonalFouls: 3,
+      disciplinaryByLineupId: {
+        "lineup-2": {
+          personalFouls: 3,
+          isWarning: false,
+          isDisqualified: true,
+          disqualificationReason: "PersonalFoulLimit",
+          isServingTimedExclusion: false,
+        },
+      },
+    });
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+      {
+        preloadedState: {
+          match: { isPeriodActive: false, isPeriodEnded: false },
+        } as unknown as RootState,
+      },
+    );
+
+    // Effect automatically reconciles selectedStartingIds to strip the disqualified player
+    await waitFor(() => {
+      expect(mockStageStartingLineup).toHaveBeenCalledWith(["lineup-1"]);
+    });
+
+    // While still staged in mocked hook state, the button remains clickable to unstage
+    const dqStagedBtn = await screen.findByRole("button", {
+      name: /#10 \(disqualified, 3 of 3 personal fouls\)/i,
+    });
+    expect(dqStagedBtn).not.toBeDisabled();
+    mockStageStartingLineup.mockClear();
+
+    fireEvent.click(dqStagedBtn);
+    expect(mockStageStartingLineup).toHaveBeenCalledWith(["lineup-1"]);
+  });
 });

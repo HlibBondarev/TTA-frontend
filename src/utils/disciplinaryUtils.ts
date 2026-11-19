@@ -250,6 +250,7 @@ export interface ShouldAutoRemoveActivePlayerParams {
   eventDefinition?: EventDefinitionLookup | null;
   playerGameEvents: GameEvent[];
   eventDefinitionsById: ReadonlyMap<string, EventDefinitionLookup>;
+  periodPresences?: PlayerPresence[];
   maxPersonalFouls: number | null;
   currentPeriod: number;
   isPeriodActive: boolean;
@@ -267,6 +268,7 @@ export const shouldAutoRemoveActivePlayer = (
     eventDefinition,
     playerGameEvents,
     eventDefinitionsById,
+    periodPresences = [],
     maxPersonalFouls,
     currentPeriod,
     isPeriodActive,
@@ -296,5 +298,9 @@ export const shouldAutoRemoveActivePlayer = (
   }
 
   const penaltyDuration = resolveEventPenaltyDuration(event, eventDefinition);
-  return hasTimedPenalty(penaltyDuration);
+  if (!hasTimedPenalty(penaltyDuration)) {
+    return false;
+  }
+
+  return !hasPlayerReEnteredAfterEvent(periodPresences, event);
 };

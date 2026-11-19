@@ -312,7 +312,7 @@ const isTerminateQueueItemSynced = (
   });
 
   if (matchingPresences.length === 0) {
-    return true;
+    return false;
   }
 
   return matchingPresences.every((p) => syncedSets.presences.has(p.id));

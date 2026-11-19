@@ -17,6 +17,7 @@ import {
   db,
   type EventDefinitionLookup,
   type GameEvent,
+  type PlayerPresence,
 } from "../../../db/ttaDatabase";
 import { optimisticRemoveFromActive } from "../../playerpresences/store/presenceSlice";
 import { shouldAutoRemoveActivePlayer } from "../../../utils/disciplinaryUtils";
@@ -108,13 +109,25 @@ export const clearPendingDisciplinaryRemovals = (matchId?: string): void => {
   emitPendingRemovalChange();
 };
 
+const loadPlayerPeriodPresences = async (
+  matchLineupId: string,
+  periodNumber: number,
+): Promise<PlayerPresence[]> => {
+  if (!db.playerpresences?.where) return [];
+  return db.playerpresences
+    .where({ matchLineupId, periodNumber })
+    .toArray();
+};
+
 const loadDisciplinaryContext = async (
   matchId: string,
   event: GameEvent,
+  currentPeriod: number,
 ): Promise<{
   maxPersonalFouls: number | null;
   playerGameEvents: GameEvent[];
   eventDefinitionsById: Map<string, EventDefinitionLookup>;
+  periodPresences: PlayerPresence[];
 }> => {
   let maxPersonalFouls: number | null = null;
   if (db.matches?.get && db.tournaments?.get && db.sportconfigurations?.get) {
@@ -164,7 +177,17 @@ const loadDisciplinaryContext = async (
     }
   }
 
-  return { maxPersonalFouls, playerGameEvents, eventDefinitionsById };
+  const periodPresences = await loadPlayerPeriodPresences(
+    event.matchLineupId,
+    currentPeriod,
+  );
+
+  return {
+    maxPersonalFouls,
+    playerGameEvents,
+    eventDefinitionsById,
+    periodPresences,
+  };
 };
 
 const applyDisciplinaryAutoRemovalIfNeeded = async (
@@ -178,14 +201,19 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
   if (!isPeriodActive && !ignorePeriodInactive) return true;
 
   try {
-    const { maxPersonalFouls, playerGameEvents, eventDefinitionsById } =
-      await loadDisciplinaryContext(matchId, event);
+    const {
+      maxPersonalFouls,
+      playerGameEvents,
+      eventDefinitionsById,
+      periodPresences,
+    } = await loadDisciplinaryContext(matchId, event, currentPeriod);
 
     const shouldRemove = shouldAutoRemoveActivePlayer({
       event,
       eventDefinition: eventDefinitionsById.get(event.eventDefinitionId),
       playerGameEvents,
       eventDefinitionsById,
+      periodPresences,
       maxPersonalFouls,
       currentPeriod,
       isPeriodActive: true,

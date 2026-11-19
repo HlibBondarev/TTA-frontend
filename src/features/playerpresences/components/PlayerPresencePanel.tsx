@@ -208,6 +208,26 @@ export const PlayerPresencePanel: React.FC<{
     };
   }, [matchId, currentPeriod, isPeriodActive, isPeriodEnded, loadRosterData]);
 
+  useEffect(() => {
+    if (isPeriodActive || selectedStartingIds.length === 0) return;
+
+    const eligibleIds = selectedStartingIds.filter(
+      (id) => !disciplinaryByLineupId[id]?.isDisqualified,
+    );
+    if (eligibleIds.length !== selectedStartingIds.length) {
+      try {
+        stageStartingLineup(eligibleIds);
+      } catch {
+        // Ignore staging limit errors while reconciling disqualified players
+      }
+    }
+  }, [
+    isPeriodActive,
+    selectedStartingIds,
+    disciplinaryByLineupId,
+    stageStartingLineup,
+  ]);
+
   // Sort active lineup IDs ascending by player shirt/cap number
   const sortedActiveLineupIds = useMemo(() => {
     return [...activeLineupIds].sort((a, b) => {
@@ -273,7 +293,23 @@ export const PlayerPresencePanel: React.FC<{
 
   const handleBenchTap = async (benchId: string) => {
     const status = disciplinaryByLineupId[benchId] ?? EMPTY_DISCIPLINARY_STATUS;
-    if (status.isDisqualified) return;
+    const isStaged = selectedStartingIds.includes(benchId);
+
+    if (status.isDisqualified) {
+      if (!isPeriodActive && isStaged) {
+        setErrorMessage(null);
+        try {
+          stageStartingLineup(
+            selectedStartingIds.filter((id) => id !== benchId),
+          );
+        } catch (e: unknown) {
+          setErrorMessage(
+            e instanceof Error ? e.message : "An unknown error occurred.",
+          );
+        }
+      }
+      return;
+    }
 
     setErrorMessage(null);
 
@@ -283,7 +319,7 @@ export const PlayerPresencePanel: React.FC<{
     }
 
     try {
-      const newSelection = selectedStartingIds.includes(benchId)
+      const newSelection = isStaged
         ? selectedStartingIds.filter((id) => id !== benchId)
         : [...selectedStartingIds, benchId];
       stageStartingLineup(newSelection);
@@ -354,7 +390,7 @@ export const PlayerPresencePanel: React.FC<{
             <button
               key={id}
               type="button"
-              disabled={status.isDisqualified}
+              disabled={status.isDisqualified && (isPeriodActive || !isStaged)}
               onClick={() => void handleBenchTap(id)}
               aria-pressed={isStaged}
               aria-label={ariaLabel}
