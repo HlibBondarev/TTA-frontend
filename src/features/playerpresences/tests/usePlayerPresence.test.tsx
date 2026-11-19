@@ -5,7 +5,9 @@ import { configureStore } from "@reduxjs/toolkit";
 import React from "react";
 import { usePlayerPresence } from "../hooks/usePlayerPresence";
 import presenceReducer, { setPresenceLimits } from "../store/presenceSlice";
-import matchReducer from "../../matches/store/matchSlice";
+import matchReducer, {
+  incrementPeriodNumber,
+} from "../../matches/store/matchSlice";
 import { db } from "../../../db/ttaDatabase";
 import {
   findDisqualifiedLineupIds,
@@ -128,6 +130,13 @@ describe("usePlayerPresence Hook", () => {
   it("should refresh roster and load presence state from IndexedDB filtering out closed sessions and duplicates", async () => {
     vi.mocked(db.playerpresences.toArray).mockResolvedValueOnce([
       {
+        id: "pres-2",
+        matchLineupId: "lineup-2",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:02:00.000Z",
+        timeOut: null,
+      },
+      {
         id: "pres-1",
         matchLineupId: "lineup-1",
         periodNumber: 1,
@@ -151,8 +160,51 @@ describe("usePlayerPresence Hook", () => {
       await result.current.refreshPresenceFromDB();
     });
 
-    expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
-    expect(result.current.benchLineupIds).toEqual(["lineup-2"]);
+    // Sorted chronologically by timeIn: lineup-1 (10:00) before lineup-2 (10:02)
+    expect(result.current.activeLineupIds).toEqual(["lineup-1", "lineup-2"]);
+    expect(result.current.benchLineupIds).toEqual([]);
+  });
+
+  it("should ignore refresh result if periodNumber changed while the DB query was in flight", async () => {
+    let resolveQuery!: (value: unknown) => void;
+
+    vi.mocked(db.playerpresences.toArray).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveQuery = resolve;
+        }) as unknown as ReturnType<typeof db.playerpresences.toArray>,
+    );
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    let refreshPromise!: Promise<void>;
+    await act(async () => {
+      refreshPromise = result.current.refreshPresenceFromDB(1);
+      // Flush microtask so db.matchlineups.toArray() resolves and db.playerpresences.toArray() is invoked
+      await Promise.resolve();
+    });
+
+    // Advance period while period 1 presence query is still in flight
+    act(() => {
+      store.dispatch(incrementPeriodNumber());
+    });
+
+    await act(async () => {
+      resolveQuery([
+        {
+          id: "pres-1",
+          matchLineupId: "lineup-1",
+          periodNumber: 1,
+          timeIn: "2026-07-16T10:00:00.000Z",
+          timeOut: null,
+        },
+      ]);
+      await refreshPromise;
+    });
+
+    expect(result.current.activeLineupIds).toEqual([]);
   });
 
   it("should ignore stale refresh requests if a newer request was issued", async () => {
@@ -502,6 +554,40 @@ describe("usePlayerPresence Hook", () => {
     expect(result.current.benchLineupIds).toEqual(["lineup-2"]);
   });
 
+  it("should refresh roster and return false when exitPlayerPresenceTx reports no open presence (didExit = false)", async () => {
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await result.current.refreshPresenceFromDB();
+    });
+    expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
+
+    const whereCallsBeforeNoop = vi.mocked(db.matchlineups.where).mock.calls
+      .length;
+    vi.mocked(exitPlayerPresenceTx).mockResolvedValueOnce(false);
+
+    await act(async () => {
+      const didExit = await result.current.removePlayerFromActive(
+        "lineup-1",
+        "2026-07-16T10:04:00.000Z",
+        2,
+      );
+      expect(didExit).toBe(false);
+    });
+
+    expect(exitPlayerPresenceTx).toHaveBeenCalledWith(
+      "test-match",
+      2,
+      "lineup-1",
+      "2026-07-16T10:04:00.000Z",
+    );
+    expect(db.matchlineups.where).toHaveBeenCalledTimes(
+      whereCallsBeforeNoop + 1,
+    );
+  });
+
   it("should reject startPeriodWithRoster and unstage disqualified players before initializing presences", async () => {
     act(() => {
       store.dispatch(setPresenceLimits({ limit: 2, period: 2 }));
@@ -562,5 +648,70 @@ describe("usePlayerPresence Hook", () => {
         await result.current.enterPlayerFromBench("lineup-3");
       }),
     ).rejects.toThrow("Cannot exceed the limit of 2 active players.");
+  });
+
+  it("should validate limit, duplicate active player, overridePeriodNumber, and rollback on DB error in enterPlayerFromBench", async () => {
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    // 1. Rejects when activePlayersLimit <= 0
+    await expect(
+      act(async () => {
+        await result.current.enterPlayerFromBench("lineup-2");
+      }),
+    ).rejects.toThrow("The active players limit is not configured.");
+
+    // Configure limit = 2 and hydrate active roster with lineup-1
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 2, period: 1 }));
+    });
+    await act(async () => {
+      await result.current.refreshPresenceFromDB();
+    });
+    expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
+
+    // 2. Rejects when player is already active
+    await expect(
+      act(async () => {
+        await result.current.enterPlayerFromBench("lineup-1");
+      }),
+    ).rejects.toThrow("Player is already active.");
+    expect(enterPlayerPresenceTx).not.toHaveBeenCalled();
+
+    // 3. Advance match period to 3 so refreshPresenceFromDB(3) matches currentPeriodRef during rollback
+    act(() => {
+      store.dispatch(incrementPeriodNumber());
+      store.dispatch(incrementPeriodNumber());
+    });
+    await act(async () => {
+      await result.current.refreshPresenceFromDB(3);
+    });
+    expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
+
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const whereCallsBeforeError = vi.mocked(db.matchlineups.where).mock.calls
+      .length;
+    vi.mocked(enterPlayerPresenceTx).mockRejectedValueOnce(
+      new Error("Disqualified player entry rejected"),
+    );
+
+    await expect(
+      act(async () => {
+        await result.current.enterPlayerFromBench("lineup-2", 3);
+      }),
+    ).rejects.toThrow("Disqualified player entry rejected");
+
+    expect(enterPlayerPresenceTx).toHaveBeenCalledWith(
+      "test-match",
+      3,
+      "lineup-2",
+    );
+    expect(db.matchlineups.where).toHaveBeenCalledTimes(
+      whereCallsBeforeError + 1,
+    );
+    expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
+    expect(result.current.benchLineupIds).toEqual(["lineup-2"]);
+    consoleSpy.mockRestore();
   });
 });
