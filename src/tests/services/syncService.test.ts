@@ -657,9 +657,10 @@ describe("Sync Engine Service", () => {
     vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
 
     type PresenceFilterFn = (p: {
+      id: string;
       matchLineupId: string;
-      timeIn: number | null;
-      timeOut: number | null;
+      timeIn: string | null;
+      timeOut: string | null;
     }) => boolean;
 
     let filterPredicate: PresenceFilterFn | undefined;
@@ -680,23 +681,35 @@ describe("Sync Engine Service", () => {
     if (filterPredicate) {
       expect(
         filterPredicate({
+          id: "pres-1",
           matchLineupId: "lineup-1",
-          timeIn: 10,
-          timeOut: 20,
+          timeIn: "2026-08-07T10:00:00.000Z",
+          timeOut: null,
         }),
       ).toBe(true);
       expect(
         filterPredicate({
+          id: "pres-2",
           matchLineupId: "lineup-2",
-          timeIn: 10,
-          timeOut: 20,
+          timeIn: "2026-08-07T10:00:00.000Z",
+          timeOut: null,
         }),
       ).toBe(true);
+      // Already closed presence must not be marked synced by an initialize POST
       expect(
         filterPredicate({
+          id: "pres-1",
+          matchLineupId: "lineup-1",
+          timeIn: "2026-08-07T10:00:00.000Z",
+          timeOut: "2026-08-07T10:05:00.000Z",
+        }),
+      ).toBe(false);
+      expect(
+        filterPredicate({
+          id: "pres-other",
           matchLineupId: "other-lineup",
-          timeIn: 10,
-          timeOut: 20,
+          timeIn: "2026-08-07T10:00:00.000Z",
+          timeOut: null,
         }),
       ).toBe(false);
     }
@@ -725,9 +738,10 @@ describe("Sync Engine Service", () => {
     vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
 
     type PresenceFilterFn = (p: {
+      id: string;
       matchLineupId: string;
-      timeIn: number | null;
-      timeOut: number | null;
+      timeIn: string | null;
+      timeOut: string | null;
     }) => boolean;
 
     let filterPredicate: PresenceFilterFn | undefined;
@@ -759,23 +773,44 @@ describe("Sync Engine Service", () => {
     if (filterPredicate) {
       expect(
         filterPredicate({
+          id: "pres-out-1",
           matchLineupId: "lineup-out",
-          timeIn: 10,
-          timeOut: 20,
+          timeIn: "2026-08-07T11:30:00.000Z",
+          timeOut: "2026-08-07T11:36:30.493Z",
         }),
       ).toBe(true);
       expect(
         filterPredicate({
+          id: "pres-new-123",
           matchLineupId: "lineup-in",
-          timeIn: 10,
-          timeOut: 20,
+          timeIn: "2026-08-07T11:36:30.493Z",
+          timeOut: null,
         }),
       ).toBe(true);
+      // Outgoing player's later presence closed at a different timestamp must not match
       expect(
         filterPredicate({
+          id: "pres-out-later",
+          matchLineupId: "lineup-out",
+          timeIn: "2026-08-07T11:38:00.000Z",
+          timeOut: "2026-08-07T11:45:00.000Z",
+        }),
+      ).toBe(false);
+      // Incoming player already closed later must not be marked synced by substitution POST
+      expect(
+        filterPredicate({
+          id: "pres-new-123",
+          matchLineupId: "lineup-in",
+          timeIn: "2026-08-07T11:36:30.493Z",
+          timeOut: "2026-08-07T11:45:00.000Z",
+        }),
+      ).toBe(false);
+      expect(
+        filterPredicate({
+          id: "pres-other",
           matchLineupId: "other-lineup",
-          timeIn: 10,
-          timeOut: 20,
+          timeIn: "2026-08-07T11:30:00.000Z",
+          timeOut: "2026-08-07T11:36:30.493Z",
         }),
       ).toBe(false);
     }
@@ -3400,6 +3435,245 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       // Mutated presence must stay unsynced, and termination item without matching close time must stay queued
       expect(localPresences[0].isSynced).toBe(0);
       expect(db.syncQueue.delete).not.toHaveBeenCalledWith(501);
+    });
+
+    it("keeps re-entered presence unsynced and retains period-end queue item after earlier exit syncs and period-end PUT fails", async () => {
+      const matchId = "m-reentry-failed-period-end";
+      const earlierExitTime = "2026-11-18T10:03:00.000Z";
+      const reEntryTime = "2026-11-18T10:05:00.000Z";
+      const periodEndTime = "2026-11-18T10:10:00.000Z";
+
+      const localPresences = [
+        {
+          id: "pres-earlier-exit",
+          matchLineupId: "lineup-1",
+          periodNumber: 1,
+          timeIn: "2026-11-18T10:00:00.000Z",
+          timeOut: earlierExitTime,
+          sequenceNumber: 1,
+          isSynced: 0,
+        },
+        {
+          id: "pres-reentered",
+          matchLineupId: "lineup-1",
+          periodNumber: 1,
+          timeIn: reEntryTime,
+          timeOut: periodEndTime,
+          sequenceNumber: 2,
+          isSynced: 0,
+        },
+      ];
+
+      const localAnchors = [
+        {
+          id: "anchor-period-end-1",
+          matchId,
+          periodNumber: 1,
+          type: 1,
+          timestamp: periodEndTime,
+          sequenceNumber: 3,
+          isSynced: 1,
+        },
+      ];
+
+      const queueItems = [
+        {
+          id: 601,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["lineup-1"],
+            timeOut: earlierExitTime,
+          }),
+          createdAt: earlierExitTime,
+        },
+        {
+          id: 602,
+          actionType: "POST",
+          endpoint: `/Matches/${matchId}/presence/initialize`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            timeIn: reEntryTime,
+            presenceItems: [
+              { id: "pres-reentered", matchLineupId: "lineup-1" },
+            ],
+          }),
+          createdAt: reEntryTime,
+        },
+        {
+          id: 603,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["lineup-1"],
+            timeOut: periodEndTime,
+          }),
+          createdAt: periodEndTime,
+          periodEndMeta: {
+            matchId,
+            periodNumber: 1,
+            timeOut: periodEndTime,
+            closedPresenceIds: ["pres-reentered"],
+            closedLineupIds: ["lineup-1"],
+          },
+        },
+      ];
+
+      vi.mocked(db.syncQueue.orderBy).mockReturnValue({
+        toArray: vi.fn().mockImplementation(() => Promise.resolve([...queueItems])),
+      } as never);
+      vi.mocked(db.syncQueue.toArray).mockImplementation(
+        () => Promise.resolve([...queueItems]) as never,
+      );
+      vi.mocked(db.syncQueue.delete).mockImplementation((async (id: number) => {
+        const idx = queueItems.findIndex((item) => item.id === id);
+        if (idx !== -1) queueItems.splice(idx, 1);
+      }) as never);
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([{ id: "lineup-1", matchId }]),
+        }),
+      } as never);
+
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockImplementation((predicate: (a: (typeof localAnchors)[number]) => boolean) => ({
+            toArray: vi.fn().mockResolvedValue(localAnchors.filter(predicate)),
+          })),
+        }),
+        anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
+      } as never);
+
+      vi.mocked(db.playerpresences.filter).mockImplementation(((
+        predicate: (p: (typeof localPresences)[number]) => boolean,
+      ) => ({
+        toArray: vi
+          .fn()
+          .mockImplementation(() =>
+            Promise.resolve(
+              localPresences.filter(predicate).map((p) => ({ ...p })),
+            ),
+          ),
+      })) as never);
+
+      vi.mocked(db.playerpresences.where).mockImplementation(((field: string) => {
+        if (field === "periodNumber") {
+          return {
+            equals: vi.fn().mockImplementation((period: number) => ({
+              filter: vi.fn().mockImplementation(
+                (predicate: (p: (typeof localPresences)[number]) => boolean) => ({
+                  modify: vi
+                    .fn()
+                    .mockImplementation((changes: Record<string, unknown>) => {
+                      for (const record of localPresences) {
+                        if (record.periodNumber === period && predicate(record)) {
+                          Object.assign(record, changes);
+                        }
+                      }
+                      return Promise.resolve(1);
+                    }),
+                }),
+              ),
+            })),
+          };
+        }
+
+        return {
+          anyOf: vi.fn().mockImplementation((ids: string[]) => ({
+            toArray: vi
+              .fn()
+              .mockImplementation(() =>
+                Promise.resolve(
+                  localPresences
+                    .filter((p) => ids.includes(p.id))
+                    .map((p) => ({ ...p })),
+                ),
+              ),
+            modify: vi
+              .fn()
+              .mockImplementation(
+                (
+                  updater:
+                    | Record<string, unknown>
+                    | ((record: (typeof localPresences)[number]) => void),
+                ) => {
+                  for (const record of localPresences) {
+                    if (!ids.includes(record.id)) continue;
+                    if (typeof updater === "function") {
+                      updater(record);
+                    } else {
+                      Object.assign(record, updater);
+                    }
+                  }
+                  return Promise.resolve(ids.length);
+                },
+              ),
+          })),
+        };
+      }) as never);
+
+      const consoleWarnSpy = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => {});
+
+      // Manual sync: earlier exit PUT succeeds, re-entry POST succeeds, period-end PUT fails transiently
+      vi.mocked(apiClient.put)
+        .mockResolvedValueOnce({ status: 200 })
+        .mockRejectedValueOnce(new Error("Network timeout on period-end PUT"));
+      vi.mocked(apiClient.post).mockResolvedValueOnce({ status: 201 });
+
+      const processed = await processSyncQueue();
+      expect(processed).toBe(2);
+
+      // Earlier exit is synced, but re-entered presence closed at period end MUST remain unsynced
+      expect(localPresences[0].isSynced).toBe(1);
+      expect(localPresences[1].isSynced).toBe(0);
+      expect(queueItems.map((q) => q.id)).toEqual([603]);
+
+      // Subsequent syncMatchBatch must still include pres-reentered and keep item 603 if not acknowledged
+      vi.mocked(apiClient.post).mockResolvedValueOnce({
+        data: {
+          syncedEventIds: [],
+          syncedAnchorIds: [],
+          syncedPresenceIds: [],
+        },
+      });
+
+      await syncMatchBatch(matchId);
+
+      expect(apiClient.post).toHaveBeenLastCalledWith(
+        `/Matches/${matchId}/sync-batch`,
+        expect.objectContaining({
+          presences: [
+            expect.objectContaining({
+              id: "pres-reentered",
+              timeIn: reEntryTime,
+              timeOut: periodEndTime,
+            }),
+          ],
+        }),
+      );
+      expect(localPresences[1].isSynced).toBe(0);
+      expect(queueItems.map((q) => q.id)).toEqual([603]);
+
+      // Once syncMatchBatch acknowledges pres-reentered, item 603 is safely deleted
+      vi.mocked(apiClient.post).mockResolvedValueOnce({
+        data: {
+          syncedEventIds: [],
+          syncedAnchorIds: [],
+          syncedPresenceIds: ["pres-reentered"],
+        },
+      });
+
+      await syncMatchBatch(matchId);
+
+      expect(localPresences[1].isSynced).toBe(1);
+      expect(queueItems).toEqual([]);
+
+      consoleWarnSpy.mockRestore();
     });
   });
 });

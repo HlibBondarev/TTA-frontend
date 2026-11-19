@@ -593,6 +593,113 @@ const extractEventIds = (endpoint: string, payload: unknown): string[] =>
 const extractAnchorIds = (endpoint: string, payload: unknown): string[] =>
   extractEntityIds("anchors", endpoint, payload);
 
+const matchesInitializePresencePayload = (
+  presence: PlayerPresence,
+  presenceItems: PresenceItemPayload[],
+  targetTimeIn: string | null,
+): boolean => {
+  const matchesItem = presenceItems.some(
+    (item) =>
+      typeof item.id === "string" &&
+      item.id === presence.id &&
+      item.matchLineupId === presence.matchLineupId,
+  );
+  if (!matchesItem || presence.timeOut !== null) {
+    return false;
+  }
+  if (!targetTimeIn) {
+    return presence.timeIn !== null;
+  }
+  return normalizeIsoTimestamp(presence.timeIn) === targetTimeIn;
+};
+
+const matchesSubstitutionPresencePayload = (
+  presence: PlayerPresence,
+  presencePayload: Record<string, unknown>,
+): boolean => {
+  const playerOutId =
+    typeof presencePayload.playerOutLineupId === "string"
+      ? presencePayload.playerOutLineupId
+      : null;
+  const playerInId =
+    typeof presencePayload.playerInLineupId === "string"
+      ? presencePayload.playerInLineupId
+      : null;
+  const incomingPresenceId =
+    typeof presencePayload.incomingPresenceId === "string"
+      ? presencePayload.incomingPresenceId
+      : null;
+  const targetSubTime = normalizeIsoTimestamp(presencePayload.substitutionTime);
+
+  if (playerOutId && presence.matchLineupId === playerOutId) {
+    if (presence.timeIn === null || presence.timeOut === null) {
+      return false;
+    }
+    return targetSubTime
+      ? normalizeIsoTimestamp(presence.timeOut) === targetSubTime
+      : true;
+  }
+
+  if (playerInId && presence.matchLineupId === playerInId) {
+    if (presence.timeOut !== null) {
+      return false;
+    }
+    if (incomingPresenceId && presence.id !== incomingPresenceId) {
+      return false;
+    }
+    return targetSubTime
+      ? normalizeIsoTimestamp(presence.timeIn) === targetSubTime
+      : presence.timeIn !== null;
+  }
+
+  return false;
+};
+
+const matchesTerminatePresencePayload = (
+  presence: PlayerPresence,
+  affectedLineupIds: Set<string>,
+  targetTimeOut: string | null,
+): boolean => {
+  if (
+    !affectedLineupIds.has(presence.matchLineupId) ||
+    presence.timeIn === null ||
+    presence.timeOut === null
+  ) {
+    return false;
+  }
+  if (!targetTimeOut) {
+    return true;
+  }
+  return normalizeIsoTimestamp(presence.timeOut) === targetTimeOut;
+};
+
+const buildManualPresenceFilter = (
+  presencePayload: Record<string, unknown>,
+): ((presence: PlayerPresence) => boolean) => {
+  if (Array.isArray(presencePayload.presenceItems)) {
+    const presenceItems =
+      presencePayload.presenceItems as PresenceItemPayload[];
+    const targetTimeIn = normalizeIsoTimestamp(presencePayload.timeIn);
+    return (presence) =>
+      matchesInitializePresencePayload(presence, presenceItems, targetTimeIn);
+  }
+
+  if (
+    typeof presencePayload.playerOutLineupId === "string" ||
+    typeof presencePayload.playerInLineupId === "string"
+  ) {
+    return (presence) =>
+      matchesSubstitutionPresencePayload(presence, presencePayload);
+  }
+
+  const affectedLineupIds = new Set<string>(
+    extractPresenceLineupIds(presencePayload),
+  );
+  const targetTimeOut = normalizeIsoTimestamp(presencePayload.timeOut);
+  return (presence) =>
+    matchesTerminatePresencePayload(presence, affectedLineupIds, targetTimeOut);
+};
+
 const syncPresences = async (
   payload: unknown,
   targetStatus: number = 1,
@@ -605,19 +712,12 @@ const syncPresences = async (
     return;
   }
 
-  const affectedLineupIds = new Set<string>(
-    extractPresenceLineupIds(presencePayload),
-  );
+  const matchesPresence = buildManualPresenceFilter(presencePayload);
 
   await db.playerpresences
     .where("periodNumber")
     .equals(presencePayload.periodNumber)
-    .filter(
-      (p) =>
-        affectedLineupIds.has(p.matchLineupId) &&
-        p.timeIn !== null &&
-        p.timeOut !== null,
-    )
+    .filter(matchesPresence)
     .modify({ isSynced: targetStatus });
 };
 
