@@ -32,11 +32,24 @@ const runAnchorWriteTx = async <T>(work: () => Promise<T>): Promise<T> => {
   return work();
 };
 
+let fallbackClaimCounter = 0;
+
 const createClaimToken = (): string => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
+  if (typeof crypto !== "undefined") {
+    if (typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    if (typeof crypto.getRandomValues === "function") {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      const hex = Array.from(bytes, (b) =>
+        b.toString(16).padStart(2, "0"),
+      ).join("");
+      return `claim-${hex}`;
+    }
   }
-  return `claim-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  fallbackClaimCounter += 1;
+  return `claim-${Date.now()}-${fallbackClaimCounter}`;
 };
 
 /**
@@ -254,7 +267,10 @@ class AnchorClaimService {
         }
       });
     } catch (err) {
-      console.error("[AnchorClaimService] Failed to release DB anchor claim:", err);
+      console.error(
+        "[AnchorClaimService] Failed to release DB anchor claim:",
+        err,
+      );
     }
   }
 
