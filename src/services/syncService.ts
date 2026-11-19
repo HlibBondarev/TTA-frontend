@@ -1,9 +1,5 @@
 import { apiClient } from "../api/client";
-import {
-  db,
-  type PlayerPresence,
-  type SyncQueueItem,
-} from "../db/ttaDatabase";
+import { db, type PlayerPresence, type SyncQueueItem } from "../db/ttaDatabase";
 import {
   UNRECOVERABLE_STATUS_CODES,
   extractErrorStatus,
@@ -227,7 +223,7 @@ const loadLocalPresencesByIds = async (
       ? whereClause.anyOf(ids)
       : undefined;
 
-  if (anyOfClause && typeof anyOfClause.toArray === "function") {
+  if (typeof anyOfClause?.toArray === "function") {
     return anyOfClause.toArray();
   }
 
@@ -445,28 +441,27 @@ const cleanupBatchQueue = async (
     presences: new Set(batchData?.syncedPresenceIds ?? []),
   };
 
-  const idsToDelete: number[] = [];
+  const candidateItems = queueItems.filter(
+    (item): item is SyncQueueItem & { id: number } =>
+      item.id !== undefined &&
+      ALLOWED_BATCH_CLEANUP_ACTIONS.has(item.actionType) &&
+      item.endpoint.startsWith(prefix),
+  );
 
-  for (const item of queueItems) {
-    if (
-      item.id === undefined ||
-      !ALLOWED_BATCH_CLEANUP_ACTIONS.has(item.actionType) ||
-      !item.endpoint.startsWith(prefix)
-    ) {
-      continue;
-    }
-
-    if (
-      await shouldDeleteQueueItem(
+  const deletionFlags = await Promise.all(
+    candidateItems.map((item) =>
+      shouldDeleteQueueItem(
         normalizedMatchId,
         item,
         syncedSets,
         unsyncedPresences,
-      )
-    ) {
-      idsToDelete.push(item.id);
-    }
-  }
+      ),
+    ),
+  );
+
+  const idsToDelete = candidateItems
+    .filter((_, index) => deletionFlags[index])
+    .map((item) => item.id);
 
   if (idsToDelete.length > 0) {
     await Promise.all(idsToDelete.map((id) => db.syncQueue.delete(id)));
@@ -534,11 +529,7 @@ export const syncMatchBatch = async (
         unsyncedPresences,
       );
 
-      await cleanupBatchQueue(
-        normalizedMatchId,
-        batchData,
-        unsyncedPresences,
-      );
+      await cleanupBatchQueue(normalizedMatchId, batchData, unsyncedPresences);
     },
   );
 
@@ -620,6 +611,38 @@ const matchesInitializePresencePayload = (
   return normalizeIsoTimestamp(presence.timeIn) === targetTimeIn;
 };
 
+const matchesOutgoingSubstitutionPresence = (
+  presence: PlayerPresence,
+  targetClosedPresenceIds: Set<string> | null,
+  targetSubTime: string | null,
+): boolean => {
+  if (targetClosedPresenceIds && !targetClosedPresenceIds.has(presence.id)) {
+    return false;
+  }
+  if (presence.timeIn === null || presence.timeOut === null) {
+    return false;
+  }
+  return targetSubTime
+    ? normalizeIsoTimestamp(presence.timeOut) === targetSubTime
+    : true;
+};
+
+const matchesIncomingSubstitutionPresence = (
+  presence: PlayerPresence,
+  incomingPresenceId: string | null,
+  targetSubTime: string | null,
+): boolean => {
+  if (presence.timeOut !== null) {
+    return false;
+  }
+  if (incomingPresenceId && presence.id !== incomingPresenceId) {
+    return false;
+  }
+  return targetSubTime
+    ? normalizeIsoTimestamp(presence.timeIn) === targetSubTime
+    : presence.timeIn !== null;
+};
+
 const matchesSubstitutionPresencePayload = (
   presence: PlayerPresence,
   presencePayload: Record<string, unknown>,
@@ -640,30 +663,19 @@ const matchesSubstitutionPresencePayload = (
   const targetSubTime = normalizeIsoTimestamp(presencePayload.substitutionTime);
 
   if (playerOutId && presence.matchLineupId === playerOutId) {
-    if (
-      targetClosedPresenceIds &&
-      !targetClosedPresenceIds.has(presence.id)
-    ) {
-      return false;
-    }
-    if (presence.timeIn === null || presence.timeOut === null) {
-      return false;
-    }
-    return targetSubTime
-      ? normalizeIsoTimestamp(presence.timeOut) === targetSubTime
-      : true;
+    return matchesOutgoingSubstitutionPresence(
+      presence,
+      targetClosedPresenceIds,
+      targetSubTime,
+    );
   }
 
   if (playerInId && presence.matchLineupId === playerInId) {
-    if (presence.timeOut !== null) {
-      return false;
-    }
-    if (incomingPresenceId && presence.id !== incomingPresenceId) {
-      return false;
-    }
-    return targetSubTime
-      ? normalizeIsoTimestamp(presence.timeIn) === targetSubTime
-      : presence.timeIn !== null;
+    return matchesIncomingSubstitutionPresence(
+      presence,
+      incomingPresenceId,
+      targetSubTime,
+    );
   }
 
   return false;
