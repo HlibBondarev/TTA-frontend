@@ -254,7 +254,7 @@ const isLocalPresenceClosedAndSyncedForPeriodEnd = (
   targetTimeOut: string | null,
   submittedPresencesById: Map<string, PlayerPresence>,
 ): boolean => {
-  if (!localPresence || localPresence.isSynced !== 1) return false;
+  if (localPresence?.isSynced !== 1) return false;
   if (localPresence.periodNumber !== periodNumber) return false;
 
   const submitted = submittedPresencesById.get(localPresence.id);
