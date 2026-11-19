@@ -1,6 +1,48 @@
 import { db, type PlayerPresence, type SyncQueueItem } from "./ttaDatabase";
 import { getNextSequenceNumber } from "./eventService";
 
+export interface PeriodEndTerminationRecord {
+  matchId: string;
+  periodNumber: number;
+  timeOut: string;
+  closedPresenceIds: string[];
+  closedLineupIds: string[];
+  queueItemId?: number;
+}
+
+const periodEndTerminations = new Map<string, PeriodEndTerminationRecord>();
+
+const getPeriodEndTerminationKey = (
+  matchId: string,
+  periodNumber: number,
+): string => `${matchId.trim()}:${periodNumber}`;
+
+export const getPeriodEndTermination = (
+  matchId: string,
+  periodNumber: number,
+): PeriodEndTerminationRecord | undefined => {
+  const normalizedMatchId = matchId.trim();
+  if (!normalizedMatchId) return undefined;
+  return periodEndTerminations.get(
+    getPeriodEndTerminationKey(normalizedMatchId, periodNumber),
+  );
+};
+
+export const clearPeriodEndTermination = (
+  matchId: string,
+  periodNumber: number,
+): void => {
+  const normalizedMatchId = matchId.trim();
+  if (!normalizedMatchId) return;
+  periodEndTerminations.delete(
+    getPeriodEndTerminationKey(normalizedMatchId, periodNumber),
+  );
+};
+
+export const clearAllPeriodEndTerminations = (): void => {
+  periodEndTerminations.clear();
+};
+
 /**
  * Bulk initializes active player presence at the exact moment the period starts.
  * Uses the timestamp provided by the match lifecycle timer.
@@ -56,7 +98,8 @@ export async function initializePeriodPresenceTx(
 /**
  * Atomically closes all active player presence sessions when the period ends.
  * Uses the timestamp provided by the match lifecycle timer.
- * Enqueues the period-end synchronization payload in db.syncQueue.
+ * Enqueues the period-end synchronization payload in db.syncQueue and tracks
+ * the exact closed presence IDs and queue item ID for scoped period-end undo.
  */
 export async function terminatePeriodPresenceTx(
   matchId: string,
@@ -64,6 +107,9 @@ export async function terminatePeriodPresenceTx(
   playerLineupIds: string[],
   endTimestamp: string,
 ): Promise<void> {
+  let closedPresenceIds: string[] = [];
+  let queueItemId: number | undefined;
+
   await db.transaction("rw", [db.playerpresences, db.syncQueue], async () => {
     // 1. Find all active presences (where timeOut is null) for this period
     const activePresences = await db.playerpresences
@@ -73,6 +119,8 @@ export async function terminatePeriodPresenceTx(
         (p) => p.timeOut === null && playerLineupIds.includes(p.matchLineupId),
       )
       .toArray();
+
+    closedPresenceIds = activePresences.map((presence) => presence.id);
 
     // 2. Update each active player session with the end timestamp in parallel
     await Promise.all(
@@ -98,8 +146,26 @@ export async function terminatePeriodPresenceTx(
       createdAt: endTimestamp,
     };
 
-    await db.syncQueue.add(syncItem);
+    const addedId = await db.syncQueue.add(syncItem);
+    if (typeof addedId === "number") {
+      queueItemId = addedId;
+    }
   });
+
+  const normalizedMatchId = matchId.trim();
+  if (normalizedMatchId) {
+    periodEndTerminations.set(
+      getPeriodEndTerminationKey(normalizedMatchId, periodNumber),
+      {
+        matchId: normalizedMatchId,
+        periodNumber,
+        timeOut: endTimestamp,
+        closedPresenceIds,
+        closedLineupIds: [...playerLineupIds],
+        queueItemId,
+      },
+    );
+  }
 }
 
 /**
@@ -248,7 +314,9 @@ export async function enterPlayerPresenceTx(
         .first();
 
       if (existingActive) {
-        throw new Error("Player already has an active presence in this period.");
+        throw new Error(
+          "Player already has an active presence in this period.",
+        );
       }
 
       const timestamp = entryTimestamp ?? new Date().toISOString();

@@ -6,6 +6,9 @@ import {
   substitutePlayerTx,
   exitPlayerPresenceTx,
   enterPlayerPresenceTx,
+  getPeriodEndTermination,
+  clearPeriodEndTermination,
+  clearAllPeriodEndTerminations,
 } from "../../db/presenceService";
 
 vi.mock("../../db/ttaDatabase", () => ({
@@ -44,6 +47,7 @@ describe("presenceService Database Transactions", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    clearAllPeriodEndTerminations();
   });
 
   it("initializePeriodPresenceTx should bulk-add presences and add a sync queue item matching InitializePresenceRequest DTO contract", async () => {
@@ -373,5 +377,76 @@ describe("presenceService Database Transactions", () => {
     await expect(
       enterPlayerPresenceTx(mockMatchId, mockPeriodNumber, "lineup-in"),
     ).rejects.toThrow("Player already has an active presence in this period.");
+  });
+
+  it("terminatePeriodPresenceTx should record closed presence IDs and queueItemId and allow clearing via registry helpers", async () => {
+    const mockEndTimestamp = "2026-07-22T10:08:00.000Z";
+    const mockPresencesDataset = [
+      { id: "pres-1", matchLineupId: "lineup-1", timeOut: null },
+      { id: "pres-2", matchLineupId: "lineup-2", timeOut: null },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi.fn(
+          (predicate: (p: (typeof mockPresencesDataset)[0]) => boolean) => ({
+            toArray: vi
+              .fn()
+              .mockResolvedValue(mockPresencesDataset.filter(predicate)),
+          }),
+        ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    vi.mocked(db.syncQueue.add).mockResolvedValueOnce(42 as never);
+
+    await terminatePeriodPresenceTx(
+      `  ${mockMatchId}  `,
+      mockPeriodNumber,
+      mockPlayerLineupIds,
+      mockEndTimestamp,
+    );
+
+    expect(getPeriodEndTermination(mockMatchId, mockPeriodNumber)).toEqual({
+      matchId: mockMatchId,
+      periodNumber: mockPeriodNumber,
+      timeOut: mockEndTimestamp,
+      closedPresenceIds: ["pres-1", "pres-2"],
+      closedLineupIds: mockPlayerLineupIds,
+      queueItemId: 42,
+    });
+
+    clearPeriodEndTermination(mockMatchId, mockPeriodNumber);
+    expect(
+      getPeriodEndTermination(mockMatchId, mockPeriodNumber),
+    ).toBeUndefined();
+  });
+
+  it("exitPlayerPresenceTx should not register a period-end termination record", async () => {
+    const exitTime = "2026-07-22T10:03:00.000Z";
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      filter: vi.fn().mockReturnValue({
+        first: vi.fn().mockResolvedValue({
+          id: "pres-out",
+          matchLineupId: "lineup-1",
+          periodNumber: mockPeriodNumber,
+          timeIn: "2026-07-22T10:00:00.000Z",
+          timeOut: null,
+        }),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    vi.mocked(db.syncQueue.add).mockResolvedValueOnce(99 as never);
+
+    await exitPlayerPresenceTx(
+      mockMatchId,
+      mockPeriodNumber,
+      "lineup-1",
+      exitTime,
+    );
+
+    expect(
+      getPeriodEndTermination(mockMatchId, mockPeriodNumber),
+    ).toBeUndefined();
   });
 });

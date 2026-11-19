@@ -14,6 +14,10 @@ import { db, type TimeAnchor } from "../../../db/ttaDatabase";
 import { apiClient } from "../../../api/client";
 import { matchLockService } from "../../../services/matchLockService";
 import { vi, describe, beforeEach, test, expect } from "vitest";
+import {
+  terminatePeriodPresenceTx,
+  clearAllPeriodEndTerminations,
+} from "../../../db/presenceService";
 
 vi.mock("../../../api/client", () => ({
   apiClient: {
@@ -254,6 +258,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     mockSyncQueue = [];
     mockPlayerPresences = [];
     matchLockService.clearAllMatchLocks();
+    clearAllPeriodEndTerminations();
 
     mockMatches = {
       "test-match-id": { id: "test-match-id", tournamentId: "test-tourn-id" },
@@ -2556,6 +2561,206 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(db.playerpresences.update).not.toHaveBeenCalled();
     expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:08:00Z");
     expect(db.syncQueue.delete).not.toHaveBeenCalledWith(405);
+    expect(mockSyncQueue.some((i) => i.id === 405)).toBe(true);
+  });
+
+  test("should preserve disciplinary exit and its queue item even when its timeOut equals the PeriodEnd anchor timestamp", async () => {
+    const equalTimestamp = "2020-01-01T10:10:00Z";
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockResolvedValue([
+                { id: "lineup-disciplinary" },
+                { id: "lineup-active" },
+              ]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    mockPlayerPresences = [
+      {
+        id: "presence-disciplinary",
+        periodNumber: 1,
+        timeOut: equalTimestamp,
+        matchLineupId: "lineup-disciplinary",
+      },
+      {
+        id: "presence-active",
+        periodNumber: 1,
+        timeOut: null,
+        matchLineupId: "lineup-active",
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    const disciplinaryQueueItem = {
+      id: 405,
+      actionType: "PUT",
+      endpoint: "/Matches/test-match-id/presence/terminate",
+      payload: JSON.stringify({
+        periodNumber: 1,
+        playerLineupIds: ["lineup-disciplinary"],
+        timeOut: equalTimestamp,
+      }),
+      createdAt: equalTimestamp,
+    };
+    mockSyncQueue.push(disciplinaryQueueItem);
+
+    await terminatePeriodPresenceTx(
+      "test-match-id",
+      1,
+      ["lineup-active"],
+      equalTimestamp,
+    );
+
+    const periodEndQueueItem = mockSyncQueue.find(
+      (i) =>
+        i.id !== 405 &&
+        i.endpoint === "/Matches/test-match-id/presence/terminate",
+    );
+    expect(periodEndQueueItem).toBeDefined();
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod("seed-end-anchor");
+    });
+
+    const activePresence = mockPlayerPresences.find(
+      (p) => p.id === "presence-active",
+    );
+    const disciplinaryPresence = mockPlayerPresences.find(
+      (p) => p.id === "presence-disciplinary",
+    );
+
+    expect(activePresence?.timeOut).toBeNull();
+    expect(disciplinaryPresence?.timeOut).toBe(equalTimestamp);
+    expect(mockSyncQueue.some((i) => i.id === periodEndQueueItem?.id)).toBe(
+      false,
+    );
+    expect(mockSyncQueue.some((i) => i.id === 405)).toBe(true);
+  });
+
+  test("should purge an empty-lineup period-end termination queue item on undo while leaving disciplinary exits intact", async () => {
+    const equalTimestamp = "2020-01-01T10:10:00Z";
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([{ id: "lineup-disciplinary" }]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    mockPlayerPresences = [
+      {
+        id: "presence-disciplinary",
+        periodNumber: 1,
+        timeOut: equalTimestamp,
+        matchLineupId: "lineup-disciplinary",
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    const disciplinaryQueueItem = {
+      id: 405,
+      actionType: "PUT",
+      endpoint: "/Matches/test-match-id/presence/terminate",
+      payload: JSON.stringify({
+        periodNumber: 1,
+        playerLineupIds: ["lineup-disciplinary"],
+        timeOut: equalTimestamp,
+      }),
+      createdAt: equalTimestamp,
+    };
+    mockSyncQueue.push(disciplinaryQueueItem);
+
+    // Period end with no active players still enqueues an empty-lineup termination item
+    await terminatePeriodPresenceTx("test-match-id", 1, [], equalTimestamp);
+
+    const emptyPeriodEndQueueItem = mockSyncQueue.find(
+      (i) =>
+        i.id !== 405 &&
+        i.endpoint === "/Matches/test-match-id/presence/terminate",
+    );
+    expect(emptyPeriodEndQueueItem).toBeDefined();
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod("seed-end-anchor");
+    });
+
+    expect(db.playerpresences.update).not.toHaveBeenCalled();
+    expect(mockPlayerPresences[0].timeOut).toBe(equalTimestamp);
+    expect(
+      mockSyncQueue.some((i) => i.id === emptyPeriodEndQueueItem?.id),
+    ).toBe(false);
     expect(mockSyncQueue.some((i) => i.id === 405)).toBe(true);
   });
 });
