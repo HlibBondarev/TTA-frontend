@@ -132,12 +132,17 @@ class AnchorClaimService {
 
     if (canPersistClaimsInDb()) {
       await runAnchorWriteTx(async () => {
-        for (const id of uniqueIds) {
-          const existing = await db.timeanchors.get(id);
-          if (existing && existing.isSynced === 0) {
-            await db.timeanchors.update(id, { syncOutcomeAmbiguous: true });
-          }
-        }
+        const records = await Promise.all(
+          uniqueIds.map((id) => db.timeanchors.get(id)),
+        );
+        const idsToMark = uniqueIds.filter(
+          (_, index) => records[index]?.isSynced === 0,
+        );
+        await Promise.all(
+          idsToMark.map((id) =>
+            db.timeanchors.update(id, { syncOutcomeAmbiguous: true }),
+          ),
+        );
       });
     }
 
@@ -167,14 +172,19 @@ class AnchorClaimService {
 
     try {
       await runAnchorWriteTx(async () => {
-        for (const id of uniqueIds) {
-          const existing = await db.timeanchors.get(id);
-          if (existing?.syncOutcomeAmbiguous) {
-            await db.timeanchors.update(id, {
+        const records = await Promise.all(
+          uniqueIds.map((id) => db.timeanchors.get(id)),
+        );
+        const idsToClear = uniqueIds.filter((_, index) =>
+          Boolean(records[index]?.syncOutcomeAmbiguous),
+        );
+        await Promise.all(
+          idsToClear.map((id) =>
+            db.timeanchors.update(id, {
               syncOutcomeAmbiguous: undefined,
-            });
-          }
-        }
+            }),
+          ),
+        );
       });
     } catch (err) {
       console.error(
@@ -220,17 +230,21 @@ class AnchorClaimService {
 
     try {
       await runAnchorWriteTx(async () => {
-        for (const id of memoryClaimed) {
-          const existing = await db.timeanchors.get(id);
-          if (
-            !existing ||
-            existing.isSynced !== 0 ||
-            this.hasActiveClaim(existing, now)
-          ) {
-            throw new AnchorClaimConflictError();
-          }
-          await db.timeanchors.update(id, { syncClaim: claimRecord });
+        const records = await Promise.all(
+          memoryClaimed.map((id) => db.timeanchors.get(id)),
+        );
+        const hasConflict = records.some(
+          (existing) =>
+            existing?.isSynced !== 0 || this.hasActiveClaim(existing, now),
+        );
+        if (hasConflict) {
+          throw new AnchorClaimConflictError();
         }
+        await Promise.all(
+          memoryClaimed.map((id) =>
+            db.timeanchors.update(id, { syncClaim: claimRecord }),
+          ),
+        );
       });
       return { claimedIds: memoryClaimed, allClaimed: true, token };
     } catch (err) {
@@ -259,12 +273,17 @@ class AnchorClaimService {
 
     try {
       await runAnchorWriteTx(async () => {
-        for (const id of anchorIds) {
-          const existing = await db.timeanchors.get(id);
-          if (existing?.syncClaim?.token === token) {
-            await db.timeanchors.update(id, { syncClaim: undefined });
-          }
-        }
+        const records = await Promise.all(
+          anchorIds.map((id) => db.timeanchors.get(id)),
+        );
+        const idsToRelease = anchorIds.filter(
+          (_, index) => records[index]?.syncClaim?.token === token,
+        );
+        await Promise.all(
+          idsToRelease.map((id) =>
+            db.timeanchors.update(id, { syncClaim: undefined }),
+          ),
+        );
       });
     } catch (err) {
       console.error(
