@@ -11,10 +11,7 @@ import {
 import { parseSvgDimensions } from "../../../utils/svgUtils";
 import type { ActionEntry } from "../store/matchSlice";
 import type { RootState } from "../../../store";
-import {
-  useGameEvents,
-  type UpdateGameEventHookParams,
-} from "./useGameEvents";
+import { useGameEvents, type UpdateGameEventHookParams } from "./useGameEvents";
 
 const areUpdatePayloadsEqual = (
   a: UpdateGameEventHookParams,
@@ -30,6 +27,29 @@ const areUpdatePayloadsEqual = (
   a.locationY === b.locationY &&
   a.shotLocationX === b.shotLocationX &&
   a.shotLocationY === b.shotLocationY;
+
+const isRemovalPendingResult = (result: unknown): boolean =>
+  typeof result === "object" &&
+  result !== null &&
+  "removalPending" in result &&
+  Boolean((result as { removalPending?: unknown }).removalPending);
+
+const canSubmitEventSave = (params: {
+  selectedMatchLineupId: string;
+  effectiveActionName: string;
+  selectedEventDefinitionId: string;
+  isSaving: boolean;
+  isLocationLoaded: boolean;
+  isDefinitionsLoaded: boolean;
+}): boolean =>
+  Boolean(
+    params.selectedMatchLineupId &&
+    params.effectiveActionName &&
+    params.selectedEventDefinitionId &&
+    !params.isSaving &&
+    params.isLocationLoaded &&
+    params.isDefinitionsLoaded,
+  );
 
 export interface UseEditGameEventModalOptions {
   action: ActionEntry;
@@ -456,16 +476,26 @@ export function useEditGameEventModal({
     setShotLocationY(y);
   };
 
+  const retryPendingRemovalBeforeClose = async (): Promise<boolean> => {
+    const completed = await retryPendingDisciplinaryRemovals();
+    return typeof hasPendingRemovalForEvent === "function"
+      ? !hasPendingRemovalForEvent(action.id)
+      : completed;
+  };
+
   const handleSave = async () => {
     if (
-      !selectedMatchLineupId ||
-      !effectiveActionName ||
-      !selectedEventDefinitionId ||
-      isSaving ||
-      !isLocationLoaded ||
-      !isDefinitionsLoaded
-    )
+      !canSubmitEventSave({
+        selectedMatchLineupId,
+        effectiveActionName,
+        selectedEventDefinitionId,
+        isSaving,
+        isLocationLoaded,
+        isDefinitionsLoaded,
+      })
+    ) {
       return;
+    }
 
     // Set explicit error if definitions have loaded but the selected definition is missing
     if (!selectedEventDef) {
@@ -494,16 +524,9 @@ export function useEditGameEventModal({
         committedPayloadRef.current !== null &&
         !areUpdatePayloadsEqual(committedPayloadRef.current, nextPayload);
 
-      if (
-        isRemovalRetryPending &&
-        retryPendingDisciplinaryRemovals &&
-        !hasUnsavedChangesAfterPendingRemoval
-      ) {
-        const completed = await retryPendingDisciplinaryRemovals();
-        const isEditedEventStillPending = hasPendingRemovalForEvent
-          ? hasPendingRemovalForEvent(action.id)
-          : !completed;
-        if (isEditedEventStillPending) {
+      if (isRemovalRetryPending && !hasUnsavedChangesAfterPendingRemoval) {
+        const retryResolved = await retryPendingRemovalBeforeClose();
+        if (!retryResolved) {
           setError("Action saved, but player removal is still pending retry.");
           return;
         }
@@ -515,12 +538,7 @@ export function useEditGameEventModal({
 
       const result = await updateGameEvent(nextPayload);
 
-      if (
-        typeof result === "object" &&
-        result !== null &&
-        "removalPending" in result &&
-        result.removalPending
-      ) {
+      if (isRemovalPendingResult(result)) {
         committedPayloadRef.current = nextPayload;
         setIsRemovalRetryPending(true);
         setError("Action saved, but player removal is pending retry.");
