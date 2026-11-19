@@ -566,6 +566,9 @@ export const syncMatchBatch = async (
         };
 
   try {
+    await anchorClaimService.markAmbiguousAcrossTabs(
+      Array.from(claimedAnchorSet),
+    );
     const batchData = await postSyncBatch(
       normalizedMatchId,
       effectiveRequestPayload,
@@ -589,7 +592,7 @@ export const syncMatchBatch = async (
           await db.timeanchors
             .where("id")
             .anyOf(syncedAnchorIds)
-            .modify({ isSynced: 1 });
+            .modify({ isSynced: 1, syncOutcomeAmbiguous: undefined });
         }
         await markSyncedPresencesIfUnchanged(
           syncedPresenceIds,
@@ -603,6 +606,10 @@ export const syncMatchBatch = async (
         );
       },
     );
+
+    if (syncedAnchorIds.length > 0) {
+      await anchorClaimService.clearAmbiguousAcrossTabs(syncedAnchorIds);
+    }
 
     return batchData;
   } finally {
@@ -1371,6 +1378,10 @@ const processSyncBatch = async (
       return { syncedCount: 0, shouldContinue: false };
     }
 
+    if (claimedIds.length > 0) {
+      await anchorClaimService.markAmbiguousAcrossTabs(claimedIds);
+    }
+
     const response = await executeHttpRequest(
       currentItem.actionType,
       targetEndpoint,
@@ -1386,6 +1397,9 @@ const processSyncBatch = async (
     );
 
     if (evaluatedResult) {
+      if (claimedIds.length > 0 && evaluatedResult.shouldContinue) {
+        await anchorClaimService.clearAmbiguousAcrossTabs(claimedIds);
+      }
       return evaluatedResult;
     }
 
@@ -1394,12 +1408,16 @@ const processSyncBatch = async (
     const status = extractErrorStatus(err);
 
     if (isUnrecoverableStatus(status)) {
-      return handleUnrecoverableError(
+      const purgeResult = await handleUnrecoverableError(
         batchItems,
         currentItem.endpoint,
         effectivePayload,
         status,
       );
+      if (claimedIds.length > 0 && purgeResult.shouldContinue) {
+        await anchorClaimService.clearAmbiguousAcrossTabs(claimedIds);
+      }
+      return purgeResult;
     }
 
     console.error(

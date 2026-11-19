@@ -46,6 +46,7 @@ const createClaimToken = (): string => {
  */
 class AnchorClaimService {
   private readonly claimedAnchors = new Map<string, AnchorClaimOwner>();
+  private readonly ambiguousAnchors = new Set<string>();
   private readonly listeners = new Set<ClaimListener>();
 
   subscribe(listener: ClaimListener): () => void {
@@ -99,6 +100,82 @@ class AnchorClaimService {
   ): boolean {
     const claim = anchor?.syncClaim;
     return Boolean(claim && claim.expiresAt > now);
+  }
+
+  hasAmbiguousOutcome(
+    anchor: Pick<TimeAnchor, "id" | "syncOutcomeAmbiguous"> | undefined,
+  ): boolean {
+    if (!anchor) return false;
+    if (anchor.syncOutcomeAmbiguous) return true;
+    const normalized = anchor.id?.trim();
+    return Boolean(normalized && this.ambiguousAnchors.has(normalized));
+  }
+
+  async markAmbiguousAcrossTabs(anchorIds: string[]): Promise<void> {
+    const uniqueIds = Array.from(
+      new Set(anchorIds.map((id) => id?.trim()).filter(Boolean)),
+    );
+    if (uniqueIds.length === 0) return;
+
+    for (const id of uniqueIds) {
+      this.ambiguousAnchors.add(id);
+    }
+    this.notify();
+
+    if (!canPersistClaimsInDb()) return;
+
+    try {
+      await runAnchorWriteTx(async () => {
+        for (const id of uniqueIds) {
+          const existing = await db.timeanchors.get(id);
+          if (existing && existing.isSynced === 0) {
+            await db.timeanchors.update(id, { syncOutcomeAmbiguous: true });
+          }
+        }
+      });
+    } catch (err) {
+      console.error(
+        "[AnchorClaimService] Failed to persist ambiguous sync state:",
+        err,
+      );
+    }
+  }
+
+  async clearAmbiguousAcrossTabs(anchorIds: string[]): Promise<void> {
+    const uniqueIds = Array.from(
+      new Set(anchorIds.map((id) => id?.trim()).filter(Boolean)),
+    );
+    if (uniqueIds.length === 0) return;
+
+    let changed = false;
+    for (const id of uniqueIds) {
+      if (this.ambiguousAnchors.delete(id)) {
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.notify();
+    }
+
+    if (!canPersistClaimsInDb()) return;
+
+    try {
+      await runAnchorWriteTx(async () => {
+        for (const id of uniqueIds) {
+          const existing = await db.timeanchors.get(id);
+          if (existing?.syncOutcomeAmbiguous) {
+            await db.timeanchors.update(id, {
+              syncOutcomeAmbiguous: undefined,
+            });
+          }
+        }
+      });
+    } catch (err) {
+      console.error(
+        "[AnchorClaimService] Failed to clear ambiguous sync state:",
+        err,
+      );
+    }
   }
 
   async claimAcrossTabs(
@@ -189,8 +266,11 @@ class AnchorClaimService {
   }
 
   clearAll(): void {
-    if (this.claimedAnchors.size === 0) return;
+    if (this.claimedAnchors.size === 0 && this.ambiguousAnchors.size === 0) {
+      return;
+    }
     this.claimedAnchors.clear();
+    this.ambiguousAnchors.clear();
     this.notify();
   }
 }

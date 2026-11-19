@@ -299,7 +299,8 @@ const checkUnsyncedEndAnchorExists = async (
         a.type === 1 &&
         a.isSynced === 0 &&
         !anchorClaimService.isClaimed(a.id) &&
-        !anchorClaimService.hasActiveClaim(a),
+        !anchorClaimService.hasActiveClaim(a) &&
+        !anchorClaimService.hasAmbiguousOutcome(a),
     )
     .toArray();
 
@@ -324,12 +325,20 @@ interface DeletedEndAnchorInfo {
  * so an in-flight sync POST cannot race with Undo deletion.
  */
 const claimPendingEndAnchorForUndo = (
-  anchor: Pick<TimeAnchor, "id" | "isSynced" | "syncClaim">,
+  anchor: Pick<
+    TimeAnchor,
+    "id" | "isSynced" | "syncClaim" | "syncOutcomeAmbiguous"
+  >,
   onClaim?: (claimedId: string) => void,
 ): void => {
   if (anchor.isSynced !== 0) {
     throw new Error(
       `Cannot revert period end: anchor ${anchor.id} is already synced.`,
+    );
+  }
+  if (anchorClaimService.hasAmbiguousOutcome(anchor)) {
+    throw new Error(
+      `Cannot revert period end: anchor ${anchor.id} has an ambiguous sync outcome and must be reconciled with the server.`,
     );
   }
   if (

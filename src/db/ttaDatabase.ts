@@ -158,6 +158,7 @@ export interface TimeAnchor {
   isSynced: number;
   usesPeriodEndMeta?: boolean;
   syncClaim?: TimeAnchorSyncClaim;
+  syncOutcomeAmbiguous?: boolean;
 }
 
 export interface PlayerPresence {

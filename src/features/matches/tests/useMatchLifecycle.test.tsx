@@ -3453,6 +3453,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     const originalSyncQueue = db.syncQueue;
     const originalPlayerPresences = db.playerpresences;
     const originalMatchLineups = db.matchlineups;
+    const originalGameEvents = db.gameevents;
 
     try {
       const anchorId = "cross-tab-end-anchor";
@@ -3484,6 +3485,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
         syncQueue: realDb.syncQueue,
         playerpresences: realDb.playerpresences,
         matchlineups: realDb.matchlineups,
+        gameevents: realDb.gameevents,
       });
 
       // Tab A claims the PeriodEnd anchor in IndexedDB before sending POST /anchors
@@ -3542,6 +3544,145 @@ describe("useMatchLifecycle Hook & State Machine", () => {
         syncQueue: originalSyncQueue,
         playerpresences: originalPlayerPresences,
         matchlineups: originalMatchLineups,
+        gameevents: originalGameEvents,
+      });
+      await realDb.delete();
+    }
+  });
+
+  test("should keep Undo blocked after a PeriodEnd POST timeout until a subsequent sync reconciles the server commit", async () => {
+    const { TTADatabase } = await vi.importActual<
+      typeof import("../../../db/ttaDatabase")
+    >("../../../db/ttaDatabase");
+    const { anchorClaimService } = await import(
+      "../../../services/anchorClaimService"
+    );
+    const { processSyncQueue } = await import("../../../services/syncService");
+    const { apiClient } = await import("../../../api/client");
+
+    const realDb = new TTADatabase();
+    await realDb.open();
+
+    const originalTransaction = db.transaction;
+    const originalTimeAnchors = db.timeanchors;
+    const originalSyncQueue = db.syncQueue;
+    const originalPlayerPresences = db.playerpresences;
+    const originalMatchLineups = db.matchlineups;
+    const originalGameEvents = db.gameevents;
+    const originalApiPost = (apiClient as unknown as { post?: unknown }).post;
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    try {
+      const anchorId = "timeout-end-anchor";
+      const endTime = "2020-01-01T10:10:00Z";
+
+      await realDb.timeanchors.put({
+        id: anchorId,
+        matchId: "test-match-id",
+        periodNumber: 1,
+        type: 1,
+        timestamp: endTime,
+        sequenceNumber: 3,
+        isSynced: 0,
+        usesPeriodEndMeta: true,
+      });
+      await realDb.playerpresences.put({
+        id: "presence-timeout-test",
+        matchLineupId: "lineup-1",
+        periodNumber: 1,
+        timeIn: "2020-01-01T10:00:00Z",
+        timeOut: endTime,
+        sequenceNumber: 1,
+        isSynced: 0,
+      });
+      await realDb.syncQueue.add({
+        actionType: "POST",
+        endpoint: "/Matches/test-match-id/anchors",
+        payload: JSON.stringify([
+          {
+            id: anchorId,
+            periodNumber: 1,
+            type: 1,
+            timestamp: endTime,
+          },
+        ]),
+        createdAt: endTime,
+      });
+
+      Object.assign(db, {
+        transaction: realDb.transaction.bind(realDb),
+        timeanchors: realDb.timeanchors,
+        syncQueue: realDb.syncQueue,
+        playerpresences: realDb.playerpresences,
+        matchlineups: realDb.matchlineups,
+        gameevents: realDb.gameevents,
+      });
+
+      // 1. PeriodEnd POST times out on the client even though the server commits it
+      const postMock = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Request timeout"));
+      (apiClient as unknown as { post?: unknown }).post = postMock;
+
+      const firstSyncCount = await processSyncQueue("test-match-id");
+      expect(firstSyncCount).toBe(0);
+
+      // Active claim was released so retry sync can run, but ambiguous outcome stays persisted
+      const anchorAfterTimeout = await realDb.timeanchors.get(anchorId);
+      expect(anchorAfterTimeout?.isSynced).toBe(0);
+      expect(anchorAfterTimeout?.syncClaim).toBeUndefined();
+      expect(anchorAfterTimeout?.syncOutcomeAmbiguous).toBe(true);
+
+      // Simulate another tab / reload (empty in-memory claim state)
+      anchorClaimService.clearAll();
+
+      const store = createTestStore({
+        periodNumber: 1,
+        isPeriodEnded: true,
+      });
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+      });
+
+      // 2. Undo MUST stay blocked after the ambiguous timeout failure
+      await act(async () => {
+        await expect(result.current.revertEndPeriod(anchorId)).rejects.toThrow(
+          /ambiguous sync outcome/i,
+        );
+      });
+
+      expect(await realDb.timeanchors.get(anchorId)).toBeDefined();
+      expect(
+        (await realDb.playerpresences.get("presence-timeout-test"))?.timeOut,
+      ).toBe(endTime);
+
+      // 3. Subsequent retry reconciles the server commit and marks anchor synced
+      postMock.mockResolvedValueOnce({ status: 200 });
+      const retrySyncCount = await processSyncQueue("test-match-id");
+      expect(retrySyncCount).toBe(1);
+
+      const anchorAfterReconcile = await realDb.timeanchors.get(anchorId);
+      expect(anchorAfterReconcile?.isSynced).toBe(1);
+      expect(anchorAfterReconcile?.syncOutcomeAmbiguous).toBeUndefined();
+
+      await act(async () => {
+        await expect(result.current.revertEndPeriod(anchorId)).rejects.toThrow(
+          /already synced/i,
+        );
+      });
+    } finally {
+      consoleErrorSpy.mockRestore();
+      anchorClaimService.clearAll();
+      (apiClient as unknown as { post?: unknown }).post = originalApiPost;
+      Object.assign(db, {
+        transaction: originalTransaction,
+        timeanchors: originalTimeAnchors,
+        syncQueue: originalSyncQueue,
+        playerpresences: originalPlayerPresences,
+        matchlineups: originalMatchLineups,
+        gameevents: originalGameEvents,
       });
       await realDb.delete();
     }
