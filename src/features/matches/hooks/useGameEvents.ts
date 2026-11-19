@@ -49,7 +49,42 @@ const pendingRemovalsByMatch = new Map<
   Map<string, PendingDisciplinaryRemoval>
 >();
 const inFlightRemovalsByMatch = new Map<string, Set<Promise<unknown>>>();
+const endingPeriodCountByMatch = new Map<string, number>();
 const pendingRemovalListeners = new Set<() => void>();
+
+export const isPeriodEndInProgressForMatch = (matchId: string): boolean => {
+  const normalizedMatchId = matchId?.trim();
+  if (!normalizedMatchId) return false;
+  return (endingPeriodCountByMatch.get(normalizedMatchId) ?? 0) > 0;
+};
+
+/**
+ * Blocks new game-event mutations (create/update) for a match while END PERIOD
+ * is draining in-flight disciplinary removals and closing period presences.
+ */
+export const beginPeriodEndEventBarrier = (matchId: string): (() => void) => {
+  const normalizedMatchId = matchId?.trim();
+  if (!normalizedMatchId) {
+    return () => {};
+  }
+
+  endingPeriodCountByMatch.set(
+    normalizedMatchId,
+    (endingPeriodCountByMatch.get(normalizedMatchId) ?? 0) + 1,
+  );
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const current = endingPeriodCountByMatch.get(normalizedMatchId) ?? 0;
+    if (current <= 1) {
+      endingPeriodCountByMatch.delete(normalizedMatchId);
+    } else {
+      endingPeriodCountByMatch.set(normalizedMatchId, current - 1);
+    }
+  };
+};
 
 const emitPendingRemovalChange = () => {
   for (const listener of pendingRemovalListeners) {
@@ -528,148 +563,180 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       })(),
     );
 
-  const recordGameEvent = async (
+  const recordGameEvent = (
     params: RecordGameEventParams,
   ): Promise<GameEventMutationResult> => {
-    const {
-      selectedPlayerId,
-      actionName,
-      isPositive,
-      isLeadToGoal,
-      eventDefinitionId,
-      locationX,
-      locationY,
-      shotLocationX,
-      shotLocationY,
-    } = params;
-
     const normalizedMatchId = matchId?.trim();
     if (!normalizedMatchId) {
-      throw new Error("Active match ID is missing or empty.");
+      return Promise.reject(
+        new Error("Active match ID is missing or empty."),
+      );
+    }
+
+    if (isPeriodEndInProgressForMatch(normalizedMatchId)) {
+      return Promise.reject(
+        new Error(
+          "Cannot record game event while period end is in progress.",
+        ),
+      );
     }
 
     const normalizedTeamId = activeTeamId?.trim();
     if (!normalizedTeamId) {
-      throw new Error("Active team ID is missing or empty in Redux store.");
-    }
-
-    const lineup = await db.matchlineups.get(selectedPlayerId);
-    if (!lineup) {
-      throw new Error(
-        `Player lineup record not found for ID: ${selectedPlayerId}`,
+      return Promise.reject(
+        new Error("Active team ID is missing or empty in Redux store."),
       );
     }
 
-    if (lineup.matchId?.trim() !== normalizedMatchId) {
-      throw new Error(
-        `Player lineup ${selectedPlayerId} does not belong to match: ${
-          matchId
-        }`,
-      );
-    }
+    return trackInFlightRemoval(
+      normalizedMatchId,
+      (async (): Promise<GameEventMutationResult> => {
+        const {
+          selectedPlayerId,
+          actionName,
+          isPositive,
+          isLeadToGoal,
+          eventDefinitionId,
+          locationX,
+          locationY,
+          shotLocationX,
+          shotLocationY,
+        } = params;
 
-    await resolveSportId(normalizedMatchId);
+        const lineup = await db.matchlineups.get(selectedPlayerId);
+        if (!lineup) {
+          throw new Error(
+            `Player lineup record not found for ID: ${selectedPlayerId}`,
+          );
+        }
 
-    const resolvedEventDefId = eventDefinitionId;
-    const timestamp = new Date().toISOString();
+        if (lineup.matchId?.trim() !== normalizedMatchId) {
+          throw new Error(
+            `Player lineup ${selectedPlayerId} does not belong to match: ${
+              matchId
+            }`,
+          );
+        }
 
-    const createdEvent = await createGameEventTx({
-      matchId: normalizedMatchId,
-      teamId: normalizedTeamId,
-      matchLineupId: lineup.id,
-      eventDefinitionId: resolvedEventDefId,
-      periodNumber,
-      eventTimestamp: timestamp,
-      isLeadToGoal,
-      locationX: locationX ?? null,
-      locationY: locationY ?? null,
-      shotLocationX: shotLocationX ?? null,
-      shotLocationY: shotLocationY ?? null,
-    });
+        await resolveSportId(normalizedMatchId);
 
-    dispatch(setGlobalSequenceNumber(createdEvent.sequenceNumber));
-    dispatch(
-      addRecentAction({
-        id: createdEvent.id,
-        playerNumber: lineup.number,
-        actionName,
-        isPositive,
-        timestamp,
-        matchLineupId: lineup.id,
-        eventDefinitionId: resolvedEventDefId,
-        isLeadToGoal: createdEvent.isLeadToGoal,
-        isSynced: createdEvent.isSynced,
-      }),
+        const resolvedEventDefId = eventDefinitionId;
+        const timestamp = new Date().toISOString();
+
+        const createdEvent = await createGameEventTx({
+          matchId: normalizedMatchId,
+          teamId: normalizedTeamId,
+          matchLineupId: lineup.id,
+          eventDefinitionId: resolvedEventDefId,
+          periodNumber,
+          eventTimestamp: timestamp,
+          isLeadToGoal,
+          locationX: locationX ?? null,
+          locationY: locationY ?? null,
+          shotLocationX: shotLocationX ?? null,
+          shotLocationY: shotLocationY ?? null,
+        });
+
+        dispatch(setGlobalSequenceNumber(createdEvent.sequenceNumber));
+        dispatch(
+          addRecentAction({
+            id: createdEvent.id,
+            playerNumber: lineup.number,
+            actionName,
+            isPositive,
+            timestamp,
+            matchLineupId: lineup.id,
+            eventDefinitionId: resolvedEventDefId,
+            isLeadToGoal: createdEvent.isLeadToGoal,
+            isSynced: createdEvent.isSynced,
+          }),
+        );
+
+        return finalizeDisciplinaryRemoval(normalizedMatchId, createdEvent);
+      })(),
     );
-
-    return finalizeDisciplinaryRemoval(normalizedMatchId, createdEvent);
   };
 
-  const updateGameEvent = async (
+  const updateGameEvent = (
     params: UpdateGameEventHookParams,
   ): Promise<GameEventMutationResult> => {
-    const {
-      eventId,
-      selectedPlayerId,
-      actionName,
-      isPositive,
-      isLeadToGoal,
-      eventDefinitionId,
-      locationX,
-      locationY,
-      shotLocationX,
-      shotLocationY,
-    } = params;
-
     const normalizedMatchId = matchId?.trim();
     if (!normalizedMatchId) {
-      throw new Error("Active match ID is missing or empty.");
-    }
-
-    const lineup = await db.matchlineups.get(selectedPlayerId);
-    if (!lineup) {
-      throw new Error(
-        `Player lineup record not found for ID: ${selectedPlayerId}`,
+      return Promise.reject(
+        new Error("Active match ID is missing or empty."),
       );
     }
 
-    if (lineup.matchId?.trim() !== normalizedMatchId) {
-      throw new Error(
-        `Player lineup ${selectedPlayerId} does not belong to match: ${
-          matchId
-        }`,
+    if (isPeriodEndInProgressForMatch(normalizedMatchId)) {
+      return Promise.reject(
+        new Error(
+          "Cannot update game event while period end is in progress.",
+        ),
       );
     }
 
-    const sportId = await resolveSportId(normalizedMatchId);
-    const resolvedEventDefId = eventDefinitionId;
+    return trackInFlightRemoval(
+      normalizedMatchId,
+      (async (): Promise<GameEventMutationResult> => {
+        const {
+          eventId,
+          selectedPlayerId,
+          actionName,
+          isPositive,
+          isLeadToGoal,
+          eventDefinitionId,
+          locationX,
+          locationY,
+          shotLocationX,
+          shotLocationY,
+        } = params;
 
-    const updatedEvent = await updateGameEventTx({
-      eventId,
-      matchLineupId: lineup.id,
-      eventDefinitionId: resolvedEventDefId,
-      expectedSportId: sportId,
-      isLeadToGoal,
-      locationX,
-      locationY,
-      shotLocationX,
-      shotLocationY,
-      userId: currentUserId,
-    });
+        const lineup = await db.matchlineups.get(selectedPlayerId);
+        if (!lineup) {
+          throw new Error(
+            `Player lineup record not found for ID: ${selectedPlayerId}`,
+          );
+        }
 
-    dispatch(
-      updateRecentAction({
-        id: updatedEvent.id,
-        playerNumber: lineup.number,
-        actionName,
-        isPositive,
-        matchLineupId: lineup.id,
-        eventDefinitionId: resolvedEventDefId,
-        isLeadToGoal: updatedEvent.isLeadToGoal,
-      }),
+        if (lineup.matchId?.trim() !== normalizedMatchId) {
+          throw new Error(
+            `Player lineup ${selectedPlayerId} does not belong to match: ${
+              matchId
+            }`,
+          );
+        }
+
+        const sportId = await resolveSportId(normalizedMatchId);
+        const resolvedEventDefId = eventDefinitionId;
+
+        const updatedEvent = await updateGameEventTx({
+          eventId,
+          matchLineupId: lineup.id,
+          eventDefinitionId: resolvedEventDefId,
+          expectedSportId: sportId,
+          isLeadToGoal,
+          locationX,
+          locationY,
+          shotLocationX,
+          shotLocationY,
+          userId: currentUserId,
+        });
+
+        dispatch(
+          updateRecentAction({
+            id: updatedEvent.id,
+            playerNumber: lineup.number,
+            actionName,
+            isPositive,
+            matchLineupId: lineup.id,
+            eventDefinitionId: resolvedEventDefId,
+            isLeadToGoal: updatedEvent.isLeadToGoal,
+          }),
+        );
+
+        return finalizeDisciplinaryRemoval(normalizedMatchId, updatedEvent);
+      })(),
     );
-
-    return finalizeDisciplinaryRemoval(normalizedMatchId, updatedEvent);
   };
 
   const deleteGameEvent = async (eventId: string): Promise<boolean> => {

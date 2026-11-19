@@ -40,26 +40,32 @@ interface SyncedEntitySets {
 const MATCH_TEAM_ENDPOINT_REGEX = /\/Matches\/([^/]+)\/teams\/([^/]+)/;
 const ALLOWED_BATCH_CLEANUP_ACTIONS = new Set(["POST", "PUT"]);
 
-const claimAnchorIdsForSync = (
+interface ClaimedAnchorHandle {
+  anchorId: string;
+  token: string | null;
+}
+
+const claimBatchAnchorsForSync = async (
   anchorIds: string[],
-): { claimedIds: string[]; allClaimed: boolean } => {
-  const claimedIds: string[] = [];
-  const uniqueIds = Array.from(new Set(anchorIds));
-
-  for (const id of uniqueIds) {
-    if (!anchorClaimService.claim(id, "sync")) {
-      return { claimedIds, allClaimed: false };
+): Promise<ClaimedAnchorHandle[]> => {
+  const claimed: ClaimedAnchorHandle[] = [];
+  for (const id of Array.from(new Set(anchorIds))) {
+    const result = await anchorClaimService.claimAcrossTabs([id], "sync");
+    if (result.allClaimed && result.claimedIds.length > 0) {
+      claimed.push({ anchorId: id, token: result.token });
     }
-    claimedIds.push(id);
   }
-
-  return { claimedIds, allClaimed: true };
+  return claimed;
 };
 
-const releaseAnchorIdsFromSync = (anchorIds: string[]): void => {
-  for (const id of anchorIds) {
-    anchorClaimService.release(id, "sync");
-  }
+const releaseBatchAnchorClaims = async (
+  handles: ClaimedAnchorHandle[],
+): Promise<void> => {
+  await Promise.all(
+    handles.map(({ anchorId, token }) =>
+      anchorClaimService.releaseAcrossTabs([anchorId], token, "sync"),
+    ),
+  );
 };
 
 const areQueueItemsStillPending = async (
@@ -542,17 +548,15 @@ export const syncMatchBatch = async (
   const { requestPayload, unsyncedPresences } =
     await fetchAndFormatBatchPayloads(normalizedMatchId);
 
-  const claimedAnchorIds: string[] = [];
-  const claimedAnchorSet = new Set<string>();
-  for (const anchor of requestPayload.anchors) {
-    if (anchorClaimService.claim(anchor.id, "sync")) {
-      claimedAnchorIds.push(anchor.id);
-      claimedAnchorSet.add(anchor.id);
-    }
-  }
+  const claimedAnchorHandles = await claimBatchAnchorsForSync(
+    requestPayload.anchors.map((a) => a.id),
+  );
+  const claimedAnchorSet = new Set(
+    claimedAnchorHandles.map((handle) => handle.anchorId),
+  );
 
   const effectiveRequestPayload =
-    claimedAnchorIds.length === requestPayload.anchors.length
+    claimedAnchorHandles.length === requestPayload.anchors.length
       ? requestPayload
       : {
           ...requestPayload,
@@ -602,7 +606,7 @@ export const syncMatchBatch = async (
 
     return batchData;
   } finally {
-    releaseAnchorIdsFromSync(claimedAnchorIds);
+    await releaseBatchAnchorClaims(claimedAnchorHandles);
   }
 };
 
@@ -1339,9 +1343,12 @@ const processSyncBatch = async (
       ? extractAnchorIds(currentItem.endpoint, effectivePayload)
       : [];
 
-  const { claimedIds, allClaimed } = claimAnchorIdsForSync(anchorIdsToClaim);
+  const {
+    claimedIds,
+    allClaimed,
+    token: claimToken,
+  } = await anchorClaimService.claimAcrossTabs(anchorIdsToClaim, "sync");
   if (!allClaimed) {
-    releaseAnchorIdsFromSync(claimedIds);
     return { syncedCount: 0, shouldContinue: false };
   }
 
@@ -1401,7 +1408,7 @@ const processSyncBatch = async (
     );
     return { syncedCount: 0, shouldContinue: false };
   } finally {
-    releaseAnchorIdsFromSync(claimedIds);
+    await anchorClaimService.releaseAcrossTabs(claimedIds, claimToken, "sync");
   }
 };
 

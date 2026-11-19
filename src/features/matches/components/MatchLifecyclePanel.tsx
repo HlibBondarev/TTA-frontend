@@ -1,7 +1,10 @@
 import React, { useState } from "react";
 import { useSelector } from "react-redux";
 import { useMatchLifecycle } from "../hooks/useMatchLifecycle";
-import { useGameEvents } from "../hooks/useGameEvents";
+import {
+  beginPeriodEndEventBarrier,
+  useGameEvents,
+} from "../hooks/useGameEvents";
 import { usePlayerPresence } from "../../../features/playerpresences/hooks/usePlayerPresence";
 import { MatchResultModal } from "./MatchResultModal";
 import type { RootState } from "../../../store";
@@ -95,6 +98,9 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
     setPanelError(null);
 
     let anchorId: string | null | undefined = null;
+    const releasePeriodEndBarrier = activeMatchId
+      ? beginPeriodEndEventBarrier(activeMatchId)
+      : null;
     try {
       setIsProcessing(true);
 
@@ -133,6 +139,7 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
         setPanelError("Failed to end period. Compensation incomplete.");
       }
     } finally {
+      releasePeriodEndBarrier?.();
       setIsProcessing(false);
     }
   };

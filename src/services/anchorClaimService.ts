@@ -1,9 +1,48 @@
-type AnchorClaimOwner = "sync" | "undo";
+import {
+  db,
+  type TimeAnchor,
+  type TimeAnchorSyncClaim,
+} from "../db/ttaDatabase";
+
+export type AnchorClaimOwner = "sync" | "undo";
 type ClaimListener = () => void;
 
+const CLAIM_TTL_MS = 60_000;
+
+class AnchorClaimConflictError extends Error {
+  constructor() {
+    super("Anchor claim conflict");
+  }
+}
+
+export interface CrossTabClaimResult {
+  claimedIds: string[];
+  allClaimed: boolean;
+  token: string | null;
+}
+
+const canPersistClaimsInDb = (): boolean =>
+  typeof db?.timeanchors?.get === "function" &&
+  typeof db?.timeanchors?.update === "function";
+
+const runAnchorWriteTx = async <T>(work: () => Promise<T>): Promise<T> => {
+  if (typeof db?.transaction === "function") {
+    return db.transaction("rw", [db.timeanchors], work);
+  }
+  return work();
+};
+
+const createClaimToken = (): string => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `claim-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
+
 /**
- * Coordinates in-memory claims on TimeAnchor IDs so manual/batch sync and
- * Undo End Period cannot concurrently operate on the same PeriodEnd anchor.
+ * Coordinates same-tab and cross-tab claims on TimeAnchor IDs so manual/batch sync
+ * and Undo End Period cannot concurrently operate on the same PeriodEnd anchor.
+ * Cross-tab atomicity is enforced via IndexedDB rw transactions on db.timeanchors.
  */
 class AnchorClaimService {
   private readonly claimedAnchors = new Map<string, AnchorClaimOwner>();
@@ -52,6 +91,101 @@ class AnchorClaimService {
     const normalized = anchorId?.trim();
     if (!normalized) return false;
     return this.claimedAnchors.has(normalized);
+  }
+
+  hasActiveClaim(
+    anchor: Pick<TimeAnchor, "syncClaim"> | undefined,
+    now: number = Date.now(),
+  ): boolean {
+    const claim = anchor?.syncClaim;
+    return Boolean(claim && claim.expiresAt > now);
+  }
+
+  async claimAcrossTabs(
+    anchorIds: string[],
+    owner: AnchorClaimOwner,
+  ): Promise<CrossTabClaimResult> {
+    const uniqueIds = Array.from(
+      new Set(anchorIds.map((id) => id?.trim()).filter(Boolean)),
+    );
+    if (uniqueIds.length === 0) {
+      return { claimedIds: [], allClaimed: true, token: null };
+    }
+
+    const memoryClaimed: string[] = [];
+    for (const id of uniqueIds) {
+      if (!this.claim(id, owner)) {
+        for (const claimedId of memoryClaimed) {
+          this.release(claimedId, owner);
+        }
+        return { claimedIds: [], allClaimed: false, token: null };
+      }
+      memoryClaimed.push(id);
+    }
+
+    const token = createClaimToken();
+    if (!canPersistClaimsInDb()) {
+      return { claimedIds: memoryClaimed, allClaimed: true, token };
+    }
+
+    const now = Date.now();
+    const claimRecord: TimeAnchorSyncClaim = {
+      owner,
+      token,
+      expiresAt: now + CLAIM_TTL_MS,
+    };
+
+    try {
+      await runAnchorWriteTx(async () => {
+        for (const id of memoryClaimed) {
+          const existing = await db.timeanchors.get(id);
+          if (
+            !existing ||
+            existing.isSynced !== 0 ||
+            this.hasActiveClaim(existing, now)
+          ) {
+            throw new AnchorClaimConflictError();
+          }
+          await db.timeanchors.update(id, { syncClaim: claimRecord });
+        }
+      });
+      return { claimedIds: memoryClaimed, allClaimed: true, token };
+    } catch (err) {
+      for (const claimedId of memoryClaimed) {
+        this.release(claimedId, owner);
+      }
+      if (err instanceof AnchorClaimConflictError) {
+        return { claimedIds: [], allClaimed: false, token: null };
+      }
+      throw err;
+    }
+  }
+
+  async releaseAcrossTabs(
+    anchorIds: string[],
+    token: string | null,
+    owner: AnchorClaimOwner,
+  ): Promise<void> {
+    for (const id of anchorIds) {
+      this.release(id, owner);
+    }
+
+    if (!token || anchorIds.length === 0 || !canPersistClaimsInDb()) {
+      return;
+    }
+
+    try {
+      await runAnchorWriteTx(async () => {
+        for (const id of anchorIds) {
+          const existing = await db.timeanchors.get(id);
+          if (existing?.syncClaim?.token === token) {
+            await db.timeanchors.update(id, { syncClaim: undefined });
+          }
+        }
+      });
+    } catch (err) {
+      console.error("[AnchorClaimService] Failed to release DB anchor claim:", err);
+    }
   }
 
   clearAll(): void {

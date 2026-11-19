@@ -1943,4 +1943,128 @@ describe("useGameEvents Custom Hook", () => {
         originalPlayerPresences;
     }
   });
+
+  it("should wait for in-flight createGameEventTx before END PERIOD retry settles and block new events while period end is in progress", async () => {
+    const { beginPeriodEndEventBarrier } = await import("../hooks/useGameEvents");
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: true,
+    });
+
+    const eventTimestamp = "2026-11-19T10:05:00.000Z";
+    const createdEvent = {
+      id: "delayed-create-excl-uuid",
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-excl-id",
+      periodNumber: 1,
+      eventTimestamp,
+      isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
+      shotLocationX: null,
+      shotLocationY: null,
+      foulImpact: "PersonalFoul" as const,
+      penaltyDurationSeconds: 20,
+      createdAt: eventTimestamp,
+      sequenceNumber: 21,
+      isSynced: 0,
+    };
+
+    vi.mocked(db.matchlineups.get).mockResolvedValue({
+      id: "lineup-uuid-7",
+      matchId: "test-match-id",
+      playerRosterId: "roster-7",
+      number: 7,
+      positionId: null,
+    });
+
+    let resolveCreate!: (value: typeof createdEvent) => void;
+    const delayedCreatePromise = new Promise<typeof createdEvent>((resolve) => {
+      resolveCreate = resolve;
+    });
+
+    vi.mocked(eventService.createGameEventTx).mockReturnValueOnce(
+      delayedCreatePromise,
+    );
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockResolvedValueOnce(true);
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    let recordPromise!: Promise<unknown>;
+    let endPeriodWaitPromise!: Promise<boolean>;
+    let endPeriodWaitSettled = false;
+
+    await act(async () => {
+      // 1. Start recording an exclusion event whose createGameEventTx is still pending
+      recordPromise = result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-7",
+        actionName: "Exclusion",
+        isPositive: false,
+        isLeadToGoal: false,
+        eventDefinitionId: "def-excl-id",
+      });
+
+      await vi.waitFor(() => {
+        expect(eventService.createGameEventTx).toHaveBeenCalledTimes(1);
+      });
+
+      // 2. END PERIOD starts while createGameEventTx has not returned yet
+      const releaseBarrier = beginPeriodEndEventBarrier("test-match-id");
+      try {
+        endPeriodWaitPromise = result.current
+          .retryPendingDisciplinaryRemovals()
+          .then((res) => {
+            endPeriodWaitSettled = true;
+            return res;
+          });
+
+        // Any NEW event started while period end is in progress must be rejected immediately
+        await expect(
+          result.current.recordGameEvent({
+            selectedPlayerId: "lineup-uuid-7",
+            actionName: "Exclusion",
+            isPositive: false,
+            isLeadToGoal: false,
+            eventDefinitionId: "def-excl-id",
+          }),
+        ).rejects.toThrow(/period end is in progress/i);
+
+        await expect(
+          result.current.updateGameEvent({
+            eventId: "some-event-id",
+            selectedPlayerId: "lineup-uuid-7",
+            actionName: "Exclusion",
+            isPositive: false,
+            isLeadToGoal: false,
+            eventDefinitionId: "def-excl-id",
+          }),
+        ).rejects.toThrow(/period end is in progress/i);
+
+        // END PERIOD must still be waiting for the earlier in-flight event creation + exit
+        expect(endPeriodWaitSettled).toBe(false);
+        expect(presenceService.exitPlayerPresenceTx).not.toHaveBeenCalled();
+
+        // 3. Complete createGameEventTx; exclusion exit persists its timestamp before END PERIOD proceeds
+        resolveCreate(createdEvent);
+
+        const [recordOutcome, endPeriodCanProceed] = await Promise.all([
+          recordPromise,
+          endPeriodWaitPromise,
+        ]);
+
+        expect(recordOutcome).toBe(true);
+        expect(endPeriodCanProceed).toBe(true);
+        expect(presenceService.exitPlayerPresenceTx).toHaveBeenCalledWith(
+          "test-match-id",
+          1,
+          "lineup-uuid-7",
+          eventTimestamp,
+        );
+      } finally {
+        releaseBarrier();
+      }
+    });
+  });
 });

@@ -3436,4 +3436,114 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(mockSyncQueue.some((i) => i.id === 501)).toBe(true);
     expect(mockSyncQueue.some((i) => i.id === 502)).toBe(false);
   });
+
+  test("should coordinate PeriodEnd anchor claims across browser tabs via IndexedDB so Tab B cannot Undo while Tab A sync is in-flight", async () => {
+    const { TTADatabase } = await vi.importActual<
+      typeof import("../../../db/ttaDatabase")
+    >("../../../db/ttaDatabase");
+    const { anchorClaimService } = await import(
+      "../../../services/anchorClaimService"
+    );
+
+    const realDb = new TTADatabase();
+    await realDb.open();
+
+    const originalTransaction = db.transaction;
+    const originalTimeAnchors = db.timeanchors;
+    const originalSyncQueue = db.syncQueue;
+    const originalPlayerPresences = db.playerpresences;
+    const originalMatchLineups = db.matchlineups;
+
+    try {
+      const anchorId = "cross-tab-end-anchor";
+      const endTime = "2020-01-01T10:10:00Z";
+
+      await realDb.timeanchors.put({
+        id: anchorId,
+        matchId: "test-match-id",
+        periodNumber: 1,
+        type: 1,
+        timestamp: endTime,
+        sequenceNumber: 3,
+        isSynced: 0,
+        usesPeriodEndMeta: true,
+      });
+      await realDb.playerpresences.put({
+        id: "presence-tab-test",
+        matchLineupId: "lineup-1",
+        periodNumber: 1,
+        timeIn: "2020-01-01T10:00:00Z",
+        timeOut: endTime,
+        sequenceNumber: 1,
+        isSynced: 0,
+      });
+
+      Object.assign(db, {
+        transaction: realDb.transaction.bind(realDb),
+        timeanchors: realDb.timeanchors,
+        syncQueue: realDb.syncQueue,
+        playerpresences: realDb.playerpresences,
+        matchlineups: realDb.matchlineups,
+      });
+
+      // Tab A claims the PeriodEnd anchor in IndexedDB before sending POST /anchors
+      const tabAClaim = await anchorClaimService.claimAcrossTabs(
+        [anchorId],
+        "sync",
+      );
+      expect(tabAClaim.allClaimed).toBe(true);
+
+      // Simulate Tab B: clear in-memory claims so only the IndexedDB-persisted claim is visible
+      anchorClaimService.clearAll();
+
+      const store = createTestStore({
+        periodNumber: 1,
+        isPeriodEnded: true,
+      });
+      const { result } = renderHook(() => useMatchLifecycle(), {
+        wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+      });
+
+      // Tab B's Undo must be blocked by Tab A's persisted IndexedDB claim
+      await act(async () => {
+        await expect(result.current.revertEndPeriod(anchorId)).rejects.toThrow(
+          /currently being synced/i,
+        );
+      });
+
+      expect(await realDb.timeanchors.get(anchorId)).toBeDefined();
+      expect(
+        (await realDb.playerpresences.get("presence-tab-test"))?.timeOut,
+      ).toBe(endTime);
+
+      // Once Tab A releases its claim without syncing, Tab B can Undo, and a subsequent
+      // Tab A claim attempt fails because the anchor was deleted in IndexedDB.
+      await anchorClaimService.releaseAcrossTabs(
+        tabAClaim.claimedIds,
+        tabAClaim.token,
+        "sync",
+      );
+
+      await act(async () => {
+        await result.current.revertEndPeriod(anchorId);
+      });
+      expect(await realDb.timeanchors.get(anchorId)).toBeUndefined();
+
+      const lateTabAClaim = await anchorClaimService.claimAcrossTabs(
+        [anchorId],
+        "sync",
+      );
+      expect(lateTabAClaim.allClaimed).toBe(false);
+    } finally {
+      anchorClaimService.clearAll();
+      Object.assign(db, {
+        transaction: originalTransaction,
+        timeanchors: originalTimeAnchors,
+        syncQueue: originalSyncQueue,
+        playerpresences: originalPlayerPresences,
+        matchlineups: originalMatchLineups,
+      });
+      await realDb.delete();
+    }
+  });
 });

@@ -142,6 +142,12 @@ export interface GameEvent {
   isSynced: number;
 }
 
+export interface TimeAnchorSyncClaim {
+  owner: "sync" | "undo";
+  token: string;
+  expiresAt: number;
+}
+
 export interface TimeAnchor {
   id: string;
   matchId: string;
@@ -151,6 +157,7 @@ export interface TimeAnchor {
   sequenceNumber: number;
   isSynced: number;
   usesPeriodEndMeta?: boolean;
+  syncClaim?: TimeAnchorSyncClaim;
 }
 
 export interface PlayerPresence {
