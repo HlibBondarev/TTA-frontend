@@ -207,6 +207,42 @@ const normalizeIsoTimestamp = (value: unknown): string | null => {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
 };
 
+const matchesSubmittedPresenceVersion = (
+  current: PlayerPresence,
+  submitted: PlayerPresence,
+): boolean =>
+  current.matchLineupId === submitted.matchLineupId &&
+  current.periodNumber === submitted.periodNumber &&
+  normalizeIsoTimestamp(current.timeIn) ===
+    normalizeIsoTimestamp(submitted.timeIn) &&
+  normalizeIsoTimestamp(current.timeOut) ===
+    normalizeIsoTimestamp(submitted.timeOut);
+
+const isPeriodEndAnchorSynced = (
+  periodNumber: number,
+  unsyncedAnchors: TimeAnchor[],
+  syncedAnchors: Set<string>,
+): boolean =>
+  unsyncedAnchors.some(
+    (anchor) =>
+      anchor.type === 1 &&
+      anchor.periodNumber === periodNumber &&
+      syncedAnchors.has(anchor.id),
+  );
+
+const isSubmittedPresenceClosedForPeriodEnd = (
+  presenceId: string,
+  targetTimeOut: string | null,
+  syncedPresences: Set<string>,
+  submittedPresencesById: Map<string, PlayerPresence>,
+): boolean => {
+  if (!syncedPresences.has(presenceId)) return false;
+  const submitted = submittedPresencesById.get(presenceId);
+  if (!submitted) return false;
+  if (!targetTimeOut) return submitted.timeOut !== null;
+  return normalizeIsoTimestamp(submitted.timeOut) === targetTimeOut;
+};
+
 const isTerminateQueueItemSynced = (
   item: SyncQueueItem,
   payload: unknown,
@@ -215,18 +251,31 @@ const isTerminateQueueItemSynced = (
   unsyncedAnchors: TimeAnchor[],
 ): boolean => {
   if (item.periodEndMeta) {
-    const { closedPresenceIds, periodNumber } = item.periodEndMeta;
-    if (closedPresenceIds.length > 0) {
-      return closedPresenceIds.every((id) => syncedSets.presences.has(id));
+    const { closedPresenceIds, periodNumber, timeOut } = item.periodEndMeta;
+
+    // Retain period-end termination and its undo metadata while the PeriodEnd anchor is still undoable.
+    if (
+      !isPeriodEndAnchorSynced(periodNumber, unsyncedAnchors, syncedSets.anchors)
+    ) {
+      return false;
     }
 
-    // Empty-lineup period-end termination: only remove once the corresponding PeriodEnd anchor
-    // from the same period has been synced by this batch.
-    return unsyncedAnchors.some(
-      (anchor) =>
-        anchor.type === 1 &&
-        anchor.periodNumber === periodNumber &&
-        syncedSets.anchors.has(anchor.id),
+    if (closedPresenceIds.length === 0) {
+      return true;
+    }
+
+    const targetTimeOut = normalizeIsoTimestamp(timeOut);
+    const submittedPresencesById = new Map(
+      unsyncedPresences.map((presence) => [presence.id, presence]),
+    );
+
+    return closedPresenceIds.every((id) =>
+      isSubmittedPresenceClosedForPeriodEnd(
+        id,
+        targetTimeOut,
+        syncedSets.presences,
+        submittedPresencesById,
+      ),
     );
   }
 
@@ -371,6 +420,27 @@ const cleanupBatchQueue = async (
   }
 };
 
+const markSyncedPresencesIfUnchanged = async (
+  syncedPresenceIds: string[],
+  unsyncedPresences: PlayerPresence[],
+): Promise<void> => {
+  if (syncedPresenceIds.length === 0) return;
+
+  const submittedPresencesById = new Map(
+    unsyncedPresences.map((presence) => [presence.id, presence]),
+  );
+
+  await db.playerpresences
+    .where("id")
+    .anyOf(syncedPresenceIds)
+    .modify((presence) => {
+      const submitted = submittedPresencesById.get(presence.id);
+      if (submitted && matchesSubmittedPresenceVersion(presence, submitted)) {
+        presence.isSynced = 1;
+      }
+    });
+};
+
 /**
  * Synchronizes un-synced events, anchors, and presence intervals for a match in a single batch.
  */
@@ -406,12 +476,10 @@ export const syncMatchBatch = async (
           .anyOf(syncedAnchorIds)
           .modify({ isSynced: 1 });
       }
-      if (syncedPresenceIds.length > 0) {
-        await db.playerpresences
-          .where("id")
-          .anyOf(syncedPresenceIds)
-          .modify({ isSynced: 1 });
-      }
+      await markSyncedPresencesIfUnchanged(
+        syncedPresenceIds,
+        unsyncedPresences,
+      );
 
       await cleanupBatchQueue(
         normalizedMatchId,

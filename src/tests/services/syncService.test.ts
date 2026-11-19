@@ -2665,5 +2665,271 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       expect(db.syncQueue.delete).toHaveBeenCalledWith(201);
       expect(db.syncQueue.delete).not.toHaveBeenCalledWith(202);
     });
+
+    it("preserves nonempty period-end termination metadata and keeps mutated presence unsynced when period ends during an in-flight batch", async () => {
+      const matchId = "m-concurrent-nonempty-end";
+      const equalTimestamp = "2026-11-18T10:10:00.000Z";
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            { id: "lineup-active", matchId },
+            { id: "lineup-disciplinary", matchId },
+          ]),
+        }),
+      } as never);
+
+      // Batch started before period end: no PeriodEnd anchor yet
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+        anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
+      } as never);
+
+      // Local IndexedDB state for playerpresences (mutated while batch is in-flight)
+      const localPresences = [
+        {
+          id: "pres-active",
+          matchLineupId: "lineup-active",
+          periodNumber: 1,
+          timeIn: "2026-11-18T10:00:00.000Z",
+          timeOut: null as string | null,
+          sequenceNumber: 1,
+          isSynced: 0,
+        },
+        {
+          id: "pres-disciplinary",
+          matchLineupId: "lineup-disciplinary",
+          periodNumber: 1,
+          timeIn: "2026-11-18T10:00:00.000Z",
+          timeOut: equalTimestamp,
+          sequenceNumber: 2,
+          isSynced: 0,
+        },
+      ];
+
+      // Return shallow copies for the batch snapshot so subsequent local mutations diverge from the submitted snapshot
+      vi.mocked(db.playerpresences.filter).mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockImplementation(() =>
+            Promise.resolve(localPresences.map((p) => ({ ...p }))),
+          ),
+      } as never);
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        anyOf: vi.fn().mockImplementation((ids: string[]) => ({
+          modify: vi
+            .fn()
+            .mockImplementation(
+              (
+                updater:
+                  | Record<string, unknown>
+                  | ((record: (typeof localPresences)[number]) => void),
+              ) => {
+                for (const record of localPresences) {
+                  if (!ids.includes(record.id)) continue;
+                  if (typeof updater === "function") {
+                    updater(record);
+                  } else {
+                    Object.assign(record, updater);
+                  }
+                }
+                return Promise.resolve(ids.length);
+              },
+            ),
+        })),
+      } as never);
+
+      const queueItems: Record<string, unknown>[] = [
+        {
+          id: 301,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["lineup-disciplinary"],
+            timeOut: equalTimestamp,
+          }),
+          createdAt: equalTimestamp,
+        },
+      ];
+
+      vi.mocked(db.syncQueue.toArray).mockImplementation(
+        () => Promise.resolve([...queueItems]) as never,
+      );
+
+      // While the batch request is in-flight, the period ends locally:
+      // pres-active is closed and a nonempty period-end termination with periodEndMeta is queued.
+      vi.mocked(apiClient.post).mockImplementationOnce(async () => {
+        localPresences[0].timeOut = equalTimestamp;
+        localPresences[0].isSynced = 0;
+        queueItems.push({
+          id: 302,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["lineup-active"],
+            timeOut: equalTimestamp,
+          }),
+          createdAt: equalTimestamp,
+          periodEndMeta: {
+            matchId,
+            periodNumber: 1,
+            timeOut: equalTimestamp,
+            closedPresenceIds: ["pres-active"],
+            closedLineupIds: ["lineup-active"],
+          },
+        });
+
+        return {
+          data: {
+            syncedEventIds: [],
+            syncedAnchorIds: [],
+            syncedPresenceIds: ["pres-active", "pres-disciplinary"],
+          },
+        };
+      });
+
+      await syncMatchBatch(matchId);
+
+      // The presence mutated after the batch snapshot must remain unsynced; the unchanged one is marked synced.
+      expect(localPresences[0].isSynced).toBe(0);
+      expect(localPresences[1].isSynced).toBe(1);
+
+      // Disciplinary exit item is cleaned up, while the nonempty period-end item and its metadata are preserved.
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(301);
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(302);
+    });
+
+    it("retains nonempty period-end termination metadata while the PeriodEnd anchor is still unsynced and deletes it once both anchor and closed presences sync", async () => {
+      const matchId = "m-period-end-anchor-guard";
+      const endTimestamp = "2026-11-18T10:15:00.000Z";
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi
+            .fn()
+            .mockResolvedValue([{ id: "lineup-active", matchId }]),
+        }),
+      } as never);
+
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([
+              {
+                id: "anchor-period-end-1",
+                matchId,
+                periodNumber: 1,
+                type: 1,
+                timestamp: endTimestamp,
+                sequenceNumber: 5,
+                isSynced: 0,
+              },
+            ]),
+          }),
+        }),
+        anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
+      } as never);
+
+      const localPresences = [
+        {
+          id: "pres-active",
+          matchLineupId: "lineup-active",
+          periodNumber: 1,
+          timeIn: "2026-11-18T10:00:00.000Z",
+          timeOut: endTimestamp,
+          sequenceNumber: 1,
+          isSynced: 0,
+        },
+      ];
+
+      vi.mocked(db.playerpresences.filter).mockReturnValue({
+        toArray: vi
+          .fn()
+          .mockImplementation(() =>
+            Promise.resolve(localPresences.map((p) => ({ ...p }))),
+          ),
+      } as never);
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        anyOf: vi.fn().mockImplementation((ids: string[]) => ({
+          modify: vi
+            .fn()
+            .mockImplementation(
+              (
+                updater:
+                  | Record<string, unknown>
+                  | ((record: (typeof localPresences)[number]) => void),
+              ) => {
+                for (const record of localPresences) {
+                  if (!ids.includes(record.id)) continue;
+                  if (typeof updater === "function") {
+                    updater(record);
+                  } else {
+                    Object.assign(record, updater);
+                  }
+                }
+                return Promise.resolve(ids.length);
+              },
+            ),
+        })),
+      } as never);
+
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue([
+        {
+          id: 401,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["lineup-active"],
+            timeOut: endTimestamp,
+          }),
+          createdAt: endTimestamp,
+          periodEndMeta: {
+            matchId,
+            periodNumber: 1,
+            timeOut: endTimestamp,
+            closedPresenceIds: ["pres-active"],
+            closedLineupIds: ["lineup-active"],
+          },
+        },
+      ] as never);
+
+      // 1. Partial sync: closed presence synced, but PeriodEnd anchor still unsynced (undoable)
+      vi.mocked(apiClient.post).mockResolvedValueOnce({
+        data: {
+          syncedEventIds: [],
+          syncedAnchorIds: [],
+          syncedPresenceIds: ["pres-active"],
+        },
+      });
+
+      await syncMatchBatch(matchId);
+
+      expect(localPresences[0].isSynced).toBe(1);
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(401);
+
+      // 2. Full sync: both closed presence and PeriodEnd anchor synced
+      localPresences[0].isSynced = 0;
+      vi.mocked(apiClient.post).mockResolvedValueOnce({
+        data: {
+          syncedEventIds: [],
+          syncedAnchorIds: ["anchor-period-end-1"],
+          syncedPresenceIds: ["pres-active"],
+        },
+      });
+
+      await syncMatchBatch(matchId);
+
+      expect(localPresences[0].isSynced).toBe(1);
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(401);
+    });
   });
 });
