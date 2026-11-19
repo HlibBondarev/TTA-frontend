@@ -12,7 +12,10 @@ import {
   updateGameEventTx,
   deleteGameEventTx,
 } from "../../../db/eventService";
-import { exitPlayerPresenceTx } from "../../../db/presenceService";
+import {
+  exitPlayerPresenceTx,
+  type ExitPlayerPresenceOptions,
+} from "../../../db/presenceService";
 import {
   db,
   type EventDefinitionLookup,
@@ -20,7 +23,12 @@ import {
   type PlayerPresence,
 } from "../../../db/ttaDatabase";
 import { optimisticRemoveFromActive } from "../../playerpresences/store/presenceSlice";
-import { shouldAutoRemoveActivePlayer } from "../../../utils/disciplinaryUtils";
+import {
+  hasPlayerReEnteredAfterEvent,
+  isPlayerDisqualified,
+  isTimestampAfter,
+  shouldAutoRemoveActivePlayer,
+} from "../../../utils/disciplinaryUtils";
 import type { AppDispatch } from "../../../store";
 
 export type GameEventMutationResult =
@@ -288,31 +296,46 @@ const loadDisciplinaryContext = async (
   };
 };
 
-const isTimestampAfter = (candidate: string, reference: string): boolean => {
-  const candidateMs = Date.parse(candidate);
-  const referenceMs = Date.parse(reference);
-  if (!Number.isNaN(candidateMs) && !Number.isNaN(referenceMs)) {
-    return candidateMs > referenceMs;
-  }
-  return candidate > reference;
+const buildTimedExclusionExitOptions = (
+  event: GameEvent,
+  periodPresences: PlayerPresence[],
+  currentPeriod: number,
+): ExitPlayerPresenceOptions => {
+  const evaluatedOpenPresence = periodPresences.find(
+    (presence) =>
+      presence.matchLineupId === event.matchLineupId &&
+      presence.periodNumber === currentPeriod &&
+      presence.timeOut === null,
+  );
+
+  return {
+    ...(evaluatedOpenPresence
+      ? { expectedPresenceId: evaluatedOpenPresence.id }
+      : {}),
+    maxTimeIn: event.eventTimestamp,
+    maxSequenceNumber: event.sequenceNumber,
+  };
 };
 
-const isPlayerAlreadyOutBeforeEvent = async (
-  matchLineupId: string,
+const isNoExitAlreadySatisfied = async (
+  event: GameEvent,
   currentPeriod: number,
-  eventTimestamp: string,
+  isDisqualified: boolean,
 ): Promise<boolean> => {
   const latestPresences = await loadPlayerPeriodPresences(
-    matchLineupId,
+    event.matchLineupId,
     currentPeriod,
   );
+  if (!isDisqualified && hasPlayerReEnteredAfterEvent(latestPresences, event)) {
+    return true;
+  }
   if (latestPresences.some((presence) => presence.timeOut === null)) {
     return false;
   }
   return !latestPresences.some(
     (presence) =>
       presence.timeOut !== null &&
-      isTimestampAfter(presence.timeOut, eventTimestamp),
+      isTimestampAfter(presence.timeOut, event.eventTimestamp),
   );
 };
 
@@ -347,12 +370,27 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
 
     if (!shouldRemove) return true;
 
-    const didExit = await exitPlayerPresenceTx(
-      matchId,
-      currentPeriod,
-      event.matchLineupId,
-      event.eventTimestamp,
-    );
+    const isDisqualified = isPlayerDisqualified({
+      matchLineupId: event.matchLineupId,
+      playerGameEvents,
+      eventDefinitionsById,
+      maxPersonalFouls,
+    });
+
+    const didExit = isDisqualified
+      ? await exitPlayerPresenceTx(
+          matchId,
+          currentPeriod,
+          event.matchLineupId,
+          event.eventTimestamp,
+        )
+      : await exitPlayerPresenceTx(
+          matchId,
+          currentPeriod,
+          event.matchLineupId,
+          event.eventTimestamp,
+          buildTimedExclusionExitOptions(event, periodPresences, currentPeriod),
+        );
 
     if (didExit) {
       dispatch(optimisticRemoveFromActive(event.matchLineupId));
@@ -363,11 +401,7 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
       return false;
     }
 
-    return isPlayerAlreadyOutBeforeEvent(
-      event.matchLineupId,
-      currentPeriod,
-      event.eventTimestamp,
-    );
+    return isNoExitAlreadySatisfied(event, currentPeriod, isDisqualified);
   } catch (error) {
     console.error(
       `Disciplinary auto-removal failed for committed event ${event.id}:`,
@@ -414,6 +448,65 @@ const retrySinglePendingRemoval = async (
     true,
   );
   return { eventId, pending, completed };
+};
+
+type PendingRemovalEntry = [string, PendingDisciplinaryRemoval];
+
+const comparePendingRemovalEntriesAsc = (
+  [eventIdA, pendingA]: PendingRemovalEntry,
+  [eventIdB, pendingB]: PendingRemovalEntry,
+): number => {
+  const tsA = pendingA.event.eventTimestamp;
+  const tsB = pendingB.event.eventTimestamp;
+  if (isTimestampAfter(tsA, tsB)) return 1;
+  if (isTimestampAfter(tsB, tsA)) return -1;
+
+  if (pendingA.event.sequenceNumber !== pendingB.event.sequenceNumber) {
+    return pendingA.event.sequenceNumber - pendingB.event.sequenceNumber;
+  }
+
+  return eventIdA.localeCompare(eventIdB);
+};
+
+const groupPendingRemovalsByPlayer = (
+  entries: PendingRemovalEntry[],
+): PendingRemovalEntry[][] => {
+  const byPlayer = new Map<string, PendingRemovalEntry[]>();
+  for (const entry of entries) {
+    const lineupId = entry[1].event.matchLineupId;
+    const playerEntries = byPlayer.get(lineupId);
+    if (playerEntries) {
+      playerEntries.push(entry);
+    } else {
+      byPlayer.set(lineupId, [entry]);
+    }
+  }
+
+  return Array.from(byPlayer.values()).map((playerEntries) =>
+    playerEntries.sort(comparePendingRemovalEntriesAsc),
+  );
+};
+
+const retryPlayerPendingRemovals = async (
+  normalizedMatchId: string,
+  playerEntries: PendingRemovalEntry[],
+  isPeriodActive: boolean,
+  dispatch: AppDispatch,
+): Promise<void> => {
+  for (const [eventId, pending] of playerEntries) {
+    const { completed } = await retrySinglePendingRemoval(
+      normalizedMatchId,
+      eventId,
+      pending,
+      isPeriodActive,
+      dispatch,
+    );
+    if (!completed) {
+      // Stop processing later pending removals for this player so they remain queued in order
+      break;
+    }
+    deletePendingRemovalEntry(normalizedMatchId, eventId, pending);
+  }
 };
 
 export interface RecordGameEventParams {
@@ -496,24 +589,19 @@ export const useGameEvents = (matchId: string, userId?: string) => {
         return true;
       }
 
-      const entries = Array.from(matchMap.entries());
-      const results = await Promise.all(
-        entries.map(([eventId, pending]) =>
-          retrySinglePendingRemoval(
+      const groupedByPlayer = groupPendingRemovalsByPlayer(
+        Array.from(matchMap.entries()),
+      );
+      await Promise.all(
+        groupedByPlayer.map((playerEntries) =>
+          retryPlayerPendingRemovals(
             normalizedMatchId,
-            eventId,
-            pending,
+            playerEntries,
             isPeriodActive,
             dispatch,
           ),
         ),
       );
-
-      for (const { eventId, pending, completed } of results) {
-        if (completed) {
-          deletePendingRemovalEntry(normalizedMatchId, eventId, pending);
-        }
-      }
 
       return getPendingRemovalCountForMatch(normalizedMatchId) === 0;
     },

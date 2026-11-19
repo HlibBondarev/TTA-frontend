@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { vi, describe, test, expect, beforeEach } from "vitest";
 import {
   render,
@@ -54,6 +55,19 @@ vi.mock("../hooks/useMatchLifecycle", () => ({
 const mockRecordGameEvent = vi.fn();
 const mockRetryPendingDisciplinaryRemovals = vi.fn();
 let mockHasPendingRemovals = false;
+const mockPendingRemovalListeners = new Set<() => void>();
+const subscribeMockPendingRemovals = (listener: () => void) => {
+  mockPendingRemovalListeners.add(listener);
+  return () => {
+    mockPendingRemovalListeners.delete(listener);
+  };
+};
+const setMockHasPendingRemovals = (value: boolean) => {
+  mockHasPendingRemovals = value;
+  for (const listener of mockPendingRemovalListeners) {
+    listener();
+  }
+};
 const mockHandleLocationSelect = vi.fn();
 const mockHandleShotLocationSelect = vi.fn();
 
@@ -76,11 +90,18 @@ vi.mock("../hooks/useTTAConsole", async (importOriginal) => {
 });
 
 vi.mock("../hooks/useGameEvents", () => ({
-  useGameEvents: () => ({
-    recordGameEvent: mockRecordGameEvent,
-    hasPendingRemovals: mockHasPendingRemovals,
-    retryPendingDisciplinaryRemovals: mockRetryPendingDisciplinaryRemovals,
-  }),
+  useGameEvents: () => {
+    const hasPendingRemovals = useSyncExternalStore(
+      subscribeMockPendingRemovals,
+      () => mockHasPendingRemovals,
+      () => false,
+    );
+    return {
+      recordGameEvent: mockRecordGameEvent,
+      hasPendingRemovals,
+      retryPendingDisciplinaryRemovals: mockRetryPendingDisciplinaryRemovals,
+    };
+  },
 }));
 
 vi.mock("../../playerpresences/components/PlayerPresencePanel", () => ({
@@ -228,7 +249,7 @@ describe("TTAConsole Component", () => {
     mockPeriodNumber = 1;
     mockPendingLocation = null;
     mockPendingShotLocation = null;
-    mockHasPendingRemovals = false;
+    setMockHasPendingRemovals(false);
     mockRetryPendingDisciplinaryRemovals.mockResolvedValue(true);
 
     vi.mocked(db.matches.get).mockResolvedValue({
@@ -449,7 +470,7 @@ describe("TTAConsole Component", () => {
 
   test("displays persistent pending-removal banner across console remount and retries removal via UI control without re-creating event", async () => {
     mockRecordGameEvent.mockImplementationOnce(async () => {
-      mockHasPendingRemovals = true;
+      setMockHasPendingRemovals(true);
       return {
         eventSaved: true,
         removalPending: true,
@@ -493,7 +514,7 @@ describe("TTAConsole Component", () => {
     );
 
     mockRetryPendingDisciplinaryRemovals.mockImplementationOnce(async () => {
-      mockHasPendingRemovals = false;
+      setMockHasPendingRemovals(false);
       return true;
     });
 
@@ -503,16 +524,9 @@ describe("TTAConsole Component", () => {
 
     await waitFor(() => {
       expect(mockRetryPendingDisciplinaryRemovals).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
     expect(mockRecordGameEvent).toHaveBeenCalledTimes(1);
-
-    secondRender.rerender(
-      <Provider store={store}>
-        <TTAConsole />
-      </Provider>,
-    );
-
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   test("resets selection and action states when period transitions", () => {

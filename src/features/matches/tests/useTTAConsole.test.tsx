@@ -14,6 +14,7 @@ import type { RootState } from "../../../store";
 
 const mockRecordGameEvent = vi.fn();
 const mockRetryPendingDisciplinaryRemovals = vi.fn();
+const mockClearPendingRemovals = vi.fn();
 let mockHasPendingRemovals = false;
 
 const mockUseMatchLifecycle = vi.fn().mockReturnValue({
@@ -27,11 +28,11 @@ vi.mock("../hooks/useMatchLifecycle", () => ({
 }));
 
 vi.mock("../hooks/useGameEvents", () => ({
-  clearPendingDisciplinaryRemovals: vi.fn(),
   useGameEvents: () => ({
     recordGameEvent: mockRecordGameEvent,
     hasPendingRemovals: mockHasPendingRemovals,
     retryPendingDisciplinaryRemovals: mockRetryPendingDisciplinaryRemovals,
+    clearPendingRemovals: mockClearPendingRemovals,
   }),
 }));
 
@@ -407,6 +408,7 @@ describe("useTTAConsole Custom Hook", () => {
       result.current.handleFinalizeSuccess();
     });
 
+    expect(mockClearPendingRemovals).toHaveBeenCalledTimes(1);
     expect(store.getState().match.activeMatchId).toBeNull();
     expect(onCompleteMatch).toHaveBeenCalled();
   });

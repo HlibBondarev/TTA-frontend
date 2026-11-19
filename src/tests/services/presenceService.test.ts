@@ -349,6 +349,95 @@ describe("presenceService Database Transactions", () => {
     expect(db.syncQueue.add).not.toHaveBeenCalled();
   });
 
+  it("exitPlayerPresenceTx should skip and return false when open presence does not match expectedPresenceId, starts after maxTimeIn, or sorts after maxSequenceNumber", async () => {
+    const mockOpenPresence = (overrides: Record<string, unknown> = {}) => {
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        filter: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue({
+            id: "pres-reentry",
+            matchLineupId: "lineup-1",
+            periodNumber: mockPeriodNumber,
+            timeIn: "2026-07-22T10:02:00.000Z",
+            timeOut: null,
+            sequenceNumber: 10,
+            ...overrides,
+          }),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+    };
+
+    // 1. Mismatched expectedPresenceId
+    mockOpenPresence({ id: "pres-reentry" });
+    expect(
+      await exitPlayerPresenceTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-1",
+        "2026-07-22T10:03:00.000Z",
+        { expectedPresenceId: "pres-original" },
+      ),
+    ).toBe(false);
+
+    // 2. Presence starts after event timestamp (maxTimeIn)
+    mockOpenPresence({
+      id: "pres-reentry",
+      timeIn: "2026-07-22T10:03:00.100Z",
+      sequenceNumber: 5,
+    });
+    expect(
+      await exitPlayerPresenceTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-1",
+        "2026-07-22T10:03:00.000Z",
+        { maxTimeIn: "2026-07-22T10:03:00.000Z", maxSequenceNumber: 10 },
+      ),
+    ).toBe(false);
+
+    // 3. Presence sorts after event sequenceNumber (maxSequenceNumber)
+    mockOpenPresence({
+      id: "pres-reentry",
+      timeIn: "2026-07-22T10:02:00.000Z",
+      sequenceNumber: 11,
+    });
+    expect(
+      await exitPlayerPresenceTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-1",
+        "2026-07-22T10:03:00.000Z",
+        { maxTimeIn: "2026-07-22T10:03:00.000Z", maxSequenceNumber: 10 },
+      ),
+    ).toBe(false);
+
+    expect(db.playerpresences.update).not.toHaveBeenCalled();
+    expect(db.syncQueue.add).not.toHaveBeenCalled();
+
+    // 4. Matching evaluated open presence closes normally
+    mockOpenPresence({
+      id: "pres-original",
+      timeIn: "2026-07-22T10:02:00.000Z",
+      sequenceNumber: 8,
+    });
+    expect(
+      await exitPlayerPresenceTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-1",
+        "2026-07-22T10:03:00.000Z",
+        {
+          expectedPresenceId: "pres-original",
+          maxTimeIn: "2026-07-22T10:03:00.000Z",
+          maxSequenceNumber: 10,
+        },
+      ),
+    ).toBe(true);
+    expect(db.playerpresences.update).toHaveBeenCalledWith("pres-original", {
+      timeOut: "2026-07-22T10:03:00.000Z",
+      isSynced: 0,
+    });
+  });
+
   it("enterPlayerPresenceTx should open a standalone presence and enqueue POST /presence/initialize", async () => {
     const entryTime = "2026-07-22T10:04:00.000Z";
     vi.mocked(db.playerpresences.where).mockReturnValue({

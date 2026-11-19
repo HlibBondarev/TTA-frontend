@@ -929,6 +929,10 @@ describe("useGameEvents Custom Hook", () => {
       2,
       "lineup-uuid-7",
       eventTimestamp,
+      {
+        maxTimeIn: eventTimestamp,
+        maxSequenceNumber: 11,
+      },
     );
     expect(store.getState().presence.activeLineupIds).toEqual([
       "lineup-uuid-8",
@@ -1034,6 +1038,10 @@ describe("useGameEvents Custom Hook", () => {
       2,
       "lineup-uuid-7",
       eventTimestamp,
+      {
+        maxTimeIn: eventTimestamp,
+        maxSequenceNumber: 11,
+      },
     );
     expect(store.getState().match.recentActions).toHaveLength(1);
     expect(store.getState().match.recentActions[0].id).toBe("excl-event-uuid");
@@ -1550,6 +1558,10 @@ describe("useGameEvents Custom Hook", () => {
       2,
       "lineup-uuid-8",
       eventTimestamp,
+      {
+        maxTimeIn: eventTimestamp,
+        maxSequenceNumber: 12,
+      },
     );
     expect(result.current.hasPendingRemovals).toBe(false);
     expect(store.getState().presence.activeLineupIds).toEqual([
@@ -1764,10 +1776,17 @@ describe("useGameEvents Custom Hook", () => {
     const inFlightRetryPromise = new Promise<boolean>((resolve) => {
       resolveInFlightRetry = resolve;
     });
+    let resolveOldRetryStarted!: () => void;
+    const oldRetryStartedPromise = new Promise<void>((resolve) => {
+      resolveOldRetryStarted = resolve;
+    });
 
     vi.mocked(db.gameevents.get).mockResolvedValueOnce(initialEvent);
     vi.mocked(presenceService.exitPlayerPresenceTx)
-      .mockReturnValueOnce(inFlightRetryPromise)
+      .mockImplementationOnce(() => {
+        resolveOldRetryStarted();
+        return inFlightRetryPromise;
+      })
       .mockRejectedValueOnce(new Error("Updated player DB failure"));
 
     vi.mocked(eventService.updateGameEventTx).mockResolvedValueOnce(
@@ -1777,7 +1796,7 @@ describe("useGameEvents Custom Hook", () => {
     let firstRetryPromise!: Promise<boolean>;
     await act(async () => {
       firstRetryPromise = result.current.retryPendingDisciplinaryRemovals();
-      await Promise.resolve();
+      await oldRetryStartedPromise;
 
       const updateOutcome = await result.current.updateGameEvent({
         eventId: "race-excl-uuid",
@@ -1800,6 +1819,31 @@ describe("useGameEvents Custom Hook", () => {
 
     // Replacement pending entry for lineup-uuid-8 must still be present
     expect(result.current.hasPendingRemovals).toBe(true);
+
+    // Triggering another retry must exit only the replacement player (lineup-uuid-8) and clear pending state
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockClear();
+    vi.mocked(db.gameevents.get).mockResolvedValueOnce(updatedEvent);
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockResolvedValueOnce(true);
+
+    let secondRetryCompleted = false;
+    await act(async () => {
+      secondRetryCompleted =
+        await result.current.retryPendingDisciplinaryRemovals();
+    });
+
+    expect(secondRetryCompleted).toBe(true);
+    expect(presenceService.exitPlayerPresenceTx).toHaveBeenCalledTimes(1);
+    expect(presenceService.exitPlayerPresenceTx).toHaveBeenCalledWith(
+      "test-match-id",
+      2,
+      "lineup-uuid-8",
+      updatedEvent.eventTimestamp,
+      {
+        maxTimeIn: updatedEvent.eventTimestamp,
+        maxSequenceNumber: updatedEvent.sequenceNumber,
+      },
+    );
+    expect(result.current.hasPendingRemovals).toBe(false);
 
     consoleErrorSpy.mockRestore();
   });
@@ -2061,10 +2105,325 @@ describe("useGameEvents Custom Hook", () => {
           1,
           "lineup-uuid-7",
           eventTimestamp,
+          {
+            maxTimeIn: eventTimestamp,
+            maxSequenceNumber: 21,
+          },
         );
       } finally {
         releaseBarrier();
       }
     });
+  });
+
+  it("should retry pending removals sequentially in timestamp order per player, retain later removals on failure, and keep different players concurrent", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: true,
+    });
+
+    const player7EarlierEvent = {
+      id: "p7-evt-early",
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-excl-id",
+      periodNumber: 1,
+      eventTimestamp: "2026-11-19T10:01:00.000Z",
+      isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
+      shotLocationX: null,
+      shotLocationY: null,
+      foulImpact: "PersonalFoul" as const,
+      penaltyDurationSeconds: 20,
+      createdAt: "2026-11-19T10:01:00.000Z",
+      sequenceNumber: 10,
+      isSynced: 0,
+    };
+    const player7LaterEvent = {
+      ...player7EarlierEvent,
+      id: "p7-evt-late",
+      eventTimestamp: "2026-11-19T10:03:00.000Z",
+      createdAt: "2026-11-19T10:03:00.000Z",
+      sequenceNumber: 12,
+    };
+    const player8Event = {
+      ...player7EarlierEvent,
+      id: "p8-evt-1",
+      matchLineupId: "lineup-uuid-8",
+      eventTimestamp: "2026-11-19T10:02:00.000Z",
+      createdAt: "2026-11-19T10:02:00.000Z",
+      sequenceNumber: 11,
+    };
+
+    vi.mocked(db.matchlineups.get).mockImplementation((async (id: unknown) => {
+      if (id === "lineup-uuid-7") {
+        return {
+          id: "lineup-uuid-7",
+          matchId: "test-match-id",
+          playerRosterId: "roster-7",
+          number: 7,
+          positionId: null,
+        };
+      }
+      if (id === "lineup-uuid-8") {
+        return {
+          id: "lineup-uuid-8",
+          matchId: "test-match-id",
+          playerRosterId: "roster-8",
+          number: 8,
+          positionId: null,
+        };
+      }
+      return undefined;
+    }) as never);
+
+    // Queue later event for player 7 first, then earlier event for player 7, then player 8
+    vi.mocked(eventService.createGameEventTx)
+      .mockResolvedValueOnce(player7LaterEvent)
+      .mockResolvedValueOnce(player7EarlierEvent)
+      .mockResolvedValueOnce(player8Event);
+
+    vi.mocked(db.gameevents.get).mockImplementation((async (id: unknown) => {
+      if (id === player7EarlierEvent.id) return player7EarlierEvent;
+      if (id === player7LaterEvent.id) return player7LaterEvent;
+      if (id === player8Event.id) return player8Event;
+      return undefined;
+    }) as never);
+
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockRejectedValue(
+      new Error("Temporary DB lock"),
+    );
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-7",
+        actionName: "Exclusion",
+        isPositive: false,
+        isLeadToGoal: false,
+        eventDefinitionId: "def-excl-id",
+      });
+      await result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-7",
+        actionName: "Exclusion",
+        isPositive: false,
+        isLeadToGoal: false,
+        eventDefinitionId: "def-excl-id",
+      });
+      await result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-8",
+        actionName: "Exclusion",
+        isPositive: false,
+        isLeadToGoal: false,
+        eventDefinitionId: "def-excl-id",
+      });
+    });
+
+    expect(result.current.hasPendingRemovals).toBe(true);
+
+    // First retry: player 7's earlier removal starts and blocks while player 8 runs concurrently;
+    // then player 7's earlier removal fails, so player 7's later removal must NOT run yet.
+    const startedCalls: Array<{ lineupId: string; timestamp: string }> = [];
+    let rejectPlayer7Early!: (error: Error) => void;
+    let resolvePlayer7EarlyStarted!: () => void;
+    const player7EarlyStarted = new Promise<void>((resolve) => {
+      resolvePlayer7EarlyStarted = resolve;
+    });
+    let resolvePlayer8Started!: () => void;
+    const player8Started = new Promise<void>((resolve) => {
+      resolvePlayer8Started = resolve;
+    });
+
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockReset();
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockImplementation(
+      (_matchId, _period, lineupId, timestamp) => {
+        startedCalls.push({ lineupId, timestamp });
+        if (
+          lineupId === "lineup-uuid-7" &&
+          timestamp === player7EarlierEvent.eventTimestamp
+        ) {
+          resolvePlayer7EarlyStarted();
+          return new Promise<boolean>((_resolve, reject) => {
+            rejectPlayer7Early = reject;
+          });
+        }
+        if (lineupId === "lineup-uuid-8") {
+          resolvePlayer8Started();
+          return Promise.resolve(true);
+        }
+        return Promise.resolve(true);
+      },
+    );
+
+    let firstRetryCompleted = true;
+    await act(async () => {
+      const retryPromise = result.current.retryPendingDisciplinaryRemovals();
+      await Promise.all([player7EarlyStarted, player8Started]);
+
+      // Both players started concurrently, and player 7's later removal has NOT started
+      expect(startedCalls).toEqual(
+        expect.arrayContaining([
+          {
+            lineupId: "lineup-uuid-7",
+            timestamp: player7EarlierEvent.eventTimestamp,
+          },
+          {
+            lineupId: "lineup-uuid-8",
+            timestamp: player8Event.eventTimestamp,
+          },
+        ]),
+      );
+      expect(startedCalls).toHaveLength(2);
+
+      rejectPlayer7Early(new Error("Still failing"));
+      firstRetryCompleted = await retryPromise;
+    });
+
+    expect(firstRetryCompleted).toBe(false);
+    expect(result.current.hasPendingRemovals).toBe(true);
+    // Player 7's later removal was retained without being attempted
+    expect(startedCalls).toHaveLength(2);
+
+    // Second retry: only player 7's two removals remain and must execute sequentially in timestamp order
+    const secondRetryTimestamps: string[] = [];
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockReset();
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockImplementation(
+      async (_matchId, _period, lineupId, timestamp) => {
+        expect(lineupId).toBe("lineup-uuid-7");
+        secondRetryTimestamps.push(timestamp);
+        return true;
+      },
+    );
+
+    let secondRetryCompleted = false;
+    await act(async () => {
+      secondRetryCompleted =
+        await result.current.retryPendingDisciplinaryRemovals();
+    });
+
+    expect(secondRetryCompleted).toBe(true);
+    expect(secondRetryTimestamps).toEqual([
+      player7EarlierEvent.eventTimestamp,
+      player7LaterEvent.eventTimestamp,
+    ]);
+    expect(result.current.hasPendingRemovals).toBe(false);
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("should bind timed-exclusion exit to the evaluated open presence and avoid marking pending when skipped due to re-entry", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: true,
+    });
+
+    const eventTimestamp = "2026-11-19T10:05:00.000Z";
+    const createdEvent = {
+      id: "bound-excl-uuid",
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-excl-id",
+      periodNumber: 1,
+      eventTimestamp,
+      isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
+      shotLocationX: null,
+      shotLocationY: null,
+      foulImpact: "PersonalFoul" as const,
+      penaltyDurationSeconds: 20,
+      createdAt: eventTimestamp,
+      sequenceNumber: 25,
+      isSynced: 0,
+    };
+
+    vi.mocked(db.matchlineups.get).mockResolvedValue({
+      id: "lineup-uuid-7",
+      matchId: "test-match-id",
+      playerRosterId: "roster-7",
+      number: 7,
+      positionId: null,
+    });
+    vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce(
+      createdEvent,
+    );
+
+    const originalPlayerPresences = (
+      db as unknown as { playerpresences?: unknown }
+    ).playerpresences;
+    const whereMock = vi
+      .fn()
+      .mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "pres-evaluated-open",
+            matchLineupId: "lineup-uuid-7",
+            periodNumber: 1,
+            timeIn: "2026-11-19T10:00:00.000Z",
+            timeOut: null,
+            sequenceNumber: 1,
+          },
+        ]),
+      })
+      .mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "pres-reentry-open",
+            matchLineupId: "lineup-uuid-7",
+            periodNumber: 1,
+            timeIn: "2026-11-19T10:05:25.000Z",
+            timeOut: null,
+            sequenceNumber: 30,
+          },
+        ]),
+      });
+    (db as unknown as { playerpresences?: unknown }).playerpresences = {
+      where: whereMock,
+    };
+
+    try {
+      // Simulated guard skip: exitPlayerPresenceTx sees the re-entry presence and returns false
+      vi.mocked(presenceService.exitPlayerPresenceTx).mockResolvedValueOnce(
+        false,
+      );
+
+      const { result } = renderHook(() => useGameEvents("test-match-id"), {
+        wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+      });
+
+      let outcome: unknown;
+      await act(async () => {
+        outcome = await result.current.recordGameEvent({
+          selectedPlayerId: "lineup-uuid-7",
+          actionName: "Exclusion",
+          isPositive: false,
+          isLeadToGoal: false,
+          eventDefinitionId: "def-excl-id",
+        });
+      });
+
+      expect(presenceService.exitPlayerPresenceTx).toHaveBeenCalledWith(
+        "test-match-id",
+        1,
+        "lineup-uuid-7",
+        eventTimestamp,
+        {
+          expectedPresenceId: "pres-evaluated-open",
+          maxTimeIn: eventTimestamp,
+          maxSequenceNumber: 25,
+        },
+      );
+      expect(outcome).toBe(true);
+      expect(result.current.hasPendingRemovals).toBe(false);
+    } finally {
+      (db as unknown as { playerpresences?: unknown }).playerpresences =
+        originalPlayerPresences;
+    }
   });
 });

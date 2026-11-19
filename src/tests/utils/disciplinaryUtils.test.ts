@@ -508,5 +508,58 @@ describe("disciplinaryUtils", () => {
         }),
       ).toBe(true);
     });
+
+    it("compares parsed timestamp instants rather than raw strings when checking re-entry across ISO formats", () => {
+      // Presence starts 100ms BEFORE the penalty, formatted with a timezone offset whose string
+      // sorts lexicographically AFTER the UTC penalty timestamp
+      const presenceBeforePenalty = makePresence({
+        id: "pres-offset",
+        matchLineupId: "p1",
+        periodNumber: 1,
+        timeIn: "2026-11-18T12:01:59.900+02:00",
+        timeOut: null,
+        sequenceNumber: 1,
+      });
+      const penaltyEvent = makeEvent({
+        id: "evt-penalty-utc",
+        matchLineupId: "p1",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-18T10:02:00.000Z",
+        sequenceNumber: 10,
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: 20,
+      });
+
+      expect(
+        shouldAutoRemoveActivePlayer({
+          event: penaltyEvent,
+          playerGameEvents: [penaltyEvent],
+          eventDefinitionsById: new Map(),
+          periodPresences: [presenceBeforePenalty],
+          maxPersonalFouls: 3,
+          currentPeriod: 1,
+          isPeriodActive: true,
+        }),
+      ).toBe(true);
+
+      // Also verify computePlayerDisciplinaryMap does not treat the earlier offset presence as re-entry
+      const map = computePlayerDisciplinaryMap({
+        lineupIds: ["p1", "p2", "p3"],
+        gameEvents: [penaltyEvent],
+        eventDefinitionsById: new Map(),
+        periodPresences: [
+          {
+            ...presenceBeforePenalty,
+            timeOut: "2026-11-18T10:02:00.000Z",
+          },
+        ],
+        currentPeriod: 1,
+        isPeriodActive: true,
+        activeLineupIds: ["p2"],
+        activePlayersLimit: 3,
+        maxPersonalFouls: 3,
+      });
+      expect(map.p1.isServingTimedExclusion).toBe(true);
+    });
   });
 });

@@ -58,6 +58,18 @@ export const hasTimedPenalty = (
 ): boolean =>
   typeof penaltyDurationSeconds === "number" && penaltyDurationSeconds > 0;
 
+export const isTimestampAfter = (
+  candidate: string,
+  reference: string,
+): boolean => {
+  const candidateMs = Date.parse(candidate);
+  const referenceMs = Date.parse(reference);
+  if (!Number.isNaN(candidateMs) && !Number.isNaN(referenceMs)) {
+    return candidateMs > referenceMs;
+  }
+  return candidate > reference;
+};
+
 const compareEventsDesc = (a: GameEvent, b: GameEvent): number => {
   if (a.sequenceNumber !== b.sequenceNumber) {
     return b.sequenceNumber - a.sequenceNumber;
@@ -65,7 +77,7 @@ const compareEventsDesc = (a: GameEvent, b: GameEvent): number => {
   return (b.eventTimestamp || "").localeCompare(a.eventTimestamp || "");
 };
 
-const hasPlayerReEnteredAfterEvent = (
+export const hasPlayerReEnteredAfterEvent = (
   presences: PlayerPresence[],
   penaltyEvent: GameEvent,
 ): boolean =>
@@ -74,7 +86,7 @@ const hasPlayerReEnteredAfterEvent = (
       presence.matchLineupId === penaltyEvent.matchLineupId &&
       presence.periodNumber === penaltyEvent.periodNumber &&
       (presence.sequenceNumber > penaltyEvent.sequenceNumber ||
-        presence.timeIn > penaltyEvent.eventTimestamp),
+        isTimestampAfter(presence.timeIn, penaltyEvent.eventTimestamp)),
   );
 
 const findLatestUnservedTimedPenalty = (
@@ -245,6 +257,33 @@ export const computePlayerDisciplinaryMap = (
   }
 
   return result;
+};
+
+export interface IsPlayerDisqualifiedParams {
+  matchLineupId: string;
+  playerGameEvents: GameEvent[];
+  eventDefinitionsById: ReadonlyMap<string, EventDefinitionLookup>;
+  maxPersonalFouls: number | null;
+}
+
+export const isPlayerDisqualified = ({
+  matchLineupId,
+  playerGameEvents,
+  eventDefinitionsById,
+  maxPersonalFouls,
+}: IsPlayerDisqualifiedParams): boolean => {
+  const { personalFouls, directDisqualification } = aggregatePlayerFouls(
+    matchLineupId,
+    playerGameEvents,
+    eventDefinitionsById,
+  );
+  return (
+    resolveDisqualificationReason(
+      personalFouls,
+      maxPersonalFouls,
+      directDisqualification,
+    ) !== null
+  );
 };
 
 export interface ShouldAutoRemoveActivePlayerParams {

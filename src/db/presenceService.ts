@@ -5,7 +5,10 @@ import {
   type SyncQueueItem,
 } from "./ttaDatabase";
 import { getNextSequenceNumber } from "./eventService";
-import { computePlayerDisciplinaryMap } from "../utils/disciplinaryUtils";
+import {
+  computePlayerDisciplinaryMap,
+  isTimestampAfter,
+} from "../utils/disciplinaryUtils";
 
 const DISQUALIFIED_STARTER_ERROR =
   "Cannot start period with disqualified players in the starting lineup.";
@@ -364,16 +367,55 @@ export async function substitutePlayerTx(
   return newPresenceId;
 }
 
+export interface ExitPlayerPresenceOptions {
+  expectedPresenceId?: string;
+  maxTimeIn?: string;
+  maxSequenceNumber?: number;
+}
+
+const shouldSkipPresenceExit = (
+  activePresence: PlayerPresence,
+  options?: ExitPlayerPresenceOptions,
+): boolean => {
+  if (!options) {
+    return false;
+  }
+
+  if (
+    options.expectedPresenceId !== undefined &&
+    activePresence.id !== options.expectedPresenceId
+  ) {
+    return true;
+  }
+
+  if (
+    options.maxSequenceNumber !== undefined &&
+    activePresence.sequenceNumber > options.maxSequenceNumber
+  ) {
+    return true;
+  }
+
+  if (
+    options.maxTimeIn !== undefined &&
+    isTimestampAfter(activePresence.timeIn, options.maxTimeIn)
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
 /**
  * Closes a single active player's presence session without pairing an incoming substitute
  * (e.g., timed exclusion or disqualification). Safe no-op returning false if the player
- * is not currently active in the specified period.
+ * is not currently active in the specified period or if optional presence guards fail.
  */
 export async function exitPlayerPresenceTx(
   matchId: string,
   periodNumber: number,
   playerOutLineupId: string,
   exitTimestamp: string,
+  options?: ExitPlayerPresenceOptions,
 ): Promise<boolean> {
   let didExit = false;
 
@@ -383,7 +425,7 @@ export async function exitPlayerPresenceTx(
       .filter((p) => p.timeOut === null)
       .first();
 
-    if (!activePresence) {
+    if (!activePresence || shouldSkipPresenceExit(activePresence, options)) {
       return;
     }
 
