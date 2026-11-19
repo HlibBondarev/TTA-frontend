@@ -1338,4 +1338,54 @@ describe("useEditGameEventModal Custom Hook", () => {
     expect(mockRetryPendingDisciplinaryRemovals).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("should submit new edits via updateGameEvent instead of discarding them when user edits form while removalRetryPending is true", async () => {
+    mockUpdateGameEvent
+      .mockResolvedValueOnce({
+        eventSaved: true,
+        removalPending: true,
+        eventId: "action-123",
+      })
+      .mockResolvedValueOnce(true);
+
+    const onClose = vi.fn();
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: sampleAction,
+        matchId: "match-1",
+        onClose,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockUpdateGameEvent).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+
+    // User changes selected player while modal remains open for retry
+    act(() => {
+      result.current.setSelectedMatchLineupId("lineup-2");
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockRetryPendingDisciplinaryRemovals).not.toHaveBeenCalled();
+    expect(mockUpdateGameEvent).toHaveBeenCalledTimes(2);
+    expect(mockUpdateGameEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        eventId: "action-123",
+        selectedPlayerId: "lineup-2",
+      }),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

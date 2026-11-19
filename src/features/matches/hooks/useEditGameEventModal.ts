@@ -11,7 +11,25 @@ import {
 import { parseSvgDimensions } from "../../../utils/svgUtils";
 import type { ActionEntry } from "../store/matchSlice";
 import type { RootState } from "../../../store";
-import { useGameEvents } from "./useGameEvents";
+import {
+  useGameEvents,
+  type UpdateGameEventHookParams,
+} from "./useGameEvents";
+
+const areUpdatePayloadsEqual = (
+  a: UpdateGameEventHookParams,
+  b: UpdateGameEventHookParams,
+): boolean =>
+  a.eventId === b.eventId &&
+  a.selectedPlayerId === b.selectedPlayerId &&
+  a.actionName === b.actionName &&
+  a.eventDefinitionId === b.eventDefinitionId &&
+  a.isPositive === b.isPositive &&
+  a.isLeadToGoal === b.isLeadToGoal &&
+  a.locationX === b.locationX &&
+  a.locationY === b.locationY &&
+  a.shotLocationX === b.shotLocationX &&
+  a.shotLocationY === b.shotLocationY;
 
 export interface UseEditGameEventModalOptions {
   action: ActionEntry;
@@ -232,6 +250,7 @@ export function useEditGameEventModal({
 
   const isLocationEditedRef = useRef(false);
   const isShotLocationEditedRef = useRef(false);
+  const committedPayloadRef = useRef<UpdateGameEventHookParams | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -456,30 +475,41 @@ export function useEditGameEventModal({
     setIsSaving(true);
     setError(null);
 
+    const nextPayload: UpdateGameEventHookParams = {
+      eventId: action.id,
+      selectedPlayerId: selectedMatchLineupId,
+      actionName: effectiveActionName,
+      eventDefinitionId: selectedEventDefinitionId,
+      isPositive,
+      isLeadToGoal: isGoalAction ? false : action.isLeadToGoal,
+      locationX,
+      locationY,
+      shotLocationX: isShotDefinition ? shotLocationX : null,
+      shotLocationY: isShotDefinition ? shotLocationY : null,
+    };
+
     try {
-      if (isRemovalRetryPending && retryPendingDisciplinaryRemovals) {
+      const hasUnsavedChangesAfterPendingRemoval =
+        committedPayloadRef.current !== null &&
+        !areUpdatePayloadsEqual(committedPayloadRef.current, nextPayload);
+
+      if (
+        isRemovalRetryPending &&
+        retryPendingDisciplinaryRemovals &&
+        !hasUnsavedChangesAfterPendingRemoval
+      ) {
         const completed = await retryPendingDisciplinaryRemovals();
         if (!completed) {
           setError("Action saved, but player removal is still pending retry.");
           return;
         }
+        committedPayloadRef.current = null;
         setIsRemovalRetryPending(false);
         onClose();
         return;
       }
 
-      const result = await updateGameEvent({
-        eventId: action.id,
-        selectedPlayerId: selectedMatchLineupId,
-        actionName: effectiveActionName,
-        eventDefinitionId: selectedEventDefinitionId,
-        isPositive,
-        isLeadToGoal: isGoalAction ? false : action.isLeadToGoal,
-        locationX,
-        locationY,
-        shotLocationX: isShotDefinition ? shotLocationX : null,
-        shotLocationY: isShotDefinition ? shotLocationY : null,
-      });
+      const result = await updateGameEvent(nextPayload);
 
       if (
         typeof result === "object" &&
@@ -487,11 +517,14 @@ export function useEditGameEventModal({
         "removalPending" in result &&
         result.removalPending
       ) {
+        committedPayloadRef.current = nextPayload;
         setIsRemovalRetryPending(true);
         setError("Action saved, but player removal is pending retry.");
         return;
       }
 
+      committedPayloadRef.current = null;
+      setIsRemovalRetryPending(false);
       onClose();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to update action.");

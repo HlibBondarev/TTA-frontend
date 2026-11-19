@@ -112,7 +112,7 @@ export function useMatchSetupWizard({
         const normalizedConfigs: SportConfigurationLookup[] = data.map(
           (config) => ({
             ...config,
-            maxPersonalFouls: config.maxPersonalFouls ?? null,
+            maxPersonalFouls: config.maxPersonalFouls,
           }),
         );
 

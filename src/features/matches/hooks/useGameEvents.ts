@@ -84,9 +84,14 @@ const setPendingRemovalEntry = (
 const deletePendingRemovalEntry = (
   normalizedMatchId: string,
   eventId: string,
+  expectedEntry?: PendingDisciplinaryRemoval,
 ): void => {
   const matchMap = pendingRemovalsByMatch.get(normalizedMatchId);
-  if (!matchMap?.delete(eventId)) return;
+  if (!matchMap) return;
+  if (expectedEntry !== undefined && matchMap.get(eventId) !== expectedEntry) {
+    return;
+  }
+  if (!matchMap.delete(eventId)) return;
   if (matchMap.size === 0) {
     pendingRemovalsByMatch.delete(normalizedMatchId);
   }
@@ -265,6 +270,45 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
   }
 };
 
+const retrySinglePendingRemoval = async (
+  normalizedMatchId: string,
+  eventId: string,
+  pending: PendingDisciplinaryRemoval,
+  isPeriodActive: boolean,
+  dispatch: AppDispatch,
+): Promise<{
+  eventId: string;
+  pending: PendingDisciplinaryRemoval;
+  completed: boolean;
+}> => {
+  let currentEvent: GameEvent | undefined = pending.event;
+  if (typeof db.gameevents?.get === "function") {
+    try {
+      currentEvent = await db.gameevents.get(eventId);
+    } catch (error) {
+      console.error(
+        `Failed to load persisted event ${eventId} for pending disciplinary removal retry:`,
+        error,
+      );
+      return { eventId, pending, completed: false };
+    }
+  }
+
+  if (!currentEvent) {
+    return { eventId, pending, completed: true };
+  }
+
+  const completed = await applyDisciplinaryAutoRemovalIfNeeded(
+    normalizedMatchId,
+    currentEvent,
+    pending.periodNumber,
+    isPeriodActive,
+    dispatch,
+    true,
+  );
+  return { eventId, pending, completed };
+};
+
 export interface RecordGameEventParams {
   selectedPlayerId: string;
   actionName: string;
@@ -350,22 +394,20 @@ export const useGameEvents = (matchId: string, userId?: string) => {
 
       const entries = Array.from(matchMap.entries());
       const results = await Promise.all(
-        entries.map(async ([eventId, pending]) => {
-          const completed = await applyDisciplinaryAutoRemovalIfNeeded(
+        entries.map(([eventId, pending]) =>
+          retrySinglePendingRemoval(
             normalizedMatchId,
-            pending.event,
-            pending.periodNumber,
+            eventId,
+            pending,
             isPeriodActive,
             dispatch,
-            true,
-          );
-          return { eventId, completed };
-        }),
+          ),
+        ),
       );
 
-      for (const { eventId, completed } of results) {
+      for (const { eventId, pending, completed } of results) {
         if (completed) {
-          deletePendingRemovalEntry(normalizedMatchId, eventId);
+          deletePendingRemovalEntry(normalizedMatchId, eventId, pending);
         }
       }
 
@@ -376,6 +418,7 @@ export const useGameEvents = (matchId: string, userId?: string) => {
     normalizedMatchId: string,
     committedEvent: GameEvent,
   ): Promise<GameEventMutationResult> => {
+    deletePendingRemovalEntry(normalizedMatchId, committedEvent.id);
     await retryPendingDisciplinaryRemovals();
 
     const removalCompleted = await applyDisciplinaryAutoRemovalIfNeeded(
@@ -398,7 +441,6 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       };
     }
 
-    deletePendingRemovalEntry(normalizedMatchId, committedEvent.id);
     return true;
   };
 

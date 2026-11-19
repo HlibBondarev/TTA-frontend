@@ -898,7 +898,7 @@ describe("Hydration Service", () => {
     });
     expect(db.sportconfigurations.put).toHaveBeenCalledWith({
       ...mockConfig,
-      maxPersonalFouls: null,
+      maxPersonalFouls: undefined,
     });
     expect(store.dispatch).toHaveBeenCalledWith(incrementHydrationVersion());
   });
@@ -2240,7 +2240,7 @@ describe("Hydration Service", () => {
       activePlayersLimit: 6,
       playground: "<svg>Cached Field SVG</svg>",
       shotMap: "<svg>Goal SVG</svg>",
-      maxPersonalFouls: null,
+      maxPersonalFouls: undefined,
     });
   });
 
@@ -2417,7 +2417,7 @@ describe("Hydration Service", () => {
       periodsCount: 8,
       playground: "<svg>Cached Field</svg>",
       shotMap: "<svg>Remote ShotMap</svg>",
-      maxPersonalFouls: null,
+      maxPersonalFouls: undefined,
     });
   });
 
@@ -2489,6 +2489,13 @@ describe("Hydration Service", () => {
     expect(db.sportconfigurations.put).toHaveBeenLastCalledWith(
       expect.objectContaining({ maxPersonalFouls: 5 }),
     );
+
+    // Case 4: Fresh undefined with cached undefined preserves undefined instead of converting to null
+    setupRecoveryMocks(undefined, undefined);
+    await getMatchRecoveryState(matchId);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const lastPutArg = vi.mocked(db.sportconfigurations.put).mock.calls.at(-1)?.[0];
+    expect(lastPutArg?.maxPersonalFouls).toBeUndefined();
   });
 
   it("should resolve omitted foulImpact and penaltyDurationSeconds from event definitions during hydration while preserving explicit response values", async () => {

@@ -312,11 +312,11 @@ const recoverPeriodFromAnchors = async (matchId: string): Promise<number> => {
 const resolveRefreshedMaxPersonalFouls = (
   freshValue: number | null | undefined,
   cachedValue: number | null | undefined,
-): number | null => {
+): number | null | undefined => {
   if (freshValue !== undefined) {
     return freshValue;
   }
-  return cachedValue ?? null;
+  return cachedValue;
 };
 
 const refreshSportConfigBackground = (
@@ -799,7 +799,7 @@ const executeMatchTransaction = async (
       if (sportConfig) {
         await db.sportconfigurations.put({
           ...sportConfig,
-          maxPersonalFouls: sportConfig.maxPersonalFouls ?? null,
+          maxPersonalFouls: sportConfig.maxPersonalFouls,
         });
       }
 
