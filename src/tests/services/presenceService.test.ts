@@ -32,6 +32,19 @@ vi.mock("../../db/ttaDatabase", () => ({
     syncQueue: {
       add: vi.fn(),
     },
+    matches: {
+      get: vi.fn(),
+    },
+    tournaments: {
+      get: vi.fn(),
+    },
+    sportconfigurations: {
+      get: vi.fn(),
+    },
+    eventdefinitions: {
+      bulkGet: vi.fn().mockResolvedValue([]),
+      get: vi.fn(),
+    },
     transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
 }));
@@ -56,7 +69,16 @@ describe("presenceService Database Transactions", () => {
 
     expect(db.transaction).toHaveBeenCalledWith(
       "rw",
-      [db.playerpresences, db.gameevents, db.timeanchors, db.syncQueue],
+      [
+        db.playerpresences,
+        db.gameevents,
+        db.timeanchors,
+        db.syncQueue,
+        db.matches,
+        db.tournaments,
+        db.sportconfigurations,
+        db.eventdefinitions,
+      ],
       expect.any(Function),
     );
 
@@ -480,6 +502,58 @@ describe("presenceService Database Transactions", () => {
         "Cannot start period with disqualified players in the starting lineup.",
       );
 
+      expect(db.playerpresences.bulkAdd).not.toHaveBeenCalled();
+      expect(db.syncQueue.add).not.toHaveBeenCalled();
+    } finally {
+      (db.gameevents as unknown as { where?: unknown }).where = originalWhere;
+    }
+  });
+
+  it("initializePeriodPresenceTx should reject when a disqualifying event commits concurrently before the write transaction starts", async () => {
+    const persistedEvents: Array<Record<string, unknown>> = [];
+    const originalWhere = (db.gameevents as unknown as { where?: unknown })
+      .where;
+    const whereSpy = vi.fn().mockReturnValue({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockImplementation(async () => [...persistedEvents]),
+      }),
+    });
+    (db.gameevents as unknown as { where: unknown }).where = whereSpy;
+
+    // Simulate a concurrent disqualifying event committing right before the initialization transaction acquires its lock
+    vi.mocked(db.transaction).mockImplementationOnce(((
+      _mode: unknown,
+      _tables: unknown,
+      cb: () => Promise<void>,
+    ) => {
+      expect(whereSpy).not.toHaveBeenCalled();
+      persistedEvents.push({
+        id: "evt-concurrent-dq",
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-dq",
+        periodNumber: 1,
+        eventTimestamp: "2026-07-22T10:14:59.000Z",
+        foulImpact: "DisqualificationNoSub",
+        penaltyDurationSeconds: null,
+        sequenceNumber: 12,
+        isSynced: 0,
+      });
+      return cb();
+    }) as unknown as typeof db.transaction);
+
+    try {
+      await expect(
+        initializePeriodPresenceTx(
+          mockMatchId,
+          2,
+          ["lineup-1", "lineup-2"],
+          "2026-07-22T10:15:00.000Z",
+        ),
+      ).rejects.toThrow(
+        "Cannot start period with disqualified players in the starting lineup.",
+      );
+
+      expect(whereSpy).toHaveBeenCalledTimes(1);
       expect(db.playerpresences.bulkAdd).not.toHaveBeenCalled();
       expect(db.syncQueue.add).not.toHaveBeenCalled();
     } finally {

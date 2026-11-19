@@ -115,17 +115,27 @@ export async function initializePeriodPresenceTx(
   playerLineupIds: string[],
   startTimestamp: string,
 ): Promise<void> {
-  const disqualifiedIds = await findDisqualifiedLineupIds(
-    matchId,
-    playerLineupIds,
-  );
-  if (disqualifiedIds.length > 0) {
-    throw new Error(DISQUALIFIED_STARTER_ERROR);
-  }
   await db.transaction(
     "rw",
-    [db.playerpresences, db.gameevents, db.timeanchors, db.syncQueue],
+    [
+      db.playerpresences,
+      db.gameevents,
+      db.timeanchors,
+      db.syncQueue,
+      db.matches,
+      db.tournaments,
+      db.sportconfigurations,
+      db.eventdefinitions,
+    ],
     async () => {
+      const disqualifiedIds = await findDisqualifiedLineupIds(
+        matchId,
+        playerLineupIds,
+      );
+      if (disqualifiedIds.length > 0) {
+        throw new Error(DISQUALIFIED_STARTER_ERROR);
+      }
+
       let currentSeq = await getNextSequenceNumber();
 
       const newPresences: PlayerPresence[] = playerLineupIds.map(
