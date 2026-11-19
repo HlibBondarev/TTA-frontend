@@ -487,9 +487,8 @@ const purgeTerminateSyncQueueItems = async (
         if (reopened) {
           if (data.timeOut !== reopened.timeOut) return false;
           if (Array.isArray(data.playerLineupIds)) {
-            return (
-              data.playerLineupIds.length > 0 &&
-              data.playerLineupIds.some((id) => reopened.lineupIds.has(id))
+            return data.playerLineupIds.some((id) =>
+              reopened.lineupIds.has(id),
             );
           }
           return true;
