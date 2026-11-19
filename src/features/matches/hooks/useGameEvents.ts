@@ -119,6 +119,72 @@ const loadPlayerPeriodPresences = async (
     .toArray();
 };
 
+const loadMaxPersonalFouls = async (
+  matchId: string,
+): Promise<number | null> => {
+  if (
+    !db.matches?.get ||
+    !db.tournaments?.get ||
+    !db.sportconfigurations?.get
+  ) {
+    return null;
+  }
+
+  const match = await db.matches.get(matchId);
+  if (!match?.tournamentId) return null;
+
+  const tournament = await db.tournaments.get(match.tournamentId);
+  if (!tournament?.configurationId) return null;
+
+  const config = await db.sportconfigurations.get(tournament.configurationId);
+  return typeof config?.maxPersonalFouls === "number"
+    ? config.maxPersonalFouls
+    : null;
+};
+
+const loadPlayerGameEvents = async (
+  event: GameEvent,
+): Promise<GameEvent[]> => {
+  const loadedEvents = db.gameevents?.where
+    ? await db.gameevents
+        .where("matchLineupId")
+        .equals(event.matchLineupId)
+        .toArray()
+    : [];
+  return loadedEvents.some((e) => e.id === event.id)
+    ? loadedEvents
+    : [...loadedEvents, event];
+};
+
+const loadEventDefinitionsById = async (
+  events: GameEvent[],
+): Promise<Map<string, EventDefinitionLookup>> => {
+  const eventDefinitionsById = new Map<string, EventDefinitionLookup>();
+  const defIds = Array.from(
+    new Set(events.map((e) => e.eventDefinitionId).filter(Boolean)),
+  );
+  if (defIds.length === 0 || !db.eventdefinitions) {
+    return eventDefinitionsById;
+  }
+
+  let defs: Array<EventDefinitionLookup | undefined> = [];
+  if (typeof db.eventdefinitions.bulkGet === "function") {
+    defs = await db.eventdefinitions.bulkGet(defIds);
+  } else if (typeof db.eventdefinitions.get === "function") {
+    defs = await Promise.all(
+      defIds.map((id) => db.eventdefinitions.get(id)),
+    );
+  }
+
+  for (const def of defs) {
+    if (def) {
+      eventDefinitionsById.set(def.id, def);
+    }
+  }
+
+  return eventDefinitionsById;
+};
+
 const loadDisciplinaryContext = async (
   matchId: string,
   event: GameEvent,
@@ -129,58 +195,14 @@ const loadDisciplinaryContext = async (
   eventDefinitionsById: Map<string, EventDefinitionLookup>;
   periodPresences: PlayerPresence[];
 }> => {
-  let maxPersonalFouls: number | null = null;
-  if (db.matches?.get && db.tournaments?.get && db.sportconfigurations?.get) {
-    const match = await db.matches.get(matchId);
-    const tournament = match?.tournamentId
-      ? await db.tournaments.get(match.tournamentId)
-      : undefined;
-    const config = tournament?.configurationId
-      ? await db.sportconfigurations.get(tournament.configurationId)
-      : undefined;
-    if (typeof config?.maxPersonalFouls === "number") {
-      maxPersonalFouls = config.maxPersonalFouls;
-    }
-  }
+  const [maxPersonalFouls, playerGameEvents, periodPresences] =
+    await Promise.all([
+      loadMaxPersonalFouls(matchId),
+      loadPlayerGameEvents(event),
+      loadPlayerPeriodPresences(event.matchLineupId, currentPeriod),
+    ]);
 
-  const loadedEvents = db.gameevents?.where
-    ? await db.gameevents
-        .where("matchLineupId")
-        .equals(event.matchLineupId)
-        .toArray()
-    : [];
-  const playerGameEvents = loadedEvents.some((e) => e.id === event.id)
-    ? loadedEvents
-    : [...loadedEvents, event];
-
-  const eventDefinitionsById = new Map<string, EventDefinitionLookup>();
-  const defIds = Array.from(
-    new Set(playerGameEvents.map((e) => e.eventDefinitionId).filter(Boolean)),
-  );
-  if (defIds.length > 0 && db.eventdefinitions) {
-    if (typeof db.eventdefinitions.bulkGet === "function") {
-      const defs = await db.eventdefinitions.bulkGet(defIds);
-      for (const def of defs) {
-        if (def) {
-          eventDefinitionsById.set(def.id, def);
-        }
-      }
-    } else if (typeof db.eventdefinitions.get === "function") {
-      const defs = await Promise.all(
-        defIds.map((id) => db.eventdefinitions.get(id)),
-      );
-      for (const def of defs) {
-        if (def) {
-          eventDefinitionsById.set(def.id, def);
-        }
-      }
-    }
-  }
-
-  const periodPresences = await loadPlayerPeriodPresences(
-    event.matchLineupId,
-    currentPeriod,
-  );
+  const eventDefinitionsById = await loadEventDefinitionsById(playerGameEvents);
 
   return {
     maxPersonalFouls,
@@ -327,15 +349,21 @@ export const useGameEvents = (matchId: string, userId?: string) => {
       }
 
       const entries = Array.from(matchMap.entries());
-      for (const [eventId, pending] of entries) {
-        const completed = await applyDisciplinaryAutoRemovalIfNeeded(
-          normalizedMatchId,
-          pending.event,
-          pending.periodNumber,
-          isPeriodActive,
-          dispatch,
-          true,
-        );
+      const results = await Promise.all(
+        entries.map(async ([eventId, pending]) => {
+          const completed = await applyDisciplinaryAutoRemovalIfNeeded(
+            normalizedMatchId,
+            pending.event,
+            pending.periodNumber,
+            isPeriodActive,
+            dispatch,
+            true,
+          );
+          return { eventId, completed };
+        }),
+      );
+
+      for (const { eventId, completed } of results) {
         if (completed) {
           deletePendingRemovalEntry(normalizedMatchId, eventId);
         }

@@ -13,6 +13,11 @@ export type DisqualificationReason =
   | "DisqualificationNoSub"
   | null;
 
+export type DirectDisqualificationReason =
+  | "DisqualificationWithSub"
+  | "DisqualificationNoSub"
+  | null;
+
 export interface PlayerDisciplinaryStatus {
   personalFouls: number;
   isWarning: boolean;
@@ -107,13 +112,10 @@ const aggregatePlayerFouls = (
   definitionsById: ReadonlyMap<string, EventDefinitionLookup>,
 ): {
   personalFouls: number;
-  directDisqualification: "DisqualificationWithSub" | "DisqualificationNoSub" | null;
+  directDisqualification: DirectDisqualificationReason;
 } => {
   let personalFouls = 0;
-  let directDisqualification:
-    | "DisqualificationWithSub"
-    | "DisqualificationNoSub"
-    | null = null;
+  let directDisqualification: DirectDisqualificationReason = null;
 
   for (const event of events) {
     if (event.matchLineupId !== lineupId) continue;
@@ -139,7 +141,7 @@ const aggregatePlayerFouls = (
 const resolveDisqualificationReason = (
   personalFouls: number,
   maxPersonalFouls: number | null,
-  directDisqualification: "DisqualificationWithSub" | "DisqualificationNoSub" | null,
+  directDisqualification: DirectDisqualificationReason,
 ): DisqualificationReason => {
   if (directDisqualification) {
     return directDisqualification;

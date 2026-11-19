@@ -291,6 +291,16 @@ export const PlayerPresencePanel: React.FC<{
     );
   };
 
+  const stageLineupSafely = (nextIds: string[]) => {
+    try {
+      stageStartingLineup(nextIds);
+    } catch (e: unknown) {
+      setErrorMessage(
+        e instanceof Error ? e.message : "An unknown error occurred.",
+      );
+    }
+  };
+
   const handleBenchTap = async (benchId: string) => {
     const status = disciplinaryByLineupId[benchId] ?? EMPTY_DISCIPLINARY_STATUS;
     const isStaged = selectedStartingIds.includes(benchId);
@@ -298,15 +308,7 @@ export const PlayerPresencePanel: React.FC<{
     if (status.isDisqualified) {
       if (!isPeriodActive && isStaged) {
         setErrorMessage(null);
-        try {
-          stageStartingLineup(
-            selectedStartingIds.filter((id) => id !== benchId),
-          );
-        } catch (e: unknown) {
-          setErrorMessage(
-            e instanceof Error ? e.message : "An unknown error occurred.",
-          );
-        }
+        stageLineupSafely(selectedStartingIds.filter((id) => id !== benchId));
       }
       return;
     }
@@ -318,16 +320,10 @@ export const PlayerPresencePanel: React.FC<{
       return;
     }
 
-    try {
-      const newSelection = isStaged
-        ? selectedStartingIds.filter((id) => id !== benchId)
-        : [...selectedStartingIds, benchId];
-      stageStartingLineup(newSelection);
-    } catch (e: unknown) {
-      setErrorMessage(
-        e instanceof Error ? e.message : "An unknown error occurred.",
-      );
-    }
+    const newSelection = isStaged
+      ? selectedStartingIds.filter((id) => id !== benchId)
+      : [...selectedStartingIds, benchId];
+    stageLineupSafely(newSelection);
   };
 
   return (

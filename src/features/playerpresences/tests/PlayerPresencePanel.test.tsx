@@ -284,11 +284,11 @@ describe("PlayerPresencePanel Component", () => {
       name: /#5 \(2 of 3 personal fouls, foul warning\)/i,
     });
     expect(
-      activeBtn.querySelectorAll('[data-foul-pip="filled"]').length,
-    ).toBe(2);
+      activeBtn.querySelectorAll('[data-foul-pip="filled"]'),
+    ).toHaveLength(2);
     expect(
-      activeBtn.querySelectorAll('[data-foul-pip="empty"]').length,
-    ).toBe(1);
+      activeBtn.querySelectorAll('[data-foul-pip="empty"]'),
+    ).toHaveLength(1);
     expect(activeBtn.querySelector('[data-foul-warning="true"]')).toBeTruthy();
 
     const excludedBenchBtn = await screen.findByRole("button", {
