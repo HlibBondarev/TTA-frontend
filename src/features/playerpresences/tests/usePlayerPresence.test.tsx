@@ -758,6 +758,116 @@ describe("usePlayerPresence Hook", () => {
     expect(result.current.benchLineupIds).toEqual([]);
   });
 
+  it("should prevent a stale refresh from another usePlayerPresence instance from overwriting a committed bench entry", async () => {
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 2, period: 1 }));
+    });
+
+    const lifecycleHook = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+    const presencePanelHook = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await lifecycleHook.result.current.refreshPresenceFromDB();
+    });
+    expect(presencePanelHook.result.current.activeLineupIds).toEqual([
+      "lineup-1",
+    ]);
+
+    let resolveLifecycleRefresh!: (value: unknown) => void;
+    let resolveEnterTx!: (value: string) => void;
+
+    vi.mocked(db.playerpresences.toArray)
+      // Stale refresh started by MatchLifecyclePanel's hook instance before bench entry commits
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveLifecycleRefresh = resolve;
+          }) as unknown as ReturnType<typeof db.playerpresences.toArray>,
+      )
+      // Post-commit refresh triggered by PlayerPresencePanel's hook instance after enterPlayerPresenceTx resolves
+      .mockResolvedValueOnce([
+        {
+          id: "pres-1",
+          matchLineupId: "lineup-1",
+          periodNumber: 1,
+          timeIn: "2026-07-16T10:00:00.000Z",
+          timeOut: null,
+        },
+        {
+          id: "entered-presence-uuid",
+          matchLineupId: "lineup-2",
+          periodNumber: 1,
+          timeIn: "2026-07-16T10:05:00.000Z",
+          timeOut: null,
+        },
+      ] as never);
+
+    vi.mocked(enterPlayerPresenceTx).mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveEnterTx = resolve;
+        }),
+    );
+
+    // Instance 1 starts a refresh before bench entry commits
+    let lifecycleRefreshPromise!: Promise<void>;
+    await act(async () => {
+      lifecycleRefreshPromise =
+        lifecycleHook.result.current.refreshPresenceFromDB();
+      await Promise.resolve();
+    });
+
+    // Instance 2 enters lineup-2 from bench while Instance 1's refresh is in flight
+    let enterPromise!: Promise<string>;
+    act(() => {
+      enterPromise =
+        presencePanelHook.result.current.enterPlayerFromBench("lineup-2");
+    });
+
+    await act(async () => {
+      resolveEnterTx("entered-presence-uuid");
+      const newId = await enterPromise;
+      expect(newId).toBe("entered-presence-uuid");
+    });
+
+    expect(presencePanelHook.result.current.activeLineupIds).toEqual([
+      "lineup-1",
+      "lineup-2",
+    ]);
+    expect(lifecycleHook.result.current.activeLineupIds).toEqual([
+      "lineup-1",
+      "lineup-2",
+    ]);
+
+    // Instance 1's stale pre-commit refresh resolves late -> must be ignored
+    await act(async () => {
+      resolveLifecycleRefresh([
+        {
+          id: "pres-1",
+          matchLineupId: "lineup-1",
+          periodNumber: 1,
+          timeIn: "2026-07-16T10:00:00.000Z",
+          timeOut: null,
+        },
+      ]);
+      await lifecycleRefreshPromise;
+    });
+
+    expect(presencePanelHook.result.current.activeLineupIds).toEqual([
+      "lineup-1",
+      "lineup-2",
+    ]);
+    expect(presencePanelHook.result.current.benchLineupIds).toEqual([]);
+    expect(lifecycleHook.result.current.activeLineupIds).toEqual([
+      "lineup-1",
+      "lineup-2",
+    ]);
+  });
+
   it("should validate limit, duplicate active player, overridePeriodNumber, and rollback on DB error in enterPlayerFromBench", async () => {
     const { result } = renderHook(() => usePlayerPresence("test-match"), {
       wrapper,

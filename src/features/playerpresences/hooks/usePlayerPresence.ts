@@ -20,13 +20,24 @@ import {
   setLoading,
 } from "../store/presenceSlice";
 
+const latestRefreshVersionByMatch = new Map<string, number>();
+
+const bumpPresenceRefreshVersion = (matchId: string): number => {
+  const key = matchId.trim();
+  const next = (latestRefreshVersionByMatch.get(key) ?? 0) + 1;
+  latestRefreshVersionByMatch.set(key, next);
+  return next;
+};
+
+const getPresenceRefreshVersion = (matchId: string): number =>
+  latestRefreshVersionByMatch.get(matchId.trim()) ?? 0;
+
 export function usePlayerPresence(matchId: string) {
   const dispatch = useAppDispatch();
   const currentPeriod = useAppSelector((state) => state.match.periodNumber);
 
   // Safeguard: guarantees up-to-date periodNumber inside async callbacks
   const currentPeriodRef = useRef(currentPeriod);
-  const refreshRequestRef = useRef(0);
 
   useEffect(() => {
     currentPeriodRef.current = currentPeriod;
@@ -41,7 +52,7 @@ export function usePlayerPresence(matchId: string) {
 
   const refreshPresenceFromDB = useCallback(
     async (overridePeriodNumber?: number) => {
-      const requestId = ++refreshRequestRef.current;
+      const requestId = bumpPresenceRefreshVersion(matchId);
       const periodToFetch = overridePeriodNumber ?? currentPeriodRef.current;
       dispatch(setLoading(true));
       try {
@@ -76,7 +87,7 @@ export function usePlayerPresence(matchId: string) {
         );
 
         if (
-          requestId === refreshRequestRef.current &&
+          requestId === getPresenceRefreshVersion(matchId) &&
           periodToFetch === currentPeriodRef.current
         ) {
           dispatch(
@@ -86,7 +97,7 @@ export function usePlayerPresence(matchId: string) {
       } catch (error) {
         console.error("Failed to load local presence state:", error);
       } finally {
-        if (requestId === refreshRequestRef.current) {
+        if (requestId === getPresenceRefreshVersion(matchId)) {
           dispatch(setLoading(false));
         }
       }
@@ -264,7 +275,7 @@ export function usePlayerPresence(matchId: string) {
       }
 
       dispatch(optimisticEnterFromBench(inLineupId));
-      refreshRequestRef.current += 1;
+      bumpPresenceRefreshVersion(matchId);
       try {
         const newPresenceId = await enterPlayerPresenceTx(
           matchId,
