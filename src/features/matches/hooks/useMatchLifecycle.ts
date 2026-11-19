@@ -309,13 +309,14 @@ const checkUnsyncedEndAnchorExists = async (
 };
 
 interface DeletedEndAnchorInfo {
+  found: boolean;
   timestamp: string | null;
   usesPeriodEndMeta: boolean;
 }
 
 /**
  * Resolves and deletes the period end time anchor along with its matching sync queue entry.
- * Returns the deleted PeriodEnd anchor timestamp and whether it was created with period-end metadata tracking.
+ * Returns whether an end anchor was found, its timestamp, and whether it used period-end metadata tracking.
  */
 const deleteEndAnchorAndSyncQueue = async (
   matchId: string,
@@ -323,13 +324,19 @@ const deleteEndAnchorAndSyncQueue = async (
   anchorId?: string | null,
 ): Promise<DeletedEndAnchorInfo> => {
   let targetAnchorId = anchorId;
+  let targetAnchorFound = false;
   let targetAnchorTimestamp: string | null = null;
   let usesPeriodEndMeta = false;
 
   if (targetAnchorId && db?.timeanchors?.get) {
     const existingAnchor = await db.timeanchors.get(targetAnchorId);
-    targetAnchorTimestamp = existingAnchor?.timestamp ?? null;
-    usesPeriodEndMeta = Boolean(existingAnchor?.usesPeriodEndMeta);
+    if (existingAnchor) {
+      targetAnchorFound = true;
+      targetAnchorTimestamp = existingAnchor.timestamp ?? null;
+      usesPeriodEndMeta = Boolean(existingAnchor.usesPeriodEndMeta);
+    }
+  } else if (targetAnchorId) {
+    targetAnchorFound = true;
   }
 
   if (!targetAnchorId && matchId && db?.timeanchors) {
@@ -346,17 +353,18 @@ const deleteEndAnchorAndSyncQueue = async (
           b.timestamp.localeCompare(a.timestamp),
       );
       targetAnchorId = endAnchors[0].id;
+      targetAnchorFound = true;
       targetAnchorTimestamp = endAnchors[0].timestamp ?? null;
       usesPeriodEndMeta = Boolean(endAnchors[0].usesPeriodEndMeta);
     }
   }
 
-  if (!targetAnchorId) {
-    return { timestamp: null, usesPeriodEndMeta: false };
+  if (!targetAnchorId || !targetAnchorFound) {
+    return { found: false, timestamp: null, usesPeriodEndMeta: false };
   }
 
   await deleteTimeAnchorWithQueue(targetAnchorId);
-  return { timestamp: targetAnchorTimestamp, usesPeriodEndMeta };
+  return { found: true, timestamp: targetAnchorTimestamp, usesPeriodEndMeta };
 };
 
 /**
@@ -848,6 +856,7 @@ export const useMatchLifecycle = () => {
       async () => {
         if (!normalizedMatchId) return;
         const {
+          found: foundEndAnchor,
           timestamp: periodEndTimestamp,
           usesPeriodEndMeta: anchorUsesPeriodEndMeta,
         } = await deleteEndAnchorAndSyncQueue(
@@ -866,7 +875,7 @@ export const useMatchLifecycle = () => {
           );
         }
 
-        if (options?.skipPresenceReopen) {
+        if (options?.skipPresenceReopen || !foundEndAnchor) {
           return;
         }
 

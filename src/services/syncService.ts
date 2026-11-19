@@ -3,7 +3,6 @@ import {
   db,
   type PlayerPresence,
   type SyncQueueItem,
-  type TimeAnchor,
 } from "../db/ttaDatabase";
 import {
   UNRECOVERABLE_STATUS_CODES,
@@ -98,7 +97,6 @@ const fetchAndFormatBatchPayloads = async (normalizedMatchId: string) => {
       })),
     },
     unsyncedPresences,
-    unsyncedAnchors,
   };
 };
 
@@ -218,64 +216,113 @@ const matchesSubmittedPresenceVersion = (
   normalizeIsoTimestamp(current.timeOut) ===
     normalizeIsoTimestamp(submitted.timeOut);
 
-const isPeriodEndAnchorSynced = (
-  periodNumber: number,
-  unsyncedAnchors: TimeAnchor[],
-  syncedAnchors: Set<string>,
-): boolean =>
-  unsyncedAnchors.some(
-    (anchor) =>
-      anchor.type === 1 &&
-      anchor.periodNumber === periodNumber &&
-      syncedAnchors.has(anchor.id),
-  );
+const loadLocalPresencesByIds = async (
+  ids: string[],
+): Promise<PlayerPresence[]> => {
+  if (ids.length === 0) return [];
 
-const isSubmittedPresenceClosedForPeriodEnd = (
-  presenceId: string,
-  targetTimeOut: string | null,
-  syncedPresences: Set<string>,
-  submittedPresencesById: Map<string, PlayerPresence>,
-): boolean => {
-  if (!syncedPresences.has(presenceId)) return false;
-  const submitted = submittedPresencesById.get(presenceId);
-  if (!submitted) return false;
-  if (!targetTimeOut) return submitted.timeOut !== null;
-  return normalizeIsoTimestamp(submitted.timeOut) === targetTimeOut;
+  const whereClause = db.playerpresences.where("id");
+  const anyOfClause =
+    typeof whereClause?.anyOf === "function"
+      ? whereClause.anyOf(ids)
+      : undefined;
+
+  if (anyOfClause && typeof anyOfClause.toArray === "function") {
+    return anyOfClause.toArray();
+  }
+
+  const idSet = new Set(ids);
+  return db.playerpresences.filter((p) => idSet.has(p.id)).toArray();
 };
 
-const isTerminateQueueItemSynced = (
+const isLocalPeriodEndAnchorSynced = async (
+  matchId: string,
+  periodNumber: number,
+): Promise<boolean> => {
+  const periodEndAnchors = await db.timeanchors
+    .where("matchId")
+    .equals(matchId)
+    .filter((a) => a.type === 1 && a.periodNumber === periodNumber)
+    .toArray();
+
+  if (periodEndAnchors.some((anchor) => anchor.isSynced === 0)) {
+    return false;
+  }
+
+  return periodEndAnchors.some((anchor) => anchor.isSynced === 1);
+};
+
+const isLocalPresenceClosedAndSyncedForPeriodEnd = (
+  localPresence: PlayerPresence | undefined,
+  periodNumber: number,
+  targetTimeOut: string | null,
+  submittedPresencesById: Map<string, PlayerPresence>,
+): boolean => {
+  if (!localPresence || localPresence.isSynced !== 1) return false;
+  if (localPresence.periodNumber !== periodNumber) return false;
+
+  const submitted = submittedPresencesById.get(localPresence.id);
+  if (submitted && !matchesSubmittedPresenceVersion(localPresence, submitted)) {
+    return false;
+  }
+
+  if (!targetTimeOut) return localPresence.timeOut !== null;
+  return normalizeIsoTimestamp(localPresence.timeOut) === targetTimeOut;
+};
+
+const isPeriodEndTerminationSynced = async (
+  normalizedMatchId: string,
+  periodEndMeta: NonNullable<SyncQueueItem["periodEndMeta"]>,
+  unsyncedPresences: PlayerPresence[],
+): Promise<boolean> => {
+  const { closedPresenceIds, periodNumber, timeOut } = periodEndMeta;
+  const anchorMatchId = periodEndMeta.matchId?.trim() || normalizedMatchId;
+
+  // Retain period-end termination and its undo metadata while any PeriodEnd anchor
+  // for this period is still unsynced (undoable) or no synced PeriodEnd anchor exists locally.
+  const anchorSynced = await isLocalPeriodEndAnchorSynced(
+    anchorMatchId,
+    periodNumber,
+  );
+  if (!anchorSynced) {
+    return false;
+  }
+
+  if (closedPresenceIds.length === 0) {
+    return true;
+  }
+
+  const targetTimeOut = normalizeIsoTimestamp(timeOut);
+  const submittedPresencesById = new Map(
+    unsyncedPresences.map((presence) => [presence.id, presence]),
+  );
+  const localPresences = await loadLocalPresencesByIds(closedPresenceIds);
+  const localPresencesById = new Map(
+    localPresences.map((presence) => [presence.id, presence]),
+  );
+
+  return closedPresenceIds.every((id) =>
+    isLocalPresenceClosedAndSyncedForPeriodEnd(
+      localPresencesById.get(id),
+      periodNumber,
+      targetTimeOut,
+      submittedPresencesById,
+    ),
+  );
+};
+
+const isTerminateQueueItemSynced = async (
+  normalizedMatchId: string,
   item: SyncQueueItem,
   payload: unknown,
   syncedSets: SyncedEntitySets,
   unsyncedPresences: PlayerPresence[],
-  unsyncedAnchors: TimeAnchor[],
-): boolean => {
+): Promise<boolean> => {
   if (item.periodEndMeta) {
-    const { closedPresenceIds, periodNumber, timeOut } = item.periodEndMeta;
-
-    // Retain period-end termination and its undo metadata while the PeriodEnd anchor is still undoable.
-    if (
-      !isPeriodEndAnchorSynced(periodNumber, unsyncedAnchors, syncedSets.anchors)
-    ) {
-      return false;
-    }
-
-    if (closedPresenceIds.length === 0) {
-      return true;
-    }
-
-    const targetTimeOut = normalizeIsoTimestamp(timeOut);
-    const submittedPresencesById = new Map(
-      unsyncedPresences.map((presence) => [presence.id, presence]),
-    );
-
-    return closedPresenceIds.every((id) =>
-      isSubmittedPresenceClosedForPeriodEnd(
-        id,
-        targetTimeOut,
-        syncedSets.presences,
-        submittedPresencesById,
-      ),
+    return isPeriodEndTerminationSynced(
+      normalizedMatchId,
+      item.periodEndMeta,
+      unsyncedPresences,
     );
   }
 
@@ -318,23 +365,23 @@ const isTerminateQueueItemSynced = (
   return matchingPresences.every((p) => syncedSets.presences.has(p.id));
 };
 
-const isSyncedPresenceItem = (
+const isSyncedPresenceItem = async (
+  normalizedMatchId: string,
   item: SyncQueueItem,
   payload: unknown,
   syncedSets: SyncedEntitySets,
   unsyncedPresences: PlayerPresence[],
-  unsyncedAnchors: TimeAnchor[],
-): boolean => {
+): Promise<boolean> => {
   if (item.endpoint.includes("/presence/terminate")) {
     return (
       item.actionType === "PUT" &&
-      isTerminateQueueItemSynced(
+      (await isTerminateQueueItemSynced(
+        normalizedMatchId,
         item,
         payload,
         syncedSets,
         unsyncedPresences,
-        unsyncedAnchors,
-      )
+      ))
     );
   }
 
@@ -343,12 +390,12 @@ const isSyncedPresenceItem = (
   return ids.length > 0 && ids.every((id) => syncedSets.presences.has(id));
 };
 
-const shouldDeleteQueueItem = (
+const shouldDeleteQueueItem = async (
+  normalizedMatchId: string,
   item: SyncQueueItem,
   syncedSets: SyncedEntitySets,
   unsyncedPresences: PlayerPresence[],
-  unsyncedAnchors: TimeAnchor[],
-): boolean => {
+): Promise<boolean> => {
   const payload = parsePayload(item.payload);
   if (payload === null) return false;
 
@@ -365,11 +412,11 @@ const shouldDeleteQueueItem = (
     item.endpoint.includes("/substitutions")
   ) {
     return isSyncedPresenceItem(
+      normalizedMatchId,
       item,
       payload,
       syncedSets,
       unsyncedPresences,
-      unsyncedAnchors,
     );
   }
 
@@ -380,7 +427,6 @@ const cleanupBatchQueue = async (
   normalizedMatchId: string,
   batchData: MatchSyncBatchResponse,
   unsyncedPresences: PlayerPresence[],
-  unsyncedAnchors: TimeAnchor[],
 ): Promise<void> => {
   if (!db.syncQueue) return;
 
@@ -404,11 +450,11 @@ const cleanupBatchQueue = async (
     }
 
     if (
-      shouldDeleteQueueItem(
+      await shouldDeleteQueueItem(
+        normalizedMatchId,
         item,
         syncedSets,
         unsyncedPresences,
-        unsyncedAnchors,
       )
     ) {
       idsToDelete.push(item.id);
@@ -452,7 +498,7 @@ export const syncMatchBatch = async (
   }
   const normalizedMatchId = matchId.trim();
 
-  const { requestPayload, unsyncedPresences, unsyncedAnchors } =
+  const { requestPayload, unsyncedPresences } =
     await fetchAndFormatBatchPayloads(normalizedMatchId);
   const batchData = await postSyncBatch(normalizedMatchId, requestPayload);
 
@@ -485,7 +531,6 @@ export const syncMatchBatch = async (
         normalizedMatchId,
         batchData,
         unsyncedPresences,
-        unsyncedAnchors,
       );
     },
   );

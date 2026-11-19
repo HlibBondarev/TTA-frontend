@@ -9,6 +9,40 @@ import { computePlayerDisciplinaryMap } from "../utils/disciplinaryUtils";
 
 const DISQUALIFIED_STARTER_ERROR =
   "Cannot start period with disqualified players in the starting lineup.";
+const DISQUALIFIED_ENTRY_ERROR =
+  "Cannot enter a disqualified player into the active lineup.";
+
+const parseTimestampMs = (value: string): number | null => {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const resolveEffectiveExitTimestamp = (
+  timeIn: string,
+  exitTimestamp: string,
+): string => {
+  const timeInMs = parseTimestampMs(timeIn);
+  const exitMs = parseTimestampMs(exitTimestamp);
+
+  if (timeInMs !== null && exitMs !== null) {
+    if (exitMs >= timeInMs) {
+      return exitTimestamp;
+    }
+    const nowIso = new Date().toISOString();
+    return Date.parse(nowIso) >= timeInMs ? nowIso : timeIn;
+  }
+
+  if (exitMs !== null && exitTimestamp >= timeIn) {
+    return exitTimestamp;
+  }
+
+  const nowIso = new Date().toISOString();
+  if (timeInMs !== null) {
+    return Date.parse(nowIso) >= timeInMs ? nowIso : timeIn;
+  }
+  return nowIso >= timeIn ? nowIso : timeIn;
+};
 
 const loadMatchMaxPersonalFouls = async (
   matchId: string,
@@ -328,10 +362,10 @@ export async function exitPlayerPresenceTx(
       return;
     }
 
-    const effectiveTimeOut =
-      exitTimestamp >= activePresence.timeIn
-        ? exitTimestamp
-        : new Date().toISOString();
+    const effectiveTimeOut = resolveEffectiveExitTimestamp(
+      activePresence.timeIn,
+      exitTimestamp,
+    );
 
     await db.playerpresences.update(activePresence.id, {
       timeOut: effectiveTimeOut,
@@ -373,8 +407,24 @@ export async function enterPlayerPresenceTx(
 
   await db.transaction(
     "rw",
-    [db.playerpresences, db.gameevents, db.timeanchors, db.syncQueue],
+    [
+      db.playerpresences,
+      db.gameevents,
+      db.timeanchors,
+      db.syncQueue,
+      db.matches,
+      db.tournaments,
+      db.sportconfigurations,
+      db.eventdefinitions,
+    ],
     async () => {
+      const disqualifiedIds = await findDisqualifiedLineupIds(matchId, [
+        playerInLineupId,
+      ]);
+      if (disqualifiedIds.length > 0) {
+        throw new Error(DISQUALIFIED_ENTRY_ERROR);
+      }
+
       const existingActive = await db.playerpresences
         .where({ matchLineupId: playerInLineupId, periodNumber })
         .filter((p) => p.timeOut === null)

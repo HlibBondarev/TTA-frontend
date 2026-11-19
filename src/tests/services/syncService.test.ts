@@ -2806,7 +2806,7 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       expect(db.syncQueue.delete).not.toHaveBeenCalledWith(302);
     });
 
-    it("retains nonempty period-end termination metadata while the PeriodEnd anchor is still unsynced and deletes it once both anchor and closed presences sync", async () => {
+    it("retains nonempty period-end termination metadata while the PeriodEnd anchor is still unsynced and deletes it when anchor acknowledges in a later batch", async () => {
       const matchId = "m-period-end-anchor-guard";
       const endTimestamp = "2026-11-18T10:15:00.000Z";
 
@@ -2818,23 +2818,59 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
         }),
       } as never);
 
+      const localAnchors = [
+        {
+          id: "anchor-period-end-1",
+          matchId,
+          periodNumber: 1,
+          type: 1,
+          timestamp: endTimestamp,
+          sequenceNumber: 5,
+          isSynced: 0,
+        },
+      ];
+
       vi.mocked(db.timeanchors.where).mockReturnValue({
-        equals: vi.fn().mockReturnValue({
-          filter: vi.fn().mockReturnValue({
-            toArray: vi.fn().mockResolvedValue([
-              {
-                id: "anchor-period-end-1",
-                matchId,
-                periodNumber: 1,
-                type: 1,
-                timestamp: endTimestamp,
-                sequenceNumber: 5,
-                isSynced: 0,
+        equals: vi.fn().mockImplementation((targetMatchId: string) => ({
+          filter: vi
+            .fn()
+            .mockImplementation(
+              (predicate: (a: (typeof localAnchors)[number]) => boolean) => ({
+                toArray: vi
+                  .fn()
+                  .mockImplementation(() =>
+                    Promise.resolve(
+                      localAnchors
+                        .filter(
+                          (a) => a.matchId === targetMatchId && predicate(a),
+                        )
+                        .map((a) => ({ ...a })),
+                    ),
+                  ),
+              }),
+            ),
+        })),
+        anyOf: vi.fn().mockImplementation((ids: string[]) => ({
+          modify: vi
+            .fn()
+            .mockImplementation(
+              (
+                updater:
+                  | Record<string, unknown>
+                  | ((record: (typeof localAnchors)[number]) => void),
+              ) => {
+                for (const record of localAnchors) {
+                  if (!ids.includes(record.id)) continue;
+                  if (typeof updater === "function") {
+                    updater(record);
+                  } else {
+                    Object.assign(record, updater);
+                  }
+                }
+                return Promise.resolve(ids.length);
               },
-            ]),
-          }),
-        }),
-        anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
+            ),
+        })),
       } as never);
 
       const localPresences = [
@@ -2849,16 +2885,29 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
         },
       ];
 
-      vi.mocked(db.playerpresences.filter).mockReturnValue({
+      vi.mocked(db.playerpresences.filter).mockImplementation(((
+        predicate: (p: (typeof localPresences)[number]) => boolean,
+      ) => ({
         toArray: vi
           .fn()
           .mockImplementation(() =>
-            Promise.resolve(localPresences.map((p) => ({ ...p }))),
+            Promise.resolve(
+              localPresences.filter(predicate).map((p) => ({ ...p })),
+            ),
           ),
-      } as never);
+      })) as never);
 
       vi.mocked(db.playerpresences.where).mockReturnValue({
         anyOf: vi.fn().mockImplementation((ids: string[]) => ({
+          toArray: vi
+            .fn()
+            .mockImplementation(() =>
+              Promise.resolve(
+                localPresences
+                  .filter((p) => ids.includes(p.id))
+                  .map((p) => ({ ...p })),
+              ),
+            ),
           modify: vi
             .fn()
             .mockImplementation(
@@ -2914,14 +2963,165 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       await syncMatchBatch(matchId);
 
       expect(localPresences[0].isSynced).toBe(1);
+      expect(localAnchors[0].isSynced).toBe(0);
       expect(db.syncQueue.delete).not.toHaveBeenCalledWith(401);
 
-      // 2. Full sync: both closed presence and PeriodEnd anchor synced
-      localPresences[0].isSynced = 0;
+      // 2. Follow-up sync: presence is already synced (not resent), only PeriodEnd anchor is acknowledged
       vi.mocked(apiClient.post).mockResolvedValueOnce({
         data: {
           syncedEventIds: [],
           syncedAnchorIds: ["anchor-period-end-1"],
+          syncedPresenceIds: [],
+        },
+      });
+
+      await syncMatchBatch(matchId);
+
+      expect(localPresences[0].isSynced).toBe(1);
+      expect(localAnchors[0].isSynced).toBe(1);
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(401);
+    });
+
+    it("deletes period-end termination metadata when both PeriodEnd anchor and closed presence acknowledge in a single batch", async () => {
+      const matchId = "m-period-end-single-batch";
+      const endTimestamp = "2026-11-18T10:15:00.000Z";
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi
+            .fn()
+            .mockResolvedValue([{ id: "lineup-active", matchId }]),
+        }),
+      } as never);
+
+      const localAnchors = [
+        {
+          id: "anchor-period-end-single",
+          matchId,
+          periodNumber: 1,
+          type: 1,
+          timestamp: endTimestamp,
+          sequenceNumber: 5,
+          isSynced: 0,
+        },
+      ];
+
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockImplementation((targetMatchId: string) => ({
+          filter: vi
+            .fn()
+            .mockImplementation(
+              (predicate: (a: (typeof localAnchors)[number]) => boolean) => ({
+                toArray: vi
+                  .fn()
+                  .mockImplementation(() =>
+                    Promise.resolve(
+                      localAnchors
+                        .filter(
+                          (a) => a.matchId === targetMatchId && predicate(a),
+                        )
+                        .map((a) => ({ ...a })),
+                    ),
+                  ),
+              }),
+            ),
+        })),
+        anyOf: vi.fn().mockImplementation((ids: string[]) => ({
+          modify: vi
+            .fn()
+            .mockImplementation((updater: Record<string, unknown>) => {
+              for (const record of localAnchors) {
+                if (ids.includes(record.id)) {
+                  Object.assign(record, updater);
+                }
+              }
+              return Promise.resolve(ids.length);
+            }),
+        })),
+      } as never);
+
+      const localPresences = [
+        {
+          id: "pres-active",
+          matchLineupId: "lineup-active",
+          periodNumber: 1,
+          timeIn: "2026-11-18T10:00:00.000Z",
+          timeOut: endTimestamp,
+          sequenceNumber: 1,
+          isSynced: 0,
+        },
+      ];
+
+      vi.mocked(db.playerpresences.filter).mockImplementation(((
+        predicate: (p: (typeof localPresences)[number]) => boolean,
+      ) => ({
+        toArray: vi
+          .fn()
+          .mockImplementation(() =>
+            Promise.resolve(
+              localPresences.filter(predicate).map((p) => ({ ...p })),
+            ),
+          ),
+      })) as never);
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        anyOf: vi.fn().mockImplementation((ids: string[]) => ({
+          toArray: vi
+            .fn()
+            .mockImplementation(() =>
+              Promise.resolve(
+                localPresences
+                  .filter((p) => ids.includes(p.id))
+                  .map((p) => ({ ...p })),
+              ),
+            ),
+          modify: vi
+            .fn()
+            .mockImplementation(
+              (
+                updater:
+                  | Record<string, unknown>
+                  | ((record: (typeof localPresences)[number]) => void),
+              ) => {
+                for (const record of localPresences) {
+                  if (!ids.includes(record.id)) continue;
+                  if (typeof updater === "function") {
+                    updater(record);
+                  } else {
+                    Object.assign(record, updater);
+                  }
+                }
+                return Promise.resolve(ids.length);
+              },
+            ),
+        })),
+      } as never);
+
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue([
+        {
+          id: 402,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["lineup-active"],
+            timeOut: endTimestamp,
+          }),
+          createdAt: endTimestamp,
+          periodEndMeta: {
+            matchId,
+            periodNumber: 1,
+            timeOut: endTimestamp,
+            closedPresenceIds: ["pres-active"],
+            closedLineupIds: ["lineup-active"],
+          },
+        },
+      ] as never);
+
+      vi.mocked(apiClient.post).mockResolvedValueOnce({
+        data: {
+          syncedEventIds: [],
+          syncedAnchorIds: ["anchor-period-end-single"],
           syncedPresenceIds: ["pres-active"],
         },
       });
@@ -2929,7 +3129,175 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       await syncMatchBatch(matchId);
 
       expect(localPresences[0].isSynced).toBe(1);
-      expect(db.syncQueue.delete).toHaveBeenCalledWith(401);
+      expect(localAnchors[0].isSynced).toBe(1);
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(402);
+    });
+
+    it("retains period-end termination metadata when a newer unsynced PeriodEnd anchor exists locally during batch cleanup", async () => {
+      const matchId = "m-period-end-concurrent-reend";
+      const firstEndTimestamp = "2026-11-18T10:15:00.000Z";
+      const secondEndTimestamp = "2026-11-18T10:16:00.000Z";
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi
+            .fn()
+            .mockResolvedValue([{ id: "lineup-active", matchId }]),
+        }),
+      } as never);
+
+      const localAnchors = [
+        {
+          id: "anchor-period-end-old",
+          matchId,
+          periodNumber: 1,
+          type: 1,
+          timestamp: firstEndTimestamp,
+          sequenceNumber: 5,
+          isSynced: 0,
+        },
+      ];
+
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockImplementation((targetMatchId: string) => ({
+          filter: vi
+            .fn()
+            .mockImplementation(
+              (predicate: (a: (typeof localAnchors)[number]) => boolean) => ({
+                toArray: vi
+                  .fn()
+                  .mockImplementation(() =>
+                    Promise.resolve(
+                      localAnchors
+                        .filter(
+                          (a) => a.matchId === targetMatchId && predicate(a),
+                        )
+                        .map((a) => ({ ...a })),
+                    ),
+                  ),
+              }),
+            ),
+        })),
+        anyOf: vi.fn().mockImplementation((ids: string[]) => ({
+          modify: vi
+            .fn()
+            .mockImplementation((updater: Record<string, unknown>) => {
+              for (const record of localAnchors) {
+                if (ids.includes(record.id)) {
+                  Object.assign(record, updater);
+                }
+              }
+              return Promise.resolve(ids.length);
+            }),
+        })),
+      } as never);
+
+      const localPresences = [
+        {
+          id: "pres-active",
+          matchLineupId: "lineup-active",
+          periodNumber: 1,
+          timeIn: "2026-11-18T10:00:00.000Z",
+          timeOut: firstEndTimestamp,
+          sequenceNumber: 1,
+          isSynced: 0,
+        },
+      ];
+
+      vi.mocked(db.playerpresences.filter).mockImplementation(((
+        predicate: (p: (typeof localPresences)[number]) => boolean,
+      ) => ({
+        toArray: vi
+          .fn()
+          .mockImplementation(() =>
+            Promise.resolve(
+              localPresences.filter(predicate).map((p) => ({ ...p })),
+            ),
+          ),
+      })) as never);
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        anyOf: vi.fn().mockImplementation((ids: string[]) => ({
+          toArray: vi
+            .fn()
+            .mockImplementation(() =>
+              Promise.resolve(
+                localPresences
+                  .filter((p) => ids.includes(p.id))
+                  .map((p) => ({ ...p })),
+              ),
+            ),
+          modify: vi
+            .fn()
+            .mockImplementation(
+              (
+                updater:
+                  | Record<string, unknown>
+                  | ((record: (typeof localPresences)[number]) => void),
+              ) => {
+                for (const record of localPresences) {
+                  if (!ids.includes(record.id)) continue;
+                  if (typeof updater === "function") {
+                    updater(record);
+                  } else {
+                    Object.assign(record, updater);
+                  }
+                }
+                return Promise.resolve(ids.length);
+              },
+            ),
+        })),
+      } as never);
+
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue([
+        {
+          id: 403,
+          actionType: "PUT",
+          endpoint: `/Matches/${matchId}/presence/terminate`,
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["lineup-active"],
+            timeOut: secondEndTimestamp,
+          }),
+          createdAt: secondEndTimestamp,
+          periodEndMeta: {
+            matchId,
+            periodNumber: 1,
+            timeOut: secondEndTimestamp,
+            closedPresenceIds: ["pres-active"],
+            closedLineupIds: ["lineup-active"],
+          },
+        },
+      ] as never);
+
+      // While batch is in-flight, user undid old PeriodEnd and ended period again with a new unsynced anchor
+      vi.mocked(apiClient.post).mockImplementationOnce(async () => {
+        localAnchors.splice(0, localAnchors.length, {
+          id: "anchor-period-end-new",
+          matchId,
+          periodNumber: 1,
+          type: 1,
+          timestamp: secondEndTimestamp,
+          sequenceNumber: 6,
+          isSynced: 0,
+        });
+        localPresences[0].timeOut = secondEndTimestamp;
+        localPresences[0].isSynced = 0;
+
+        return {
+          data: {
+            syncedEventIds: [],
+            syncedAnchorIds: ["anchor-period-end-old"],
+            syncedPresenceIds: ["pres-active"],
+          },
+        };
+      });
+
+      await syncMatchBatch(matchId);
+
+      expect(localPresences[0].isSynced).toBe(0);
+      expect(localAnchors[0].isSynced).toBe(0);
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(403);
     });
 
     it("keeps non-period-end PUT /presence/terminate queue item for retry when no submitted presence matches its timeOut", async () => {

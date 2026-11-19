@@ -560,4 +560,117 @@ describe("presenceService Database Transactions", () => {
       (db.gameevents as unknown as { where?: unknown }).where = originalWhere;
     }
   });
+
+  it("exitPlayerPresenceTx should fall back to the later of current time and timeIn when exitTimestamp precedes timeIn", async () => {
+    vi.useFakeTimers();
+    try {
+      // Case 1: timeIn is in the future relative to current clock -> fallback uses timeIn
+      vi.setSystemTime(new Date("2026-07-22T10:02:00.000Z"));
+      const futureTimeIn = "2026-07-22T10:05:00.000Z";
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        filter: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue({
+            id: "pres-skew",
+            matchLineupId: "lineup-1",
+            periodNumber: mockPeriodNumber,
+            timeIn: futureTimeIn,
+            timeOut: null,
+          }),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      await exitPlayerPresenceTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-1",
+        "2026-07-22T10:01:00.000Z",
+      );
+
+      expect(db.playerpresences.update).toHaveBeenLastCalledWith("pres-skew", {
+        timeOut: futureTimeIn,
+        isSynced: 0,
+      });
+
+      // Case 2: current clock is later than timeIn -> fallback uses current clock
+      vi.setSystemTime(new Date("2026-07-22T10:08:00.000Z"));
+      await exitPlayerPresenceTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-1",
+        "2026-07-22T10:01:00.000Z",
+      );
+
+      expect(db.playerpresences.update).toHaveBeenLastCalledWith("pres-skew", {
+        timeOut: "2026-07-22T10:08:00.000Z",
+        isSynced: 0,
+      });
+
+      // Case 3: valid supplied exitTimestamp >= timeIn is preserved unchanged
+      const validSuppliedExit = "2026-07-22T10:06:00.000Z";
+      await exitPlayerPresenceTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-1",
+        validSuppliedExit,
+      );
+
+      expect(db.playerpresences.update).toHaveBeenLastCalledWith("pres-skew", {
+        timeOut: validSuppliedExit,
+        isSynced: 0,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("enterPlayerPresenceTx should check disqualification inside the transaction with full table scope and reject disqualified players", async () => {
+    const originalWhere = (db.gameevents as unknown as { where?: unknown })
+      .where;
+    (db.gameevents as unknown as { where: unknown }).where = vi
+      .fn()
+      .mockReturnValue({
+        anyOf: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            {
+              id: "evt-dq-entry",
+              matchLineupId: "lineup-dq",
+              eventDefinitionId: "def-dq",
+              periodNumber: 1,
+              eventTimestamp: "2026-07-22T10:05:00.000Z",
+              foulImpact: "DisqualificationWithSub",
+              penaltyDurationSeconds: null,
+              sequenceNumber: 10,
+              isSynced: 0,
+            },
+          ]),
+        }),
+      });
+
+    try {
+      await expect(
+        enterPlayerPresenceTx(mockMatchId, mockPeriodNumber, "lineup-dq"),
+      ).rejects.toThrow(
+        "Cannot enter a disqualified player into the active lineup.",
+      );
+
+      expect(db.transaction).toHaveBeenCalledWith(
+        "rw",
+        [
+          db.playerpresences,
+          db.gameevents,
+          db.timeanchors,
+          db.syncQueue,
+          db.matches,
+          db.tournaments,
+          db.sportconfigurations,
+          db.eventdefinitions,
+        ],
+        expect.any(Function),
+      );
+      expect(db.playerpresences.add).not.toHaveBeenCalled();
+      expect(db.syncQueue.add).not.toHaveBeenCalled();
+    } finally {
+      (db.gameevents as unknown as { where?: unknown }).where = originalWhere;
+    }
+  });
 });

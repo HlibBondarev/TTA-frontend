@@ -3169,4 +3169,93 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       toIsoSpy.mockRestore();
     }
   });
+
+  test("should make repeated revertEndPeriod a no-op for roster and queue when the PeriodEnd anchor is already absent", async () => {
+    const disciplinaryTimestamp = "2020-01-01T10:08:00.000Z";
+
+    // Only a start anchor exists; the PeriodEnd anchor was already deleted by an earlier Undo
+    mockTimeAnchors = [
+      {
+        id: "seed-start-anchor",
+        matchId: "test-match-id",
+        periodNumber: 1,
+        type: 0,
+        timestamp: "2020-01-01T10:00:00.000Z",
+        sequenceNumber: 1,
+        isSynced: 0,
+      },
+    ];
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockResolvedValue([{ id: "lineup-disciplinary" }]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    mockPlayerPresences = [
+      {
+        id: "presence-disciplinary",
+        periodNumber: 1,
+        timeOut: disciplinaryTimestamp,
+        matchLineupId: "lineup-disciplinary",
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: true,
+      isPeriodEnded: false,
+    });
+
+    mockSyncQueue.push({
+      id: 407,
+      actionType: "PUT",
+      endpoint: "/Matches/test-match-id/presence/terminate",
+      payload: JSON.stringify({
+        periodNumber: 1,
+        playerLineupIds: ["lineup-disciplinary"],
+        timeOut: disciplinaryTimestamp,
+      }),
+      createdAt: disciplinaryTimestamp,
+    });
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    // Repeated Undo without anchorId and with a stale anchorId
+    await act(async () => {
+      await result.current.revertEndPeriod();
+      await result.current.revertEndPeriod("already-deleted-end-anchor");
+    });
+
+    expect(db.playerpresences.update).not.toHaveBeenCalled();
+    expect(mockPlayerPresences[0].timeOut).toBe(disciplinaryTimestamp);
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(407);
+    expect(mockSyncQueue.some((i) => i.id === 407)).toBe(true);
+  });
 });
