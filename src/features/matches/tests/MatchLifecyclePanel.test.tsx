@@ -917,7 +917,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     await waitFor(() => expect(matchEndedBtn).not.toBeDisabled());
     fireEvent.click(matchEndedBtn);
 
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Match Result Finalization")).toBeInTheDocument();
   });
 
@@ -966,7 +966,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     await waitFor(() => expect(matchEndedBtn).not.toBeDisabled());
     fireEvent.click(matchEndedBtn);
 
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
 
   test("should render FINALIZE button alongside START PERIOD 2 and open MatchResultModal when clicked", async () => {
@@ -1079,6 +1079,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       updateGameEvent: vi.fn(),
       deleteGameEvent: vi.fn(),
       hasPendingRemovals: true,
+      hasPendingRemovalForEvent: vi.fn().mockReturnValue(true),
       retryPendingDisciplinaryRemovals: mockRetry,
       clearPendingRemovals: vi.fn(),
     });
@@ -1131,6 +1132,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       updateGameEvent: vi.fn(),
       deleteGameEvent: vi.fn(),
       hasPendingRemovals: false,
+      hasPendingRemovalForEvent: vi.fn().mockReturnValue(false),
       retryPendingDisciplinaryRemovals: mockRetry,
       clearPendingRemovals: vi.fn(),
     });
@@ -1176,5 +1178,93 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     );
     expect(store.getState().match.isPeriodActive).toBe(true);
     expect(defaultPresenceMock.endPeriodWithRoster).not.toHaveBeenCalled();
+  });
+
+  test("should abort match finalization and keep match open when pending disciplinary removals remain unresolved", async () => {
+    const useGameEventsModule = await import("../hooks/useGameEvents");
+    const mockRetry = vi.fn().mockResolvedValue(false);
+    vi.spyOn(useGameEventsModule, "useGameEvents").mockReturnValue({
+      recordGameEvent: vi.fn(),
+      updateGameEvent: vi.fn(),
+      deleteGameEvent: vi.fn(),
+      hasPendingRemovals: true,
+      hasPendingRemovalForEvent: vi.fn().mockReturnValue(true),
+      retryPendingDisciplinaryRemovals: mockRetry,
+      clearPendingRemovals: vi.fn(),
+    });
+
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 1,
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        isPeriodEnded: false,
+        globalSequenceNumber: 1,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const finalizeBtn = await screen.findByRole("button", { name: "FINALIZE" });
+    await waitFor(() => expect(finalizeBtn).not.toBeDisabled());
+
+    fireEvent.click(finalizeBtn);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Cannot finalize match while automatic player removal is pending. Retry removal first.",
+    );
+    expect(mockRetry).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  test("should open MatchResultModal after draining pending disciplinary removals succeeds", async () => {
+    const useGameEventsModule = await import("../hooks/useGameEvents");
+    const mockRetry = vi.fn().mockResolvedValue(true);
+    vi.spyOn(useGameEventsModule, "useGameEvents").mockReturnValue({
+      recordGameEvent: vi.fn(),
+      updateGameEvent: vi.fn(),
+      deleteGameEvent: vi.fn(),
+      hasPendingRemovals: false,
+      hasPendingRemovalForEvent: vi.fn().mockReturnValue(false),
+      retryPendingDisciplinaryRemovals: mockRetry,
+      clearPendingRemovals: vi.fn(),
+    });
+
+    const store = createTestStore({
+      match: {
+        activeMatchId: "test-match",
+        activeTeamId: "test-team",
+        periodNumber: 1,
+        isPeriodActive: true,
+        isInsideStoppage: false,
+        isPeriodEnded: false,
+        globalSequenceNumber: 1,
+        recentActions: [],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const finalizeBtn = await screen.findByRole("button", { name: "FINALIZE" });
+    await waitFor(() => expect(finalizeBtn).not.toBeDisabled());
+
+    fireEvent.click(finalizeBtn);
+
+    await waitFor(() => {
+      expect(mockRetry).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText("Match Result Finalization")).toBeInTheDocument();
+    });
   });
 });

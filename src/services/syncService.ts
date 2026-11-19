@@ -49,19 +49,46 @@ const claimBatchAnchorsForSync = async (
   anchorIds: string[],
 ): Promise<ClaimedAnchorHandle[]> => {
   const uniqueIds = Array.from(new Set(anchorIds));
-  const results = await Promise.all(
+  const settled = await Promise.allSettled(
     uniqueIds.map(async (anchorId) => ({
       anchorId,
       result: await anchorClaimService.claimAcrossTabs([anchorId], "sync"),
     })),
   );
 
-  return results
-    .filter(({ result }) => result.allClaimed && result.claimedIds.length > 0)
-    .map(({ anchorId, result }) => ({
+  const claimed: ClaimedAnchorHandle[] = settled
+    .filter(
+      (
+        entry,
+      ): entry is PromiseFulfilledResult<{
+        anchorId: string;
+        result: Awaited<ReturnType<typeof anchorClaimService.claimAcrossTabs>>;
+      }> =>
+        entry.status === "fulfilled" &&
+        entry.value.result.allClaimed &&
+        entry.value.result.claimedIds.length > 0,
+    )
+    .map(({ value: { anchorId, result } }) => ({
       anchorId,
       token: result.token,
     }));
+
+  const rejected = settled.find(
+    (entry): entry is PromiseRejectedResult => entry.status === "rejected",
+  );
+  if (rejected) {
+    if (claimed.length > 0) {
+      await releaseBatchAnchorClaims(claimed).catch((releaseError) => {
+        console.error(
+          "Failed to release claimed anchors after batch claim error:",
+          releaseError,
+        );
+      });
+    }
+    throw rejected.reason;
+  }
+
+  return claimed;
 };
 
 const releaseBatchAnchorClaims = async (

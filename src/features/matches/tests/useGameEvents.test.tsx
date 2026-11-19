@@ -2579,4 +2579,119 @@ describe("useGameEvents Custom Hook", () => {
 
     consoleErrorSpy.mockRestore();
   });
+
+  it("should catch rejection from isNoExitAlreadySatisfied and mark removal pending instead of rejecting", async () => {
+    const store = configureStore({
+      reducer: {
+        match: matchReducer,
+        presence: presenceReducer,
+        auth: (state = { currentUserId: "user-123" }) => state,
+      },
+      preloadedState: {
+        match: {
+          activeMatchId: "test-match-id",
+          activeTeamId: "team-456",
+          periodNumber: 2,
+          homeScore: 0,
+          guestScore: 0,
+          isPeriodActive: true,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+          globalSequenceNumber: 20,
+          recentActions: [],
+          hydrationVersion: 0,
+        },
+        presence: {
+          currentPeriod: 2,
+          activeLineupIds: ["lineup-uuid-7"],
+          benchLineupIds: [],
+          selectedStartingIds: [],
+          activePlayersLimit: 7,
+          isLoading: false,
+        },
+        auth: { currentUserId: "user-123" },
+      },
+    });
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    vi.mocked(db.matchlineups.get).mockResolvedValueOnce({
+      id: "lineup-uuid-7",
+      matchId: "test-match-id",
+      playerRosterId: "roster-7",
+      number: 7,
+      positionId: null,
+    });
+
+    const createdEvent = {
+      id: "no-exit-reject-uuid",
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-excl-id",
+      periodNumber: 2,
+      eventTimestamp: "2026-11-18T10:15:00.000Z",
+      isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
+      shotLocationX: null,
+      shotLocationY: null,
+      foulImpact: "PersonalFoul" as const,
+      penaltyDurationSeconds: 18,
+      createdAt: "2026-11-18T10:15:00.000Z",
+      sequenceNumber: 21,
+      isSynced: 0,
+    };
+    vi.mocked(eventService.createGameEventTx).mockResolvedValueOnce(
+      createdEvent,
+    );
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockResolvedValueOnce(
+      false,
+    );
+
+    const originalPresences = (db as unknown as { playerpresences?: unknown })
+      .playerpresences;
+    const toArrayMock = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("IndexedDB read failed on satisfaction check"));
+    (db as unknown as { playerpresences: unknown }).playerpresences = {
+      where: vi.fn().mockReturnValue({
+        toArray: toArrayMock,
+      }),
+    };
+
+    try {
+      const { result } = renderHook(() => useGameEvents("test-match-id"), {
+        wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+      });
+
+      await act(async () => {
+        const outcome = await result.current.recordGameEvent({
+          selectedPlayerId: "lineup-uuid-7",
+          actionName: "Exclusion",
+          isPositive: false,
+          isLeadToGoal: false,
+          eventDefinitionId: "def-excl-id",
+        });
+        expect(outcome).toEqual({
+          eventSaved: true,
+          removalPending: true,
+          eventId: createdEvent.id,
+        });
+      });
+
+      expect(result.current.hasPendingRemovals).toBe(true);
+      expect(result.current.hasPendingRemovalForEvent(createdEvent.id)).toBe(
+        true,
+      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        `Disciplinary auto-removal failed for committed event ${createdEvent.id}:`,
+        expect.any(Error),
+      );
+    } finally {
+      (db as unknown as { playerpresences?: unknown }).playerpresences =
+        originalPresences;
+      consoleErrorSpy.mockRestore();
+    }
+  });
 });

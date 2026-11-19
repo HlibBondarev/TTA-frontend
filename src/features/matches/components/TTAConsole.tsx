@@ -5,6 +5,7 @@ import { ActionsLog } from "./ActionsLog";
 import { TTAPanel } from "./TTAPanel";
 import { SyncStatusBadge } from "./SyncStatusBadge";
 import {
+  isRemovalPendingWarning,
   useTTAConsole,
   type UseTTAConsoleOptions,
 } from "../hooks/useTTAConsole";
@@ -38,6 +39,11 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({
     clearPendingAction,
   } = useTTAConsole({ onCompleteMatch });
 
+  const nonRemovalConsoleError =
+    consoleError && !isRemovalPendingWarning(consoleError)
+      ? consoleError
+      : null;
+
   return (
     <div className="w-full max-w-sm mx-auto flex flex-col h-screen pb-safe overflow-hidden">
       <header className="flex items-center justify-between px-3 py-2 border-b border-gray-800">
@@ -67,12 +73,12 @@ export const TTAConsole: React.FC<TTAConsoleProps> = ({
               </button>
             </div>
           ) : (
-            consoleError && (
+            nonRemovalConsoleError && (
               <div
                 role="alert"
                 className="mx-2 mt-2 p-1.5 text-[11px] bg-red-900/50 border border-red-800 text-red-200 rounded text-center font-medium"
               >
-                {consoleError}
+                {nonRemovalConsoleError}
               </div>
             )
           )}

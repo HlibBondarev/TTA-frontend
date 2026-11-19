@@ -216,6 +216,7 @@ export function useEditGameEventModal({
   const {
     updateGameEvent,
     hasPendingRemovals = false,
+    hasPendingRemovalForEvent,
     retryPendingDisciplinaryRemovals,
   } = useGameEvents(matchId);
   const [isRemovalRetryPending, setIsRemovalRetryPending] = useState(false);
@@ -499,7 +500,10 @@ export function useEditGameEventModal({
         !hasUnsavedChangesAfterPendingRemoval
       ) {
         const completed = await retryPendingDisciplinaryRemovals();
-        if (!completed) {
+        const isEditedEventStillPending = hasPendingRemovalForEvent
+          ? hasPendingRemovalForEvent(action.id)
+          : !completed;
+        if (isEditedEventStillPending) {
           setError("Action saved, but player removal is still pending retry.");
           return;
         }

@@ -410,7 +410,7 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
       return false;
     }
 
-    return isNoExitAlreadySatisfied(event, currentPeriod, isDisqualified);
+    return await isNoExitAlreadySatisfied(event, currentPeriod, isDisqualified);
   } catch (error) {
     console.error(
       `Disciplinary auto-removal failed for committed event ${event.id}:`,
@@ -889,6 +889,17 @@ export const useGameEvents = (matchId: string, userId?: string) => {
     return true;
   };
 
+  const hasPendingRemovalForEvent = useCallback(
+    (eventId: string): boolean => {
+      const normalizedMatchId = matchId?.trim();
+      if (!normalizedMatchId || !eventId) return false;
+      return (
+        pendingRemovalsByMatch.get(normalizedMatchId)?.has(eventId) ?? false
+      );
+    },
+    [matchId],
+  );
+
   const clearPendingRemovals = useCallback(() => {
     const normalizedMatchId = matchId?.trim();
     if (normalizedMatchId) {
@@ -901,6 +912,7 @@ export const useGameEvents = (matchId: string, userId?: string) => {
     updateGameEvent,
     deleteGameEvent,
     hasPendingRemovals,
+    hasPendingRemovalForEvent,
     retryPendingDisciplinaryRemovals,
     clearPendingRemovals,
   };

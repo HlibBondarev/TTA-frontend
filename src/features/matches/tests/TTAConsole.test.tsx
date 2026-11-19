@@ -675,4 +675,51 @@ describe("TTAConsole Component", () => {
       resolveEvent!();
     });
   });
+
+  test("clears stale removal-pending warning when hasPendingRemovals becomes false while preserving unrelated recording errors", async () => {
+    mockRecordGameEvent.mockImplementationOnce(async () => {
+      setMockHasPendingRemovals(true);
+      return {
+        eventSaved: true,
+        removalPending: true,
+        eventId: "excl-stale-1",
+      };
+    });
+
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <TTAConsole />
+      </Provider>,
+    );
+
+    fireEvent.click(await screen.findByText("Pass"));
+    fireEvent.click(screen.getByText("Mock Player"));
+    fireEvent.click(screen.getByRole("button", { name: /Enter/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Event saved, but automatic player removal failed. Retry removal.",
+    );
+
+    // Simulate retry completing elsewhere (e.g. MatchLifecyclePanel or EditGameEventModal)
+    act(() => {
+      setMockHasPendingRemovals(false);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    // Unrelated recording errors must still display normally when hasPendingRemovals is false
+    mockRecordGameEvent.mockRejectedValueOnce(new Error("Unexpected DB failure"));
+
+    fireEvent.click(screen.getByText("Pass"));
+    fireEvent.click(screen.getByText("Mock Player"));
+    fireEvent.click(screen.getByRole("button", { name: /Enter/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Unexpected DB failure",
+    );
+  });
 });

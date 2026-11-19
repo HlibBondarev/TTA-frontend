@@ -10,6 +10,15 @@ export interface UseTTAConsoleOptions {
   onCompleteMatch?: () => void;
 }
 
+export const REMOVAL_FAILED_WARNING =
+  "Event saved, but automatic player removal failed. Retry removal.";
+export const REMOVAL_STILL_PENDING_WARNING =
+  "Player removal is still pending. Please retry again.";
+
+export const isRemovalPendingWarning = (message: string | null): boolean =>
+  message === REMOVAL_FAILED_WARNING ||
+  message === REMOVAL_STILL_PENDING_WARNING;
+
 const isPendingRemovalOutcome = (result: unknown): boolean =>
   typeof result === "object" &&
   result !== null &&
@@ -142,9 +151,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
         setSelectedPlayerId(null);
 
         if (isPendingRemovalOutcome(result)) {
-          setConsoleError(
-            "Event saved, but automatic player removal failed. Retry removal.",
-          );
+          setConsoleError(REMOVAL_FAILED_WARNING);
         }
       } catch (err: unknown) {
         console.error("Failed to record game event:", err);
@@ -166,7 +173,7 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     try {
       const completed = await retryPendingDisciplinaryRemovals();
       if (!completed) {
-        setConsoleError("Player removal is still pending. Please retry again.");
+        setConsoleError(REMOVAL_STILL_PENDING_WARNING);
       }
       return completed;
     } finally {

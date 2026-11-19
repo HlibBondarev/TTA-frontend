@@ -9,6 +9,9 @@ import { usePlayerPresence } from "../../../features/playerpresences/hooks/usePl
 import { MatchResultModal } from "./MatchResultModal";
 import type { RootState } from "../../../store";
 
+const FINALIZE_PENDING_REMOVAL_ERROR =
+  "Cannot finalize match while automatic player removal is pending. Retry removal first.";
+
 interface MatchLifecyclePanelProps {
   onFinalizeSuccess?: () => void;
 }
@@ -144,6 +147,28 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
     }
   };
 
+  const handleOpenFinalizeModal = async () => {
+    if (isProcessing) return;
+    setPanelError(null);
+
+    try {
+      setIsProcessing(true);
+      if (retryPendingDisciplinaryRemovals) {
+        const removalCompleted = await retryPendingDisciplinaryRemovals();
+        if (!removalCompleted) {
+          setPanelError(FINALIZE_PENDING_REMOVAL_ERROR);
+          return;
+        }
+      }
+      setIsResultModalOpen(true);
+    } catch (err) {
+      console.error("Failed to retry pending disciplinary removals:", err);
+      setPanelError(FINALIZE_PENDING_REMOVAL_ERROR);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleUndoEndPeriod = async () => {
     if (isProcessing) return;
     setPanelError(null);
@@ -201,7 +226,7 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setIsResultModalOpen(true)}
+                onClick={handleOpenFinalizeModal}
                 disabled={isConfigDisabled || !hasMatchStarted}
                 className="px-2 py-1 min-h-11 bg-emerald-900 hover:bg-emerald-800 text-emerald-200 border border-emerald-700/60 rounded text-[9px] font-extrabold uppercase disabled:opacity-30"
               >
@@ -231,7 +256,7 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsResultModalOpen(true)}
+                  onClick={handleOpenFinalizeModal}
                   disabled={isConfigDisabled || !hasMatchStarted}
                   className="px-2 py-1 min-h-11 bg-emerald-900 hover:bg-emerald-800 text-emerald-200 border border-emerald-700/60 rounded text-[9px] font-extrabold uppercase disabled:opacity-30"
                 >
@@ -241,7 +266,7 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
             ) : (
               <button
                 type="button"
-                onClick={() => setIsResultModalOpen(true)}
+                onClick={handleOpenFinalizeModal}
                 disabled={isConfigDisabled}
                 className="py-1 min-h-11 bg-emerald-800 hover:bg-emerald-700 rounded text-[10px] font-bold uppercase disabled:opacity-30"
               >

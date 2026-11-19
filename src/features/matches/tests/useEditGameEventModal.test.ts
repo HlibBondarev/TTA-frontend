@@ -59,11 +59,13 @@ vi.mock("react-redux", () => ({
 
 const mockUpdateGameEvent = vi.fn();
 const mockRetryPendingDisciplinaryRemovals = vi.fn();
+const mockHasPendingRemovalForEvent = vi.fn();
 
 vi.mock("../hooks/useGameEvents", () => ({
   useGameEvents: () => ({
     updateGameEvent: mockUpdateGameEvent,
     hasPendingRemovals: false,
+    hasPendingRemovalForEvent: mockHasPendingRemovalForEvent,
     retryPendingDisciplinaryRemovals: mockRetryPendingDisciplinaryRemovals,
   }),
 }));
@@ -203,6 +205,7 @@ describe("useEditGameEventModal Custom Hook", () => {
     vi.clearAllMocks();
     liveQueryCallback = null;
     mockRetryPendingDisciplinaryRemovals.mockResolvedValue(true);
+    mockHasPendingRemovalForEvent.mockReturnValue(false);
     mockAuth0User = { sub: "user-123", email: "test@example.com" };
     mockReduxState = {
       auth: { currentUserId: "user-123" },
@@ -1387,5 +1390,82 @@ describe("useEditGameEventModal Custom Hook", () => {
       }),
     );
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("should close modal on retry when edited event is no longer pending even if unrelated removals remain pending", async () => {
+    mockUpdateGameEvent.mockResolvedValueOnce({
+      eventSaved: true,
+      removalPending: true,
+      eventId: "action-123",
+    });
+    mockRetryPendingDisciplinaryRemovals.mockResolvedValueOnce(false);
+    mockHasPendingRemovalForEvent.mockReturnValueOnce(false);
+
+    const onClose = vi.fn();
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: sampleAction,
+        matchId: "match-1",
+        onClose,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockRetryPendingDisciplinaryRemovals).toHaveBeenCalledTimes(1);
+    expect(mockHasPendingRemovalForEvent).toHaveBeenCalledWith("action-123");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("should keep modal open on retry when the edited event itself still has a pending removal", async () => {
+    mockUpdateGameEvent.mockResolvedValueOnce({
+      eventSaved: true,
+      removalPending: true,
+      eventId: "action-123",
+    });
+    mockRetryPendingDisciplinaryRemovals.mockResolvedValueOnce(false);
+    mockHasPendingRemovalForEvent.mockReturnValueOnce(true);
+
+    const onClose = vi.fn();
+    const { result } = renderHook(() =>
+      useEditGameEventModal({
+        action: sampleAction,
+        matchId: "match-1",
+        onClose,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLocationLoaded).toBe(true);
+      expect(result.current.isDefinitionsLoaded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockRetryPendingDisciplinaryRemovals).toHaveBeenCalledTimes(1);
+    expect(mockHasPendingRemovalForEvent).toHaveBeenCalledWith("action-123");
+    expect(result.current.error).toBe(
+      "Action saved, but player removal is still pending retry.",
+    );
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

@@ -4429,5 +4429,79 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
           originalUpdate;
       }
     });
+
+    it("releases already-claimed anchors in a batch when claimAcrossTabs throws unexpectedly for another anchor", async () => {
+      const { anchorClaimService } = await import(
+        "../../services/anchorClaimService"
+      );
+      const matchId = "m-partial-claim-throw";
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      } as never);
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([
+              {
+                id: "anchor-claim-ok",
+                matchId,
+                periodNumber: 1,
+                type: 0,
+                timestamp: "2026-11-19T10:00:00.000Z",
+                sequenceNumber: 1,
+                isSynced: 0,
+              },
+              {
+                id: "anchor-claim-boom",
+                matchId,
+                periodNumber: 1,
+                type: 1,
+                timestamp: "2026-11-19T10:15:00.000Z",
+                sequenceNumber: 2,
+                isSynced: 0,
+              },
+            ]),
+          }),
+        }),
+        anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
+      } as never);
+
+      const claimSpy = vi
+        .spyOn(anchorClaimService, "claimAcrossTabs")
+        .mockImplementation(async (ids) => {
+          if (ids[0] === "anchor-claim-ok") {
+            return {
+              allClaimed: true,
+              claimedIds: ["anchor-claim-ok"],
+              token: "tok-ok",
+            };
+          }
+          throw new Error("Unexpected IndexedDB claim failure");
+        });
+      const releaseSpy = vi
+        .spyOn(anchorClaimService, "releaseAcrossTabs")
+        .mockResolvedValue(undefined);
+
+      try {
+        await expect(syncMatchBatch(matchId)).rejects.toThrow(
+          "Unexpected IndexedDB claim failure",
+        );
+
+        expect(releaseSpy).toHaveBeenCalledTimes(1);
+        expect(releaseSpy).toHaveBeenCalledWith(
+          ["anchor-claim-ok"],
+          "tok-ok",
+          "sync",
+        );
+        expect(apiClient.post).not.toHaveBeenCalled();
+      } finally {
+        claimSpy.mockRestore();
+        releaseSpy.mockRestore();
+        anchorClaimService.clearAll();
+      }
+    });
   });
 });
