@@ -2426,4 +2426,157 @@ describe("useGameEvents Custom Hook", () => {
         originalPlayerPresences;
     }
   });
+
+  it("should retain a later same-player removal during finalizeDisciplinaryRemoval when an earlier pending removal retry fails", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    const store = configureStore({
+      reducer: {
+        match: matchReducer,
+        presence: presenceReducer,
+      },
+      preloadedState: {
+        match: {
+          activeMatchId: "test-match-id",
+          activeTeamId: "team-123",
+          periodNumber: 1,
+          homeScore: 0,
+          guestScore: 0,
+          isPeriodActive: true,
+          isInsideStoppage: false,
+          isPeriodEnded: false,
+          globalSequenceNumber: 10,
+          recentActions: [],
+          hydrationVersion: 0,
+        },
+        presence: {
+          currentPeriod: 1,
+          activeLineupIds: ["lineup-uuid-7", "lineup-uuid-8"],
+          benchLineupIds: [],
+          selectedStartingIds: [],
+          activePlayersLimit: 7,
+          isLoading: false,
+        },
+      },
+    });
+
+    const earlierEvent = {
+      id: "excl-early-uuid",
+      matchLineupId: "lineup-uuid-7",
+      eventDefinitionId: "def-excl-id",
+      periodNumber: 1,
+      eventTimestamp: "2026-11-19T10:01:00.000Z",
+      isLeadToGoal: false,
+      locationX: null,
+      locationY: null,
+      shotLocationX: null,
+      shotLocationY: null,
+      foulImpact: "PersonalFoul" as const,
+      penaltyDurationSeconds: 20,
+      createdAt: "2026-11-19T10:01:00.000Z",
+      sequenceNumber: 11,
+      isSynced: 0,
+    };
+    const laterEvent = {
+      ...earlierEvent,
+      id: "excl-late-uuid",
+      eventTimestamp: "2026-11-19T10:02:00.000Z",
+      createdAt: "2026-11-19T10:02:00.000Z",
+      sequenceNumber: 12,
+    };
+
+    vi.mocked(db.matchlineups.get).mockResolvedValue({
+      id: "lineup-uuid-7",
+      matchId: "test-match-id",
+      playerRosterId: "roster-7",
+      number: 7,
+      positionId: null,
+    });
+    vi.mocked(eventService.createGameEventTx)
+      .mockResolvedValueOnce(earlierEvent)
+      .mockResolvedValueOnce(laterEvent);
+    vi.mocked(db.gameevents.get).mockImplementation((async (id: unknown) => {
+      if (id === earlierEvent.id) return earlierEvent;
+      if (id === laterEvent.id) return laterEvent;
+      return undefined;
+    }) as never);
+
+    // 1. Initial attempt for earlierEvent fails; 2. Retry of earlierEvent during laterEvent's
+    // finalization also fails; 3. If laterEvent erroneously called exitPlayerPresenceTx it would succeed.
+    vi.mocked(presenceService.exitPlayerPresenceTx)
+      .mockRejectedValueOnce(new Error("DB lock on earlier event"))
+      .mockRejectedValueOnce(new Error("DB lock on earlier event retry"))
+      .mockResolvedValue(true);
+
+    const { result } = renderHook(() => useGameEvents("test-match-id"), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      const firstOutcome = await result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-7",
+        actionName: "Exclusion",
+        isPositive: false,
+        isLeadToGoal: false,
+        eventDefinitionId: "def-excl-id",
+      });
+      expect(firstOutcome).toEqual({
+        eventSaved: true,
+        removalPending: true,
+        eventId: earlierEvent.id,
+      });
+    });
+
+    await act(async () => {
+      const secondOutcome = await result.current.recordGameEvent({
+        selectedPlayerId: "lineup-uuid-7",
+        actionName: "Exclusion",
+        isPositive: false,
+        isLeadToGoal: false,
+        eventDefinitionId: "def-excl-id",
+      });
+      // Later removal must NOT be applied ahead of the still-pending earlier removal
+      expect(secondOutcome).toEqual({
+        eventSaved: true,
+        removalPending: true,
+        eventId: laterEvent.id,
+      });
+    });
+
+    // exitPlayerPresenceTx was only called twice (for earlierEvent), never for laterEvent
+    expect(presenceService.exitPlayerPresenceTx).toHaveBeenCalledTimes(2);
+    expect(store.getState().presence.activeLineupIds).toContain(
+      "lineup-uuid-7",
+    );
+    expect(result.current.hasPendingRemovals).toBe(true);
+
+    // Subsequent retry must process earlierEvent first, then laterEvent, and clear pending state
+    const retryTimestamps: string[] = [];
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockReset();
+    vi.mocked(presenceService.exitPlayerPresenceTx).mockImplementation(
+      async (_matchId, _period, _lineupId, timestamp) => {
+        retryTimestamps.push(timestamp);
+        return true;
+      },
+    );
+
+    let retryCompleted = false;
+    await act(async () => {
+      retryCompleted = await result.current.retryPendingDisciplinaryRemovals();
+    });
+
+    expect(retryCompleted).toBe(true);
+    expect(retryTimestamps).toEqual([
+      earlierEvent.eventTimestamp,
+      laterEvent.eventTimestamp,
+    ]);
+    expect(result.current.hasPendingRemovals).toBe(false);
+    expect(store.getState().presence.activeLineupIds).not.toContain(
+      "lineup-uuid-7",
+    );
+
+    consoleErrorSpy.mockRestore();
+  });
 });

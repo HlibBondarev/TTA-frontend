@@ -339,14 +339,23 @@ const isNoExitAlreadySatisfied = async (
   );
 };
 
+interface ApplyDisciplinaryAutoRemovalOptions {
+  ignorePeriodInactive?: boolean;
+  deferIfEarlierPendingForPlayer?: boolean;
+}
+
 const applyDisciplinaryAutoRemovalIfNeeded = async (
   matchId: string,
   event: GameEvent,
   currentPeriod: number,
   isPeriodActive: boolean,
   dispatch: AppDispatch,
-  ignorePeriodInactive = false,
+  options: ApplyDisciplinaryAutoRemovalOptions = {},
 ): Promise<boolean> => {
+  const {
+    ignorePeriodInactive = false,
+    deferIfEarlierPendingForPlayer = false,
+  } = options;
   if (!isPeriodActive && !ignorePeriodInactive) return true;
 
   try {
@@ -369,6 +378,13 @@ const applyDisciplinaryAutoRemovalIfNeeded = async (
     });
 
     if (!shouldRemove) return true;
+
+    if (
+      deferIfEarlierPendingForPlayer &&
+      hasEarlierPendingRemovalForPlayer(matchId, event)
+    ) {
+      return false;
+    }
 
     const isDisqualified = isPlayerDisqualified({
       matchLineupId: event.matchLineupId,
@@ -445,7 +461,7 @@ const retrySinglePendingRemoval = async (
     pending.periodNumber,
     isPeriodActive,
     dispatch,
-    true,
+    { ignorePeriodInactive: true },
   );
   return { eventId, pending, completed };
 };
@@ -466,6 +482,32 @@ const comparePendingRemovalEntriesAsc = (
   }
 
   return eventIdA.localeCompare(eventIdB);
+};
+
+const hasEarlierPendingRemovalForPlayer = (
+  normalizedMatchId: string,
+  event: GameEvent,
+): boolean => {
+  const matchMap = pendingRemovalsByMatch.get(normalizedMatchId);
+  if (!matchMap || matchMap.size === 0) {
+    return false;
+  }
+
+  for (const [pendingEventId, pending] of matchMap.entries()) {
+    if (pending.event.matchLineupId !== event.matchLineupId) {
+      continue;
+    }
+    if (
+      comparePendingRemovalEntriesAsc(
+        [pendingEventId, pending],
+        [event.id, { event, periodNumber: event.periodNumber }],
+      ) < 0
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 const groupPendingRemovalsByPlayer = (
@@ -633,6 +675,7 @@ export const useGameEvents = (matchId: string, userId?: string) => {
           periodNumber,
           isPeriodActive,
           dispatch,
+          { deferIfEarlierPendingForPlayer: true },
         );
 
         if (!removalCompleted) {
