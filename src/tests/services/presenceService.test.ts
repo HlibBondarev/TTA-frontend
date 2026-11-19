@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { db } from "../../db/ttaDatabase";
 import {
+  findDisqualifiedLineupIds,
   initializePeriodPresenceTx,
   terminatePeriodPresenceTx,
   substitutePlayerTx,
@@ -390,6 +391,54 @@ describe("presenceService Database Transactions", () => {
     });
   });
 
+  it("enterPlayerPresenceTx should default entryTimestamp to current ISO time when omitted", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixedNow = "2026-07-22T10:06:30.000Z";
+      vi.setSystemTime(new Date(fixedNow));
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        filter: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue(undefined),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      const newPresenceId = await enterPlayerPresenceTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-in",
+      );
+
+      expect(newPresenceId).toBeDefined();
+      expect(db.playerpresences.add).toHaveBeenCalledWith({
+        id: newPresenceId,
+        matchLineupId: "lineup-in",
+        periodNumber: mockPeriodNumber,
+        timeIn: fixedNow,
+        timeOut: null,
+        sequenceNumber: expect.any(Number),
+        isSynced: 0,
+      });
+      expect(db.syncQueue.add).toHaveBeenCalledWith({
+        actionType: "POST",
+        endpoint: `/Matches/${mockMatchId}/presence/initialize`,
+        payload: JSON.stringify({
+          periodNumber: mockPeriodNumber,
+          timeIn: fixedNow,
+          presenceItems: [
+            {
+              id: newPresenceId,
+              matchLineupId: "lineup-in",
+            },
+          ],
+        }),
+        createdAt: fixedNow,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("enterPlayerPresenceTx should throw if player already has an active presence", async () => {
     vi.mocked(db.playerpresences.where).mockReturnValue({
       filter: vi.fn().mockReturnValue({
@@ -625,6 +674,121 @@ describe("presenceService Database Transactions", () => {
     }
   });
 
+  it("exitPlayerPresenceTx should handle empty, invalid, and non-ISO timestamps safely", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixedNow = "2026-07-22T10:08:00.000Z";
+      vi.setSystemTime(new Date(fixedNow));
+
+      // Case 1: valid timeIn, empty/invalid exitTimestamp -> falls back to current clock (>= timeIn)
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        filter: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue({
+            id: "pres-invalid-exit",
+            matchLineupId: "lineup-1",
+            periodNumber: mockPeriodNumber,
+            timeIn: "2026-07-22T10:00:00.000Z",
+            timeOut: null,
+          }),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      await exitPlayerPresenceTx(mockMatchId, mockPeriodNumber, "lineup-1", "");
+      expect(db.playerpresences.update).toHaveBeenLastCalledWith(
+        "pres-invalid-exit",
+        {
+          timeOut: fixedNow,
+          isSynced: 0,
+        },
+      );
+
+      // Case 2: valid timeIn in the future, invalid exitTimestamp -> falls back to timeIn
+      const futureTimeIn = "2026-07-22T10:12:00.000Z";
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        filter: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue({
+            id: "pres-future-invalid-exit",
+            matchLineupId: "lineup-1",
+            periodNumber: mockPeriodNumber,
+            timeIn: futureTimeIn,
+            timeOut: null,
+          }),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      await exitPlayerPresenceTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-1",
+        "not-a-timestamp",
+      );
+      expect(db.playerpresences.update).toHaveBeenLastCalledWith(
+        "pres-future-invalid-exit",
+        {
+          timeOut: futureTimeIn,
+          isSynced: 0,
+        },
+      );
+
+      // Case 3: non-ISO timeIn with lexicographically smaller value than validExit -> preserves exitTimestamp
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        filter: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue({
+            id: "pres-non-iso-in",
+            matchLineupId: "lineup-1",
+            periodNumber: mockPeriodNumber,
+            timeIn: "2026-07-22T10:00:00.000Z-non-iso",
+            timeOut: null,
+          }),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      const validExit = "2026-07-22T10:06:00.000Z";
+      await exitPlayerPresenceTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-1",
+        validExit,
+      );
+      expect(db.playerpresences.update).toHaveBeenLastCalledWith(
+        "pres-non-iso-in",
+        {
+          timeOut: validExit,
+          isSynced: 0,
+        },
+      );
+
+      // Case 4: both timeIn and exitTimestamp non-ISO -> falls back to max(nowIso, timeIn)
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        filter: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue({
+            id: "pres-both-non-iso",
+            matchLineupId: "lineup-1",
+            periodNumber: mockPeriodNumber,
+            timeIn: "zzzz-non-iso",
+            timeOut: null,
+          }),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      await exitPlayerPresenceTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-1",
+        "aaaa-non-iso",
+      );
+      expect(db.playerpresences.update).toHaveBeenLastCalledWith(
+        "pres-both-non-iso",
+        {
+          timeOut: "zzzz-non-iso",
+          isSynced: 0,
+        },
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("enterPlayerPresenceTx should check disqualification inside the transaction with full table scope and reject disqualified players", async () => {
     const originalWhere = (db.gameevents as unknown as { where?: unknown })
       .where;
@@ -674,5 +838,170 @@ describe("presenceService Database Transactions", () => {
     } finally {
       (db.gameevents as unknown as { where?: unknown }).where = originalWhere;
     }
+  });
+
+  describe("findDisqualifiedLineupIds", () => {
+    it("should return empty array when lineupIds is empty, gameevents.where is unavailable, or no events exist", async () => {
+      // Empty lineupIds
+      await expect(findDisqualifiedLineupIds(mockMatchId, [])).resolves.toEqual(
+        [],
+      );
+
+      // gameevents.where missing
+      await expect(
+        findDisqualifiedLineupIds(mockMatchId, ["lineup-1"]),
+      ).resolves.toEqual([]);
+
+      // gameevents.where returns object without anyOf function
+      const originalWhere = (db.gameevents as unknown as { where?: unknown })
+        .where;
+      (db.gameevents as unknown as { where: unknown }).where = vi
+        .fn()
+        .mockReturnValue({});
+      await expect(
+        findDisqualifiedLineupIds(mockMatchId, ["lineup-1"]),
+      ).resolves.toEqual([]);
+
+      // gameevents.where().anyOf().toArray() returns []
+      (db.gameevents as unknown as { where: unknown }).where = vi
+        .fn()
+        .mockReturnValue({
+          anyOf: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        });
+      await expect(
+        findDisqualifiedLineupIds(mockMatchId, ["lineup-1"]),
+      ).resolves.toEqual([]);
+
+      (db.gameevents as unknown as { where?: unknown }).where = originalWhere;
+    });
+
+    it("should detect disqualification via maxPersonalFouls loaded from match -> tournament -> sportconfiguration", async () => {
+      const originalWhere = (db.gameevents as unknown as { where?: unknown })
+        .where;
+      (db.gameevents as unknown as { where: unknown }).where = vi
+        .fn()
+        .mockReturnValue({
+          anyOf: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([
+              {
+                id: "f1",
+                matchLineupId: "lineup-fouled-out",
+                eventDefinitionId: "def-personal",
+                periodNumber: 1,
+                eventTimestamp: "2026-07-22T10:01:00.000Z",
+                foulImpact: "PersonalFoul",
+                penaltyDurationSeconds: null,
+                sequenceNumber: 1,
+                isSynced: 0,
+              },
+              {
+                id: "f2",
+                matchLineupId: "lineup-fouled-out",
+                eventDefinitionId: "def-personal",
+                periodNumber: 1,
+                eventTimestamp: "2026-07-22T10:02:00.000Z",
+                foulImpact: "PersonalFoul",
+                penaltyDurationSeconds: null,
+                sequenceNumber: 2,
+                isSynced: 0,
+              },
+              {
+                id: "f3",
+                matchLineupId: "lineup-ok",
+                eventDefinitionId: "def-personal",
+                periodNumber: 1,
+                eventTimestamp: "2026-07-22T10:03:00.000Z",
+                foulImpact: "PersonalFoul",
+                penaltyDurationSeconds: null,
+                sequenceNumber: 3,
+                isSynced: 0,
+              },
+            ]),
+          }),
+        });
+
+      vi.mocked(db.matches.get).mockResolvedValueOnce({
+        id: mockMatchId,
+        tournamentId: "tourn-1",
+      } as never);
+      vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+        id: "tourn-1",
+        configurationId: "cfg-1",
+      } as never);
+      vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+        id: "cfg-1",
+        maxPersonalFouls: 2,
+      } as never);
+
+      try {
+        const result = await findDisqualifiedLineupIds(mockMatchId, [
+          "lineup-fouled-out",
+          "lineup-ok",
+        ]);
+        expect(result).toEqual(["lineup-fouled-out"]);
+      } finally {
+        (db.gameevents as unknown as { where?: unknown }).where = originalWhere;
+      }
+    });
+
+    it("should resolve omitted event foulImpact from eventdefinitions via bulkGet and fallback to get", async () => {
+      const originalWhere = (db.gameevents as unknown as { where?: unknown })
+        .where;
+      const originalBulkGet = db.eventdefinitions.bulkGet;
+
+      (db.gameevents as unknown as { where: unknown }).where = vi
+        .fn()
+        .mockReturnValue({
+          anyOf: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([
+              {
+                id: "evt-from-def",
+                matchLineupId: "lineup-def-dq",
+                eventDefinitionId: "def-brutality",
+                periodNumber: 1,
+                eventTimestamp: "2026-07-22T10:04:00.000Z",
+                // foulImpact omitted on event; must be resolved from EventDefinitionLookup
+                sequenceNumber: 4,
+                isSynced: 0,
+              },
+            ]),
+          }),
+        });
+
+      try {
+        // 1. Resolve via bulkGet (including an undefined entry to verify filtering)
+        vi.mocked(db.eventdefinitions.bulkGet).mockResolvedValueOnce([
+          undefined,
+          {
+            id: "def-brutality",
+            foulImpact: "DisqualificationNoSub",
+          },
+        ] as never);
+
+        const viaBulkGet = await findDisqualifiedLineupIds(mockMatchId, [
+          "lineup-def-dq",
+        ]);
+        expect(viaBulkGet).toEqual(["lineup-def-dq"]);
+
+        // 2. Fallback to eventdefinitions.get when bulkGet is unavailable
+        (db.eventdefinitions as unknown as { bulkGet?: unknown }).bulkGet =
+          undefined;
+        vi.mocked(db.eventdefinitions.get).mockResolvedValueOnce({
+          id: "def-brutality",
+          foulImpact: "DisqualificationWithSub",
+        } as never);
+
+        const viaGetFallback = await findDisqualifiedLineupIds(mockMatchId, [
+          "lineup-def-dq",
+        ]);
+        expect(viaGetFallback).toEqual(["lineup-def-dq"]);
+        expect(db.eventdefinitions.get).toHaveBeenCalledWith("def-brutality");
+      } finally {
+        (db.gameevents as unknown as { where?: unknown }).where = originalWhere;
+        db.eventdefinitions.bulkGet = originalBulkGet;
+      }
+    });
   });
 });
