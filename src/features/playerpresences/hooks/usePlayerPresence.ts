@@ -264,8 +264,15 @@ export function usePlayerPresence(matchId: string) {
       }
 
       dispatch(optimisticEnterFromBench(inLineupId));
+      refreshRequestRef.current += 1;
       try {
-        return await enterPlayerPresenceTx(matchId, targetPeriod, inLineupId);
+        const newPresenceId = await enterPlayerPresenceTx(
+          matchId,
+          targetPeriod,
+          inLineupId,
+        );
+        await refreshPresenceFromDB(targetPeriod);
+        return newPresenceId;
       } catch (error) {
         console.error("Failed to enter player from bench in DB:", error);
         await refreshPresenceFromDB(targetPeriod);

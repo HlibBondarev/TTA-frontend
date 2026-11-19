@@ -289,6 +289,73 @@ describe("presenceService Database Transactions", () => {
     ).rejects.toThrow("No active presence found for the outgoing player.");
   });
 
+  it("substitutePlayerTx should check disqualification inside the transaction with full table scope and reject disqualified incoming players without closing outgoing presence", async () => {
+    const originalWhere = (db.gameevents as unknown as { where?: unknown })
+      .where;
+    (db.gameevents as unknown as { where: unknown }).where = vi
+      .fn()
+      .mockReturnValue({
+        anyOf: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            {
+              id: "evt-dq-sub",
+              matchLineupId: "lineup-dq",
+              eventDefinitionId: "def-dq",
+              periodNumber: 1,
+              eventTimestamp: "2026-07-22T10:05:00.000Z",
+              foulImpact: "DisqualificationWithSub",
+              penaltyDurationSeconds: null,
+              sequenceNumber: 10,
+              isSynced: 0,
+            },
+          ]),
+        }),
+      });
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      filter: vi.fn().mockReturnValue({
+        first: vi.fn().mockResolvedValue({
+          id: "pres-out",
+          matchLineupId: "lineup-out",
+          timeOut: null,
+        }),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    try {
+      await expect(
+        substitutePlayerTx(
+          mockMatchId,
+          mockPeriodNumber,
+          "lineup-out",
+          "lineup-dq",
+        ),
+      ).rejects.toThrow(
+        "Cannot enter a disqualified player into the active lineup.",
+      );
+
+      expect(db.transaction).toHaveBeenCalledWith(
+        "rw",
+        [
+          db.playerpresences,
+          db.gameevents,
+          db.timeanchors,
+          db.syncQueue,
+          db.matches,
+          db.tournaments,
+          db.sportconfigurations,
+          db.eventdefinitions,
+        ],
+        expect.any(Function),
+      );
+      expect(db.playerpresences.update).not.toHaveBeenCalled();
+      expect(db.playerpresences.add).not.toHaveBeenCalled();
+      expect(db.syncQueue.add).not.toHaveBeenCalled();
+    } finally {
+      (db.gameevents as unknown as { where?: unknown }).where = originalWhere;
+    }
+  });
+
   it("exitPlayerPresenceTx should close a single open presence and enqueue PUT /presence/terminate", async () => {
     const exitTime = "2026-07-22T10:03:00.000Z";
     const filterMock = vi.fn().mockReturnValue({

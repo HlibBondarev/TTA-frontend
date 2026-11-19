@@ -629,6 +629,23 @@ describe("usePlayerPresence Hook", () => {
     });
     expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
 
+    vi.mocked(db.playerpresences.toArray).mockResolvedValueOnce([
+      {
+        id: "pres-1",
+        matchLineupId: "lineup-1",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:00:00.000Z",
+        timeOut: null,
+      },
+      {
+        id: "entered-presence-uuid",
+        matchLineupId: "lineup-2",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:05:00.000Z",
+        timeOut: null,
+      },
+    ] as never);
+
     await act(async () => {
       const newId = await result.current.enterPlayerFromBench("lineup-2");
       expect(newId).toBe("entered-presence-uuid");
@@ -648,6 +665,97 @@ describe("usePlayerPresence Hook", () => {
         await result.current.enterPlayerFromBench("lineup-3");
       }),
     ).rejects.toThrow("Cannot exceed the limit of 2 active players.");
+  });
+
+  it("should refresh roster after enterPlayerFromBench commits and prevent an earlier stale refresh from overwriting the committed player", async () => {
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 2, period: 1 }));
+    });
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await result.current.refreshPresenceFromDB();
+    });
+    expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
+
+    let resolveStaleRefresh!: (value: unknown) => void;
+    let resolveEnterTx!: (value: string) => void;
+
+    vi.mocked(db.playerpresences.toArray)
+      // Stale refresh started before enterPlayerPresenceTx commits
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveStaleRefresh = resolve;
+          }) as unknown as ReturnType<typeof db.playerpresences.toArray>,
+      )
+      // Post-commit refresh triggered after enterPlayerPresenceTx resolves
+      .mockResolvedValueOnce([
+        {
+          id: "pres-1",
+          matchLineupId: "lineup-1",
+          periodNumber: 1,
+          timeIn: "2026-07-16T10:00:00.000Z",
+          timeOut: null,
+        },
+        {
+          id: "entered-presence-uuid",
+          matchLineupId: "lineup-2",
+          periodNumber: 1,
+          timeIn: "2026-07-16T10:05:00.000Z",
+          timeOut: null,
+        },
+      ] as never);
+
+    vi.mocked(enterPlayerPresenceTx).mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveEnterTx = resolve;
+        }),
+    );
+
+    // Start a refresh before bench entry commits
+    let staleRefreshPromise!: Promise<void>;
+    await act(async () => {
+      staleRefreshPromise = result.current.refreshPresenceFromDB();
+      await Promise.resolve();
+    });
+
+    // Begin bench entry while stale refresh is still in flight
+    let enterPromise!: Promise<string>;
+    act(() => {
+      enterPromise = result.current.enterPlayerFromBench("lineup-2");
+    });
+
+    // Commit the bench entry transaction and let its post-commit refresh finish
+    await act(async () => {
+      resolveEnterTx("entered-presence-uuid");
+      const newId = await enterPromise;
+      expect(newId).toBe("entered-presence-uuid");
+    });
+
+    expect(result.current.activeLineupIds).toEqual(["lineup-1", "lineup-2"]);
+    expect(result.current.benchLineupIds).toEqual([]);
+
+    // Resolve the stale pre-commit refresh late -> must not overwrite lineup-2
+    await act(async () => {
+      resolveStaleRefresh([
+        {
+          id: "pres-1",
+          matchLineupId: "lineup-1",
+          periodNumber: 1,
+          timeIn: "2026-07-16T10:00:00.000Z",
+          timeOut: null,
+        },
+      ]);
+      await staleRefreshPromise;
+    });
+
+    expect(result.current.activeLineupIds).toEqual(["lineup-1", "lineup-2"]);
+    expect(result.current.benchLineupIds).toEqual([]);
   });
 
   it("should validate limit, duplicate active player, overridePeriodNumber, and rollback on DB error in enterPlayerFromBench", async () => {

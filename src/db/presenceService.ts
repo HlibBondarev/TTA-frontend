@@ -311,8 +311,24 @@ export async function substitutePlayerTx(
 
   await db.transaction(
     "rw",
-    [db.playerpresences, db.gameevents, db.timeanchors, db.syncQueue],
+    [
+      db.playerpresences,
+      db.gameevents,
+      db.timeanchors,
+      db.syncQueue,
+      db.matches,
+      db.tournaments,
+      db.sportconfigurations,
+      db.eventdefinitions,
+    ],
     async () => {
+      const disqualifiedIds = await findDisqualifiedLineupIds(matchId, [
+        playerInLineupId,
+      ]);
+      if (disqualifiedIds.length > 0) {
+        throw new Error(DISQUALIFIED_ENTRY_ERROR);
+      }
+
       const timestamp = new Date().toISOString();
 
       const activePresence = await db.playerpresences
