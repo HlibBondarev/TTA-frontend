@@ -151,6 +151,82 @@ describe("disciplinaryUtils", () => {
         "e-p2",
       ]);
     });
+
+    it("should sort and match timestamps across equivalent ISO and timezone offset formats by parsed epoch milliseconds", () => {
+      // 10:01:00.000Z === 12:01:00.000+02:00 (epoch 1795168860000)
+      // 10:01:30.000Z === 12:01:30.000+02:00 (epoch 1795168890000)
+      const events = [
+        makeEvent({
+          id: "e-later-utc",
+          periodNumber: 1,
+          matchLineupId: "p2",
+          eventTimestamp: "2026-11-20T10:02:00.000Z",
+          foulImpact: "PersonalFoul",
+          penaltyDurationSeconds: null,
+          sequenceNumber: 2,
+        }),
+        makeEvent({
+          id: "e-earlier-offset",
+          periodNumber: 1,
+          matchLineupId: "p1",
+          eventTimestamp: "2026-11-20T12:01:00.000+02:00",
+          foulImpact: "PersonalFoul",
+          penaltyDurationSeconds: 20,
+          sequenceNumber: 1,
+        }),
+      ];
+
+      const sorted = sortEventsChronologically(events);
+      expect(sorted.map((e) => e.id)).toEqual([
+        "e-earlier-offset",
+        "e-later-utc",
+      ]);
+
+      // Presence exit and 1-for-1 entry encoded in differing ISO/offset formats at the exact same instant
+      const presences = [
+        makePresence({
+          id: "pr-1",
+          matchLineupId: "p1",
+          timeIn: "2026-11-20T10:00:00.000Z",
+          timeOut: "2026-11-20T10:01:00.000Z",
+          sequenceNumber: 1,
+        }),
+        makePresence({
+          id: "pr-2",
+          matchLineupId: "p2",
+          timeIn: "2026-11-20T12:00:00.000+02:00",
+          timeOut: "2026-11-20T10:01:30.000Z",
+          sequenceNumber: 2,
+        }),
+        makePresence({
+          id: "pr-3",
+          matchLineupId: "p3",
+          timeIn: "2026-11-20T10:00:00.000Z",
+          timeOut: null,
+          sequenceNumber: 3,
+        }),
+        makePresence({
+          id: "pr-4-sub-offset",
+          matchLineupId: "p4",
+          timeIn: "2026-11-20T12:01:30.000+02:00",
+          timeOut: null,
+          sequenceNumber: 4,
+        }),
+      ];
+
+      const state = calculateDisciplinaryState({
+        activePlayersLimit: 3,
+        maxPersonalFouls: 3,
+        lineupIds: ["p1", "p2", "p3", "p4"],
+        events,
+        presences,
+      });
+
+      // Because pr-4-sub-offset (12:01:30+02:00) matches pr-2's exit (10:01:30Z) as a 1-for-1 substitution,
+      // p1's timed penalty remains unserved.
+      expect(state.unservedTimedPenaltyCount).toBe(1);
+      expect(state.playersById["p1"].hasActiveTimedExclusion).toBe(true);
+    });
   });
 
   describe("personal fouls, warnings, and foul-out DQ", () => {

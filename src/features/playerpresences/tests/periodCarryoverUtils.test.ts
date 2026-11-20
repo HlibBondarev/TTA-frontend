@@ -35,7 +35,10 @@ const makePresence = (
   matchLineupId: overrides.matchLineupId,
   periodNumber: overrides.periodNumber ?? 1,
   timeIn: overrides.timeIn ?? "2026-11-20T10:00:00.000Z",
-  timeOut: overrides.timeOut ?? "2026-11-20T10:08:00.000Z",
+  timeOut:
+    overrides.timeOut !== undefined
+      ? overrides.timeOut
+      : "2026-11-20T10:08:00.000Z",
   sequenceNumber: overrides.sequenceNumber ?? 1,
   isSynced: overrides.isSynced ?? 0,
 });

@@ -642,7 +642,6 @@ describe("Hydration Service", () => {
     expect(recoveryState).toEqual({
       recoveredPeriod: 2,
       activePlayersLimit: 5,
-      maxPersonalFouls: null,
     });
   });
 
@@ -2221,7 +2220,7 @@ describe("Hydration Service", () => {
     expect(recoveryState).toEqual({
       recoveredPeriod: 1,
       activePlayersLimit: 6,
-      maxPersonalFouls: null,
+      refreshPromise: expect.any(Promise),
     });
     expect(sportService.getSportConfigurations).toHaveBeenCalledWith("sport-1");
     expect(db.sportconfigurations.put).not.toHaveBeenCalled();
@@ -2278,7 +2277,7 @@ describe("Hydration Service", () => {
     expect(recoveryState).toEqual({
       recoveredPeriod: 1,
       activePlayersLimit: 7,
-      maxPersonalFouls: null,
+      refreshPromise: expect.any(Promise),
     });
     expect(db.sportconfigurations.put).not.toHaveBeenCalled();
   });
@@ -2462,13 +2461,76 @@ describe("Hydration Service", () => {
 
     const recoveryState = await getMatchRecoveryState(matchId);
     expect(recoveryState.maxPersonalFouls).toBe(5);
+    expect(recoveryState.refreshPromise).toBeDefined();
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const refreshedConfig = await recoveryState.refreshPromise;
+    expect(refreshedConfig?.maxPersonalFouls).toBe(3);
 
     expect(db.sportconfigurations.put).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "cfg-1",
         maxPersonalFouls: 3,
+      }),
+    );
+  });
+
+  it("should NOT overwrite a newer cached maxPersonalFouls updated concurrently while background config refresh is in flight", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ periodNumber: 1 }]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      sportId: "sport-1",
+      configurationId: "cfg-1",
+    } as never);
+
+    // 1st get (pre-request): maxPersonalFouls is 5
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 7,
+      maxPersonalFouls: 5,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: null,
+    } as never);
+
+    // 2nd get (inside transaction after concurrent update): maxPersonalFouls was concurrently updated to 4
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 7,
+      maxPersonalFouls: 4,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: null,
+    } as never);
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      {
+        id: "cfg-1",
+        sportId: "sport-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        playground: null,
+        shotMap: "<svg>Goal SVG</svg>",
+      } as never,
+    ]);
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+    const refreshedConfig = await recoveryState.refreshPromise;
+
+    expect(refreshedConfig?.maxPersonalFouls).toBe(4);
+    expect(db.sportconfigurations.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "cfg-1",
+        maxPersonalFouls: 4,
+        shotMap: "<svg>Goal SVG</svg>",
       }),
     );
   });

@@ -141,8 +141,12 @@ export function useAppSession() {
   const handleResumeMatch = async (matchId: string, teamId: string) => {
     const initiatedUserId = currentUserId;
     try {
-      const { recoveredPeriod, activePlayersLimit, maxPersonalFouls } =
-        await getMatchRecoveryState(matchId);
+      const {
+        recoveredPeriod,
+        activePlayersLimit,
+        maxPersonalFouls,
+        refreshPromise,
+      } = await getMatchRecoveryState(matchId);
 
       if (currentUserIdRef.current !== initiatedUserId) {
         console.warn(
@@ -167,6 +171,25 @@ export function useAppSession() {
           ...(maxPersonalFouls !== undefined ? { maxPersonalFouls } : {}),
         }),
       );
+
+      if (refreshPromise) {
+        void refreshPromise.then((refreshedConfig) => {
+          if (
+            currentUserIdRef.current === initiatedUserId &&
+            refreshedConfig &&
+            refreshedConfig.maxPersonalFouls !== undefined &&
+            refreshedConfig.maxPersonalFouls !== maxPersonalFouls
+          ) {
+            dispatch(
+              setPresenceLimits({
+                limit: activePlayersLimit,
+                period: recoveredPeriod,
+                maxPersonalFouls: refreshedConfig.maxPersonalFouls,
+              }),
+            );
+          }
+        });
+      }
 
       dispatch(
         setActiveMatch({

@@ -235,21 +235,26 @@ const recoverPeriodFromAnchors = async (matchId: string): Promise<number> => {
 const refreshShotMapBackground = (
   sportId?: string,
   configurationId?: string,
-): void => {
-  if (!sportId || !configurationId) return;
+  preRequestMaxPersonalFouls?: number | null,
+): Promise<SportConfigurationLookup | undefined> => {
+  if (!sportId || !configurationId) return Promise.resolve(undefined);
 
-  void sportService
+  return sportService
     .getSportConfigurations(sportId)
     .then(async (configs) => {
       const freshConfig = configs.find((c) => c.id === configurationId);
       if (freshConfig) {
+        let finalConfig: SportConfigurationLookup | undefined;
         await db.transaction("rw", db.sportconfigurations, async () => {
           const cachedConfig =
             await db.sportconfigurations.get(configurationId);
+          const canApplyFreshMaxPersonalFouls =
+            freshConfig.maxPersonalFouls !== undefined &&
+            cachedConfig?.maxPersonalFouls === preRequestMaxPersonalFouls;
           const updatedConfig = {
             ...freshConfig,
             ...cachedConfig,
-            ...(freshConfig.maxPersonalFouls !== undefined
+            ...(canApplyFreshMaxPersonalFouls
               ? { maxPersonalFouls: freshConfig.maxPersonalFouls }
               : {}),
             playground:
@@ -257,11 +262,15 @@ const refreshShotMapBackground = (
             shotMap: cachedConfig?.shotMap || freshConfig.shotMap || null,
           };
           await db.sportconfigurations.put(updatedConfig);
+          finalConfig = updatedConfig;
         });
+        return finalConfig;
       }
+      return undefined;
     })
     .catch(() => {
       // Ignore network errors in background
+      return undefined;
     });
 };
 
@@ -269,7 +278,8 @@ const recoverSportConfigurationLimits = async (
   matchId: string,
 ): Promise<{
   activePlayersLimit: number;
-  maxPersonalFouls: number | null;
+  maxPersonalFouls?: number | null;
+  refreshPromise?: Promise<SportConfigurationLookup | undefined>;
 }> => {
   if (!db?.matches || !db?.tournaments || !db?.sportconfigurations) {
     throw new Error(
@@ -303,13 +313,21 @@ const recoverSportConfigurationLimits = async (
     );
   }
 
-  if (tournament.sportId && !config.shotMap) {
-    refreshShotMapBackground(tournament.sportId, tournament.configurationId);
-  }
+  const refreshPromise =
+    tournament.sportId && !config.shotMap
+      ? refreshShotMapBackground(
+          tournament.sportId,
+          tournament.configurationId,
+          config.maxPersonalFouls,
+        )
+      : undefined;
 
   return {
     activePlayersLimit: config.activePlayersLimit,
-    maxPersonalFouls: config.maxPersonalFouls ?? null,
+    ...(config.maxPersonalFouls !== undefined
+      ? { maxPersonalFouls: config.maxPersonalFouls }
+      : {}),
+    ...(refreshPromise ? { refreshPromise } : {}),
   };
 };
 
@@ -318,7 +336,8 @@ export const getMatchRecoveryState = async (
 ): Promise<{
   recoveredPeriod: number;
   activePlayersLimit: number;
-  maxPersonalFouls: number | null;
+  maxPersonalFouls?: number | null;
+  refreshPromise?: Promise<SportConfigurationLookup | undefined>;
 }> => {
   try {
     const [period, limits] = await Promise.all([
@@ -329,7 +348,12 @@ export const getMatchRecoveryState = async (
     return {
       recoveredPeriod: period,
       activePlayersLimit: limits.activePlayersLimit,
-      maxPersonalFouls: limits.maxPersonalFouls,
+      ...(limits.maxPersonalFouls !== undefined
+        ? { maxPersonalFouls: limits.maxPersonalFouls }
+        : {}),
+      ...(limits.refreshPromise
+        ? { refreshPromise: limits.refreshPromise }
+        : {}),
     };
   } catch (err) {
     const status = extractErrorStatus(err);

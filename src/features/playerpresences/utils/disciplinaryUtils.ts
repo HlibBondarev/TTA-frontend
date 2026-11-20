@@ -110,14 +110,32 @@ export const resolveEffectiveDisciplinaryRule = (
   };
 };
 
+const parseTimestampKey = (timestamp?: string | null): number | string => {
+  if (!timestamp) return "";
+  const parsed = Date.parse(timestamp);
+  return Number.isNaN(parsed) ? timestamp : parsed;
+};
+
+const compareTimestamps = (
+  a?: string | null,
+  b?: string | null,
+): number => {
+  const safeA = a || "";
+  const safeB = b || "";
+  const timeA = Date.parse(safeA);
+  const timeB = Date.parse(safeB);
+  if (!Number.isNaN(timeA) && !Number.isNaN(timeB)) {
+    return timeA - timeB;
+  }
+  return safeA.localeCompare(safeB);
+};
+
 export const sortEventsChronologically = (events: GameEvent[]): GameEvent[] => {
   return [...events].sort((a, b) => {
     if (a.periodNumber !== b.periodNumber) {
       return a.periodNumber - b.periodNumber;
     }
-    const timeCmp = (a.eventTimestamp || "").localeCompare(
-      b.eventTimestamp || "",
-    );
+    const timeCmp = compareTimestamps(a.eventTimestamp, b.eventTimestamp);
     if (timeCmp !== 0) return timeCmp;
     if (a.sequenceNumber !== b.sequenceNumber) {
       return a.sequenceNumber - b.sequenceNumber;
@@ -209,7 +227,7 @@ const findEarliestTimeInByPeriod = (
   const earliestByPeriod = new Map<number, string>();
   for (const p of presences) {
     const existing = earliestByPeriod.get(p.periodNumber);
-    if (existing === undefined || p.timeIn < existing) {
+    if (existing === undefined || compareTimestamps(p.timeIn, existing) < 0) {
       earliestByPeriod.set(p.periodNumber, p.timeIn);
     }
   }
@@ -224,8 +242,9 @@ const countActivePresencesAtEntry = (
   const activeIds = new Set<string>();
   for (const p of presences) {
     if (p.periodNumber !== periodNumber) continue;
-    const startedOnOrBefore = p.timeIn <= entryTimeIn;
-    const stillOpenAfterEntry = p.timeOut === null || p.timeOut > entryTimeIn;
+    const startedOnOrBefore = compareTimestamps(p.timeIn, entryTimeIn) <= 0;
+    const stillOpenAfterEntry =
+      p.timeOut === null || compareTimestamps(p.timeOut, entryTimeIn) > 0;
     if (startedOnOrBefore && stillOpenAfterEntry) {
       activeIds.add(p.matchLineupId);
     }
@@ -241,7 +260,7 @@ const buildPresenceTimelineItems = (
 
   for (const p of presences) {
     if (p.timeOut !== null) {
-      const key = `${p.periodNumber}|${p.timeOut}`;
+      const key = `${p.periodNumber}|${parseTimestampKey(p.timeOut)}`;
       exitCountsByPeriodAndTimestamp.set(
         key,
         (exitCountsByPeriodAndTimestamp.get(key) ?? 0) + 1,
@@ -259,14 +278,17 @@ const buildPresenceTimelineItems = (
     if (a.periodNumber !== b.periodNumber) {
       return a.periodNumber - b.periodNumber;
     }
-    const timeCmp = a.timeIn.localeCompare(b.timeIn);
+    const timeCmp = compareTimestamps(a.timeIn, b.timeIn);
     if (timeCmp !== 0) return timeCmp;
     return a.sequenceNumber - b.sequenceNumber;
   });
 
   for (const p of sortedPresences) {
     const earliestTimeIn = earliestByPeriod.get(p.periodNumber);
-    if (p.timeIn === earliestTimeIn) {
+    if (
+      earliestTimeIn !== undefined &&
+      compareTimestamps(p.timeIn, earliestTimeIn) === 0
+    ) {
       const batch = periodStartPresences.get(p.periodNumber);
       if (batch) {
         batch.lineupIds.add(p.matchLineupId);
@@ -281,7 +303,7 @@ const buildPresenceTimelineItems = (
       continue;
     }
 
-    const exitKey = `${p.periodNumber}|${p.timeIn}`;
+    const exitKey = `${p.periodNumber}|${parseTimestampKey(p.timeIn)}`;
     const matchingExits = exitCountsByPeriodAndTimestamp.get(exitKey) ?? 0;
     if (matchingExits > 0) {
       exitCountsByPeriodAndTimestamp.set(exitKey, matchingExits - 1);
@@ -328,7 +350,7 @@ const sortTimelineItems = (items: TimelineItem[]): TimelineItem[] => {
     if (a.periodNumber !== b.periodNumber) {
       return a.periodNumber - b.periodNumber;
     }
-    const timeCmp = a.timestamp.localeCompare(b.timestamp);
+    const timeCmp = compareTimestamps(a.timestamp, b.timestamp);
     if (timeCmp !== 0) return timeCmp;
     if (a.kind !== b.kind) {
       return KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind];

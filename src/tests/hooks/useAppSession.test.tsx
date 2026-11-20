@@ -359,4 +359,63 @@ describe("useAppSession Custom Hook", () => {
 
     consoleSpy.mockRestore();
   });
+
+  it("should preserve absent maxPersonalFouls (undefined) on resume without treating it as explicit null, and update Redux when background refresh resolves with differing remote maxPersonalFouls", async () => {
+    let resolveRefresh!: (val: {
+      id: string;
+      sportId: string;
+      activePlayersLimit: number;
+      maxPersonalFouls?: number | null;
+    }) => void;
+    const refreshPromise = new Promise<{
+      id: string;
+      sportId: string;
+      activePlayersLimit: number;
+      maxPersonalFouls?: number | null;
+    }>((resolve) => {
+      resolveRefresh = resolve;
+    });
+
+    vi.mocked(getMatchRecoveryState).mockResolvedValueOnce({
+      recoveredPeriod: 2,
+      activePlayersLimit: 7,
+      refreshPromise: refreshPromise as never,
+    });
+
+    const store = createTestStore({
+      presence: {
+        currentPeriod: 1,
+        activeLineupIds: [],
+        benchLineupIds: [],
+        selectedStartingIds: [],
+        activePlayersLimit: 7,
+        maxPersonalFouls: 5,
+        isLoading: false,
+      },
+    });
+
+    const { result } = renderHook(() => useAppSession(), {
+      wrapper: createWrapper(store),
+    });
+
+    await act(async () => {
+      await result.current.handleResumeMatch("match-resumed", "team-1");
+    });
+
+    // When cached maxPersonalFouls is absent (undefined), existing state (5) is not overwritten with null
+    expect((store.getState() as RootState).presence.maxPersonalFouls).toBe(5);
+
+    // When background refresh resolves with remote maxPersonalFouls = 3, Redux updates to 3
+    await act(async () => {
+      resolveRefresh({
+        id: "cfg-1",
+        sportId: "sport-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+      });
+      await refreshPromise;
+    });
+
+    expect((store.getState() as RootState).presence.maxPersonalFouls).toBe(3);
+  });
 });
