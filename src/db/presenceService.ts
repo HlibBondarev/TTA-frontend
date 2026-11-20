@@ -102,20 +102,22 @@ const listPlayerPresencesInPeriod = async (
   return [];
 };
 
+const isPresenceLater = (
+  candidate: PlayerPresence,
+  currentLatest: PlayerPresence,
+): boolean => {
+  if (candidate.sequenceNumber !== currentLatest.sequenceNumber) {
+    return candidate.sequenceNumber > currentLatest.sequenceNumber;
+  }
+  return candidate.timeIn.localeCompare(currentLatest.timeIn) > 0;
+};
+
 const findLatestPresenceInPeriod = (
   presences: readonly PlayerPresence[],
 ): PlayerPresence | undefined => {
   let latest: PlayerPresence | undefined;
   for (const p of presences) {
-    if (!latest) {
-      latest = p;
-      continue;
-    }
-    const isLater =
-      p.sequenceNumber !== latest.sequenceNumber
-        ? p.sequenceNumber > latest.sequenceNumber
-        : p.timeIn.localeCompare(latest.timeIn) > 0;
-    if (isLater) {
+    if (!latest || isPresenceLater(p, latest)) {
       latest = p;
     }
   }
@@ -179,14 +181,6 @@ export async function revertSinglePlayerAutoExitInTx(
     eventTimestamp,
   );
   if (!areTimestampsEqual(closedTimeOut, expectedTimeOut)) {
-    return false;
-  }
-
-  if (
-    typeof db.syncQueue?.filter !== "function" ||
-    typeof db.syncQueue?.delete !== "function" ||
-    typeof db.playerpresences?.update !== "function"
-  ) {
     return false;
   }
 
