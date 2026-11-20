@@ -6,6 +6,7 @@ import {
   substitutePlayerTx,
   enterShorthandedPlayerTx,
   terminateSinglePlayerPresenceInTx,
+  revertSinglePlayerAutoExitInTx,
 } from "../../db/presenceService";
 
 vi.mock("../../db/ttaDatabase", () => ({
@@ -31,6 +32,8 @@ vi.mock("../../db/ttaDatabase", () => ({
     },
     syncQueue: {
       add: vi.fn(),
+      filter: vi.fn(),
+      delete: vi.fn(),
     },
     transaction: vi.fn((_mode, _tables, cb) => cb()),
   },
@@ -380,9 +383,7 @@ describe("presenceService Database Transactions", () => {
 
     await expect(
       enterShorthandedPlayerTx(mockMatchId, mockPeriodNumber, "lineup-in"),
-    ).rejects.toThrow(
-      "Player already has an active presence in this period.",
-    );
+    ).rejects.toThrow("Player already has an active presence in this period.");
   });
 
   it("terminateSinglePlayerPresenceInTx should close open presence and clamp timeOut >= timeIn", async () => {
@@ -421,6 +422,186 @@ describe("presenceService Database Transactions", () => {
         timeOut: "2026-07-22T10:05:00.000Z",
       }),
       createdAt: "2026-07-22T10:05:00.000Z",
+    });
+  });
+
+  describe("revertSinglePlayerAutoExitInTx", () => {
+    it("should reopen unsynced closed presence and delete matching single-player terminate queue item", async () => {
+      const exitTimestamp = "2026-07-22T10:04:00.000Z";
+      const closedPresence = {
+        id: "pres-auto-exit",
+        matchLineupId: "lineup-11",
+        periodNumber: 2,
+        timeIn: "2026-07-22T10:00:00.000Z",
+        timeOut: exitTimestamp,
+        sequenceNumber: 4,
+        isSynced: 0,
+      };
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([closedPresence]),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      vi.mocked(db.syncQueue.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: 42,
+            actionType: "PUT",
+            endpoint: `/Matches/${mockMatchId}/presence/terminate`,
+            payload: JSON.stringify({
+              periodNumber: 2,
+              playerLineupIds: ["lineup-11"],
+              timeOut: exitTimestamp,
+            }),
+            createdAt: exitTimestamp,
+          },
+        ]),
+      } as unknown as ReturnType<typeof db.syncQueue.filter>);
+
+      const reverted = await revertSinglePlayerAutoExitInTx(
+        mockMatchId,
+        "lineup-11",
+        2,
+        exitTimestamp,
+      );
+
+      expect(reverted).toBe(true);
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(42);
+      expect(db.playerpresences.update).toHaveBeenCalledWith("pres-auto-exit", {
+        timeOut: null,
+        isSynced: 0,
+      });
+    });
+
+    it("should not revert if the player already has an open presence in the period", async () => {
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "pres-closed",
+            matchLineupId: "lineup-11",
+            periodNumber: 2,
+            timeIn: "2026-07-22T10:00:00.000Z",
+            timeOut: "2026-07-22T10:04:00.000Z",
+            sequenceNumber: 2,
+            isSynced: 0,
+          },
+          {
+            id: "pres-reentered",
+            matchLineupId: "lineup-11",
+            periodNumber: 2,
+            timeIn: "2026-07-22T10:04:25.000Z",
+            timeOut: null,
+            sequenceNumber: 5,
+            isSynced: 0,
+          },
+        ]),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      const reverted = await revertSinglePlayerAutoExitInTx(
+        mockMatchId,
+        "lineup-11",
+        2,
+        "2026-07-22T10:04:00.000Z",
+      );
+
+      expect(reverted).toBe(false);
+      expect(db.syncQueue.delete).not.toHaveBeenCalled();
+      expect(db.playerpresences.update).not.toHaveBeenCalled();
+    });
+
+    it("should not revert when closed presence timestamp does not match event timestamp", async () => {
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "pres-other-exit",
+            matchLineupId: "lineup-11",
+            periodNumber: 2,
+            timeIn: "2026-07-22T10:00:00.000Z",
+            timeOut: "2026-07-22T10:06:00.000Z",
+            sequenceNumber: 4,
+            isSynced: 0,
+          },
+        ]),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      const reverted = await revertSinglePlayerAutoExitInTx(
+        mockMatchId,
+        "lineup-11",
+        2,
+        "2026-07-22T10:04:00.000Z",
+      );
+
+      expect(reverted).toBe(false);
+      expect(db.syncQueue.delete).not.toHaveBeenCalled();
+      expect(db.playerpresences.update).not.toHaveBeenCalled();
+    });
+
+    it("should not revert synced presences or multi-player period-end terminate queue items", async () => {
+      const exitTimestamp = "2026-07-22T10:08:00.000Z";
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "pres-period-end",
+            matchLineupId: "lineup-11",
+            periodNumber: 2,
+            timeIn: "2026-07-22T10:00:00.000Z",
+            timeOut: exitTimestamp,
+            sequenceNumber: 4,
+            isSynced: 0,
+          },
+        ]),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      vi.mocked(db.syncQueue.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: 99,
+            actionType: "PUT",
+            endpoint: `/Matches/${mockMatchId}/presence/terminate`,
+            payload: JSON.stringify({
+              periodNumber: 2,
+              playerLineupIds: ["lineup-11", "lineup-8"],
+              timeOut: exitTimestamp,
+            }),
+            createdAt: exitTimestamp,
+          },
+        ]),
+      } as unknown as ReturnType<typeof db.syncQueue.filter>);
+
+      const revertedBatch = await revertSinglePlayerAutoExitInTx(
+        mockMatchId,
+        "lineup-11",
+        2,
+        exitTimestamp,
+      );
+
+      expect(revertedBatch).toBe(false);
+      expect(db.syncQueue.delete).not.toHaveBeenCalled();
+      expect(db.playerpresences.update).not.toHaveBeenCalled();
+
+      // Already synced presence should also never be reverted
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "pres-synced",
+            matchLineupId: "lineup-11",
+            periodNumber: 2,
+            timeIn: "2026-07-22T10:00:00.000Z",
+            timeOut: exitTimestamp,
+            sequenceNumber: 4,
+            isSynced: 1,
+          },
+        ]),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      const revertedSynced = await revertSinglePlayerAutoExitInTx(
+        mockMatchId,
+        "lineup-11",
+        2,
+        exitTimestamp,
+      );
+
+      expect(revertedSynced).toBe(false);
     });
   });
 });

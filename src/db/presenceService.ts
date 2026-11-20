@@ -6,8 +6,7 @@ type InitializePresenceRequest =
   components["schemas"]["InitializePresenceRequest"];
 type TerminatePresenceRequest =
   components["schemas"]["TerminatePresenceRequest"];
-type SubstitutePlayerRequest =
-  components["schemas"]["SubstitutePlayerRequest"];
+type SubstitutePlayerRequest = components["schemas"]["SubstitutePlayerRequest"];
 
 const resolveEffectiveTimeOut = (
   timeIn: string | undefined,
@@ -22,6 +21,19 @@ const resolveEffectiveTimeOut = (
   return candidateTimeOut.localeCompare(timeIn) >= 0
     ? candidateTimeOut
     : timeIn;
+};
+
+const areTimestampsEqual = (
+  first?: string | null,
+  second?: string | null,
+): boolean => {
+  if (!first || !second) return false;
+  const parsedA = Date.parse(first);
+  const parsedB = Date.parse(second);
+  if (!Number.isNaN(parsedA) && !Number.isNaN(parsedB)) {
+    return parsedA === parsedB;
+  }
+  return first.trim() === second.trim();
 };
 
 const findOpenPresenceForPlayer = async (
@@ -55,6 +67,154 @@ const findOpenPresenceForPlayer = async (
 
   return undefined;
 };
+
+const listPlayerPresencesInPeriod = async (
+  matchLineupId: string,
+  periodNumber: number,
+): Promise<PlayerPresence[]> => {
+  if (typeof db.playerpresences?.where !== "function") {
+    return [];
+  }
+
+  const compoundQuery = db.playerpresences.where({
+    matchLineupId,
+    periodNumber,
+  });
+  if (typeof compoundQuery?.toArray === "function") {
+    const rows = await compoundQuery.toArray();
+    if (Array.isArray(rows)) {
+      return rows;
+    }
+  }
+
+  const byLineup = db.playerpresences.where("matchLineupId");
+  const equalsChain =
+    typeof byLineup?.equals === "function"
+      ? byLineup.equals(matchLineupId)
+      : undefined;
+  if (typeof equalsChain?.toArray === "function") {
+    const rows = await equalsChain.toArray();
+    return Array.isArray(rows)
+      ? rows.filter((p) => p.periodNumber === periodNumber)
+      : [];
+  }
+
+  return [];
+};
+
+const findLatestPresenceInPeriod = (
+  presences: readonly PlayerPresence[],
+): PlayerPresence | undefined => {
+  let latest: PlayerPresence | undefined;
+  for (const p of presences) {
+    if (!latest) {
+      latest = p;
+      continue;
+    }
+    const isLater =
+      p.sequenceNumber !== latest.sequenceNumber
+        ? p.sequenceNumber > latest.sequenceNumber
+        : p.timeIn.localeCompare(latest.timeIn) > 0;
+    if (isLater) {
+      latest = p;
+    }
+  }
+  return latest;
+};
+
+const matchesSinglePlayerTerminateItem = (
+  item: SyncQueueItem,
+  matchLineupId: string,
+  periodNumber: number,
+  closedTimeOut: string,
+): boolean => {
+  if (item.id === undefined || item.actionType !== "PUT") {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(item.payload) as TerminatePresenceRequest;
+    const lineupIds = parsed.playerLineupIds;
+    if (
+      parsed.periodNumber !== periodNumber ||
+      !Array.isArray(lineupIds) ||
+      lineupIds.length !== 1 ||
+      lineupIds[0] !== matchLineupId
+    ) {
+      return false;
+    }
+    return areTimestampsEqual(parsed.timeOut, closedTimeOut);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Reverts a previous unsynced single-player disciplinary auto-exit inside an
+ * active Dexie transaction by deleting the matching single-player
+ * PUT /presence/terminate queue item and reopening the closed presence.
+ */
+export async function revertSinglePlayerAutoExitInTx(
+  matchId: string,
+  matchLineupId: string,
+  periodNumber: number,
+  eventTimestamp: string,
+): Promise<boolean> {
+  const playerPresences = await listPlayerPresencesInPeriod(
+    matchLineupId,
+    periodNumber,
+  );
+  if (playerPresences.some((p) => p.timeOut === null)) {
+    return false;
+  }
+
+  const latestPresence = findLatestPresenceInPeriod(playerPresences);
+  const closedTimeOut = latestPresence?.timeOut;
+  if (!latestPresence || !closedTimeOut || latestPresence.isSynced !== 0) {
+    return false;
+  }
+
+  const expectedTimeOut = resolveEffectiveTimeOut(
+    latestPresence.timeIn,
+    eventTimestamp,
+  );
+  if (!areTimestampsEqual(closedTimeOut, expectedTimeOut)) {
+    return false;
+  }
+
+  if (
+    typeof db.syncQueue?.filter !== "function" ||
+    typeof db.syncQueue?.delete !== "function" ||
+    typeof db.playerpresences?.update !== "function"
+  ) {
+    return false;
+  }
+
+  const terminateEndpoint = `/Matches/${matchId}/presence/terminate`;
+  const queueItems = await db.syncQueue
+    .filter((item) => item.endpoint === terminateEndpoint)
+    .toArray();
+
+  const matchingItem = queueItems.find((item) =>
+    matchesSinglePlayerTerminateItem(
+      item,
+      matchLineupId,
+      periodNumber,
+      closedTimeOut,
+    ),
+  );
+  if (matchingItem?.id === undefined) {
+    return false;
+  }
+
+  await db.syncQueue.delete(matchingItem.id);
+  await db.playerpresences.update(latestPresence.id, {
+    timeOut: null,
+    isSynced: 0,
+  });
+
+  return true;
+}
 
 /**
  * Atomically closes an open presence for a single player inside an active Dexie transaction
@@ -199,8 +359,7 @@ export async function terminatePeriodPresenceTx(
       .where("periodNumber")
       .equals(periodNumber)
       .filter(
-        (p) =>
-          p.timeOut === null && candidateLineupIds.has(p.matchLineupId),
+        (p) => p.timeOut === null && candidateLineupIds.has(p.matchLineupId),
       )
       .toArray();
 
@@ -330,7 +489,9 @@ export async function enterShorthandedPlayerTx(
         periodNumber,
       );
       if (existingOpenPresence) {
-        throw new Error("Player already has an active presence in this period.");
+        throw new Error(
+          "Player already has an active presence in this period.",
+        );
       }
 
       const nextSeq = await getNextSequenceNumber();

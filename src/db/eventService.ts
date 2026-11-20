@@ -3,12 +3,18 @@ import {
   db,
   type GameEvent,
   type EventDefinitionLookup,
+  type SportConfigurationLookup,
   type UserEventPresetLookup,
   type SyncQueueItem,
 } from "./ttaDatabase";
 import { matchLockService } from "../services/matchLockService";
-import { terminateSinglePlayerPresenceInTx } from "./presenceService";
+import {
+  revertSinglePlayerAutoExitInTx,
+  terminateSinglePlayerPresenceInTx,
+} from "./presenceService";
 import { resolveEffectiveDisciplinaryRule } from "../features/playerpresences/utils/disciplinaryUtils";
+
+const PERIOD_END_ANCHOR_TYPE = 1;
 
 let eventDefinitionsCache: Map<string, EventDefinitionLookup> | null = null;
 let cachedSportId: string | undefined = undefined;
@@ -285,6 +291,11 @@ export interface UpdateGameEventParams {
   userId?: string;
 }
 
+interface PlayerEventsOverride {
+  upsert?: GameEvent;
+  removeEventId?: string;
+}
+
 const processQueueItemUpdate = async (
   item: SyncQueueItem,
   params: UpdateGameEventParams,
@@ -455,9 +466,9 @@ const resolveCoordinateValue = (
   return existingVal ?? null;
 };
 
-const resolveMatchMaxPersonalFoulsInTx = async (
+const resolveMatchConfigInTx = async (
   matchId: string | undefined,
-): Promise<number | null | undefined> => {
+): Promise<SportConfigurationLookup | undefined> => {
   const normalizedMatchId = matchId?.trim();
   if (
     !normalizedMatchId ||
@@ -474,38 +485,61 @@ const resolveMatchMaxPersonalFoulsInTx = async (
   const tournament = await db.tournaments.get(match.tournamentId);
   if (!tournament?.configurationId) return undefined;
 
-  const config = await db.sportconfigurations.get(tournament.configurationId);
-  return config?.maxPersonalFouls;
+  return db.sportconfigurations.get(tournament.configurationId);
 };
 
 const fetchPlayerEventsInTx = async (
   matchLineupId: string,
+  override?: PlayerEventsOverride,
 ): Promise<GameEvent[]> => {
+  let rows: GameEvent[] = [];
   if (typeof db.gameevents?.where === "function") {
     const equalsChain = db.gameevents
       .where("matchLineupId")
       ?.equals?.(matchLineupId);
     if (typeof equalsChain?.toArray === "function") {
-      return equalsChain.toArray();
+      rows = await equalsChain.toArray();
+    }
+  } else if (typeof db.gameevents?.toArray === "function") {
+    const allEvents = await db.gameevents.toArray();
+    rows = allEvents.filter((e) => e.matchLineupId === matchLineupId);
+  }
+
+  if (!override) return rows;
+
+  const byId = new Map<string, GameEvent>();
+  for (const evt of rows) {
+    byId.set(evt.id, evt);
+  }
+  if (override.removeEventId) {
+    byId.delete(override.removeEventId);
+  }
+  if (override.upsert) {
+    if (override.upsert.matchLineupId === matchLineupId) {
+      byId.set(override.upsert.id, override.upsert);
+    } else {
+      byId.delete(override.upsert.id);
     }
   }
-  if (typeof db.gameevents?.toArray === "function") {
-    const allEvents = await db.gameevents.toArray();
-    return allEvents.filter((e) => e.matchLineupId === matchLineupId);
-  }
-  return [];
+  return Array.from(byId.values());
 };
 
 const buildDefinitionsMapForEventsInTx = async (
   events: readonly GameEvent[],
+  knownDef?: EventDefinitionLookup,
 ): Promise<Map<string, EventDefinitionLookup>> => {
   const map = new Map<string, EventDefinitionLookup>();
+  if (knownDef) {
+    map.set(knownDef.id, knownDef);
+  }
   if (typeof db.eventdefinitions?.get !== "function") return map;
 
   const missingDefIds = Array.from(
     new Set(
       events
-        .filter((e) => e.foulImpact === undefined)
+        .filter(
+          (e) => e.foulImpact === undefined && !map.has(e.eventDefinitionId),
+        )
         .map((e) => e.eventDefinitionId),
     ),
   );
@@ -519,11 +553,18 @@ const buildDefinitionsMapForEventsInTx = async (
   return map;
 };
 
+const isDirectDisqualificationImpact = (foulImpact: string): boolean =>
+  foulImpact === "DisqualificationWithSub" ||
+  foulImpact === "DisqualificationNoSub";
+
 const hasPlayerReachedFoulLimitInTx = async (
   matchId: string | undefined,
-  currentEvent: GameEvent,
+  matchLineupId: string,
+  targetDef?: EventDefinitionLookup,
+  override?: PlayerEventsOverride,
 ): Promise<boolean> => {
-  const maxPersonalFouls = await resolveMatchMaxPersonalFoulsInTx(matchId);
+  const config = await resolveMatchConfigInTx(matchId);
+  const maxPersonalFouls = config?.maxPersonalFouls;
   if (
     typeof maxPersonalFouls !== "number" ||
     !Number.isFinite(maxPersonalFouls) ||
@@ -533,15 +574,11 @@ const hasPlayerReachedFoulLimitInTx = async (
   }
 
   const limit = Math.floor(maxPersonalFouls);
-  const storedEvents = await fetchPlayerEventsInTx(currentEvent.matchLineupId);
-  const eventsMap = new Map<string, GameEvent>();
-  for (const evt of storedEvents) {
-    eventsMap.set(evt.id, evt);
-  }
-  eventsMap.set(currentEvent.id, currentEvent);
-
-  const playerEvents = Array.from(eventsMap.values());
-  const defsById = await buildDefinitionsMapForEventsInTx(playerEvents);
+  const playerEvents = await fetchPlayerEventsInTx(matchLineupId, override);
+  const defsById = await buildDefinitionsMapForEventsInTx(
+    playerEvents,
+    targetDef,
+  );
 
   let personalFoulCount = 0;
   for (const evt of playerEvents) {
@@ -558,22 +595,25 @@ const evaluateDisciplinaryExitTriggerInTx = async (
   matchId: string | undefined,
   event: GameEvent,
   targetDef?: EventDefinitionLookup,
+  override?: PlayerEventsOverride,
 ): Promise<{ shouldExit: boolean; isMatchWideDisqualification: boolean }> => {
   const defsMap = targetDef
     ? new Map<string, EventDefinitionLookup>([[targetDef.id, targetDef]])
     : undefined;
   const rule = resolveEffectiveDisciplinaryRule(event, defsMap);
 
-  const isDirectDq =
-    rule.foulImpact === "DisqualificationWithSub" ||
-    rule.foulImpact === "DisqualificationNoSub";
-  if (isDirectDq) {
+  if (isDirectDisqualificationImpact(rule.foulImpact)) {
     return { shouldExit: true, isMatchWideDisqualification: true };
   }
 
   if (
     rule.foulImpact === "PersonalFoul" &&
-    (await hasPlayerReachedFoulLimitInTx(matchId, event))
+    (await hasPlayerReachedFoulLimitInTx(
+      matchId,
+      event.matchLineupId,
+      targetDef,
+      override,
+    ))
   ) {
     return { shouldExit: true, isMatchWideDisqualification: true };
   }
@@ -587,22 +627,206 @@ const evaluateDisciplinaryExitTriggerInTx = async (
   return { shouldExit: false, isMatchWideDisqualification: false };
 };
 
+const isPlayerStillDisqualifiedAfterChangeInTx = async (
+  matchId: string,
+  matchLineupId: string,
+  override: PlayerEventsOverride,
+): Promise<boolean> => {
+  const playerEvents = await fetchPlayerEventsInTx(matchLineupId, override);
+  if (playerEvents.length === 0) return false;
+
+  const defsById = await buildDefinitionsMapForEventsInTx(playerEvents);
+  const config = await resolveMatchConfigInTx(matchId);
+  const maxPersonalFouls = config?.maxPersonalFouls;
+  const hasLimit =
+    typeof maxPersonalFouls === "number" &&
+    Number.isFinite(maxPersonalFouls) &&
+    maxPersonalFouls > 0;
+  const limit = hasLimit
+    ? Math.floor(maxPersonalFouls)
+    : Number.POSITIVE_INFINITY;
+
+  let personalFoulCount = 0;
+  for (const evt of playerEvents) {
+    const rule = resolveEffectiveDisciplinaryRule(evt, defsById);
+    if (isDirectDisqualificationImpact(rule.foulImpact)) {
+      return true;
+    }
+    if (rule.foulImpact === "PersonalFoul") {
+      personalFoulCount += 1;
+    }
+  }
+
+  return personalFoulCount >= limit;
+};
+
+const isPeriodEndedInTx = async (
+  matchId: string,
+  periodNumber: number,
+): Promise<boolean> => {
+  if (typeof db.timeanchors?.where === "function") {
+    const byMatch = db.timeanchors.where("matchId")?.equals?.(matchId);
+    const filtered =
+      typeof byMatch?.filter === "function"
+        ? byMatch.filter(
+            (a) =>
+              a.periodNumber === periodNumber &&
+              a.type === PERIOD_END_ANCHOR_TYPE,
+          )
+        : undefined;
+    if (typeof filtered?.first === "function") {
+      const endAnchor = await filtered.first();
+      if (endAnchor) return true;
+    }
+  }
+
+  if (typeof db.timeanchors?.toArray === "function") {
+    const allAnchors = await db.timeanchors.toArray();
+    if (Array.isArray(allAnchors)) {
+      return allAnchors.some(
+        (a) =>
+          a.matchId === matchId &&
+          a.periodNumber === periodNumber &&
+          a.type === PERIOD_END_ANCHOR_TYPE,
+      );
+    }
+  }
+
+  return false;
+};
+
+const resolveMatchLineupIdsInTx = async (
+  matchId: string,
+): Promise<Set<string> | undefined> => {
+  if (typeof db.matchlineups?.where !== "function") {
+    return undefined;
+  }
+  const equalsChain = db.matchlineups.where("matchId")?.equals?.(matchId);
+  if (typeof equalsChain?.toArray !== "function") {
+    return undefined;
+  }
+  const lineups = await equalsChain.toArray();
+  if (!Array.isArray(lineups) || lineups.length === 0) {
+    return undefined;
+  }
+  return new Set(lineups.map((l) => l.id));
+};
+
+const countOpenPresencesInPeriodInTx = async (
+  matchId: string,
+  periodNumber: number,
+): Promise<number> => {
+  if (typeof db.playerpresences?.where !== "function") {
+    return 0;
+  }
+
+  const matchLineupIds = await resolveMatchLineupIdsInTx(matchId);
+  const isOpenForMatch = (p: {
+    matchLineupId: string;
+    timeOut: string | null;
+  }) =>
+    p.timeOut === null &&
+    (!matchLineupIds || matchLineupIds.has(p.matchLineupId));
+
+  const byPeriod = db.playerpresences
+    .where("periodNumber")
+    ?.equals?.(periodNumber);
+  const filtered =
+    typeof byPeriod?.filter === "function"
+      ? byPeriod.filter(isOpenForMatch)
+      : undefined;
+  if (typeof filtered?.toArray === "function") {
+    const openRows = await filtered.toArray();
+    if (Array.isArray(openRows)) {
+      return openRows.length;
+    }
+  }
+
+  if (typeof db.playerpresences?.toArray === "function") {
+    const allRows = await db.playerpresences.toArray();
+    if (Array.isArray(allRows)) {
+      return allRows.filter(
+        (p) => p.periodNumber === periodNumber && isOpenForMatch(p),
+      ).length;
+    }
+  }
+
+  return 0;
+};
+
+const hasCapacityToReopenInTx = async (
+  matchId: string,
+  periodNumber: number,
+): Promise<boolean> => {
+  const config = await resolveMatchConfigInTx(matchId);
+  const limit = config?.activePlayersLimit;
+  if (typeof limit !== "number" || !Number.isFinite(limit) || limit <= 0) {
+    return true;
+  }
+  const openCount = await countOpenPresencesInPeriodInTx(matchId, periodNumber);
+  return openCount < Math.floor(limit);
+};
+
+const revertPreviousAutoExitIfEligibleInTx = async (
+  matchId: string | undefined,
+  previousLineupId: string | undefined,
+  periodNumber: number | undefined,
+  eventTimestamp: string | undefined,
+  override: PlayerEventsOverride,
+): Promise<void> => {
+  const normalizedMatchId = matchId?.trim();
+  if (
+    !normalizedMatchId ||
+    !previousLineupId ||
+    typeof periodNumber !== "number" ||
+    !eventTimestamp
+  ) {
+    return;
+  }
+
+  if (await isPeriodEndedInTx(normalizedMatchId, periodNumber)) {
+    return;
+  }
+
+  const stillDisqualified = await isPlayerStillDisqualifiedAfterChangeInTx(
+    normalizedMatchId,
+    previousLineupId,
+    override,
+  );
+  if (stillDisqualified) {
+    return;
+  }
+
+  if (!(await hasCapacityToReopenInTx(normalizedMatchId, periodNumber))) {
+    return;
+  }
+
+  await revertSinglePlayerAutoExitInTx(
+    normalizedMatchId,
+    previousLineupId,
+    periodNumber,
+    eventTimestamp,
+  );
+};
+
 const applyDisciplinaryAutoExitInTx = async (
   matchId: string | undefined,
   event: GameEvent,
   exitTimestamp: string,
   targetDef?: EventDefinitionLookup,
-): Promise<void> => {
+  override?: PlayerEventsOverride,
+): Promise<boolean> => {
   const normalizedMatchId = matchId?.trim();
-  if (!normalizedMatchId) return;
+  if (!normalizedMatchId) return false;
 
   const { shouldExit, isMatchWideDisqualification } =
     await evaluateDisciplinaryExitTriggerInTx(
       normalizedMatchId,
       event,
       targetDef,
+      override,
     );
-  if (!shouldExit) return;
+  if (!shouldExit) return false;
 
   const closedInEventPeriod = await terminateSinglePlayerPresenceInTx(
     normalizedMatchId,
@@ -616,6 +840,39 @@ const applyDisciplinaryAutoExitInTx = async (
       normalizedMatchId,
       event.matchLineupId,
       exitTimestamp,
+    );
+  }
+
+  return true;
+};
+
+const syncDisciplinaryAutoExitOnUpdateInTx = async (
+  matchId: string | undefined,
+  existing: GameEvent,
+  nextEvent: GameEvent,
+  isNewDefinition: boolean,
+  targetDef?: EventDefinitionLookup,
+): Promise<void> => {
+  const override: PlayerEventsOverride = { upsert: nextEvent };
+  const didTriggerNextExit = await applyDisciplinaryAutoExitInTx(
+    matchId,
+    nextEvent,
+    nextEvent.eventTimestamp,
+    targetDef,
+    override,
+  );
+
+  const playerChanged = existing.matchLineupId !== nextEvent.matchLineupId;
+  const shouldCheckRevert =
+    playerChanged || (isNewDefinition && !didTriggerNextExit);
+
+  if (shouldCheckRevert) {
+    await revertPreviousAutoExitIfEligibleInTx(
+      matchId,
+      existing.matchLineupId,
+      existing.periodNumber,
+      existing.eventTimestamp,
+      override,
     );
   }
 };
@@ -676,7 +933,7 @@ export const createGameEventTx = async (
       );
     }
 
-    createdEvent = {
+    const nextCreatedEvent: GameEvent = {
       id: crypto.randomUUID(),
       matchLineupId: params.matchLineupId,
       eventDefinitionId: params.eventDefinitionId,
@@ -693,21 +950,22 @@ export const createGameEventTx = async (
       sequenceNumber: nextSeq,
       isSynced: 0,
     };
+    createdEvent = nextCreatedEvent;
 
-    await db.gameevents.add(createdEvent);
+    await db.gameevents.add(nextCreatedEvent);
 
     const payload = JSON.stringify([
       {
-        id: createdEvent.id,
+        id: nextCreatedEvent.id,
         matchLineupId: params.matchLineupId,
         eventDefinitionId: params.eventDefinitionId,
         periodNumber: params.periodNumber,
         isLeadToGoal: params.isLeadToGoal,
         eventTimestamp: params.eventTimestamp,
-        locationX: createdEvent.locationX,
-        locationY: createdEvent.locationY,
-        shotLocationX: createdEvent.shotLocationX,
-        shotLocationY: createdEvent.shotLocationY,
+        locationX: nextCreatedEvent.locationX,
+        locationY: nextCreatedEvent.locationY,
+        shotLocationX: nextCreatedEvent.shotLocationX,
+        shotLocationY: nextCreatedEvent.shotLocationY,
       },
     ]);
 
@@ -724,9 +982,10 @@ export const createGameEventTx = async (
 
     await applyDisciplinaryAutoExitInTx(
       normalizedMatchId,
-      createdEvent,
+      nextCreatedEvent,
       params.eventTimestamp,
       targetDef,
+      { upsert: nextCreatedEvent },
     );
   });
 
@@ -776,6 +1035,7 @@ export const updateGameEventTx = async (
     db.matches,
     db.eventdefinitions,
     db.syncQueue,
+    ...(db.timeanchors ? [db.timeanchors] : []),
     ...(db.playerpresences ? [db.playerpresences] : []),
     ...(db.tournaments ? [db.tournaments] : []),
     ...(db.sportconfigurations ? [db.sportconfigurations] : []),
@@ -836,7 +1096,7 @@ export const updateGameEventTx = async (
 
     const restExisting = stripDisciplinarySnapshot(existing);
 
-    updatedEvent = {
+    const nextEvent: GameEvent = {
       ...restExisting,
       matchLineupId: params.matchLineupId,
       eventDefinitionId: params.eventDefinitionId,
@@ -847,8 +1107,9 @@ export const updateGameEventTx = async (
       shotLocationY,
       ...resolveUpdatedEventSnapshot(existing, isNewDefinition, targetDef),
     };
+    updatedEvent = nextEvent;
 
-    await db.gameevents.put(updatedEvent);
+    await db.gameevents.put(nextEvent);
 
     await updateSyncQueueForEvent({
       ...params,
@@ -858,10 +1119,11 @@ export const updateGameEventTx = async (
       shotLocationY,
     });
 
-    await applyDisciplinaryAutoExitInTx(
+    await syncDisciplinaryAutoExitOnUpdateInTx(
       resolvedMatchId,
-      updatedEvent,
-      updatedEvent.eventTimestamp,
+      existing,
+      nextEvent,
+      isNewDefinition,
       targetDef,
     );
   });
@@ -870,47 +1132,64 @@ export const updateGameEventTx = async (
 };
 
 export const deleteGameEventTx = async (eventId: string): Promise<void> => {
-  await db.transaction(
-    "rw",
-    [db.gameevents, db.matchlineups, db.syncQueue],
-    async () => {
-      const existing = await db.gameevents.get(eventId);
-      if (!existing) {
-        throw new Error(`Game event not found for ID: ${eventId}`);
+  const deleteTransactionTables = [
+    db.gameevents,
+    db.matchlineups,
+    db.syncQueue,
+    ...(db.timeanchors ? [db.timeanchors] : []),
+    ...(db.playerpresences ? [db.playerpresences] : []),
+    ...(db.eventdefinitions ? [db.eventdefinitions] : []),
+    ...(db.matches ? [db.matches] : []),
+    ...(db.tournaments ? [db.tournaments] : []),
+    ...(db.sportconfigurations ? [db.sportconfigurations] : []),
+  ];
+
+  await db.transaction("rw", deleteTransactionTables, async () => {
+    const existing = await db.gameevents.get(eventId);
+    if (!existing) {
+      throw new Error(`Game event not found for ID: ${eventId}`);
+    }
+
+    if (existing.isSynced === 1) {
+      throw new Error("Cannot delete a synchronized event.");
+    }
+
+    const lineup = await db.matchlineups.get(existing.matchLineupId);
+    const resolvedMatchId = lineup?.matchId;
+    if (resolvedMatchId && matchLockService.isMatchLocked(resolvedMatchId)) {
+      throw new Error(
+        `Cannot delete event: match ${
+          resolvedMatchId
+        } is locked for finalization.`,
+      );
+    }
+
+    await db.gameevents.delete(eventId);
+
+    const queueItems = await db.syncQueue
+      .filter((item) => item.endpoint.includes("/events"))
+      .toArray();
+
+    let payloadRemoved = false;
+    for (const item of queueItems) {
+      if (await processQueueItemDelete(item, eventId)) {
+        payloadRemoved = true;
+        break;
       }
+    }
 
-      if (existing.isSynced === 1) {
-        throw new Error("Cannot delete a synchronized event.");
-      }
+    if (!payloadRemoved) {
+      throw new Error(
+        `Matching sync queue payload not found for event ID: ${eventId}`,
+      );
+    }
 
-      const lineup = await db.matchlineups.get(existing.matchLineupId);
-      if (lineup?.matchId && matchLockService.isMatchLocked(lineup.matchId)) {
-        throw new Error(
-          `Cannot delete event: match ${
-            lineup.matchId
-          } is locked for finalization.`,
-        );
-      }
-
-      await db.gameevents.delete(eventId);
-
-      const queueItems = await db.syncQueue
-        .filter((item) => item.endpoint.includes("/events"))
-        .toArray();
-
-      let payloadRemoved = false;
-      for (const item of queueItems) {
-        if (await processQueueItemDelete(item, eventId)) {
-          payloadRemoved = true;
-          break;
-        }
-      }
-
-      if (!payloadRemoved) {
-        throw new Error(
-          `Matching sync queue payload not found for event ID: ${eventId}`,
-        );
-      }
-    },
-  );
+    await revertPreviousAutoExitIfEligibleInTx(
+      resolvedMatchId,
+      existing.matchLineupId,
+      existing.periodNumber,
+      existing.eventTimestamp,
+      { removeEventId: existing.id },
+    );
+  });
 };
