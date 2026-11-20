@@ -11,6 +11,7 @@ import {
   initializePeriodPresenceTx,
   terminatePeriodPresenceTx,
   substitutePlayerTx,
+  enterShorthandedPlayerTx,
 } from "../../../db/presenceService";
 
 // Mock the IndexedDB module to isolate the hook from real database connections
@@ -55,6 +56,7 @@ vi.mock("../../../db/presenceService", () => {
     initializePeriodPresenceTx: vi.fn().mockResolvedValue(undefined),
     terminatePeriodPresenceTx: vi.fn().mockResolvedValue(undefined),
     substitutePlayerTx: vi.fn().mockResolvedValue("new-presence-uuid"),
+    enterShorthandedPlayerTx: vi.fn().mockResolvedValue("new-shorthanded-uuid"),
   };
 });
 
@@ -438,5 +440,67 @@ describe("usePlayerPresence Hook", () => {
     ).rejects.toThrow("The active players limit is not configured.");
 
     expect(initializePeriodPresenceTx).not.toHaveBeenCalled();
+  });
+
+  it("should support enterShorthandedPlayer when activeLineupIds.length < maxAllowedActive and revert on DB error", async () => {
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 2, period: 1 }));
+    });
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await result.current.refreshPresenceFromDB();
+    });
+
+    // lineup-1 is active, lineup-2 is on bench -> shorthanded (1/2)
+    expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
+    expect(result.current.isShorthanded).toBe(true);
+
+    await act(async () => {
+      await result.current.enterShorthandedPlayer?.("lineup-2", 1);
+    });
+
+    expect(enterShorthandedPlayerTx).toHaveBeenCalledWith(
+      "test-match",
+      1,
+      "lineup-2",
+    );
+    expect(result.current.activeLineupIds).toEqual(["lineup-1", "lineup-2"]);
+
+    // When already at maxAllowedActive (2/2), entering another player throws
+    await expect(
+      act(async () => {
+        await result.current.enterShorthandedPlayer?.("lineup-3", 1);
+      }),
+    ).rejects.toThrow("Cannot exceed the limit of 2 active players.");
+  });
+
+  it("should handle pre-period bench taps and resetClearedPenalties via shared Redux state", async () => {
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 2, period: 2 }));
+    });
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await result.current.refreshPresenceFromDB();
+    });
+
+    act(() => {
+      result.current.handlePrePeriodBenchTap?.("lineup-1");
+    });
+
+    expect(result.current.selectedStartingIds).toEqual(["lineup-1"]);
+
+    act(() => {
+      result.current.resetPrePeriodClearedPenalties?.();
+    });
+
+    expect(result.current.clearedPenaltyEventIds).toEqual([]);
   });
 });

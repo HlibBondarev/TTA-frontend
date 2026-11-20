@@ -528,4 +528,30 @@ describe("useTTAConsole Custom Hook", () => {
 
     expect(result.current.isSubmitting).toBe(false);
   });
+
+  it("should automatically clear selectedPlayerId when that player leaves activeLineupIds", () => {
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+      presence: { activeLineupIds: ["player-1", "player-2"] },
+    });
+
+    const { result, rerender } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.setSelectedPlayerId("player-2");
+    });
+    expect(result.current.selectedPlayerId).toBe("player-2");
+
+    act(() => {
+      store.dispatch({
+        type: "presence/syncActiveAndBenchRoster",
+        payload: { active: ["player-1"], bench: ["player-2"] },
+      });
+    });
+    rerender();
+
+    expect(result.current.selectedPlayerId).toBeNull();
+  });
 });

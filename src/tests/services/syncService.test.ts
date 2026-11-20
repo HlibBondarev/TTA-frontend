@@ -2504,5 +2504,165 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
       expect(db.syncQueue.delete).not.toHaveBeenCalledWith(2);
     });
+
+    it("cleans up PUT /presence/terminate queue items in syncMatchBatch ONLY when all of their own presences matching timeOut are synced", async () => {
+      const mockLineups = [
+        { id: "l1", matchId: "m123" },
+        { id: "l2", matchId: "m123" },
+      ];
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue(mockLineups),
+        }),
+      } as never);
+
+      const mockPresences = [
+        // Mid-period exclusion exit for l1 (synced)
+        {
+          id: "p1-mid",
+          matchLineupId: "l1",
+          periodNumber: 1,
+          timeIn: "2026-10-05T12:00:00.000Z",
+          timeOut: "2026-10-05T12:03:00.000Z",
+          isSynced: 0,
+        },
+        // Period-end exit for l1 after re-entry (NOT synced yet)
+        {
+          id: "p1-end",
+          matchLineupId: "l1",
+          periodNumber: 1,
+          timeIn: "2026-10-05T12:05:00.000Z",
+          timeOut: "2026-10-05T12:08:00.000Z",
+          isSynced: 0,
+        },
+        // Period-end exit for l2 (synced)
+        {
+          id: "p2-end",
+          matchLineupId: "l2",
+          periodNumber: 1,
+          timeIn: "2026-10-05T12:00:00.000Z",
+          timeOut: "2026-10-05T12:08:00.000Z",
+          isSynced: 0,
+        },
+      ];
+
+      vi.mocked(db.playerpresences.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockPresences),
+      } as never);
+
+      const mockModify = vi.fn();
+      const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        anyOf: mockAnyOf,
+      } as never);
+
+      // Server synced p1-mid and p2-end, but NOT p1-end
+      vi.mocked(apiClient.post).mockResolvedValue({
+        syncedEventIds: [],
+        syncedAnchorIds: [],
+        syncedPresenceIds: ["p1-mid", "p2-end"],
+      });
+
+      const mockQueueItems = [
+        {
+          id: 11,
+          actionType: "PUT",
+          endpoint: "/Matches/m123/presence/terminate",
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["l1"],
+            timeOut: "2026-10-05T12:03:00.000Z",
+          }),
+        },
+        {
+          id: 12,
+          actionType: "PUT",
+          endpoint: "/Matches/m123/presence/terminate",
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["l1", "l2"],
+            timeOut: "2026-10-05T12:08:00.000Z",
+          }),
+        },
+      ];
+
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue(
+        mockQueueItems as never,
+      );
+
+      await syncMatchBatch("m123");
+
+      // Item 11 (mid-period exit for l1 at 12:03) is fully synced -> deleted
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(11);
+      // Item 12 (period-end exit for l1 and l2 at 12:08) is NOT fully synced because p1-end is not synced -> kept!
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(12);
+    });
+
+    it("scopes syncPresences in markEntitiesSynced to exact timeOut for PUT /presence/terminate and marks explicit presence IDs for POST /presence/initialize", async () => {
+      type PresenceFilterFn = (p: {
+        id: string;
+        matchLineupId: string;
+        timeIn: string | null;
+        timeOut: string | null;
+      }) => boolean;
+
+      let filterPredicate: PresenceFilterFn | undefined;
+      const mockModify = vi.fn();
+      const mockFilter = vi.fn().mockImplementation((fn: PresenceFilterFn) => {
+        filterPredicate = fn;
+        return { modify: mockModify };
+      });
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({ filter: mockFilter }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      await markEntitiesSynced("/Matches/m1/presence/terminate", {
+        periodNumber: 1,
+        playerLineupIds: ["l1"],
+        timeOut: "2026-10-05T12:03:00.000Z",
+      });
+
+      expect(filterPredicate).toBeDefined();
+      if (filterPredicate) {
+        // Matching timeOut -> true
+        expect(
+          filterPredicate({
+            id: "p1-mid",
+            matchLineupId: "l1",
+            timeIn: "2026-10-05T12:00:00.000Z",
+            timeOut: "2026-10-05T12:03:00.000Z",
+          }),
+        ).toBe(true);
+        // Different timeOut for same player in same period -> false!
+        expect(
+          filterPredicate({
+            id: "p1-end",
+            matchLineupId: "l1",
+            timeIn: "2026-10-05T12:05:00.000Z",
+            timeOut: "2026-10-05T12:08:00.000Z",
+          }),
+        ).toBe(false);
+      }
+
+      // Single-item POST /presence/initialize (shorthanded entry with timeOut === null)
+      await markEntitiesSynced("/Matches/m1/presence/initialize", {
+        periodNumber: 1,
+        timeIn: "2026-10-05T12:04:00.000Z",
+        presenceItems: [{ id: "p1-shorthanded-entry", matchLineupId: "l1" }],
+      });
+
+      if (filterPredicate) {
+        expect(
+          filterPredicate({
+            id: "p1-shorthanded-entry",
+            matchLineupId: "l1",
+            timeIn: "2026-10-05T12:04:00.000Z",
+            timeOut: null,
+          }),
+        ).toBe(true);
+      }
+    });
   });
 });

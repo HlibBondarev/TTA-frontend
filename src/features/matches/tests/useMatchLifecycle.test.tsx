@@ -2444,4 +2444,97 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(store.getState().match.periodNumber).toBe(2);
     expect(store.getState().match.isPeriodActive).toBe(true);
   });
+
+  test("should preserve earlier mid-period disciplinary /presence/terminate queue items and not reopen disciplinary exits when revertEndPeriod runs (even if period ended with 0 open presences)", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockResolvedValue([
+                { id: "lineup-dq-mid-period" },
+                { id: "lineup-period-end" },
+              ]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    const midPeriodDisciplinaryQueueItem = {
+      id: 401,
+      actionType: "PUT",
+      endpoint: "/Matches/test-match-id/presence/terminate",
+      payload: JSON.stringify({
+        periodNumber: 1,
+        playerLineupIds: ["lineup-dq-mid-period"],
+        timeOut: "2020-01-01T10:04:00Z",
+      }),
+      createdAt: "2020-01-01T10:04:00Z",
+    };
+
+    const periodEndQueueItem = {
+      id: 402,
+      actionType: "PUT",
+      endpoint: "/Matches/test-match-id/presence/terminate",
+      payload: JSON.stringify({
+        periodNumber: 1,
+        playerLineupIds: ["lineup-period-end"],
+        timeOut: "2020-01-01T10:10:00Z",
+      }),
+      createdAt: "2020-01-01T10:10:00Z",
+    };
+
+    mockSyncQueue.push(midPeriodDisciplinaryQueueItem, periodEndQueueItem);
+
+    // Case 1: Only the mid-period disciplinary exit exists (period ended with 0 open presences)
+    mockPlayerPresences = [
+      {
+        id: "presence-dq-mid-period",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:04:00Z",
+        matchLineupId: "lineup-dq-mid-period",
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod("seed-end-anchor");
+    });
+
+    // Only the period-end terminate queue item (402) should be deleted; mid-period disciplinary item (401) remains!
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(402);
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(401);
+    expect(mockSyncQueue.some((i) => i.id === 401)).toBe(true);
+
+    // And the mid-period disciplinary exit presence must NOT be reopened!
+    expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:04:00Z");
+  });
 });

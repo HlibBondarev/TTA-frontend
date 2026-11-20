@@ -15,6 +15,9 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   const activeMatchId = useSelector(
     (state: RootState) => state.match.activeMatchId,
   );
+  const activeLineupIds = useSelector(
+    (state: RootState) => state.presence?.activeLineupIds ?? [],
+  );
   const { periodNumber, isPeriodActive, isInsideStoppage } =
     useMatchLifecycle();
 
@@ -46,6 +49,14 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     setPendingShotLocation(null);
     setSelectedPlayerId(null);
     setConsoleError(null);
+  }
+
+  if (
+    selectedPlayerId !== null &&
+    activeLineupIds.length > 0 &&
+    !activeLineupIds.includes(selectedPlayerId)
+  ) {
+    setSelectedPlayerId(null);
   }
 
   const isRecordingEnabled = isPeriodActive && !isInsideStoppage;

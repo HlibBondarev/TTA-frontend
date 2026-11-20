@@ -39,6 +39,7 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
   const {
     selectedStartingIds,
     activePlayersLimit,
+    requiredStartingPlayers,
     startPeriodWithRoster,
     endPeriodWithRoster,
     refreshPresenceFromDB,
@@ -55,8 +56,12 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
       setPanelError("The active players limit is not configured.");
       return;
     }
-    if (selectedStartingIds.length !== activePlayersLimit) {
-      setPanelError(`Select exactly ${activePlayersLimit} players.`);
+    const targetRequiredStarters =
+      typeof requiredStartingPlayers === "number"
+        ? requiredStartingPlayers
+        : activePlayersLimit;
+    if (selectedStartingIds.length !== targetRequiredStarters) {
+      setPanelError(`Select exactly ${targetRequiredStarters} players.`);
       return;
     }
 
@@ -93,10 +98,11 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
     let anchorId: string | null | undefined = null;
     try {
       setIsProcessing(true);
-      const endResult = await endPeriod();
+      const endTimestamp = new Date().toISOString();
+      const endResult = await endPeriod(endTimestamp);
       anchorId = endResult?.anchorId;
 
-      await endPeriodWithRoster(new Date().toISOString(), periodNumber);
+      await endPeriodWithRoster(endTimestamp, periodNumber);
 
       if (endResult?.isFinal) {
         setIsResultModalOpen(true);
