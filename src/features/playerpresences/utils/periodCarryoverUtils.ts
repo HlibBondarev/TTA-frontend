@@ -222,13 +222,76 @@ const handlePrePeriodPenaltyTap = (
   const canSelect =
     !alreadySelected && currentSelected.length < updatedRequired;
 
+  if (!canSelect) {
+    const oldestActivePenalty = carryoverState.effectiveCarriedOverPenalties[0];
+    const isOldestFifoPenalty = oldestActivePenalty?.eventId === penaltyEventId;
+    if (
+      !isOldestFifoPenalty ||
+      updatedRequired <= carryoverState.requiredStartingPlayers
+    ) {
+      return {
+        selectedStartingIds: currentSelected,
+        clearedPenaltyEventIds: currentCleared,
+        wasPenaltyCleared: false,
+        wasSelectionToggled: false,
+      };
+    }
+    return {
+      selectedStartingIds: currentSelected,
+      clearedPenaltyEventIds: nextCleared,
+      wasPenaltyCleared: true,
+      wasSelectionToggled: false,
+    };
+  }
+
   return {
-    selectedStartingIds: canSelect
-      ? [...currentSelected, lineupId]
-      : currentSelected,
+    selectedStartingIds: [...currentSelected, lineupId],
     clearedPenaltyEventIds: nextCleared,
     wasPenaltyCleared: true,
-    wasSelectionToggled: canSelect,
+    wasSelectionToggled: true,
+  };
+};
+
+const handleDeselectStartingPlayer = (
+  lineupId: string,
+  currentSelected: string[],
+  currentCleared: string[],
+  carryoverState: PeriodCarryoverState,
+): PrePeriodBenchTapResult => {
+  const nextSelected = currentSelected.filter((id) => id !== lineupId);
+  const selectedSet = new Set(nextSelected);
+  const clearedSet = new Set(currentCleared);
+
+  // If this player had a non-head carried-over penalty cleared specifically because they were selected to start,
+  // and deselecting them would leave a non-prefix penalty cleared without the player starting,
+  // normalize non-starter cleared penalties to the oldest FIFO prefix of the same count so pre-period state matches FIFO replay.
+  const starterClearedIds = new Set<string>();
+  let nonStarterClearedCount = 0;
+
+  for (const penalty of carryoverState.carriedOverPenalties) {
+    if (!clearedSet.has(penalty.eventId)) continue;
+    if (selectedSet.has(penalty.matchLineupId)) {
+      starterClearedIds.add(penalty.eventId);
+    } else {
+      nonStarterClearedCount += 1;
+    }
+  }
+
+  const normalizedCleared: string[] = [...starterClearedIds];
+  let remainingFifoToClear = nonStarterClearedCount;
+  for (const penalty of carryoverState.carriedOverPenalties) {
+    if (remainingFifoToClear <= 0) break;
+    if (!starterClearedIds.has(penalty.eventId)) {
+      normalizedCleared.push(penalty.eventId);
+      remainingFifoToClear -= 1;
+    }
+  }
+
+  return {
+    selectedStartingIds: nextSelected,
+    clearedPenaltyEventIds: normalizedCleared,
+    wasPenaltyCleared: false,
+    wasSelectionToggled: true,
   };
 };
 
@@ -267,12 +330,12 @@ export const applyPrePeriodBenchTap = (
   }
 
   if (currentSelected.includes(lineupId)) {
-    return {
-      selectedStartingIds: currentSelected.filter((id) => id !== lineupId),
-      clearedPenaltyEventIds: currentCleared,
-      wasPenaltyCleared: false,
-      wasSelectionToggled: true,
-    };
+    return handleDeselectStartingPlayer(
+      lineupId,
+      currentSelected,
+      currentCleared,
+      carryoverState,
+    );
   }
 
   if (

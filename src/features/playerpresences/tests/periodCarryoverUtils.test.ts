@@ -636,4 +636,126 @@ describe("periodCarryoverUtils", () => {
       activeStateInPeriod2.playersById["p2"].hasActiveTimedExclusion,
     ).toBe(true);
   });
+
+  it("should transfer non-starter cleared penalty slot to the oldest FIFO penalty when an eligible player whose non-head penalty was cleared is subsequently deselected", () => {
+    // Limit = 3, carried-over penalties in FIFO order [p1, p2], eligible players [p1, p2, p3, p4].
+    // 1. User taps p2 -> clears p2's penalty AND selects p2 (since p2 is starting, p2's specific penalty is served, leaving p1's penalty active).
+    // 2. User taps p2 again -> deselects p2 while keeping the cleared penalty slot open (requiredStartingPlayers remains 2).
+    //    Because p2 is no longer starting, an unnamed substitute (e.g. p3, p4) will fill that slot, which serves the oldest FIFO penalty (p1) and retains p2!
+    const events = [
+      makeEvent({
+        id: "ex-p1-older",
+        matchLineupId: "p1",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:07:10.000Z",
+        sequenceNumber: 1,
+      }),
+      makeEvent({
+        id: "ex-p2-newer",
+        matchLineupId: "p2",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:07:40.000Z",
+        sequenceNumber: 2,
+      }),
+    ];
+
+    const initialCarryover = calculatePeriodCarryoverState({
+      targetPeriodNumber: 2,
+      activePlayersLimit: 3,
+      maxPersonalFouls: 3,
+      lineupIds: ["p1", "p2", "p3", "p4"],
+      events,
+      presences: [],
+    });
+
+    expect(initialCarryover.requiredStartingPlayers).toBe(1);
+
+    // Step 1: Tap p2 -> clears p2's penalty and selects p2
+    const firstTapP2 = applyPrePeriodBenchTap({
+      lineupId: "p2",
+      selectedStartingIds: ["p3"],
+      clearedPenaltyEventIds: [],
+      carryoverState: initialCarryover,
+    });
+
+    expect(firstTapP2.wasPenaltyCleared).toBe(true);
+    expect(firstTapP2.wasSelectionToggled).toBe(true);
+    expect(firstTapP2.selectedStartingIds).toEqual(["p3", "p2"]);
+    expect(firstTapP2.clearedPenaltyEventIds).toEqual(["ex-p2-newer"]);
+
+    const carryoverWhileP2Selected = calculatePeriodCarryoverState({
+      targetPeriodNumber: 2,
+      activePlayersLimit: 3,
+      maxPersonalFouls: 3,
+      lineupIds: ["p1", "p2", "p3", "p4"],
+      events,
+      presences: [],
+      clearedPenaltyEventIds: firstTapP2.clearedPenaltyEventIds,
+    });
+
+    expect(carryoverWhileP2Selected.requiredStartingPlayers).toBe(2);
+    expect(carryoverWhileP2Selected.highlightedLineupIds).toEqual(["p1"]);
+
+    // Step 2: Tap p2 again to deselect p2 -> keeps 1 penalty cleared (requiredStartingPlayers = 2),
+    // but normalizes the non-starter cleared penalty to the oldest FIFO penalty (ex-p1-older)
+    // so starting [p3, p4] matches post-start FIFO replay!
+    const secondTapP2 = applyPrePeriodBenchTap({
+      lineupId: "p2",
+      selectedStartingIds: firstTapP2.selectedStartingIds,
+      clearedPenaltyEventIds: firstTapP2.clearedPenaltyEventIds,
+      carryoverState: carryoverWhileP2Selected,
+    });
+
+    expect(secondTapP2.wasPenaltyCleared).toBe(false);
+    expect(secondTapP2.wasSelectionToggled).toBe(true);
+    expect(secondTapP2.selectedStartingIds).toEqual(["p3"]);
+    expect(secondTapP2.clearedPenaltyEventIds).toEqual(["ex-p1-older"]);
+
+    const carryoverAfterP2Deselected = calculatePeriodCarryoverState({
+      targetPeriodNumber: 2,
+      activePlayersLimit: 3,
+      maxPersonalFouls: 3,
+      lineupIds: ["p1", "p2", "p3", "p4"],
+      events,
+      presences: [],
+      clearedPenaltyEventIds: secondTapP2.clearedPenaltyEventIds,
+    });
+
+    expect(carryoverAfterP2Deselected.requiredStartingPlayers).toBe(2);
+    expect(carryoverAfterP2Deselected.highlightedLineupIds).toEqual(["p2"]);
+
+    // Step 3: Select p4 and start Period 2 with [p3, p4] -> replay matches carryoverAfterP2Deselected (p1 served, p2 retained)
+    const activeStateInPeriod2 = calculateDisciplinaryState({
+      activePlayersLimit: 3,
+      maxPersonalFouls: 3,
+      lineupIds: ["p1", "p2", "p3", "p4"],
+      events,
+      presences: [
+        makePresence({
+          id: "p2-start-p3",
+          matchLineupId: "p3",
+          periodNumber: 2,
+          timeIn: "2026-11-20T10:10:00.000Z",
+          timeOut: null,
+          sequenceNumber: 3,
+        }),
+        makePresence({
+          id: "p2-start-p4",
+          matchLineupId: "p4",
+          periodNumber: 2,
+          timeIn: "2026-11-20T10:10:00.000Z",
+          timeOut: null,
+          sequenceNumber: 4,
+        }),
+      ],
+    });
+
+    expect(activeStateInPeriod2.unservedTimedPenaltyCount).toBe(1);
+    expect(
+      activeStateInPeriod2.playersById["p1"].hasActiveTimedExclusion,
+    ).toBe(false);
+    expect(
+      activeStateInPeriod2.playersById["p2"].hasActiveTimedExclusion,
+    ).toBe(true);
+  });
 });
