@@ -244,12 +244,60 @@ const handlePrePeriodPenaltyTap = (
     };
   }
 
+  const nextSelected = [...currentSelected, lineupId];
+  const normalizedCleared = normalizeClearedPenaltiesForSelectedStarters(
+    nextSelected,
+    nextCleared,
+    carryoverState.carriedOverPenalties,
+  );
+
   return {
-    selectedStartingIds: [...currentSelected, lineupId],
-    clearedPenaltyEventIds: nextCleared,
+    selectedStartingIds: nextSelected,
+    clearedPenaltyEventIds: normalizedCleared,
     wasPenaltyCleared: true,
     wasSelectionToggled: true,
   };
+};
+
+const normalizeClearedPenaltiesForSelectedStarters = (
+  selectedLineupIds: readonly string[],
+  clearedPenaltyEventIds: readonly string[],
+  carriedOverPenalties: readonly ActiveTimedPenalty[],
+): string[] => {
+  const selectedSet = new Set(selectedLineupIds);
+  const clearedSet = new Set(clearedPenaltyEventIds);
+
+  // Each selected starter can account for at most 1 specifically served penalty (their oldest cleared penalty).
+  // Any additional cleared penalties (whether on a non-starter or a second penalty on an already-selected starter)
+  // are non-starter clears and must match the oldest remaining FIFO prefix of carriedOverPenalties.
+  const starterClearedIds = new Set<string>();
+  const startersWithSpecificClear = new Set<string>();
+  let nonStarterClearedCount = 0;
+
+  for (const penalty of carriedOverPenalties) {
+    if (!clearedSet.has(penalty.eventId)) continue;
+    if (
+      selectedSet.has(penalty.matchLineupId) &&
+      !startersWithSpecificClear.has(penalty.matchLineupId)
+    ) {
+      starterClearedIds.add(penalty.eventId);
+      startersWithSpecificClear.add(penalty.matchLineupId);
+    } else {
+      nonStarterClearedCount += 1;
+    }
+  }
+
+  const normalizedCleared: string[] = [...starterClearedIds];
+  let remainingFifoToClear = nonStarterClearedCount;
+  for (const penalty of carriedOverPenalties) {
+    if (remainingFifoToClear <= 0) break;
+    if (!starterClearedIds.has(penalty.eventId)) {
+      normalizedCleared.push(penalty.eventId);
+      remainingFifoToClear -= 1;
+    }
+  }
+
+  return normalizedCleared;
 };
 
 const handleDeselectStartingPlayer = (
@@ -259,33 +307,11 @@ const handleDeselectStartingPlayer = (
   carryoverState: PeriodCarryoverState,
 ): PrePeriodBenchTapResult => {
   const nextSelected = currentSelected.filter((id) => id !== lineupId);
-  const selectedSet = new Set(nextSelected);
-  const clearedSet = new Set(currentCleared);
-
-  // If this player had a non-head carried-over penalty cleared specifically because they were selected to start,
-  // and deselecting them would leave a non-prefix penalty cleared without the player starting,
-  // normalize non-starter cleared penalties to the oldest FIFO prefix of the same count so pre-period state matches FIFO replay.
-  const starterClearedIds = new Set<string>();
-  let nonStarterClearedCount = 0;
-
-  for (const penalty of carryoverState.carriedOverPenalties) {
-    if (!clearedSet.has(penalty.eventId)) continue;
-    if (selectedSet.has(penalty.matchLineupId)) {
-      starterClearedIds.add(penalty.eventId);
-    } else {
-      nonStarterClearedCount += 1;
-    }
-  }
-
-  const normalizedCleared: string[] = [...starterClearedIds];
-  let remainingFifoToClear = nonStarterClearedCount;
-  for (const penalty of carryoverState.carriedOverPenalties) {
-    if (remainingFifoToClear <= 0) break;
-    if (!starterClearedIds.has(penalty.eventId)) {
-      normalizedCleared.push(penalty.eventId);
-      remainingFifoToClear -= 1;
-    }
-  }
+  const normalizedCleared = normalizeClearedPenaltiesForSelectedStarters(
+    nextSelected,
+    currentCleared,
+    carryoverState.carriedOverPenalties,
+  );
 
   return {
     selectedStartingIds: nextSelected,
@@ -350,9 +376,16 @@ export const applyPrePeriodBenchTap = (
     };
   }
 
+  const nextSelected = [...currentSelected, lineupId];
+  const normalizedCleared = normalizeClearedPenaltiesForSelectedStarters(
+    nextSelected,
+    currentCleared,
+    carryoverState.carriedOverPenalties,
+  );
+
   return {
-    selectedStartingIds: [...currentSelected, lineupId],
-    clearedPenaltyEventIds: currentCleared,
+    selectedStartingIds: nextSelected,
+    clearedPenaltyEventIds: normalizedCleared,
     wasPenaltyCleared: false,
     wasSelectionToggled: true,
   };

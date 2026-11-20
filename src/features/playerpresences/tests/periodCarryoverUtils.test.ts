@@ -758,4 +758,169 @@ describe("periodCarryoverUtils", () => {
       activeStateInPeriod2.playersById["p2"].hasActiveTimedExclusion,
     ).toBe(true);
   });
+
+  it("should align pre-period normalization and post-start FIFO replay when a starter carries multiple timed penalties", () => {
+    // Limit = 5. Carried-over penalty queue in FIFO order: [A1, B, A2, C], where A1 and A2 both belong to player p1 ("A").
+    // Eligible players: p1 ("A"), p2 ("B"), p3 ("C"), p4 ("D"), p5 ("E").
+    // 1. Tap p1 ("A") -> clears A1 and selects p1.
+    // 2. Tap p3 ("C") -> clears C and selects p3.
+    // 3. Tap p3 ("C") again to deselect p3 -> normalization clears [A1, B] and leaves [A2, C] active (requiredStartingPlayers = 3).
+    // 4. Start Period 2 with [p1, p4, p5] ("A", "D", "E") -> replay serves A1 for starter p1, then trims 1 excess penalty by pure FIFO (serving B),
+    //    retaining [A2, C] so replay matches the pre-period normalized state!
+    const events = [
+      makeEvent({
+        id: "ex-a1",
+        matchLineupId: "p1",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:07:10.000Z",
+        sequenceNumber: 1,
+      }),
+      makeEvent({
+        id: "ex-b",
+        matchLineupId: "p2",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:07:20.000Z",
+        sequenceNumber: 2,
+      }),
+      makeEvent({
+        id: "ex-a2",
+        matchLineupId: "p1",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:07:30.000Z",
+        sequenceNumber: 3,
+      }),
+      makeEvent({
+        id: "ex-c",
+        matchLineupId: "p3",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:07:40.000Z",
+        sequenceNumber: 4,
+      }),
+    ];
+
+    const lineupIds = ["p1", "p2", "p3", "p4", "p5"];
+
+    const state0 = calculatePeriodCarryoverState({
+      targetPeriodNumber: 2,
+      activePlayersLimit: 5,
+      maxPersonalFouls: 5,
+      lineupIds,
+      events,
+      presences: [],
+    });
+
+    expect(state0.requiredStartingPlayers).toBe(1);
+
+    // 1. Tap p1 -> clears ex-a1 and selects p1
+    const tapA = applyPrePeriodBenchTap({
+      lineupId: "p1",
+      selectedStartingIds: [],
+      clearedPenaltyEventIds: [],
+      carryoverState: state0,
+    });
+    expect(tapA.selectedStartingIds).toEqual(["p1"]);
+    expect(tapA.clearedPenaltyEventIds).toEqual(["ex-a1"]);
+
+    const state1 = calculatePeriodCarryoverState({
+      targetPeriodNumber: 2,
+      activePlayersLimit: 5,
+      maxPersonalFouls: 5,
+      lineupIds,
+      events,
+      presences: [],
+      clearedPenaltyEventIds: tapA.clearedPenaltyEventIds,
+    });
+
+    // 2. Tap p3 -> clears ex-c and selects p3
+    const tapC = applyPrePeriodBenchTap({
+      lineupId: "p3",
+      selectedStartingIds: tapA.selectedStartingIds,
+      clearedPenaltyEventIds: tapA.clearedPenaltyEventIds,
+      carryoverState: state1,
+    });
+    expect(tapC.selectedStartingIds).toEqual(["p1", "p3"]);
+    expect(tapC.clearedPenaltyEventIds).toEqual(["ex-a1", "ex-c"]);
+
+    const state2 = calculatePeriodCarryoverState({
+      targetPeriodNumber: 2,
+      activePlayersLimit: 5,
+      maxPersonalFouls: 5,
+      lineupIds,
+      events,
+      presences: [],
+      clearedPenaltyEventIds: tapC.clearedPenaltyEventIds,
+    });
+
+    // 3. Tap p3 again to deselect p3 -> normalizes cleared penalties to [ex-a1, ex-b], leaving [ex-a2, ex-c] active
+    const deselectC = applyPrePeriodBenchTap({
+      lineupId: "p3",
+      selectedStartingIds: tapC.selectedStartingIds,
+      clearedPenaltyEventIds: tapC.clearedPenaltyEventIds,
+      carryoverState: state2,
+    });
+    expect(deselectC.selectedStartingIds).toEqual(["p1"]);
+    expect(deselectC.clearedPenaltyEventIds).toEqual(["ex-a1", "ex-b"]);
+
+    const stateAfterDeselectC = calculatePeriodCarryoverState({
+      targetPeriodNumber: 2,
+      activePlayersLimit: 5,
+      maxPersonalFouls: 5,
+      lineupIds,
+      events,
+      presences: [],
+      clearedPenaltyEventIds: deselectC.clearedPenaltyEventIds,
+    });
+
+    expect(stateAfterDeselectC.requiredStartingPlayers).toBe(3);
+    expect(
+      stateAfterDeselectC.effectiveCarriedOverPenalties.map((p) => p.eventId),
+    ).toEqual(["ex-a2", "ex-c"]);
+
+    // 4. Start Period 2 with [p1, p4, p5] -> post-start replay retains [ex-a2, ex-c], matching pre-period state!
+    const activeStateInPeriod2 = calculateDisciplinaryState({
+      activePlayersLimit: 5,
+      maxPersonalFouls: 5,
+      lineupIds,
+      events,
+      presences: [
+        makePresence({
+          id: "p2-start-p1",
+          matchLineupId: "p1",
+          periodNumber: 2,
+          timeIn: "2026-11-20T10:10:00.000Z",
+          timeOut: null,
+          sequenceNumber: 5,
+        }),
+        makePresence({
+          id: "p2-start-p4",
+          matchLineupId: "p4",
+          periodNumber: 2,
+          timeIn: "2026-11-20T10:10:00.000Z",
+          timeOut: null,
+          sequenceNumber: 6,
+        }),
+        makePresence({
+          id: "p2-start-p5",
+          matchLineupId: "p5",
+          periodNumber: 2,
+          timeIn: "2026-11-20T10:10:00.000Z",
+          timeOut: null,
+          sequenceNumber: 7,
+        }),
+      ],
+    });
+
+    expect(
+      activeStateInPeriod2.activeTimedPenalties.map((p) => p.eventId),
+    ).toEqual(["ex-a2", "ex-c"]);
+    expect(
+      activeStateInPeriod2.playersById["p1"].hasActiveTimedExclusion,
+    ).toBe(true);
+    expect(
+      activeStateInPeriod2.playersById["p2"].hasActiveTimedExclusion,
+    ).toBe(false);
+    expect(
+      activeStateInPeriod2.playersById["p3"].hasActiveTimedExclusion,
+    ).toBe(true);
+  });
 });

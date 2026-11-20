@@ -545,11 +545,7 @@ const applyTimelinePresenceAdjustment = (
     );
     const startCount = item.periodStartCount ?? 0;
     const maxCarryoverAllowed = Math.max(0, currentMaxAllowed - startCount);
-    trimQueueToCapacity(
-      activeTimedPenalties,
-      maxCarryoverAllowed,
-      item.periodStartLineupIds,
-    );
+    trimQueueToCapacity(activeTimedPenalties, maxCarryoverAllowed);
     return;
   }
 
