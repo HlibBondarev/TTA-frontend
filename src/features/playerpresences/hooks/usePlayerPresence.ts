@@ -45,6 +45,20 @@ interface RawDisciplinaryData {
   dbMaxPersonalFouls?: number | null;
 }
 
+interface LineupScopedRecord {
+  matchLineupId: string;
+}
+
+interface LineupTableLike<T extends LineupScopedRecord> {
+  where?: (index: string) => {
+    anyOf?: (keys: string[]) => { toArray?: () => Promise<T[]> };
+  };
+  filter?: (predicate: (item: T) => boolean) => {
+    toArray?: () => Promise<T[]>;
+  };
+  toArray?: () => Promise<T[]>;
+}
+
 const EMPTY_RAW_DATA: RawDisciplinaryData = {
   lineupIds: [],
   events: [],
@@ -78,29 +92,32 @@ const deriveActiveAndBenchForPeriod = (
     )
     .sort((a, b) => (a.timeIn ?? "").localeCompare(b.timeIn ?? ""));
 
-  const active = Array.from(new Set(periodPresences.map((p) => p.matchLineupId)));
+  const active = Array.from(
+    new Set(periodPresences.map((p) => p.matchLineupId)),
+  );
   const activeSet = new Set(active);
   const bench = lineupIds.filter((id) => !activeSet.has(id));
   return { active, bench };
 };
 
-const fetchMatchEventsForLineups = async (
-  lineupIds: readonly string[],
-): Promise<GameEvent[]> => {
-  if (lineupIds.length === 0 || !db?.gameevents) return [];
+const fetchRecordsForLineups = async <T extends LineupScopedRecord>(
+  table: LineupTableLike<T> | undefined,
+  lineupIds: string[],
+): Promise<T[]> => {
+  if (lineupIds.length === 0 || !table) return [];
   const lineupSet = new Set(lineupIds);
 
-  if (typeof db.gameevents.where === "function") {
-    const anyOfChain = db.gameevents.where("matchLineupId")?.anyOf?.(lineupIds);
+  if (typeof table.where === "function") {
+    const anyOfChain = table.where("matchLineupId")?.anyOf?.(lineupIds);
     if (typeof anyOfChain?.toArray === "function") {
       const res = await anyOfChain.toArray();
       if (Array.isArray(res)) return res;
     }
   }
 
-  if (typeof db.gameevents.filter === "function") {
-    const filterChain = db.gameevents.filter((e) =>
-      lineupSet.has(e.matchLineupId),
+  if (typeof table.filter === "function") {
+    const filterChain = table.filter((item) =>
+      lineupSet.has(item.matchLineupId),
     );
     if (typeof filterChain?.toArray === "function") {
       const res = await filterChain.toArray();
@@ -108,46 +125,10 @@ const fetchMatchEventsForLineups = async (
     }
   }
 
-  if (typeof db.gameevents.toArray === "function") {
-    const all = await db.gameevents.toArray();
+  if (typeof table.toArray === "function") {
+    const all = await table.toArray();
     if (Array.isArray(all)) {
-      return all.filter((e) => lineupSet.has(e.matchLineupId));
-    }
-  }
-
-  return [];
-};
-
-const fetchMatchPresencesForLineups = async (
-  lineupIds: readonly string[],
-): Promise<PlayerPresence[]> => {
-  if (lineupIds.length === 0 || !db?.playerpresences) return [];
-  const lineupSet = new Set(lineupIds);
-
-  if (typeof db.playerpresences.where === "function") {
-    const anyOfChain = db.playerpresences
-      .where("matchLineupId")
-      ?.anyOf?.(lineupIds);
-    if (typeof anyOfChain?.toArray === "function") {
-      const res = await anyOfChain.toArray();
-      if (Array.isArray(res)) return res;
-    }
-  }
-
-  if (typeof db.playerpresences.filter === "function") {
-    const filterChain = db.playerpresences.filter((p) =>
-      lineupSet.has(p.matchLineupId),
-    );
-    if (typeof filterChain?.toArray === "function") {
-      const res = await filterChain.toArray();
-      if (Array.isArray(res)) return res;
-    }
-  }
-
-  if (typeof db.playerpresences.toArray === "function") {
-    const all = await db.playerpresences.toArray();
-    if (Array.isArray(all)) {
-      return all.filter((p) => lineupSet.has(p.matchLineupId));
+      return all.filter((item) => lineupSet.has(item.matchLineupId));
     }
   }
 
@@ -196,14 +177,13 @@ const loadRawDisciplinaryData = async (
   matchId: string,
 ): Promise<RawDisciplinaryData> => {
   const normalizedMatchId = matchId?.trim();
-  if (
-    !normalizedMatchId ||
-    typeof db?.matchlineups?.where !== "function"
-  ) {
+  if (!normalizedMatchId || typeof db?.matchlineups?.where !== "function") {
     return EMPTY_RAW_DATA;
   }
 
-  const equalsChain = db.matchlineups.where("matchId")?.equals?.(normalizedMatchId);
+  const equalsChain = db.matchlineups
+    .where("matchId")
+    ?.equals?.(normalizedMatchId);
   if (typeof equalsChain?.toArray !== "function") {
     return EMPTY_RAW_DATA;
   }
@@ -215,8 +195,16 @@ const loadRawDisciplinaryData = async (
 
   const [events, presences, definitionsById, dbMaxPersonalFouls] =
     await Promise.all([
-      fetchMatchEventsForLineups(lineupIds),
-      fetchMatchPresencesForLineups(lineupIds),
+      fetchRecordsForLineups<GameEvent>(
+        db?.gameevents as unknown as LineupTableLike<GameEvent> | undefined,
+        lineupIds,
+      ),
+      fetchRecordsForLineups<PlayerPresence>(
+        db?.playerpresences as unknown as
+          | LineupTableLike<PlayerPresence>
+          | undefined,
+        lineupIds,
+      ),
       fetchEventDefinitionsMap(),
       fetchDbMaxPersonalFouls(normalizedMatchId),
     ]);
@@ -229,6 +217,17 @@ const loadRawDisciplinaryData = async (
     dbMaxPersonalFouls,
   };
 };
+
+const hasDisciplinaryCarryoverConstraints = (
+  carryover: PeriodCarryoverState,
+  lineupCount: number,
+  activePlayersLimit: number,
+): boolean =>
+  carryover.disqualifiedLineupIds.length > 0 ||
+  carryover.carriedOverPenalties.length > 0 ||
+  carryover.permanentNoSubCount > 0 ||
+  (lineupCount >= activePlayersLimit &&
+    carryover.requiredStartingPlayers < activePlayersLimit);
 
 export interface UsePlayerPresenceResult {
   currentPeriod: number;
@@ -436,14 +435,11 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
     ],
   );
 
-  const hasDisciplinaryCarryoverReduction =
-    carryoverState.disqualifiedLineupIds.length > 0 ||
-    carryoverState.carriedOverPenalties.length > 0 ||
-    carryoverState.permanentNoSubCount > 0 ||
-    (effectiveLineupIds.length >= activePlayersLimit &&
-      carryoverState.requiredStartingPlayers < activePlayersLimit);
-
-  const requiredStartingPlayers = hasDisciplinaryCarryoverReduction
+  const requiredStartingPlayers = hasDisciplinaryCarryoverConstraints(
+    carryoverState,
+    effectiveLineupIds.length,
+    activePlayersLimit,
+  )
     ? carryoverState.requiredStartingPlayers
     : activePlayersLimit;
 
@@ -494,7 +490,12 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
 
         const [events, definitionsById, dbMaxPersonalFouls] = await Promise.all(
           [
-            fetchMatchEventsForLineups(lineupIds),
+            fetchRecordsForLineups<GameEvent>(
+              db?.gameevents as unknown as
+                | LineupTableLike<GameEvent>
+                | undefined,
+              lineupIds,
+            ),
             fetchEventDefinitionsMap(),
             fetchDbMaxPersonalFouls(matchId),
           ],
@@ -525,11 +526,11 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
 
   const stageStartingLineup = useCallback(
     (lineupIds: string[]) => {
-      const hasDisciplinaryConstraints =
-        carryoverState.disqualifiedLineupIds.length > 0 ||
-        carryoverState.carriedOverPenalties.length > 0 ||
-        carryoverState.permanentNoSubCount > 0;
-      const maxAllowedToStage = hasDisciplinaryConstraints
+      const maxAllowedToStage = hasDisciplinaryCarryoverConstraints(
+        carryoverState,
+        effectiveLineupIds.length,
+        activePlayersLimit,
+      )
         ? carryoverState.requiredStartingPlayers
         : activePlayersLimit;
       if (lineupIds.length > maxAllowedToStage) {
@@ -539,14 +540,7 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
       }
       dispatch(setSelectedStartingIds(lineupIds));
     },
-    [
-      carryoverState.disqualifiedLineupIds.length,
-      carryoverState.carriedOverPenalties.length,
-      carryoverState.permanentNoSubCount,
-      carryoverState.requiredStartingPlayers,
-      activePlayersLimit,
-      dispatch,
-    ],
+    [carryoverState, effectiveLineupIds.length, activePlayersLimit, dispatch],
   );
 
   const handlePrePeriodBenchTap = useCallback(
@@ -633,14 +627,11 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
         clearedPenaltyEventIds,
       });
 
-      const hasDisciplinaryReduction =
-        targetCarryover.disqualifiedLineupIds.length > 0 ||
-        targetCarryover.carriedOverPenalties.length > 0 ||
-        targetCarryover.permanentNoSubCount > 0 ||
-        (effectiveLineupIds.length >= activePlayersLimit &&
-          targetCarryover.requiredStartingPlayers < activePlayersLimit);
-
-      const expectedStarters = hasDisciplinaryReduction
+      const expectedStarters = hasDisciplinaryCarryoverConstraints(
+        targetCarryover,
+        effectiveLineupIds.length,
+        activePlayersLimit,
+      )
         ? targetCarryover.requiredStartingPlayers
         : activePlayersLimit;
 

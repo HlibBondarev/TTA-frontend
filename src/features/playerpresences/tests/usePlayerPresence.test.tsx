@@ -1,11 +1,18 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import React from "react";
+import { liveQuery } from "dexie";
 import { usePlayerPresence } from "../hooks/usePlayerPresence";
-import presenceReducer, { setPresenceLimits } from "../store/presenceSlice";
-import matchReducer from "../../matches/store/matchSlice";
+import presenceReducer, {
+  setPresenceLimits,
+  setClearedPenaltyEventIds,
+} from "../store/presenceSlice";
+import matchReducer, {
+  endPeriodState,
+  incrementPeriodNumber,
+} from "../../matches/store/matchSlice";
 import { db } from "../../../db/ttaDatabase";
 import {
   initializePeriodPresenceTx,
@@ -13,6 +20,21 @@ import {
   substitutePlayerTx,
   enterShorthandedPlayerTx,
 } from "../../../db/presenceService";
+
+vi.mock("dexie", () => ({
+  liveQuery: vi.fn((querier: () => Promise<unknown>) => ({
+    subscribe: (observer: {
+      next?: (val: unknown) => void;
+      error?: (err: unknown) => void;
+    }) => {
+      Promise.resolve()
+        .then(() => querier())
+        .then((res) => observer.next?.(res))
+        .catch((err) => observer.error?.(err));
+      return { unsubscribe: vi.fn() };
+    },
+  })),
+}));
 
 // Mock the IndexedDB module to isolate the hook from real database connections
 vi.mock("../../../db/ttaDatabase", () => {
@@ -46,6 +68,26 @@ vi.mock("../../../db/ttaDatabase", () => {
           },
         ]),
       },
+      gameevents: {
+        where: vi.fn().mockReturnValue({
+          anyOf: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+        toArray: vi.fn().mockResolvedValue([]),
+      },
+      eventdefinitions: {
+        toArray: vi.fn().mockResolvedValue([]),
+      },
+      matches: {
+        get: vi.fn().mockResolvedValue(undefined),
+      },
+      tournaments: {
+        get: vi.fn().mockResolvedValue(undefined),
+      },
+      sportconfigurations: {
+        get: vi.fn().mockResolvedValue(undefined),
+      },
     },
   };
 });
@@ -75,6 +117,36 @@ describe("usePlayerPresence Hook", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(db.matchlineups.toArray).mockResolvedValue([
+      { id: "lineup-1", matchId: "test-match" },
+      { id: "lineup-2", matchId: "test-match" },
+    ] as never);
+    vi.mocked(db.playerpresences.toArray).mockResolvedValue([
+      {
+        id: "pres-1",
+        matchLineupId: "lineup-1",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:00:00.000Z",
+        timeOut: null,
+      },
+      {
+        id: "pres-closed",
+        matchLineupId: "lineup-1",
+        periodNumber: 1,
+        timeIn: "2026-07-16T09:50:00.000Z",
+        timeOut: "2026-07-16T09:55:00.000Z",
+      },
+    ] as never);
+    vi.mocked(db.gameevents.where).mockReturnValue({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      }),
+    } as never);
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValue([] as never);
+    vi.mocked(db.matches.get).mockResolvedValue(undefined);
+    vi.mocked(db.tournaments.get).mockResolvedValue(undefined);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue(undefined);
+
     store = createTestStore();
     wrapper = ({ children }) => <Provider store={store}>{children}</Provider>;
   });
@@ -175,18 +247,15 @@ describe("usePlayerPresence Hook", () => {
       wrapper,
     });
 
-    // Trigger first (slow) refresh synchronously within act
     let firstRefreshPromise!: Promise<void>;
     act(() => {
       firstRefreshPromise = result.current.refreshPresenceFromDB();
     });
 
-    // Trigger second (fast) refresh and await it
     await act(async () => {
       await result.current.refreshPresenceFromDB();
     });
 
-    // Resolve first query late and await its promise within act
     await act(async () => {
       resolveFirstQuery([
         {
@@ -200,7 +269,6 @@ describe("usePlayerPresence Hook", () => {
       await firstRefreshPromise;
     });
 
-    // Active lineup should reflect second request result ("lineup-2"), ignoring stale first request
     expect(result.current.activeLineupIds).toEqual(["lineup-2"]);
   });
 
@@ -432,7 +500,6 @@ describe("usePlayerPresence Hook", () => {
       wrapper,
     });
 
-    // Default activePlayersLimit is 0 in initial state
     await expect(
       act(async () => {
         await result.current.startPeriodWithRoster("2026-07-16T10:00:00.000Z");
@@ -455,7 +522,6 @@ describe("usePlayerPresence Hook", () => {
       await result.current.refreshPresenceFromDB();
     });
 
-    // lineup-1 is active, lineup-2 is on bench -> shorthanded (1/2)
     expect(result.current.activeLineupIds).toEqual(["lineup-1"]);
     expect(result.current.isShorthanded).toBe(true);
 
@@ -470,7 +536,6 @@ describe("usePlayerPresence Hook", () => {
     );
     expect(result.current.activeLineupIds).toEqual(["lineup-1", "lineup-2"]);
 
-    // When already at maxAllowedActive (2/2), entering another player throws
     await expect(
       act(async () => {
         await result.current.enterShorthandedPlayer?.("lineup-3", 1);
@@ -502,5 +567,269 @@ describe("usePlayerPresence Hook", () => {
     });
 
     expect(result.current.clearedPenaltyEventIds).toEqual([]);
+  });
+
+  it("should hydrate maxPersonalFouls, events, and definitions via liveQuery and enforce DQ & carryover rules", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: "test-match",
+      tournamentId: "tourn-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValue({
+      id: "tourn-1",
+      configurationId: "cfg-1",
+    } as never);
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "cfg-1",
+      activePlayersLimit: 2,
+      maxPersonalFouls: 2,
+    } as never);
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValue([
+      {
+        id: "def-ex",
+        sportId: "sport-1",
+        name: "Exclusion",
+        shortName: "EX",
+        isPositive: false,
+        isShot: false,
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: 20,
+      },
+      {
+        id: "def-dq",
+        sportId: "sport-1",
+        name: "Red Card",
+        shortName: "RC",
+        isPositive: false,
+        isShot: false,
+        foulImpact: "DisqualificationWithSub",
+        penaltyDurationSeconds: null,
+      },
+    ] as never);
+    vi.mocked(db.gameevents.where).mockReturnValue({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "evt-dq-1",
+            matchLineupId: "lineup-1",
+            eventDefinitionId: "def-dq",
+            periodNumber: 1,
+            eventTimestamp: "2026-07-16T10:02:00.000Z",
+            isLeadToGoal: false,
+            createdAt: "2026-07-16T10:02:00.000Z",
+            sequenceNumber: 1,
+            isSynced: 0,
+          },
+          {
+            id: "evt-ex-2",
+            matchLineupId: "lineup-2",
+            eventDefinitionId: "def-ex",
+            periodNumber: 1,
+            eventTimestamp: "2026-07-16T10:03:00.000Z",
+            isLeadToGoal: false,
+            foulImpact: "PersonalFoul",
+            penaltyDurationSeconds: 20,
+            createdAt: "2026-07-16T10:03:00.000Z",
+            sequenceNumber: 2,
+            isSynced: 0,
+          },
+        ]),
+      }),
+    } as never);
+    vi.mocked(db.playerpresences.toArray).mockResolvedValue([
+      {
+        id: "pres-l1",
+        matchLineupId: "lineup-1",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:00:00.000Z",
+        timeOut: "2026-07-16T10:02:00.000Z",
+        sequenceNumber: 1,
+        isSynced: 0,
+      },
+      {
+        id: "pres-l2",
+        matchLineupId: "lineup-2",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:00:00.000Z",
+        timeOut: "2026-07-16T10:03:00.000Z",
+        sequenceNumber: 2,
+        isSynced: 0,
+      },
+    ] as never);
+
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 2, period: 1 }));
+      store.dispatch(endPeriodState());
+    });
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(result.current.maxPersonalFouls).toBe(2);
+      expect(
+        result.current.disciplinaryState?.playersById["lineup-1"]
+          ?.isDisqualified,
+      ).toBe(true);
+    });
+
+    // When period 1 ended with lineup-2 carrying a timed exclusion, period 2 requires 1 starter
+    expect(result.current.requiredStartingPlayers).toBe(1);
+
+    // Staging more than reduced requiredStartingPlayers (1) throws
+    expect(() => {
+      act(() => {
+        result.current.stageStartingLineup(["lineup-1", "lineup-2"]);
+      });
+    }).toThrow("Cannot exceed the limit of 1 active players.");
+
+    // Starting period 2 with disqualified lineup-1 throws
+    act(() => {
+      result.current.stageStartingLineup(["lineup-1"]);
+    });
+    await expect(
+      act(async () => {
+        await result.current.startPeriodWithRoster(
+          "2026-07-16T10:10:00.000Z",
+          2,
+        );
+      }),
+    ).rejects.toThrow(
+      "Disqualified players cannot be included in the starting lineup.",
+    );
+
+    // Substituting or shorthanded-entering disqualified lineup-1 throws
+    await expect(
+      act(async () => {
+        await result.current.executeSubstitution("lineup-2", "lineup-1", 1);
+      }),
+    ).rejects.toThrow("Disqualified player cannot enter the game.");
+
+    await expect(
+      act(async () => {
+        await result.current.enterShorthandedPlayer?.("lineup-1", 1);
+      }),
+    ).rejects.toThrow("Disqualified player cannot enter the game.");
+  });
+
+  it("should sync active and bench roster on subsequent liveQuery emissions and clear clearedPenaltyEventIds on period change", async () => {
+    let emitNext!: (val: unknown) => void;
+    let savedQuerier!: () => Promise<unknown>;
+
+    vi.mocked(liveQuery).mockImplementationOnce(((
+      querier: () => Promise<unknown>,
+    ) => {
+      savedQuerier = querier;
+      return {
+        subscribe: (observer: { next?: (val: unknown) => void }) => {
+          emitNext = (val: unknown) => observer.next?.(val);
+          Promise.resolve()
+            .then(() => querier())
+            .then((res) => observer.next?.(res));
+          return { unsubscribe: vi.fn() };
+        },
+      };
+    }) as never);
+
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 2, period: 1 }));
+      store.dispatch(setClearedPenaltyEventIds(["evt-ex-1"]));
+    });
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(result.current.disciplinaryState).toBeDefined();
+    });
+
+    // Simulate second liveQuery emission after mid-period auto-exit (lineup-1 exited, lineup-2 active)
+    vi.mocked(db.playerpresences.toArray).mockResolvedValueOnce([
+      {
+        id: "pres-1",
+        matchLineupId: "lineup-1",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:00:00.000Z",
+        timeOut: "2026-07-16T10:02:00.000Z",
+      },
+      {
+        id: "pres-2",
+        matchLineupId: "lineup-2",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:00:00.000Z",
+        timeOut: null,
+      },
+    ] as never);
+
+    await act(async () => {
+      const nextPayload = await savedQuerier();
+      emitNext(nextPayload);
+    });
+
+    expect(result.current.activeLineupIds).toEqual(["lineup-2"]);
+    expect(result.current.benchLineupIds).toEqual(["lineup-1"]);
+
+    // Entering an already active player throws
+    await expect(
+      act(async () => {
+        await result.current.enterShorthandedPlayer?.("lineup-2", 1);
+      }),
+    ).rejects.toThrow("Player is already active.");
+
+    // Reverting enterShorthandedPlayer on DB error refreshes from DB and rethrows
+    vi.mocked(enterShorthandedPlayerTx).mockRejectedValueOnce(
+      new Error("Shorthanded entry failed"),
+    );
+    await expect(
+      act(async () => {
+        await result.current.enterShorthandedPlayer?.("lineup-1", 1);
+      }),
+    ).rejects.toThrow("Shorthanded entry failed");
+
+    // Advancing period clears clearedPenaltyEventIds automatically
+    act(() => {
+      store.dispatch(incrementPeriodNumber());
+    });
+    expect(result.current.clearedPenaltyEventIds).toEqual([]);
+  });
+
+  it("should support pre-period bench tap toggle before DB lineup loads and fallback table scans", async () => {
+    vi.mocked(db.matchlineups.toArray).mockResolvedValue([] as never);
+    // Simulate table without .where().anyOf() to exercise .toArray() fallback path
+    (db.gameevents as unknown as Record<string, unknown>).where = undefined;
+    vi.mocked(db.gameevents.toArray).mockResolvedValue([
+      {
+        id: "evt-fallback",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-1",
+        periodNumber: 1,
+        eventTimestamp: "2026-07-16T10:01:00.000Z",
+        isLeadToGoal: false,
+        createdAt: "2026-07-16T10:01:00.000Z",
+        sequenceNumber: 1,
+        isSynced: 0,
+      },
+    ] as never);
+
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 3, period: 1 }));
+    });
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    act(() => {
+      const firstTap = result.current.handlePrePeriodBenchTap?.("lineup-1");
+      expect(firstTap?.wasSelectionToggled).toBe(true);
+    });
+    expect(result.current.selectedStartingIds).toEqual(["lineup-1"]);
+
+    act(() => {
+      const secondTap = result.current.handlePrePeriodBenchTap?.("lineup-1");
+      expect(secondTap?.wasSelectionToggled).toBe(true);
+    });
+    expect(result.current.selectedStartingIds).toEqual([]);
   });
 });
