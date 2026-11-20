@@ -443,8 +443,39 @@ describe("disciplinaryUtils", () => {
         presences: [],
       });
 
+      expect(state.maxPersonalFouls).toBeNull();
+      expect(state.isMaxPersonalFoulsKnown).toBe(true);
       expect(state.playersById["p1"]).toMatchObject({
         personalFoulCount: 0,
+        hasFoulWarning: false,
+        isDisqualified: false,
+        disqualificationReason: null,
+      });
+    });
+
+    it("should distinguish unknown maxPersonalFouls (undefined) from explicit unlimited (null) by tracking personalFoulCount while reporting isMaxPersonalFoulsKnown: false", () => {
+      const events = Array.from({ length: 4 }, (_, idx) =>
+        makeEvent({
+          id: `foul-unknown-${idx}`,
+          matchLineupId: "p1",
+          foulImpact: "PersonalFoul",
+          penaltyDurationSeconds: null,
+          sequenceNumber: idx + 1,
+        }),
+      );
+
+      const unknownLimitState = calculateDisciplinaryState({
+        activePlayersLimit: 7,
+        maxPersonalFouls: undefined,
+        lineupIds: ["p1"],
+        events,
+        presences: [],
+      });
+
+      expect(unknownLimitState.maxPersonalFouls).toBeUndefined();
+      expect(unknownLimitState.isMaxPersonalFoulsKnown).toBe(false);
+      expect(unknownLimitState.playersById["p1"]).toMatchObject({
+        personalFoulCount: 4,
         hasFoulWarning: false,
         isDisqualified: false,
         disqualificationReason: null,

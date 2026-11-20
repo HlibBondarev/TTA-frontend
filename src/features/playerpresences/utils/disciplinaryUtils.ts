@@ -48,7 +48,8 @@ export interface CalculateDisciplinaryStateInput {
 
 export interface MatchDisciplinaryState {
   activePlayersLimit: number;
-  maxPersonalFouls: number | null;
+  maxPersonalFouls: number | null | undefined;
+  isMaxPersonalFoulsKnown: boolean;
   permanentNoSubCount: number;
   maxAllowedActive: number;
   activeTimedPenalties: ActiveTimedPenalty[];
@@ -164,7 +165,10 @@ export const sortEventsChronologically = (events: GameEvent[]): GameEvent[] => {
 
 const normalizeMaxPersonalFouls = (
   maxPersonalFouls: number | null | undefined,
-): number | null => {
+): number | null | undefined => {
+  if (maxPersonalFouls === undefined) {
+    return undefined;
+  }
   if (
     typeof maxPersonalFouls === "number" &&
     Number.isFinite(maxPersonalFouls) &&
@@ -190,7 +194,7 @@ const createInitialPlayerStatus = (
 const applyEventToPlayerStatus = (
   status: PlayerDisciplinaryStatus,
   rule: EffectiveDisciplinaryRule,
-  maxPersonalFouls: number | null,
+  maxPersonalFouls: number | null | undefined,
 ): { isPermanentNoSub: boolean } => {
   let isPermanentNoSub = false;
 
@@ -198,6 +202,7 @@ const applyEventToPlayerStatus = (
     if (maxPersonalFouls !== null) {
       status.personalFoulCount += 1;
       if (
+        maxPersonalFouls !== undefined &&
         !status.isDisqualified &&
         status.personalFoulCount >= maxPersonalFouls
       ) {
@@ -216,7 +221,10 @@ const applyEventToPlayerStatus = (
     }
   }
 
-  if (maxPersonalFouls !== null && maxPersonalFouls > 1) {
+  if (
+    typeof maxPersonalFouls === "number" &&
+    maxPersonalFouls > 1
+  ) {
     status.hasFoulWarning =
       !status.isDisqualified &&
       status.personalFoulCount === maxPersonalFouls - 1;
@@ -539,6 +547,7 @@ export const calculateDisciplinaryState = (
   return {
     activePlayersLimit: safeLimit,
     maxPersonalFouls,
+    isMaxPersonalFoulsKnown: maxPersonalFouls !== undefined,
     permanentNoSubCount,
     maxAllowedActive,
     activeTimedPenalties,

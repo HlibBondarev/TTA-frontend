@@ -23,6 +23,8 @@ export interface CalculatePeriodCarryoverInput {
 export interface PeriodCarryoverState {
   targetPeriodNumber: number;
   activePlayersLimit: number;
+  maxPersonalFouls: number | null | undefined;
+  isMaxPersonalFoulsKnown: boolean;
   permanentNoSubCount: number;
   maxAllowedActive: number;
   eligibleLineupIds: string[];
@@ -122,6 +124,8 @@ export const calculatePeriodCarryoverState = (
   return {
     targetPeriodNumber: targetPeriod,
     activePlayersLimit: disciplinaryBeforePeriod.activePlayersLimit,
+    maxPersonalFouls: disciplinaryBeforePeriod.maxPersonalFouls,
+    isMaxPersonalFoulsKnown: disciplinaryBeforePeriod.isMaxPersonalFoulsKnown,
     permanentNoSubCount:
       targetPeriod === 1 ? 0 : disciplinaryBeforePeriod.permanentNoSubCount,
     maxAllowedActive,
