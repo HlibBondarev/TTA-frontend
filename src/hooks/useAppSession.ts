@@ -196,15 +196,15 @@ export function useAppSession() {
 
       if (refreshPromise) {
         void refreshPromise.then((refreshedConfig) => {
+          const refreshedMaxFouls = refreshedConfig?.maxPersonalFouls;
           if (
             currentUserIdRef.current === initiatedUserId &&
             sessionTokenRef.current === resumeSessionToken &&
             activeMatchIdRef.current === matchId &&
-            refreshedConfig &&
-            refreshedConfig.maxPersonalFouls !== undefined &&
-            refreshedConfig.maxPersonalFouls !== maxPersonalFouls
+            refreshedMaxFouls !== undefined &&
+            refreshedMaxFouls !== maxPersonalFouls
           ) {
-            dispatch(setMaxPersonalFouls(refreshedConfig.maxPersonalFouls));
+            dispatch(setMaxPersonalFouls(refreshedMaxFouls));
           }
         });
       }
