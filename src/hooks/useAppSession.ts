@@ -19,6 +19,22 @@ import {
 import { setTokenGetter } from "../services/tokenService";
 import type { RootState, AppDispatch } from "../store";
 
+const isStaleRecoverySession = (
+  currentUserId: string | undefined,
+  initiatedUserId: string | undefined,
+  currentSessionToken: number,
+  resumeSessionToken: number,
+): boolean => {
+  if (currentUserId !== initiatedUserId) {
+    console.warn(
+      "Account changed during match recovery. Aborting session resumption.",
+    );
+    return true;
+  }
+
+  return currentSessionToken !== resumeSessionToken;
+};
+
 export function useAppSession() {
   const dispatch = useDispatch<AppDispatch>();
   const initStarted = useRef(false);
@@ -162,19 +178,27 @@ export function useAppSession() {
         refreshPromise,
       } = await getMatchRecoveryState(matchId);
 
-      if (currentUserIdRef.current !== initiatedUserId) {
-        console.warn(
-          "Account changed during match recovery. Aborting session resumption.",
-        );
+      if (
+        isStaleRecoverySession(
+          currentUserIdRef.current,
+          initiatedUserId,
+          sessionTokenRef.current,
+          resumeSessionToken,
+        )
+      ) {
         return;
       }
 
       const recoveredActions = await recoverRecentActions(matchId);
 
-      if (currentUserIdRef.current !== initiatedUserId) {
-        console.warn(
-          "Account changed during match recovery. Aborting session resumption.",
-        );
+      if (
+        isStaleRecoverySession(
+          currentUserIdRef.current,
+          initiatedUserId,
+          sessionTokenRef.current,
+          resumeSessionToken,
+        )
+      ) {
         return;
       }
 
