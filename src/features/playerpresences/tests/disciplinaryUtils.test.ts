@@ -177,6 +177,15 @@ describe("disciplinaryUtils", () => {
           eventTimestamp: "2026-11-20T10:02:00.000Z",
           foulImpact: "PersonalFoul",
           penaltyDurationSeconds: null,
+          sequenceNumber: 3,
+        }),
+        makeEvent({
+          id: "e-second-timed-utc",
+          periodNumber: 1,
+          matchLineupId: "p5",
+          eventTimestamp: "2026-11-20T10:01:10.000Z",
+          foulImpact: "PersonalFoul",
+          penaltyDurationSeconds: 20,
           sequenceNumber: 2,
         }),
         makeEvent({
@@ -193,6 +202,7 @@ describe("disciplinaryUtils", () => {
       const sorted = sortEventsChronologically(events);
       expect(sorted.map((e) => e.id)).toEqual([
         "e-earlier-offset",
+        "e-second-timed-utc",
         "e-later-utc",
       ]);
 
@@ -206,53 +216,91 @@ describe("disciplinaryUtils", () => {
           sequenceNumber: 1,
         }),
         makePresence({
+          id: "pr-5",
+          matchLineupId: "p5",
+          timeIn: "2026-11-20T10:00:00.000Z",
+          timeOut: "2026-11-20T10:01:10.000Z",
+          sequenceNumber: 2,
+        }),
+        makePresence({
           id: "pr-2",
           matchLineupId: "p2",
           timeIn: "2026-11-20T12:00:00.000+02:00",
           timeOut: "2026-11-20T10:01:30.000Z",
-          sequenceNumber: 2,
+          sequenceNumber: 3,
         }),
         makePresence({
           id: "pr-3",
           matchLineupId: "p3",
           timeIn: "2026-11-20T10:00:00.000Z",
           timeOut: null,
-          sequenceNumber: 3,
+          sequenceNumber: 4,
         }),
         makePresence({
           id: "pr-4-sub-offset",
           matchLineupId: "p4",
           timeIn: "2026-11-20T12:01:30.000+02:00",
           timeOut: null,
-          sequenceNumber: 4,
+          sequenceNumber: 5,
         }),
       ];
 
       const state = calculateDisciplinaryState({
         activePlayersLimit: 3,
         maxPersonalFouls: 3,
-        lineupIds: ["p1", "p2", "p3", "p4"],
+        lineupIds: ["p1", "p2", "p3", "p4", "p5"],
         events,
         presences,
       });
 
       // Because pr-4-sub-offset (12:01:30+02:00) matches pr-2's exit (10:01:30Z) as a 1-for-1 substitution,
-      // p1's timed penalty remains unserved.
-      expect(state.unservedTimedPenaltyCount).toBe(1);
+      // both p1's and p5's timed penalties remain unserved (unservedTimedPenaltyCount === 2).
+      expect(state.unservedTimedPenaltyCount).toBe(2);
       expect(state.playersById["p1"].hasActiveTimedExclusion).toBe(true);
+      expect(state.playersById["p5"].hasActiveTimedExclusion).toBe(true);
+
+      // Conversely, when pr-4 enters at a non-matching timestamp (unmatched bench entry),
+      // active after entry is 2 (p3 + p4) so the queue trims from 2 down to 1.
+      const stateWithUnmatchedBenchEntry = calculateDisciplinaryState({
+        activePlayersLimit: 3,
+        maxPersonalFouls: 3,
+        lineupIds: ["p1", "p2", "p3", "p4", "p5"],
+        events,
+        presences: [
+          ...presences.slice(0, 4),
+          makePresence({
+            id: "pr-4-unmatched-offset",
+            matchLineupId: "p4",
+            timeIn: "2026-11-20T12:01:31.000+02:00",
+            timeOut: null,
+            sequenceNumber: 5,
+          }),
+        ],
+      });
+
+      expect(stateWithUnmatchedBenchEntry.unservedTimedPenaltyCount).toBe(1);
     });
 
     it("should normalize and match .NET System.Text.Json 7-digit fractional tick timestamps against 3-digit ISO timestamps", () => {
       // .NET DateTime / DateTimeOffset serialization emits up to 7 fractional digits (100ns ticks)
       const events = [
         makeEvent({
-          id: "e-dotnet-ticks",
+          id: "e-dotnet-ticks-1",
           periodNumber: 1,
           matchLineupId: "p1",
           eventTimestamp: "2026-11-20T10:01:00.1234567Z",
           foulImpact: "PersonalFoul",
           penaltyDurationSeconds: 20,
           sequenceNumber: 1,
+        }),
+        makeEvent({
+          id: "e-dotnet-ticks-2",
+          periodNumber: 1,
+          matchLineupId: "p5",
+          eventTimestamp: "2026-11-20T10:01:10.7654321Z",
+          foulImpact: "PersonalFoul",
+          penaltyDurationSeconds: 20,
+          sequenceNumber: 2,
         }),
       ];
 
@@ -265,18 +313,25 @@ describe("disciplinaryUtils", () => {
           sequenceNumber: 1,
         }),
         makePresence({
+          id: "pr-5",
+          matchLineupId: "p5",
+          timeIn: "2026-11-20T10:00:00Z",
+          timeOut: "2026-11-20T10:01:10.7654321Z",
+          sequenceNumber: 2,
+        }),
+        makePresence({
           id: "pr-2",
           matchLineupId: "p2",
           timeIn: "2026-11-20T10:00:00.0000000+00:00",
           timeOut: "2026-11-20T10:01:30.5000000Z",
-          sequenceNumber: 2,
+          sequenceNumber: 3,
         }),
         makePresence({
           id: "pr-3",
           matchLineupId: "p3",
           timeIn: "2026-11-20T10:00:00.000Z",
           timeOut: null,
-          sequenceNumber: 3,
+          sequenceNumber: 4,
         }),
         // Client-recorded 3-digit millisecond timestamp matching server 7-digit tick exit
         makePresence({
@@ -284,20 +339,41 @@ describe("disciplinaryUtils", () => {
           matchLineupId: "p4",
           timeIn: "2026-11-20T12:01:30.500+02:00",
           timeOut: null,
-          sequenceNumber: 4,
+          sequenceNumber: 5,
         }),
       ];
 
       const state = calculateDisciplinaryState({
         activePlayersLimit: 3,
         maxPersonalFouls: 3,
-        lineupIds: ["p1", "p2", "p3", "p4"],
+        lineupIds: ["p1", "p2", "p3", "p4", "p5"],
         events,
         presences,
       });
 
-      expect(state.unservedTimedPenaltyCount).toBe(1);
+      expect(state.unservedTimedPenaltyCount).toBe(2);
       expect(state.playersById["p1"].hasActiveTimedExclusion).toBe(true);
+      expect(state.playersById["p5"].hasActiveTimedExclusion).toBe(true);
+
+      // Unmatched bench entry reduces the 2-penalty queue to 1
+      const stateWithUnmatchedBenchEntry = calculateDisciplinaryState({
+        activePlayersLimit: 3,
+        maxPersonalFouls: 3,
+        lineupIds: ["p1", "p2", "p3", "p4", "p5"],
+        events,
+        presences: [
+          ...presences.slice(0, 4),
+          makePresence({
+            id: "pr-4-unmatched",
+            matchLineupId: "p4",
+            timeIn: "2026-11-20T12:01:31.500+02:00",
+            timeOut: null,
+            sequenceNumber: 5,
+          }),
+        ],
+      });
+
+      expect(stateWithUnmatchedBenchEntry.unservedTimedPenaltyCount).toBe(1);
     });
   });
 
@@ -601,6 +677,40 @@ describe("disciplinaryUtils", () => {
       expect(state.playersById["p1"].isDisqualified).toBe(true);
       expect(state.playersById["p2"].isDisqualified).toBe(true);
       expect(state.playersById["p2"].hasActiveTimedExclusion).toBe(true);
+    });
+
+    it("should deduplicate repeated null-duration DisqualificationNoSub events for the same player so maxAllowedActive is reduced at most once per player", () => {
+      const events = [
+        makeEvent({
+          id: "red-card-p1-first",
+          matchLineupId: "p1",
+          foulImpact: "DisqualificationNoSub",
+          penaltyDurationSeconds: null,
+          sequenceNumber: 1,
+        }),
+        makeEvent({
+          id: "red-card-p1-duplicate",
+          matchLineupId: "p1",
+          foulImpact: "DisqualificationNoSub",
+          penaltyDurationSeconds: null,
+          sequenceNumber: 2,
+        }),
+      ];
+
+      const state = calculateDisciplinaryState({
+        activePlayersLimit: 11,
+        maxPersonalFouls: null,
+        lineupIds: ["p1", "p2", "p3"],
+        events,
+        presences: [],
+        activeLineupIds: Array.from({ length: 9 }, (_, i) => `a-${i}`),
+      });
+
+      expect(state.permanentNoSubCount).toBe(1);
+      expect(state.maxAllowedActive).toBe(10);
+      expect(state.isShorthanded).toBe(true);
+      expect(state.shorthandedSlotsAvailable).toBe(1);
+      expect(state.playersById["p1"].isDisqualified).toBe(true);
     });
   });
 

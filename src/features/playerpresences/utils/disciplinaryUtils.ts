@@ -489,7 +489,7 @@ const applyTimelineEvent = (
   playersById: Record<string, PlayerDisciplinaryStatus>,
   maxPersonalFouls: number | null | undefined,
   activeTimedPenalties: ActiveTimedPenalty[],
-): number => {
+): boolean => {
   const playerId = event.matchLineupId;
   if (!playersById[playerId]) {
     playersById[playerId] = createInitialPlayerStatus(playerId);
@@ -513,7 +513,7 @@ const applyTimelineEvent = (
     });
   }
 
-  return isPermanentNoSub ? 1 : 0;
+  return isPermanentNoSub;
 };
 
 const servePenaltiesForStartingLineup = (
@@ -577,21 +577,27 @@ const replayTimelineItems = (
   permanentNoSubCount: number;
 } => {
   const activeTimedPenalties: ActiveTimedPenalty[] = [];
-  let permanentNoSubCount = 0;
+  const permanentNoSubLineupIds = new Set<string>();
 
   for (const item of sortedTimeline) {
     if (item.kind === "EVENT" && item.event && item.rule) {
-      permanentNoSubCount += applyTimelineEvent(
+      const isPermanentNoSub = applyTimelineEvent(
         item.event,
         item.rule,
         playersById,
         maxPersonalFouls,
         activeTimedPenalties,
       );
+      if (isPermanentNoSub) {
+        permanentNoSubLineupIds.add(item.event.matchLineupId);
+      }
       continue;
     }
 
-    const currentMaxAllowed = Math.max(0, safeLimit - permanentNoSubCount);
+    const currentMaxAllowed = Math.max(
+      0,
+      safeLimit - permanentNoSubLineupIds.size,
+    );
     applyTimelinePresenceAdjustment(
       item,
       activeTimedPenalties,
@@ -599,7 +605,10 @@ const replayTimelineItems = (
     );
   }
 
-  return { activeTimedPenalties, permanentNoSubCount };
+  return {
+    activeTimedPenalties,
+    permanentNoSubCount: permanentNoSubLineupIds.size,
+  };
 };
 
 const applyActiveTimedPenaltiesToPlayers = (

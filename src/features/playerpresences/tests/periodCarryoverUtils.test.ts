@@ -923,4 +923,77 @@ describe("periodCarryoverUtils", () => {
       activeStateInPeriod2.playersById["p3"].hasActiveTimedExclusion,
     ).toBe(true);
   });
+
+  it("should deselect an already-selected player who still has a second active carried-over penalty instead of clearing their second penalty", () => {
+    const events = [
+      makeEvent({
+        id: "ex-p1-first",
+        matchLineupId: "p1",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:07:10.000Z",
+        sequenceNumber: 1,
+      }),
+      makeEvent({
+        id: "ex-p1-second",
+        matchLineupId: "p1",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:07:30.000Z",
+        sequenceNumber: 2,
+      }),
+    ];
+
+    const lineupIds = ["p1", "p2", "p3", "p4", "p5"];
+
+    const initialCarryover = calculatePeriodCarryoverState({
+      targetPeriodNumber: 2,
+      activePlayersLimit: 5,
+      maxPersonalFouls: 5,
+      lineupIds,
+      events,
+      presences: [],
+    });
+
+    // 1st tap on p1 clears ex-p1-first and selects p1
+    const firstTap = applyPrePeriodBenchTap({
+      lineupId: "p1",
+      selectedStartingIds: ["p2", "p3"],
+      clearedPenaltyEventIds: [],
+      carryoverState: initialCarryover,
+    });
+
+    expect(firstTap.wasPenaltyCleared).toBe(true);
+    expect(firstTap.wasSelectionToggled).toBe(true);
+    expect(firstTap.selectedStartingIds).toEqual(["p2", "p3", "p1"]);
+    expect(firstTap.clearedPenaltyEventIds).toEqual(["ex-p1-first"]);
+
+    const carryoverAfterFirstTap = calculatePeriodCarryoverState({
+      targetPeriodNumber: 2,
+      activePlayersLimit: 5,
+      maxPersonalFouls: 5,
+      lineupIds,
+      events,
+      presences: [],
+      clearedPenaltyEventIds: firstTap.clearedPenaltyEventIds,
+    });
+
+    // p1 still has ex-p1-second in effectiveCarriedOverPenalties
+    expect(
+      carryoverAfterFirstTap.effectiveCarriedOverPenalties.map(
+        (p) => p.eventId,
+      ),
+    ).toEqual(["ex-p1-second"]);
+
+    // 2nd tap on already-selected p1 must deselect p1 (NOT clear ex-p1-second)
+    const secondTap = applyPrePeriodBenchTap({
+      lineupId: "p1",
+      selectedStartingIds: firstTap.selectedStartingIds,
+      clearedPenaltyEventIds: firstTap.clearedPenaltyEventIds,
+      carryoverState: carryoverAfterFirstTap,
+    });
+
+    expect(secondTap.wasPenaltyCleared).toBe(false);
+    expect(secondTap.wasSelectionToggled).toBe(true);
+    expect(secondTap.selectedStartingIds).toEqual(["p2", "p3"]);
+    expect(secondTap.clearedPenaltyEventIds).toEqual(["ex-p1-first"]);
+  });
 });

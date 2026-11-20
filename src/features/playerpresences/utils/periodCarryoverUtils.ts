@@ -335,6 +335,15 @@ export const applyPrePeriodBenchTap = (
       (p) => p.matchLineupId === lineupId,
     );
 
+  if (currentSelected.includes(lineupId)) {
+    return handleDeselectStartingPlayer(
+      lineupId,
+      currentSelected,
+      currentCleared,
+      carryoverState,
+    );
+  }
+
   if (matchingActivePenalty) {
     return handlePrePeriodPenaltyTap(
       lineupId,
@@ -353,15 +362,6 @@ export const applyPrePeriodBenchTap = (
       wasPenaltyCleared: false,
       wasSelectionToggled: false,
     };
-  }
-
-  if (currentSelected.includes(lineupId)) {
-    return handleDeselectStartingPlayer(
-      lineupId,
-      currentSelected,
-      currentCleared,
-      carryoverState,
-    );
   }
 
   if (
