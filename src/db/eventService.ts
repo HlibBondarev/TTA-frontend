@@ -500,17 +500,11 @@ const fetchPlayerEventsInTx = async (
     if (typeof equalsChain?.toArray === "function") {
       rows = await equalsChain.toArray();
     }
-  } else if (typeof db.gameevents?.toArray === "function") {
-    const allEvents = await db.gameevents.toArray();
-    rows = allEvents.filter((e) => e.matchLineupId === matchLineupId);
   }
 
   if (!override) return rows;
 
-  const byId = new Map<string, GameEvent>();
-  for (const evt of rows) {
-    byId.set(evt.id, evt);
-  }
+  const byId = new Map<string, GameEvent>(rows.map((evt) => [evt.id, evt]));
   if (override.removeEventId) {
     byId.delete(override.removeEventId);
   }
@@ -664,35 +658,19 @@ const isPeriodEndedInTx = async (
   matchId: string,
   periodNumber: number,
 ): Promise<boolean> => {
-  if (typeof db.timeanchors?.where === "function") {
-    const byMatch = db.timeanchors.where("matchId")?.equals?.(matchId);
-    const filtered =
-      typeof byMatch?.filter === "function"
-        ? byMatch.filter(
-            (a) =>
-              a.periodNumber === periodNumber &&
-              a.type === PERIOD_END_ANCHOR_TYPE,
-          )
-        : undefined;
-    if (typeof filtered?.first === "function") {
-      const endAnchor = await filtered.first();
-      if (endAnchor) return true;
-    }
-  }
-
-  if (typeof db.timeanchors?.toArray === "function") {
-    const allAnchors = await db.timeanchors.toArray();
-    if (Array.isArray(allAnchors)) {
-      return allAnchors.some(
-        (a) =>
-          a.matchId === matchId &&
-          a.periodNumber === periodNumber &&
-          a.type === PERIOD_END_ANCHOR_TYPE,
-      );
-    }
-  }
-
-  return false;
+  if (typeof db.timeanchors?.where !== "function") return false;
+  const byMatch = db.timeanchors.where("matchId")?.equals?.(matchId);
+  const filtered =
+    typeof byMatch?.filter === "function"
+      ? byMatch.filter(
+          (a) =>
+            a.periodNumber === periodNumber &&
+            a.type === PERIOD_END_ANCHOR_TYPE,
+        )
+      : undefined;
+  if (typeof filtered?.first !== "function") return false;
+  const endAnchor = await filtered.first();
+  return Boolean(endAnchor);
 };
 
 const resolveMatchLineupIdsInTx = async (
@@ -721,37 +699,23 @@ const countOpenPresencesInPeriodInTx = async (
   }
 
   const matchLineupIds = await resolveMatchLineupIdsInTx(matchId);
-  const isOpenForMatch = (p: {
-    matchLineupId: string;
-    timeOut: string | null;
-  }) =>
-    p.timeOut === null &&
-    (!matchLineupIds || matchLineupIds.has(p.matchLineupId));
-
   const byPeriod = db.playerpresences
     .where("periodNumber")
     ?.equals?.(periodNumber);
   const filtered =
     typeof byPeriod?.filter === "function"
-      ? byPeriod.filter(isOpenForMatch)
+      ? byPeriod.filter(
+          (p) =>
+            p.timeOut === null &&
+            (!matchLineupIds || matchLineupIds.has(p.matchLineupId)),
+        )
       : undefined;
-  if (typeof filtered?.toArray === "function") {
-    const openRows = await filtered.toArray();
-    if (Array.isArray(openRows)) {
-      return openRows.length;
-    }
+  if (typeof filtered?.toArray !== "function") {
+    return 0;
   }
 
-  if (typeof db.playerpresences?.toArray === "function") {
-    const allRows = await db.playerpresences.toArray();
-    if (Array.isArray(allRows)) {
-      return allRows.filter(
-        (p) => p.periodNumber === periodNumber && isOpenForMatch(p),
-      ).length;
-    }
-  }
-
-  return 0;
+  const openRows = await filtered.toArray();
+  return Array.isArray(openRows) ? openRows.length : 0;
 };
 
 const hasCapacityToReopenInTx = async (
