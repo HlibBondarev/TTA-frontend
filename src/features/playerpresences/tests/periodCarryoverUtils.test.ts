@@ -476,4 +476,49 @@ describe("periodCarryoverUtils", () => {
     expect(tapUnknown.wasSelectionToggled).toBe(false);
     expect(tapUnknown.selectedStartingIds).toEqual(["p1"]);
   });
+
+  it("should not highlight or clear a disqualified player's carried-over penalty in a short-squad scenario where all eligible players can already start", () => {
+    // Limit = 3, squad has 3 players (p1, p2, p3).
+    // In Period 1, p3 gets DisqualificationWithSub + 240s timed penalty.
+    // Remaining eligible players = 2 (p1, p2).
+    // Before Period 2: requiredStartingPlayers = min(2, 3 - 1) = 2.
+    // Clearing p3's penalty would yield min(2, 3 - 0) = 2 (no additional eligible player can enter to serve the team penalty).
+    // Under the zero-schema-change invariant, p3 is not highlighted for pre-period penalty clearing, and tapping p3 is a no-op,
+    // staying consistent with post-start replay where starting [p1, p2] leaves p3's timed team penalty active until a 3rd player enters.
+    const events = [
+      makeEvent({
+        id: "brutality-p3",
+        matchLineupId: "p3",
+        periodNumber: 1,
+        foulImpact: "DisqualificationWithSub",
+        penaltyDurationSeconds: 240,
+        sequenceNumber: 1,
+      }),
+    ];
+
+    const carryover = calculatePeriodCarryoverState({
+      targetPeriodNumber: 2,
+      activePlayersLimit: 3,
+      maxPersonalFouls: 3,
+      lineupIds: ["p1", "p2", "p3"],
+      events,
+      presences: [],
+    });
+
+    expect(carryover.eligibleLineupCount).toBe(2);
+    expect(carryover.requiredStartingPlayers).toBe(2);
+    expect(carryover.highlightedLineupIds).toEqual([]);
+
+    const tapDqShortSquad = applyPrePeriodBenchTap({
+      lineupId: "p3",
+      selectedStartingIds: ["p1", "p2"],
+      clearedPenaltyEventIds: [],
+      carryoverState: carryover,
+    });
+
+    expect(tapDqShortSquad.wasPenaltyCleared).toBe(false);
+    expect(tapDqShortSquad.wasSelectionToggled).toBe(false);
+    expect(tapDqShortSquad.clearedPenaltyEventIds).toEqual([]);
+    expect(tapDqShortSquad.selectedStartingIds).toEqual(["p1", "p2"]);
+  });
 });

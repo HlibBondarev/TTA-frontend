@@ -106,10 +106,6 @@ export const calculatePeriodCarryoverState = (
   );
   const effectiveUnservedTimedPenalties = effectiveCarriedOverPenalties.length;
 
-  const highlightedLineupIds = Array.from(
-    new Set(effectiveCarriedOverPenalties.map((p) => p.matchLineupId)),
-  );
-
   const maxAllowedActive =
     targetPeriod === 1
       ? disciplinaryBeforePeriod.activePlayersLimit
@@ -119,6 +115,24 @@ export const calculatePeriodCarryoverState = (
   const requiredStartingPlayers = Math.min(
     eligibleLineupCount,
     Math.max(0, maxAllowedActive - effectiveUnservedTimedPenalties),
+  );
+
+  const nextRequiredIfOneCleared = Math.min(
+    eligibleLineupCount,
+    Math.max(0, maxAllowedActive - (effectiveUnservedTimedPenalties - 1)),
+  );
+  const canClearNonStarterPenalty =
+    nextRequiredIfOneCleared > requiredStartingPlayers;
+  const eligibleSet = new Set(eligibleLineupIds);
+
+  const highlightedLineupIds = Array.from(
+    new Set(
+      effectiveCarriedOverPenalties
+        .filter(
+          (p) => eligibleSet.has(p.matchLineupId) || canClearNonStarterPenalty,
+        )
+        .map((p) => p.matchLineupId),
+    ),
   );
 
   return {
@@ -154,6 +168,55 @@ export const calculatePeriodCarryoverState = (
  * - Tapping a non-highlighted eligible player toggles starting lineup
  *   selection up to requiredStartingPlayers.
  */
+const handlePrePeriodPenaltyTap = (
+  lineupId: string,
+  penaltyEventId: string,
+  isIneligible: boolean,
+  currentSelected: string[],
+  currentCleared: string[],
+  carryoverState: PeriodCarryoverState,
+): PrePeriodBenchTapResult => {
+  const updatedRequired = Math.min(
+    carryoverState.eligibleLineupCount,
+    Math.max(
+      0,
+      carryoverState.maxAllowedActive -
+        (carryoverState.effectiveUnservedTimedPenalties - 1),
+    ),
+  );
+  const nextCleared = [...currentCleared, penaltyEventId];
+
+  if (isIneligible) {
+    if (updatedRequired <= carryoverState.requiredStartingPlayers) {
+      return {
+        selectedStartingIds: currentSelected,
+        clearedPenaltyEventIds: currentCleared,
+        wasPenaltyCleared: false,
+        wasSelectionToggled: false,
+      };
+    }
+    return {
+      selectedStartingIds: currentSelected,
+      clearedPenaltyEventIds: nextCleared,
+      wasPenaltyCleared: true,
+      wasSelectionToggled: false,
+    };
+  }
+
+  const alreadySelected = currentSelected.includes(lineupId);
+  const canSelect =
+    !alreadySelected && currentSelected.length < updatedRequired;
+
+  return {
+    selectedStartingIds: canSelect
+      ? [...currentSelected, lineupId]
+      : currentSelected,
+    clearedPenaltyEventIds: nextCleared,
+    wasPenaltyCleared: true,
+    wasSelectionToggled: canSelect,
+  };
+};
+
 export const applyPrePeriodBenchTap = (
   input: PrePeriodBenchTapInput,
 ): PrePeriodBenchTapResult => {
@@ -169,36 +232,14 @@ export const applyPrePeriodBenchTap = (
     );
 
   if (matchingActivePenalty) {
-    const nextCleared = [...currentCleared, matchingActivePenalty.eventId];
-    if (isDisqualified || !isEligible) {
-      return {
-        selectedStartingIds: currentSelected,
-        clearedPenaltyEventIds: nextCleared,
-        wasPenaltyCleared: true,
-        wasSelectionToggled: false,
-      };
-    }
-
-    const updatedRequired = Math.min(
-      carryoverState.eligibleLineupCount,
-      Math.max(
-        0,
-        carryoverState.maxAllowedActive -
-          (carryoverState.effectiveUnservedTimedPenalties - 1),
-      ),
+    return handlePrePeriodPenaltyTap(
+      lineupId,
+      matchingActivePenalty.eventId,
+      isDisqualified || !isEligible,
+      currentSelected,
+      currentCleared,
+      carryoverState,
     );
-    const alreadySelected = currentSelected.includes(lineupId);
-    const canSelect =
-      isEligible && !alreadySelected && currentSelected.length < updatedRequired;
-
-    return {
-      selectedStartingIds: canSelect
-        ? [...currentSelected, lineupId]
-        : currentSelected,
-      clearedPenaltyEventIds: nextCleared,
-      wasPenaltyCleared: true,
-      wasSelectionToggled: canSelect,
-    };
   }
 
   if (isDisqualified) {
