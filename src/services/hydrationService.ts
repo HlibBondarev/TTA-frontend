@@ -88,22 +88,45 @@ const syncPresence = async (
   }
 };
 
+const mergeEventDisciplinarySnapshot = (
+  incoming: GameEvent,
+  existing?: GameEvent,
+): GameEvent => ({
+  ...incoming,
+  ...(incoming.foulImpact === undefined && existing?.foulImpact !== undefined
+    ? { foulImpact: existing.foulImpact }
+    : {}),
+  ...(incoming.penaltyDurationSeconds === undefined &&
+  existing?.penaltyDurationSeconds !== undefined
+    ? { penaltyDurationSeconds: existing.penaltyDurationSeconds }
+    : {}),
+  isSynced: 1,
+});
+
 const syncEvents = async (
   matchLineupIds: Set<string>,
   events?: GameEvent[],
 ) => {
   if (!events) return;
 
-  const syncedKeys = await db.gameevents
-    .filter(
-      (e) =>
-        matchLineupIds.has(e.matchLineupId) &&
-        (e.isSynced === 1 || e.isSynced === -1),
-    )
-    .primaryKeys();
+  const existingSyncedCollection = db.gameevents.filter(
+    (e) =>
+      matchLineupIds.has(e.matchLineupId) &&
+      (e.isSynced === 1 || e.isSynced === -1),
+  );
+  const existingSyncedEvents: GameEvent[] =
+    typeof existingSyncedCollection.toArray === "function"
+      ? await existingSyncedCollection.toArray()
+      : [];
+  const existingById = new Map(existingSyncedEvents.map((e) => [e.id, e]));
+
+  const syncedKeys =
+    existingSyncedEvents.length > 0
+      ? existingSyncedEvents.map((e) => e.id)
+      : ((await existingSyncedCollection.primaryKeys()) as string[]);
 
   if (syncedKeys.length > 0) {
-    await db.gameevents.bulkDelete(syncedKeys as string[]);
+    await db.gameevents.bulkDelete(syncedKeys);
   }
 
   if (events.length > 0) {
@@ -114,7 +137,7 @@ const syncEvents = async (
     );
     const syncedEvents = events
       .filter((e) => !pendingEventIds.has(e.id))
-      .map((e) => ({ ...e, isSynced: 1 }));
+      .map((e) => mergeEventDisciplinarySnapshot(e, existingById.get(e.id)));
     if (syncedEvents.length > 0) {
       await db.gameevents.bulkPut(syncedEvents);
     }

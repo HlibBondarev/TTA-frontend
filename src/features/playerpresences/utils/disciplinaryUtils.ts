@@ -247,6 +247,7 @@ interface TimelineItem {
   entryLineupId?: string;
   activeCountAtTimestamp?: number;
   periodStartCount?: number;
+  periodStartLineupIds?: ReadonlySet<string>;
 }
 
 interface PeriodStartBatch {
@@ -269,17 +270,18 @@ const findEarliestTimeInByPeriod = (
 };
 
 const countActivePresencesAtEntry = (
-  presences: PlayerPresence[],
+  sortedPresences: readonly PlayerPresence[],
+  entryIndex: number,
   periodNumber: number,
   entryTimeIn: string,
 ): number => {
   const activeIds = new Set<string>();
-  for (const p of presences) {
+  for (let idx = 0; idx <= entryIndex; idx += 1) {
+    const p = sortedPresences[idx];
     if (p.periodNumber !== periodNumber) continue;
-    const startedOnOrBefore = compareTimestamps(p.timeIn, entryTimeIn) <= 0;
     const stillOpenAfterEntry =
       p.timeOut === null || compareTimestamps(p.timeOut, entryTimeIn) > 0;
-    if (startedOnOrBefore && stillOpenAfterEntry) {
+    if (stillOpenAfterEntry) {
       activeIds.add(p.matchLineupId);
     }
   }
@@ -365,6 +367,7 @@ const buildPeriodStartBatchItems = (
         timestamp: batch.timestamp,
         sequenceNumber: batch.sequenceNumber,
         periodStartCount: batch.lineupIds.size,
+        periodStartLineupIds: batch.lineupIds,
       });
     }
   }
@@ -379,8 +382,10 @@ const buildPresenceTimelineItems = (
     countExitsByPeriodAndTimestamp(presences);
   const periodStartPresences = new Map<number, PeriodStartBatch>();
   const items: TimelineItem[] = [];
+  const sortedPresences = sortPresencesChronologically(presences);
 
-  for (const p of sortPresencesChronologically(presences)) {
+  for (let idx = 0; idx < sortedPresences.length; idx += 1) {
+    const p = sortedPresences[idx];
     if (isPeriodStartPresence(p, earliestByPeriod)) {
       recordPeriodStartPresence(periodStartPresences, p);
       continue;
@@ -397,7 +402,8 @@ const buildPresenceTimelineItems = (
       sequenceNumber: p.sequenceNumber,
       entryLineupId: p.matchLineupId,
       activeCountAtTimestamp: countActivePresencesAtEntry(
-        presences,
+        sortedPresences,
+        idx,
         p.periodNumber,
         p.timeIn,
       ),
@@ -429,12 +435,12 @@ const sortTimelineItems = (items: TimelineItem[]): TimelineItem[] => {
 
 const serveOneTimedPenalty = (
   queue: ActiveTimedPenalty[],
-  preferredLineupId?: string,
+  preferredLineupIds?: ReadonlySet<string>,
 ): void => {
   if (queue.length === 0) return;
-  if (preferredLineupId) {
-    const playerIdx = queue.findIndex(
-      (item) => item.matchLineupId === preferredLineupId,
+  if (preferredLineupIds && preferredLineupIds.size > 0) {
+    const playerIdx = queue.findIndex((item) =>
+      preferredLineupIds.has(item.matchLineupId),
     );
     if (playerIdx !== -1) {
       queue.splice(playerIdx, 1);
@@ -447,11 +453,11 @@ const serveOneTimedPenalty = (
 const trimQueueToCapacity = (
   queue: ActiveTimedPenalty[],
   maxUnservedAllowed: number,
-  preferredLineupId?: string,
+  preferredLineupIds?: ReadonlySet<string>,
 ): void => {
   const targetLength = Math.max(0, maxUnservedAllowed);
   while (queue.length > targetLength) {
-    serveOneTimedPenalty(queue, preferredLineupId);
+    serveOneTimedPenalty(queue, preferredLineupIds);
   }
 };
 
@@ -518,7 +524,11 @@ const applyTimelinePresenceAdjustment = (
   if (item.kind === "PERIOD_START_BATCH") {
     const startCount = item.periodStartCount ?? 0;
     const maxCarryoverAllowed = Math.max(0, currentMaxAllowed - startCount);
-    trimQueueToCapacity(activeTimedPenalties, maxCarryoverAllowed);
+    trimQueueToCapacity(
+      activeTimedPenalties,
+      maxCarryoverAllowed,
+      item.periodStartLineupIds,
+    );
     return;
   }
 
@@ -535,7 +545,7 @@ const applyTimelinePresenceAdjustment = (
     trimQueueToCapacity(
       activeTimedPenalties,
       targetUnservedCount,
-      item.entryLineupId,
+      item.entryLineupId ? new Set([item.entryLineupId]) : undefined,
     );
   }
 };

@@ -72,6 +72,20 @@ describe("disciplinaryUtils", () => {
         foulImpact: "PersonalFoul",
         penaltyDurationSeconds: 20,
       });
+
+      const explicitNonFoulSnapshot = makeEvent({
+        id: "ev-2",
+        eventDefinitionId: "def-foul",
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
+      });
+
+      expect(
+        resolveEffectiveDisciplinaryRule(explicitNonFoulSnapshot, definitions),
+      ).toEqual({
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
+      });
     });
 
     it("should fall back to definition lookup when legacy event lacks snapshot fields", () => {
@@ -766,6 +780,136 @@ describe("disciplinaryUtils", () => {
       expect(
         stateAfterSubstituteEntry.playersById["p2"].hasActiveTimedExclusion,
       ).toBe(true);
+
+      // When p2 themselves re-enters instead of p4, p2's penalty is served specifically while p1's penalty remains active
+      const presencesWithP2ReEntry = [
+        presences[0],
+        presences[1],
+        presences[2],
+        makePresence({
+          id: "pr-p2-reenter",
+          matchLineupId: "p2",
+          timeIn: "2026-11-20T10:01:25.000Z",
+          timeOut: null,
+          sequenceNumber: 6,
+        }),
+      ];
+
+      const stateAfterSpecificPlayerReEntry = calculateDisciplinaryState({
+        activePlayersLimit: 3,
+        maxPersonalFouls: 3,
+        lineupIds,
+        events,
+        presences: presencesWithP2ReEntry,
+      });
+
+      expect(stateAfterSpecificPlayerReEntry.unservedTimedPenaltyCount).toBe(1);
+      expect(
+        stateAfterSpecificPlayerReEntry.playersById["p1"]
+          .hasActiveTimedExclusion,
+      ).toBe(true);
+      expect(
+        stateAfterSpecificPlayerReEntry.playersById["p2"]
+          .hasActiveTimedExclusion,
+      ).toBe(false);
+    });
+
+    it("should evaluate same-timestamp mid-period entries sequentially by chronological sequence position", () => {
+      // Limit = 3. p1, p2, p3 start.
+      // 10:01:00 -> p1 gets timed exclusion (20s) and exits.
+      // 10:01:05 -> p2 gets non-timed DQ with sub and exits (active = 1, unserved = 1).
+      // 10:01:25 -> BOTH p4 (replacing DQ'd p2, seq 6) and p1 (returning from exclusion, seq 7) enter at the exact same timestamp!
+      // At p4's entry (index before p1's entry), active count is 2 (p3 + p4) -> capacity max(0, 3 - 2) = 1 -> p1's penalty is not yet cleared.
+      // At p1's entry (seq 7), active count reaches 3 (p3 + p4 + p1) -> capacity max(0, 3 - 3) = 0 -> p1's penalty is served!
+      // Also test if only p4 enters at 10:01:25 (seq 6) and p5 enters at 10:01:25 (seq 7) when 2 timed penalties [p1, p2] are active:
+      // 1st entry (seq 6) sees activeCount = 2 -> serves 1st penalty (p1); 2nd entry (seq 7) sees activeCount = 3 -> serves 2nd penalty (p2).
+      const events = [
+        makeEvent({
+          id: "ex-p1",
+          matchLineupId: "p1",
+          foulImpact: "PersonalFoul",
+          penaltyDurationSeconds: 20,
+          eventTimestamp: "2026-11-20T10:01:00.000Z",
+          sequenceNumber: 4,
+        }),
+        makeEvent({
+          id: "ex-p2",
+          matchLineupId: "p2",
+          foulImpact: "PersonalFoul",
+          penaltyDurationSeconds: 20,
+          eventTimestamp: "2026-11-20T10:01:05.000Z",
+          sequenceNumber: 5,
+        }),
+      ];
+
+      // Suppose p1 and p2 both exited, leaving only p3 active.
+      // At 10:01:25, p2 re-enters first (seq 6), and if we only had p2 re-entering at 10:01:25 while another future entry at the same timestamp existed:
+      // Wait: if p2 re-enters at 10:01:25 (seq 6) and p4 enters at 10:01:25 (seq 7):
+      // At seq 6 (p2), active count is 2 (p3 + p2) -> capacity max(0, 3 - 2) = 1 -> serves p2's penalty specifically (leaving [p1]).
+      // If activeCountAtTimestamp had counted future entries at the same timestamp (seeing 3 active at seq 6), seq 6 would have trimmed queue to 0 immediately!
+      // To observe the exact difference at seq 6: suppose p4 exits right after or we inspect a case where p2 (seq 6) enters at 10:01:25 and p1 (seq 7) enters at 10:01:25.
+      // Even better: suppose 2 penalties [p1, p2] are in queue, limit = 3. p1 and p2 exited at 10:01:00 and 10:01:05.
+      // At 10:01:10, p3 also exits temporarily (e.g. injury/bench, timeOut = 10:01:20) so at 10:01:25 nobody is active except whoever enters.
+      // At 10:01:25, p2 enters (seq 6) and p3 enters (seq 7).
+      // Total active after both entries at 10:01:25 is 2 (p2 and p3).
+      // Because limit = 3 and active = 2, maxUnservedByCapacity = 3 - 2 = 1. Only ONE penalty may be served!
+      // At seq 6 (p2's entry), sequential counting sees active = 1 (p2) -> maxUnserved = 3 - 1 = 2 (no trim yet, queue still has 2).
+      // At seq 7 (p3's entry), sequential counting sees active = 2 (p2, p3) -> maxUnserved = 3 - 2 = 1 -> trims 1 penalty!
+      // Now compare: what if at 10:01:25 p3 enters first (seq 6) and p2 enters second (seq 7)?
+      // With sequential counting:
+      // - At seq 6 (p3 enters): active = 1 (p3) -> maxUnserved = 3 - 1 = 2 -> queue [p1, p2] is NOT trimmed yet!
+      // - At seq 7 (p2 enters): active = 2 (p3, p2) -> maxUnserved = 3 - 2 = 1 -> p2 is the entrant that brings active to 2, so p2's penalty is served, leaving [p1]!
+      // Without sequential counting (if seq 6 counted all entries at 10:01:25):
+      // - At seq 6 (p3 enters), active would have been counted as 2 immediately, so p3's entry would have trimmed the queue using FIFO (serving p1 instead of p2)!
+      const presences = [
+        makePresence({
+          id: "pr-1",
+          matchLineupId: "p1",
+          timeIn: "2026-11-20T10:00:00.000Z",
+          timeOut: "2026-11-20T10:01:00.000Z",
+          sequenceNumber: 1,
+        }),
+        makePresence({
+          id: "pr-2",
+          matchLineupId: "p2",
+          timeIn: "2026-11-20T10:00:00.000Z",
+          timeOut: "2026-11-20T10:01:05.000Z",
+          sequenceNumber: 2,
+        }),
+        makePresence({
+          id: "pr-3",
+          matchLineupId: "p3",
+          timeIn: "2026-11-20T10:00:00.000Z",
+          timeOut: "2026-11-20T10:01:10.000Z",
+          sequenceNumber: 3,
+        }),
+        makePresence({
+          id: "pr-3-return",
+          matchLineupId: "p3",
+          timeIn: "2026-11-20T10:01:25.000Z",
+          timeOut: null,
+          sequenceNumber: 6,
+        }),
+        makePresence({
+          id: "pr-2-return",
+          matchLineupId: "p2",
+          timeIn: "2026-11-20T10:01:25.000Z",
+          timeOut: null,
+          sequenceNumber: 7,
+        }),
+      ];
+
+      const state = calculateDisciplinaryState({
+        activePlayersLimit: 3,
+        maxPersonalFouls: 3,
+        lineupIds,
+        events,
+        presences,
+      });
+
+      expect(state.unservedTimedPenaltyCount).toBe(1);
+      expect(state.playersById["p1"].hasActiveTimedExclusion).toBe(true);
+      expect(state.playersById["p2"].hasActiveTimedExclusion).toBe(false);
     });
 
     it("should enforce capacity invariant so immediate replacement for a non-timed DQ while another timed penalty is active does NOT clear the timed penalty", () => {

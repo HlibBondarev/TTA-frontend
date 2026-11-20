@@ -459,6 +459,8 @@ describe("Event Database Service (eventService)", () => {
       locationY: null,
       shotLocationX: null,
       shotLocationY: null,
+      foulImpact: "None",
+      penaltyDurationSeconds: null,
       createdAt: expect.any(String),
       sequenceNumber: 5,
       isSynced: 0,
@@ -592,6 +594,38 @@ describe("Event Database Service (eventService)", () => {
 
     expect(updatedNewDef.foulImpact).toBe("DisqualificationWithSub");
     expect(updatedNewDef.penaltyDurationSeconds).toBe(240);
+
+    // Reassign to a definition that omits foulImpact and penaltyDurationSeconds -> explicitly snapshots "None" and null
+    mockEventDefinitionsGet.mockResolvedValue({
+      id: "def-plain",
+      sportId: "sport-1",
+      name: "Plain Action",
+      shortName: "PA",
+      isPositive: true,
+      isShot: false,
+    });
+    mockGameEventsGet.mockResolvedValueOnce(updatedNewDef);
+    mockSyncQueueFilter.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 11,
+          endpoint: "/Matches/match-123/teams/team-456/events",
+          payload: JSON.stringify([
+            { id: created.id, matchLineupId: "lineup-1" },
+          ]),
+        },
+      ]),
+    });
+
+    const updatedPlainDef = await updateGameEventTx({
+      eventId: created.id,
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-plain",
+      isLeadToGoal: false,
+    });
+
+    expect(updatedPlainDef.foulImpact).toBe("None");
+    expect(updatedPlainDef.penaltyDurationSeconds).toBeNull();
   });
 
   it("should store spatial coordinates and goal shot locations in created GameEvent and syncQueue payload when provided", async () => {

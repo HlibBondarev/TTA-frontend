@@ -2640,4 +2640,121 @@ describe("Hydration Service", () => {
     const refreshedConfig = await recoveryState.refreshPromise;
     expect(refreshedConfig?.maxPersonalFouls).toBe(3);
   });
+
+  it("should preserve local creation-time foulImpact and penaltyDurationSeconds snapshots during event hydration when server payload omits them", async () => {
+    const existingLocalEvents = [
+      {
+        id: "ev-synced-1",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-ex",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:01:00.000Z",
+        isLeadToGoal: false,
+        locationX: null,
+        locationY: null,
+        shotLocationX: null,
+        shotLocationY: null,
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: 20,
+        createdAt: "2026-11-20T10:01:00.000Z",
+        sequenceNumber: 1,
+        isSynced: 1,
+      },
+      {
+        id: "ev-synced-2",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-plain",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:02:00.000Z",
+        isLeadToGoal: false,
+        locationX: null,
+        locationY: null,
+        shotLocationX: null,
+        shotLocationY: null,
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
+        createdAt: "2026-11-20T10:02:00.000Z",
+        sequenceNumber: 2,
+        isSynced: 1,
+      },
+    ];
+
+    // Server payload omits foulImpact and penaltyDurationSeconds on ev-synced-1,
+    // and provides explicit values on ev-synced-3
+    const serverEvents = [
+      {
+        id: "ev-synced-1",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-ex",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:01:00.000Z",
+        isLeadToGoal: false,
+      },
+      {
+        id: "ev-synced-2",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-plain",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:02:00.000Z",
+        isLeadToGoal: false,
+      },
+      {
+        id: "ev-synced-3",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-brutality",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:03:00.000Z",
+        isLeadToGoal: false,
+        foulImpact: "DisqualificationWithSub",
+        penaltyDurationSeconds: 240,
+      },
+    ];
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId })
+      .mockResolvedValueOnce([{ id: "l-1", matchId }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(serverEvents)
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(db.gameevents.filter)
+      .mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce(existingLocalEvents),
+        primaryKeys: vi
+          .fn()
+          .mockResolvedValueOnce(["ev-synced-1", "ev-synced-2"]),
+      } as unknown as ReturnType<typeof db.gameevents.filter>)
+      .mockReturnValueOnce({
+        primaryKeys: vi.fn().mockResolvedValueOnce([]),
+        toArray: vi.fn().mockResolvedValueOnce([]),
+      } as unknown as ReturnType<typeof db.gameevents.filter>);
+
+    await hydrateMatchData(matchId, teamId);
+
+    expect(db.gameevents.bulkDelete).toHaveBeenCalledWith([
+      "ev-synced-1",
+      "ev-synced-2",
+    ]);
+    expect(db.gameevents.bulkPut).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: "ev-synced-1",
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: 20,
+        isSynced: 1,
+      }),
+      expect.objectContaining({
+        id: "ev-synced-2",
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
+        isSynced: 1,
+      }),
+      expect.objectContaining({
+        id: "ev-synced-3",
+        foulImpact: "DisqualificationWithSub",
+        penaltyDurationSeconds: 240,
+        isSynced: 1,
+      }),
+    ]);
+  });
 });

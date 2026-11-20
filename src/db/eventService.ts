@@ -499,11 +499,11 @@ export const createGameEventTx = async (
       locationY: params.locationY ?? null,
       shotLocationX: params.shotLocationX ?? null,
       shotLocationY: params.shotLocationY ?? null,
-      ...(targetDef?.foulImpact !== undefined
-        ? { foulImpact: targetDef.foulImpact }
-        : {}),
-      ...(targetDef?.penaltyDurationSeconds !== undefined
-        ? { penaltyDurationSeconds: targetDef.penaltyDurationSeconds }
+      ...(targetDef
+        ? {
+            foulImpact: targetDef.foulImpact ?? "None",
+            penaltyDurationSeconds: targetDef.penaltyDurationSeconds ?? null,
+          }
         : {}),
       createdAt: new Date().toISOString(),
       sequenceNumber: nextSeq,
@@ -566,14 +566,12 @@ const resolveUpdatedEventSnapshot = (
         : {}),
     };
   }
-  return {
-    ...(targetDef?.foulImpact !== undefined
-      ? { foulImpact: targetDef.foulImpact }
-      : {}),
-    ...(targetDef?.penaltyDurationSeconds !== undefined
-      ? { penaltyDurationSeconds: targetDef.penaltyDurationSeconds }
-      : {}),
-  };
+  return targetDef
+    ? {
+        foulImpact: targetDef.foulImpact ?? "None",
+        penaltyDurationSeconds: targetDef.penaltyDurationSeconds ?? null,
+      }
+    : {};
 };
 
 export const updateGameEventTx = async (

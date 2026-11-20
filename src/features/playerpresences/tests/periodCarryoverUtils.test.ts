@@ -351,4 +351,82 @@ describe("periodCarryoverUtils", () => {
       activeStateInPeriod2.playersById["p1"].hasActiveTimedExclusion,
     ).toBe(false);
   });
+
+  it("should prioritize serving the carried-over penalty of a player who starts the new period over an earlier FIFO penalty of a player remaining on the bench", () => {
+    const events = [
+      makeEvent({
+        id: "ex-p1-older",
+        matchLineupId: "p1",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:07:10.000Z",
+        sequenceNumber: 1,
+      }),
+      makeEvent({
+        id: "ex-p2-newer",
+        matchLineupId: "p2",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:07:40.000Z",
+        sequenceNumber: 2,
+      }),
+    ];
+
+    // Limit = 3. 2 penalties carried over ([p1, p2]).
+    // User taps p2 before Period 2 starts, clearing p2's penalty and selecting [p2, p3] (2 starting players, 1 unserved penalty remains).
+    const presences = [
+      makePresence({
+        id: "p2-start-1",
+        matchLineupId: "p2",
+        periodNumber: 2,
+        timeIn: "2026-11-20T10:10:00.000Z",
+        timeOut: null,
+        sequenceNumber: 3,
+      }),
+      makePresence({
+        id: "p2-start-2",
+        matchLineupId: "p3",
+        periodNumber: 2,
+        timeIn: "2026-11-20T10:10:00.000Z",
+        timeOut: null,
+        sequenceNumber: 4,
+      }),
+    ];
+
+    const activeStateInPeriod2 = calculateDisciplinaryState({
+      activePlayersLimit: 3,
+      maxPersonalFouls: 3,
+      lineupIds: ["p1", "p2", "p3", "p4"],
+      events,
+      presences,
+    });
+
+    expect(activeStateInPeriod2.unservedTimedPenaltyCount).toBe(1);
+    expect(
+      activeStateInPeriod2.playersById["p2"].hasActiveTimedExclusion,
+    ).toBe(false);
+    expect(
+      activeStateInPeriod2.playersById["p1"].hasActiveTimedExclusion,
+    ).toBe(true);
+  });
+
+  it("should prevent non-eligible / unknown lineupIds from occupying starting lineup slots in applyPrePeriodBenchTap", () => {
+    const carryover = calculatePeriodCarryoverState({
+      targetPeriodNumber: 1,
+      activePlayersLimit: 3,
+      maxPersonalFouls: 3,
+      lineupIds: ["p1", "p2", "p3"],
+      events: [],
+      presences: [],
+    });
+
+    const tapUnknown = applyPrePeriodBenchTap({
+      lineupId: "unknown-player",
+      selectedStartingIds: ["p1"],
+      clearedPenaltyEventIds: [],
+      carryoverState: carryover,
+    });
+
+    expect(tapUnknown.wasPenaltyCleared).toBe(false);
+    expect(tapUnknown.wasSelectionToggled).toBe(false);
+    expect(tapUnknown.selectedStartingIds).toEqual(["p1"]);
+  });
 });

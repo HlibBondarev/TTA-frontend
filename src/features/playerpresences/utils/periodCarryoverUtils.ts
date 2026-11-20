@@ -162,6 +162,7 @@ export const applyPrePeriodBenchTap = (
   const currentCleared = Array.from(new Set(input.clearedPenaltyEventIds));
 
   const isDisqualified = carryoverState.disqualifiedLineupIds.includes(lineupId);
+  const isEligible = carryoverState.eligibleLineupIds.includes(lineupId);
   const matchingActivePenalty =
     carryoverState.effectiveCarriedOverPenalties.find(
       (p) => p.matchLineupId === lineupId,
@@ -169,7 +170,7 @@ export const applyPrePeriodBenchTap = (
 
   if (matchingActivePenalty) {
     const nextCleared = [...currentCleared, matchingActivePenalty.eventId];
-    if (isDisqualified) {
+    if (isDisqualified || !isEligible) {
       return {
         selectedStartingIds: currentSelected,
         clearedPenaltyEventIds: nextCleared,
@@ -188,7 +189,7 @@ export const applyPrePeriodBenchTap = (
     );
     const alreadySelected = currentSelected.includes(lineupId);
     const canSelect =
-      !alreadySelected && currentSelected.length < updatedRequired;
+      isEligible && !alreadySelected && currentSelected.length < updatedRequired;
 
     return {
       selectedStartingIds: canSelect
@@ -218,7 +219,10 @@ export const applyPrePeriodBenchTap = (
     };
   }
 
-  if (currentSelected.length >= carryoverState.requiredStartingPlayers) {
+  if (
+    !isEligible ||
+    currentSelected.length >= carryoverState.requiredStartingPlayers
+  ) {
     return {
       selectedStartingIds: currentSelected,
       clearedPenaltyEventIds: currentCleared,

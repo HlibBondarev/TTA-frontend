@@ -267,7 +267,7 @@ export function useMatchSetupWizard({
         selectedConfigId,
         activePlayersLimit,
         targetTeamId,
-        selectedConfig?.maxPersonalFouls ?? null,
+        selectedConfig?.maxPersonalFouls,
       );
     } catch (err) {
       try {
