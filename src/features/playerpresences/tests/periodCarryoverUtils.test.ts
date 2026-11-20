@@ -408,6 +408,53 @@ describe("periodCarryoverUtils", () => {
     ).toBe(true);
   });
 
+  it("should clear a starting player's carried-over penalty at period start even when the squad has fewer eligible players than activePlayersLimit", () => {
+    // Limit = 3, only 2 eligible players in squad (p1, p2), and 1 carried-over penalty for p1.
+    // User clears p1's penalty before Period 2 and starts both p1 and p2 (startCount = 2).
+    // Even though maxCarryoverAllowed = 3 - 2 = 1, p1 is in the Period 2 starting lineup, so p1's penalty must be served!
+    const events = [
+      makeEvent({
+        id: "ex-p1-short-squad",
+        matchLineupId: "p1",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:07:30.000Z",
+        sequenceNumber: 1,
+      }),
+    ];
+
+    const presences = [
+      makePresence({
+        id: "p2-start-p1",
+        matchLineupId: "p1",
+        periodNumber: 2,
+        timeIn: "2026-11-20T10:10:00.000Z",
+        timeOut: null,
+        sequenceNumber: 2,
+      }),
+      makePresence({
+        id: "p2-start-p2",
+        matchLineupId: "p2",
+        periodNumber: 2,
+        timeIn: "2026-11-20T10:10:00.000Z",
+        timeOut: null,
+        sequenceNumber: 3,
+      }),
+    ];
+
+    const activeStateInPeriod2 = calculateDisciplinaryState({
+      activePlayersLimit: 3,
+      maxPersonalFouls: 3,
+      lineupIds: ["p1", "p2"],
+      events,
+      presences,
+    });
+
+    expect(activeStateInPeriod2.unservedTimedPenaltyCount).toBe(0);
+    expect(
+      activeStateInPeriod2.playersById["p1"].hasActiveTimedExclusion,
+    ).toBe(false);
+  });
+
   it("should prevent non-eligible / unknown lineupIds from occupying starting lineup slots in applyPrePeriodBenchTap", () => {
     const carryover = calculatePeriodCarryoverState({
       targetPeriodNumber: 1,

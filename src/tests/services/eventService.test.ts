@@ -435,6 +435,27 @@ describe("Event Database Service (eventService)", () => {
     expect(db.transaction).not.toHaveBeenCalled();
   });
 
+  it("should throw error in createGameEventTx if event definition record is missing in IndexedDB", async () => {
+    mockEventDefinitionsGet.mockResolvedValueOnce(undefined);
+
+    const params = {
+      matchId: "match-123",
+      teamId: "team-456",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-missing",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: false,
+    };
+
+    await expect(createGameEventTx(params)).rejects.toThrow(
+      "Event definition record not found for ID: def-missing",
+    );
+
+    expect(db.gameevents.add).not.toHaveBeenCalled();
+    expect(db.syncQueue.add).not.toHaveBeenCalled();
+  });
+
   it("should create and persist a GameEvent entity atomically with incremented sequence and sync queue item", async () => {
     const params = {
       matchId: "match-123",

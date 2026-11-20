@@ -487,6 +487,11 @@ export const createGameEventTx = async (
   await db.transaction("rw", transactionTables, async () => {
     const nextSeq = await getNextSequenceNumber();
     const targetDef = await db.eventdefinitions?.get(params.eventDefinitionId);
+    if (!targetDef) {
+      throw new Error(
+        `Event definition record not found for ID: ${params.eventDefinitionId}`,
+      );
+    }
 
     createdEvent = {
       id: crypto.randomUUID(),
@@ -499,12 +504,8 @@ export const createGameEventTx = async (
       locationY: params.locationY ?? null,
       shotLocationX: params.shotLocationX ?? null,
       shotLocationY: params.shotLocationY ?? null,
-      ...(targetDef
-        ? {
-            foulImpact: targetDef.foulImpact ?? "None",
-            penaltyDurationSeconds: targetDef.penaltyDurationSeconds ?? null,
-          }
-        : {}),
+      foulImpact: targetDef.foulImpact ?? "None",
+      penaltyDurationSeconds: targetDef.penaltyDurationSeconds ?? null,
       createdAt: new Date().toISOString(),
       sequenceNumber: nextSeq,
       isSynced: 0,

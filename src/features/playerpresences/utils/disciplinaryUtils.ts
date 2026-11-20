@@ -516,12 +516,33 @@ const applyTimelineEvent = (
   return isPermanentNoSub ? 1 : 0;
 };
 
+const servePenaltiesForStartingLineup = (
+  queue: ActiveTimedPenalty[],
+  startingLineupIds?: ReadonlySet<string>,
+): void => {
+  if (!startingLineupIds || startingLineupIds.size === 0 || queue.length === 0) {
+    return;
+  }
+  for (const lineupId of startingLineupIds) {
+    const playerIdx = queue.findIndex(
+      (item) => item.matchLineupId === lineupId,
+    );
+    if (playerIdx !== -1) {
+      queue.splice(playerIdx, 1);
+    }
+  }
+};
+
 const applyTimelinePresenceAdjustment = (
   item: TimelineItem,
   activeTimedPenalties: ActiveTimedPenalty[],
   currentMaxAllowed: number,
 ): void => {
   if (item.kind === "PERIOD_START_BATCH") {
+    servePenaltiesForStartingLineup(
+      activeTimedPenalties,
+      item.periodStartLineupIds,
+    );
     const startCount = item.periodStartCount ?? 0;
     const maxCarryoverAllowed = Math.max(0, currentMaxAllowed - startCount);
     trimQueueToCapacity(
