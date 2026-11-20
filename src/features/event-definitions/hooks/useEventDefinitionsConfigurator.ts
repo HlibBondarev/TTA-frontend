@@ -148,6 +148,12 @@ export function useEventDefinitionsConfigurator({
           isPositive: Boolean(def.isPositive),
           isShot: Boolean(def.isShot),
           score: def.score ?? 0,
+          ...(def.foulImpact !== undefined
+            ? { foulImpact: def.foulImpact }
+            : {}),
+          ...(def.penaltyDurationSeconds !== undefined
+            ? { penaltyDurationSeconds: def.penaltyDurationSeconds }
+            : {}),
           isCustom: def.isCustom,
           isEnabled: def.isEnabled ?? true,
           sortOrder: def.sortOrder ?? idx + 1,
@@ -487,6 +493,15 @@ export function useEventDefinitionsConfigurator({
             isPositive: effectiveIsPositive,
             isShot: Boolean(createdResponse?.isShot ?? newIsShot),
             score: createdResponse?.score ?? newScore,
+            ...(createdResponse?.foulImpact !== undefined
+              ? { foulImpact: createdResponse.foulImpact }
+              : {}),
+            ...(createdResponse?.penaltyDurationSeconds !== undefined
+              ? {
+                  penaltyDurationSeconds:
+                    createdResponse.penaltyDurationSeconds,
+                }
+              : {}),
             isCustom: true,
             ownerId: currentUserId ?? null,
           };
@@ -509,6 +524,14 @@ export function useEventDefinitionsConfigurator({
         isPositive: effectiveIsPositive,
         isShot: Boolean(createdResponse?.isShot ?? newIsShot),
         score: createdResponse?.score ?? newScore,
+        ...(createdResponse?.foulImpact !== undefined
+          ? { foulImpact: createdResponse.foulImpact }
+          : {}),
+        ...(createdResponse?.penaltyDurationSeconds !== undefined
+          ? {
+              penaltyDurationSeconds: createdResponse.penaltyDurationSeconds,
+            }
+          : {}),
         isCustom: true,
         isEnabled: true,
         sortOrder: 0,

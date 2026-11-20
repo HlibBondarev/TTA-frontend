@@ -84,6 +84,10 @@ export const replaceSportEventDefinitionsInDb = async (
     isPositive: def.isPositive,
     isShot: def.isShot ?? false,
     score: def.score ?? 0,
+    ...(def.foulImpact !== undefined ? { foulImpact: def.foulImpact } : {}),
+    ...(def.penaltyDurationSeconds !== undefined
+      ? { penaltyDurationSeconds: def.penaltyDurationSeconds }
+      : {}),
     isCustom: def.isCustom,
     ownerId: def.ownerId ?? (def.isCustom ? (normalizedUserId ?? null) : null),
   }));
@@ -472,11 +476,22 @@ export const createGameEventTx = async (
 
   let createdEvent: GameEvent | null = null;
 
+  const transactionTables = [
+    db.gameevents,
+    db.timeanchors,
+    db.playerpresences,
+    db.syncQueue,
+    ...(db.eventdefinitions ? [db.eventdefinitions] : []),
+  ];
+
   await db.transaction(
     "rw",
-    [db.gameevents, db.timeanchors, db.playerpresences, db.syncQueue],
+    transactionTables,
     async () => {
       const nextSeq = await getNextSequenceNumber();
+      const targetDef = await db.eventdefinitions?.get(
+        params.eventDefinitionId,
+      );
 
       createdEvent = {
         id: crypto.randomUUID(),
@@ -489,6 +504,12 @@ export const createGameEventTx = async (
         locationY: params.locationY ?? null,
         shotLocationX: params.shotLocationX ?? null,
         shotLocationY: params.shotLocationY ?? null,
+        ...(targetDef?.foulImpact !== undefined
+          ? { foulImpact: targetDef.foulImpact }
+          : {}),
+        ...(targetDef?.penaltyDurationSeconds !== undefined
+          ? { penaltyDurationSeconds: targetDef.penaltyDurationSeconds }
+          : {}),
         createdAt: new Date().toISOString(),
         sequenceNumber: nextSeq,
         isSynced: 0,
@@ -527,6 +548,31 @@ export const createGameEventTx = async (
   return createdEvent!;
 };
 
+const resolveUpdatedEventSnapshot = (
+  existing: GameEvent,
+  isNewDefinition: boolean,
+  targetDef: EventDefinitionLookup | undefined,
+): Pick<GameEvent, "foulImpact" | "penaltyDurationSeconds"> => {
+  if (!isNewDefinition) {
+    return {
+      ...(existing.foulImpact !== undefined
+        ? { foulImpact: existing.foulImpact }
+        : {}),
+      ...(existing.penaltyDurationSeconds !== undefined
+        ? { penaltyDurationSeconds: existing.penaltyDurationSeconds }
+        : {}),
+    };
+  }
+  return {
+    ...(targetDef?.foulImpact !== undefined
+      ? { foulImpact: targetDef.foulImpact }
+      : {}),
+    ...(targetDef?.penaltyDurationSeconds !== undefined
+      ? { penaltyDurationSeconds: targetDef.penaltyDurationSeconds }
+      : {}),
+  };
+};
+
 export const updateGameEventTx = async (
   params: UpdateGameEventParams,
 ): Promise<GameEvent> => {
@@ -562,11 +608,12 @@ export const updateGameEventTx = async (
         );
       }
 
+      const isNewDefinition =
+        params.eventDefinitionId !== existing.eventDefinitionId;
       let isShot = true;
-      if (params.eventDefinitionId !== existing.eventDefinitionId) {
-        const targetDef = await db.eventdefinitions.get(
-          params.eventDefinitionId,
-        );
+      let targetDef: EventDefinitionLookup | undefined;
+      if (isNewDefinition) {
+        targetDef = await db.eventdefinitions.get(params.eventDefinitionId);
         if (targetDef) {
           isShot = Boolean(targetDef.isShot);
         }
@@ -587,8 +634,16 @@ export const updateGameEventTx = async (
         ? resolveCoordinateValue(params.shotLocationY, existing.shotLocationY)
         : null;
 
+      const {
+        foulImpact: _prevFoulImpact,
+        penaltyDurationSeconds: _prevPenaltyDuration,
+        ...restExisting
+      } = existing;
+      void _prevFoulImpact;
+      void _prevPenaltyDuration;
+
       updatedEvent = {
-        ...existing,
+        ...restExisting,
         matchLineupId: params.matchLineupId,
         eventDefinitionId: params.eventDefinitionId,
         isLeadToGoal: params.isLeadToGoal,
@@ -596,6 +651,7 @@ export const updateGameEventTx = async (
         locationY,
         shotLocationX,
         shotLocationY,
+        ...resolveUpdatedEventSnapshot(existing, isNewDefinition, targetDef),
       };
 
       await db.gameevents.put(updatedEvent);

@@ -466,10 +466,132 @@ describe("Event Database Service (eventService)", () => {
 
     expect(db.transaction).toHaveBeenCalledWith(
       "rw",
-      [db.gameevents, db.timeanchors, db.playerpresences, db.syncQueue],
+      [
+        db.gameevents,
+        db.timeanchors,
+        db.playerpresences,
+        db.syncQueue,
+        db.eventdefinitions,
+      ],
       expect.any(Function),
     );
     expect(db.gameevents.add).toHaveBeenCalledWith(createdEvent);
+  });
+
+  it("should snapshot foulImpact and penaltyDurationSeconds on event creation and preserve or re-snapshot on update", async () => {
+    mockEventDefinitionsGet.mockImplementation((id: string) => {
+      if (id === "def-ex") {
+        return Promise.resolve({
+          id: "def-ex",
+          sportId: "sport-1",
+          name: "Exclusion",
+          shortName: "EX",
+          isPositive: false,
+          isShot: false,
+          foulImpact: "PersonalFoul",
+          penaltyDurationSeconds: 20,
+        });
+      }
+      if (id === "def-brutality") {
+        return Promise.resolve({
+          id: "def-brutality",
+          sportId: "sport-1",
+          name: "Brutality",
+          shortName: "BR",
+          isPositive: false,
+          isShot: false,
+          foulImpact: "DisqualificationWithSub",
+          penaltyDurationSeconds: 240,
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const created = await createGameEventTx({
+      matchId: "match-123",
+      teamId: "team-456",
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-ex",
+      periodNumber: 1,
+      eventTimestamp: "2026-07-22T12:00:00.000Z",
+      isLeadToGoal: false,
+    });
+
+    expect(created.foulImpact).toBe("PersonalFoul");
+    expect(created.penaltyDurationSeconds).toBe(20);
+
+    // Edit same definition (even if definition in DB is mutated later) -> preserves snapshot!
+    mockEventDefinitionsGet.mockResolvedValue({
+      id: "def-ex",
+      sportId: "sport-1",
+      name: "Exclusion Mutated",
+      shortName: "EX",
+      isPositive: false,
+      isShot: false,
+      foulImpact: "DisqualificationNoSub",
+      penaltyDurationSeconds: null,
+    });
+
+    mockGameEventsGet.mockResolvedValueOnce(created);
+    mockMatchLineupsGet.mockResolvedValue({
+      id: "lineup-1",
+      matchId: "match-123",
+    });
+    mockSyncQueueFilter.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 11,
+          endpoint: "/Matches/match-123/teams/team-456/events",
+          payload: JSON.stringify([
+            { id: created.id, matchLineupId: "lineup-1" },
+          ]),
+        },
+      ]),
+    });
+
+    const updatedSameDef = await updateGameEventTx({
+      eventId: created.id,
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-ex",
+      isLeadToGoal: true,
+    });
+
+    expect(updatedSameDef.foulImpact).toBe("PersonalFoul");
+    expect(updatedSameDef.penaltyDurationSeconds).toBe(20);
+
+    // Reassign to another definition -> re-snapshots from the new definition!
+    mockEventDefinitionsGet.mockResolvedValue({
+      id: "def-brutality",
+      sportId: "sport-1",
+      name: "Brutality",
+      shortName: "BR",
+      isPositive: false,
+      isShot: false,
+      foulImpact: "DisqualificationWithSub",
+      penaltyDurationSeconds: 240,
+    });
+    mockGameEventsGet.mockResolvedValueOnce(updatedSameDef);
+    mockSyncQueueFilter.mockReturnValueOnce({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 11,
+          endpoint: "/Matches/match-123/teams/team-456/events",
+          payload: JSON.stringify([
+            { id: created.id, matchLineupId: "lineup-1" },
+          ]),
+        },
+      ]),
+    });
+
+    const updatedNewDef = await updateGameEventTx({
+      eventId: created.id,
+      matchLineupId: "lineup-1",
+      eventDefinitionId: "def-brutality",
+      isLeadToGoal: false,
+    });
+
+    expect(updatedNewDef.foulImpact).toBe("DisqualificationWithSub");
+    expect(updatedNewDef.penaltyDurationSeconds).toBe(240);
   });
 
   it("should store spatial coordinates and goal shot locations in created GameEvent and syncQueue payload when provided", async () => {

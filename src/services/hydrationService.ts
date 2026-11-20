@@ -249,6 +249,9 @@ const refreshShotMapBackground = (
           const updatedConfig = {
             ...freshConfig,
             ...cachedConfig,
+            ...(freshConfig.maxPersonalFouls !== undefined
+              ? { maxPersonalFouls: freshConfig.maxPersonalFouls }
+              : {}),
             playground:
               cachedConfig?.playground || freshConfig.playground || null,
             shotMap: cachedConfig?.shotMap || freshConfig.shotMap || null,
@@ -262,7 +265,12 @@ const refreshShotMapBackground = (
     });
 };
 
-const recoverActivePlayersLimit = async (matchId: string): Promise<number> => {
+const recoverSportConfigurationLimits = async (
+  matchId: string,
+): Promise<{
+  activePlayersLimit: number;
+  maxPersonalFouls: number | null;
+}> => {
   if (!db?.matches || !db?.tournaments || !db?.sportconfigurations) {
     throw new Error(
       "Match Recovery Error: Required IndexedDB tables are unavailable.",
@@ -299,19 +307,30 @@ const recoverActivePlayersLimit = async (matchId: string): Promise<number> => {
     refreshShotMapBackground(tournament.sportId, tournament.configurationId);
   }
 
-  return config.activePlayersLimit;
+  return {
+    activePlayersLimit: config.activePlayersLimit,
+    maxPersonalFouls: config.maxPersonalFouls ?? null,
+  };
 };
 
 export const getMatchRecoveryState = async (
   matchId: string,
-): Promise<{ recoveredPeriod: number; activePlayersLimit: number }> => {
+): Promise<{
+  recoveredPeriod: number;
+  activePlayersLimit: number;
+  maxPersonalFouls: number | null;
+}> => {
   try {
-    const [period, activePlayersLimit] = await Promise.all([
+    const [period, limits] = await Promise.all([
       recoverPeriodFromAnchors(matchId),
-      recoverActivePlayersLimit(matchId),
+      recoverSportConfigurationLimits(matchId),
     ]);
 
-    return { recoveredPeriod: period, activePlayersLimit };
+    return {
+      recoveredPeriod: period,
+      activePlayersLimit: limits.activePlayersLimit,
+      maxPersonalFouls: limits.maxPersonalFouls,
+    };
   } catch (err) {
     const status = extractErrorStatus(err);
     if (status !== undefined && UNRECOVERABLE_STATUS_CODES.has(status)) {
@@ -648,6 +667,10 @@ const persistHydrationPayloads = async (
         isPositive: Boolean(def.isPositive),
         isShot: Boolean(def.isShot),
         score: def.score ?? 0,
+        ...(def.foulImpact !== undefined ? { foulImpact: def.foulImpact } : {}),
+        ...(def.penaltyDurationSeconds !== undefined
+          ? { penaltyDurationSeconds: def.penaltyDurationSeconds }
+          : {}),
         isCustom: def.isCustom,
         isEnabled: def.isEnabled ?? true,
         sortOrder: def.sortOrder ?? idx + 1,

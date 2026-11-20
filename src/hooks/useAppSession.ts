@@ -87,6 +87,7 @@ export function useAppSession() {
     _configurationId: string,
     activePlayersLimit: number,
     selectedTeamId: string,
+    maxPersonalFouls?: number | null,
   ) => {
     const initiatedUserId = currentUserId;
 
@@ -94,6 +95,7 @@ export function useAppSession() {
       setPresenceLimits({
         limit: activePlayersLimit,
         period: 1,
+        ...(maxPersonalFouls !== undefined ? { maxPersonalFouls } : {}),
       }),
     );
 
@@ -139,7 +141,7 @@ export function useAppSession() {
   const handleResumeMatch = async (matchId: string, teamId: string) => {
     const initiatedUserId = currentUserId;
     try {
-      const { recoveredPeriod, activePlayersLimit } =
+      const { recoveredPeriod, activePlayersLimit, maxPersonalFouls } =
         await getMatchRecoveryState(matchId);
 
       if (currentUserIdRef.current !== initiatedUserId) {
@@ -162,6 +164,7 @@ export function useAppSession() {
         setPresenceLimits({
           limit: activePlayersLimit,
           period: recoveredPeriod,
+          ...(maxPersonalFouls !== undefined ? { maxPersonalFouls } : {}),
         }),
       );
 

@@ -220,6 +220,9 @@ async function fetchSportConfiguration(
       let updatedConfig = {
         ...remoteConfig,
         ...localConfig,
+        ...(remoteConfig.maxPersonalFouls !== undefined
+          ? { maxPersonalFouls: remoteConfig.maxPersonalFouls }
+          : {}),
         playground: remoteConfig.playground || localConfig?.playground || null,
         shotMap: remoteConfig.shotMap || localConfig?.shotMap || null,
       };
@@ -232,6 +235,9 @@ async function fetchSportConfiguration(
         updatedConfig = {
           ...remoteConfig,
           ...latestLocal,
+          ...(remoteConfig.maxPersonalFouls !== undefined
+            ? { maxPersonalFouls: remoteConfig.maxPersonalFouls }
+            : {}),
           playground:
             remoteConfig.playground ||
             latestLocal?.playground ||

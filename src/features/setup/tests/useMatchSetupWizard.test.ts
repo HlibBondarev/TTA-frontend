@@ -74,6 +74,7 @@ describe("useMatchSetupWizard", () => {
       usesCleanTime: true,
       fieldSize: "30x20",
       activePlayersLimit: 7,
+      maxPersonalFouls: 3,
       rosterLimit: 13,
       lineupLimit: 13,
     },
@@ -286,5 +287,36 @@ describe("useMatchSetupWizard", () => {
       "auth0|user-777",
     );
     expect(result.current.errorMessage).toBe("Local DB error");
+  });
+
+  it("should reject quick start and display error when selected configuration is missing a valid activePlayersLimit", async () => {
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      {
+        ...mockConfigs[0],
+        activePlayersLimit: 0,
+      },
+    ]);
+
+    const onQuickStart = vi.fn();
+    const { result } = renderHook(() => useMatchSetupWizard({ onQuickStart }));
+
+    await waitFor(() => {
+      expect(result.current.isLoadingSports).toBe(false);
+    });
+
+    act(() => {
+      result.current.setAreDefinitionsLoaded(true);
+      result.current.setIsPresetSaved(true);
+    });
+
+    await act(async () => {
+      await result.current.handleConfirmQuickStart();
+    });
+
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(onQuickStart).not.toHaveBeenCalled();
+    expect(result.current.errorMessage).toBe(
+      "Selected configuration is missing a valid active players limit.",
+    );
   });
 });

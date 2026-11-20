@@ -17,6 +17,7 @@ describe("presenceSlice reducers", () => {
     benchLineupIds: [],
     selectedStartingIds: [],
     activePlayersLimit: 0,
+    maxPersonalFouls: null,
     isLoading: false,
   };
 
@@ -25,10 +26,15 @@ describe("presenceSlice reducers", () => {
   });
 
   it("should handle setPresenceLimits", () => {
-    const action = setPresenceLimits({ limit: 5, period: 2 });
+    const action = setPresenceLimits({
+      limit: 5,
+      period: 2,
+      maxPersonalFouls: 3,
+    });
     const state = presenceReducer(initialState, action);
     expect(state.activePlayersLimit).toBe(5);
     expect(state.currentPeriod).toBe(2);
+    expect(state.maxPersonalFouls).toBe(3);
   });
 
   it("should handle loadRosterState, deduplicate ids, and reset selectedStartingIds", () => {
@@ -106,6 +112,7 @@ describe("presenceSlice reducers", () => {
       benchLineupIds: ["p2"],
       selectedStartingIds: ["p3"],
       activePlayersLimit: 5,
+      maxPersonalFouls: 4,
       isLoading: true,
     };
     const state = presenceReducer(modifiedState, resetPresenceState());

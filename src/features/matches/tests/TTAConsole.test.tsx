@@ -527,6 +527,7 @@ describe("TTAConsole Component", () => {
         benchLineupIds: ["p3"],
         selectedStartingIds: ["p4"],
         activePlayersLimit: 7,
+        maxPersonalFouls: null,
         isLoading: false,
       },
     });

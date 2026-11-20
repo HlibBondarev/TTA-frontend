@@ -24,6 +24,7 @@ export interface UseMatchSetupWizardOptions {
     configurationId: string,
     activePlayersLimit: number,
     selectedTeamId: string,
+    maxPersonalFouls?: number | null,
   ) => Promise<void>;
 }
 
@@ -227,7 +228,18 @@ export function useMatchSetupWizard({
     const selectedConfig = configurations.find(
       (c) => c.id === selectedConfigId,
     );
-    const activePlayersLimit = selectedConfig?.activePlayersLimit ?? 7;
+    const activePlayersLimit = selectedConfig?.activePlayersLimit;
+
+    if (
+      typeof activePlayersLimit !== "number" ||
+      !Number.isFinite(activePlayersLimit) ||
+      activePlayersLimit <= 0
+    ) {
+      setErrorMessage(
+        "Selected configuration is missing a valid active players limit.",
+      );
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -255,6 +267,7 @@ export function useMatchSetupWizard({
         selectedConfigId,
         activePlayersLimit,
         targetTeamId,
+        selectedConfig?.maxPersonalFouls ?? null,
       );
     } catch (err) {
       try {

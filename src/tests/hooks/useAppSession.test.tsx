@@ -46,6 +46,7 @@ vi.mock("../../services/hydrationService", () => ({
   getMatchRecoveryState: vi.fn().mockResolvedValue({
     recoveredPeriod: 2,
     activePlayersLimit: 6,
+    maxPersonalFouls: 3,
   }),
   recoverRecentActions: vi.fn().mockResolvedValue([]),
   StaleUserError: class StaleUserError extends Error {
@@ -264,10 +265,12 @@ describe("useAppSession Custom Hook", () => {
     let resolveRecovery: (val: {
       recoveredPeriod: number;
       activePlayersLimit: number;
+      maxPersonalFouls: number | null;
     }) => void = () => {};
     const deferredRecovery = new Promise<{
       recoveredPeriod: number;
       activePlayersLimit: number;
+      maxPersonalFouls: number | null;
     }>((resolve) => {
       resolveRecovery = resolve;
     });
@@ -290,7 +293,11 @@ describe("useAppSession Custom Hook", () => {
     mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
     rerender();
 
-    resolveRecovery({ recoveredPeriod: 3, activePlayersLimit: 7 });
+    resolveRecovery({
+      recoveredPeriod: 3,
+      activePlayersLimit: 7,
+      maxPersonalFouls: 3,
+    });
 
     await act(async () => {
       await resumePromise!;
