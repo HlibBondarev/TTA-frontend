@@ -360,7 +360,28 @@ describe("useAppSession Custom Hook", () => {
     consoleSpy.mockRestore();
   });
 
-  it("should preserve absent maxPersonalFouls (undefined) on resume without treating it as explicit null, and update Redux when background refresh resolves with differing remote maxPersonalFouls", async () => {
+  it("should keep maxPersonalFouls undefined when starting from initial presence state with no background refresh, and update Redux when background refresh resolves", async () => {
+    // 1. Start with default initial presence state (maxPersonalFouls: undefined) and no background refresh
+    vi.mocked(getMatchRecoveryState).mockResolvedValueOnce({
+      recoveredPeriod: 2,
+      activePlayersLimit: 7,
+    });
+
+    const store = createTestStore();
+    expect((store.getState() as RootState).presence.maxPersonalFouls).toBeUndefined();
+
+    const { result } = renderHook(() => useAppSession(), {
+      wrapper: createWrapper(store),
+    });
+
+    await act(async () => {
+      await result.current.handleResumeMatch("match-no-refresh", "team-1");
+    });
+
+    // When cached maxPersonalFouls is absent (undefined) and no refresh runs, it remains undefined (distinct from explicit null)
+    expect((store.getState() as RootState).presence.maxPersonalFouls).toBeUndefined();
+
+    // 2. Resume with a background refresh promise that resolves with remote maxPersonalFouls = 3
     let resolveRefresh!: (val: {
       id: string;
       sportId: string;
@@ -382,30 +403,12 @@ describe("useAppSession Custom Hook", () => {
       refreshPromise: refreshPromise as never,
     });
 
-    const store = createTestStore({
-      presence: {
-        currentPeriod: 1,
-        activeLineupIds: [],
-        benchLineupIds: [],
-        selectedStartingIds: [],
-        activePlayersLimit: 7,
-        maxPersonalFouls: 5,
-        isLoading: false,
-      },
-    });
-
-    const { result } = renderHook(() => useAppSession(), {
-      wrapper: createWrapper(store),
-    });
-
     await act(async () => {
       await result.current.handleResumeMatch("match-resumed", "team-1");
     });
 
-    // When cached maxPersonalFouls is absent (undefined), existing state (5) is not overwritten with null
-    expect((store.getState() as RootState).presence.maxPersonalFouls).toBe(5);
+    expect((store.getState() as RootState).presence.maxPersonalFouls).toBeUndefined();
 
-    // When background refresh resolves with remote maxPersonalFouls = 3, Redux updates to 3
     await act(async () => {
       resolveRefresh({
         id: "cfg-1",
@@ -417,5 +420,77 @@ describe("useAppSession Custom Hook", () => {
     });
 
     expect((store.getState() as RootState).presence.maxPersonalFouls).toBe(3);
+  });
+
+  it("should ignore a stale background refresh callback if a new match starts before the old refresh resolves", async () => {
+    let resolveOldRefresh!: (val: {
+      id: string;
+      sportId: string;
+      activePlayersLimit: number;
+      maxPersonalFouls?: number | null;
+    }) => void;
+    const oldRefreshPromise = new Promise<{
+      id: string;
+      sportId: string;
+      activePlayersLimit: number;
+      maxPersonalFouls?: number | null;
+    }>((resolve) => {
+      resolveOldRefresh = resolve;
+    });
+
+    vi.mocked(getMatchRecoveryState).mockResolvedValueOnce({
+      recoveredPeriod: 3,
+      activePlayersLimit: 7,
+      maxPersonalFouls: 5,
+      refreshPromise: oldRefreshPromise as never,
+    });
+
+    const store = createTestStore();
+    const { result } = renderHook(() => useAppSession(), {
+      wrapper: createWrapper(store),
+    });
+
+    // 1. Resume first match ("match-old") withpending refresh
+    await act(async () => {
+      await result.current.handleResumeMatch("match-old", "team-1");
+    });
+
+    expect(store.getState().match.activeMatchId).toBe("match-old");
+    expect((store.getState() as RootState).presence.currentPeriod).toBe(3);
+    expect((store.getState() as RootState).presence.activePlayersLimit).toBe(7);
+    expect((store.getState() as RootState).presence.maxPersonalFouls).toBe(5);
+
+    // 2. Start a new match ("match-new") with limit 11, period 1, maxPersonalFouls: null (unlimited)
+    await act(async () => {
+      await result.current.handleQuickStart(
+        "match-new",
+        "sport-2",
+        "cfg-2",
+        11,
+        "team-2",
+        null,
+      );
+    });
+
+    expect(store.getState().match.activeMatchId).toBe("match-new");
+    expect((store.getState() as RootState).presence.currentPeriod).toBe(1);
+    expect((store.getState() as RootState).presence.activePlayersLimit).toBe(11);
+    expect((store.getState() as RootState).presence.maxPersonalFouls).toBeNull();
+
+    // 3. Resolve the old match's background refresh -> must NOT overwrite the new match's limits or period
+    await act(async () => {
+      resolveOldRefresh({
+        id: "cfg-1",
+        sportId: "sport-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+      });
+      await oldRefreshPromise;
+    });
+
+    expect(store.getState().match.activeMatchId).toBe("match-new");
+    expect((store.getState() as RootState).presence.currentPeriod).toBe(1);
+    expect((store.getState() as RootState).presence.activePlayersLimit).toBe(11);
+    expect((store.getState() as RootState).presence.maxPersonalFouls).toBeNull();
   });
 });

@@ -1195,4 +1195,60 @@ describe("useSpatialReport Custom Hook", () => {
     expect(result.current.filters.mapMode).toBe("field");
     expect(result.current.filters.selectedPositiveDefIds).toEqual(["def-1"]);
   });
+
+  it("does not overwrite a concurrently updated or omitted local maxPersonalFouls during remote SVG merge", async () => {
+    vi.mocked(db.matches.get).mockResolvedValue({
+      id: "m-1",
+      tournamentId: "tourn-1",
+    } as never);
+
+    vi.mocked(db.tournaments.get).mockResolvedValue({
+      id: "tourn-1",
+      sportId: "waterpolo",
+      configurationId: "cfg-1",
+    } as never);
+
+    // 1st read (pre-request): maxPersonalFouls is 5
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      playground: "<svg id='local-pg'></svg>",
+      shotMap: undefined,
+      maxPersonalFouls: 5,
+    } as never);
+
+    // 2nd read (inside performWrite): concurrent update replaced record with one omitting maxPersonalFouls
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      playground: "<svg id='local-pg'></svg>",
+      shotMap: undefined,
+    } as never);
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValue([
+      {
+        id: "cfg-1",
+        sportId: "waterpolo",
+        usesCleanTime: true,
+        periodsCount: 4,
+        periodDurationMinutes: 8,
+        fieldSize: "30x20",
+        rosterLimit: 13,
+        lineupLimit: 13,
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        playground: "<svg id='remote-pg'></svg>",
+        shotMap: "<svg id='remote-sm'></svg>",
+      },
+    ]);
+
+    const { result } = renderHook(() => useSpatialReport({ matchId: "m-1" }));
+
+    await waitFor(() => {
+      expect(result.current.shotMap).toBe("<svg id='remote-sm'></svg>");
+    });
+
+    const putArg = vi.mocked(db.sportconfigurations.put).mock.calls[0]?.[0];
+    expect(putArg).toBeDefined();
+    expect(putArg?.maxPersonalFouls).toBeUndefined();
+    expect("maxPersonalFouls" in (putArg ?? {})).toBe(false);
+  });
 });

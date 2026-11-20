@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import presenceReducer, {
   setPresenceLimits,
+  setMaxPersonalFouls,
   loadRosterState,
   setSelectedStartingIds,
   commitStartingLineup,
@@ -17,7 +18,7 @@ describe("presenceSlice reducers", () => {
     benchLineupIds: [],
     selectedStartingIds: [],
     activePlayersLimit: 0,
-    maxPersonalFouls: null,
+    maxPersonalFouls: undefined,
     isLoading: false,
   };
 
@@ -25,7 +26,7 @@ describe("presenceSlice reducers", () => {
     expect(presenceReducer(undefined, { type: "" })).toEqual(initialState);
   });
 
-  it("should handle setPresenceLimits", () => {
+  it("should handle setPresenceLimits and setMaxPersonalFouls", () => {
     const action = setPresenceLimits({
       limit: 5,
       period: 2,
@@ -35,6 +36,16 @@ describe("presenceSlice reducers", () => {
     expect(state.activePlayersLimit).toBe(5);
     expect(state.currentPeriod).toBe(2);
     expect(state.maxPersonalFouls).toBe(3);
+
+    const stateOnlyFouls = presenceReducer(state, setMaxPersonalFouls(4));
+    expect(stateOnlyFouls.maxPersonalFouls).toBe(4);
+    expect(stateOnlyFouls.currentPeriod).toBe(2);
+
+    const stateMissingFouls = presenceReducer(
+      stateOnlyFouls,
+      setPresenceLimits({ limit: 6, period: 1 }),
+    );
+    expect(stateMissingFouls.maxPersonalFouls).toBeUndefined();
   });
 
   it("should handle loadRosterState, deduplicate ids, and reset selectedStartingIds", () => {

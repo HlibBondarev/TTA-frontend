@@ -110,9 +110,27 @@ export const resolveEffectiveDisciplinaryRule = (
   };
 };
 
+/**
+ * Normalizes backend/client ISO 8601 date-time strings for Date.parse().
+ * .NET System.Text.Json serializes DateTime / DateTimeOffset with up to 7
+ * fractional second digits (100ns ticks, e.g. "2026-11-20T10:01:00.1234567Z"
+ * or "2026-11-20T12:01:00.1234567+02:00"), while ECMA-262 only guarantees
+ * parsing 3 millisecond digits. Truncating sub-millisecond digits (>3) to 3
+ * ensures deterministic Date.parse() results across all JS engines.
+ */
+const normalizeIsoTimestampForParse = (raw: string): string =>
+  raw.replace(/(\.\d{3})\d+(?=[Z+-]|$)/i, "$1");
+
+const parseTimestampMs = (timestamp?: string | null): number => {
+  if (!timestamp) return Number.NaN;
+  const trimmed = timestamp.trim();
+  if (!trimmed) return Number.NaN;
+  return Date.parse(normalizeIsoTimestampForParse(trimmed));
+};
+
 const parseTimestampKey = (timestamp?: string | null): number | string => {
   if (!timestamp) return "";
-  const parsed = Date.parse(timestamp);
+  const parsed = parseTimestampMs(timestamp);
   return Number.isNaN(parsed) ? timestamp : parsed;
 };
 
@@ -122,8 +140,8 @@ const compareTimestamps = (
 ): number => {
   const safeA = a || "";
   const safeB = b || "";
-  const timeA = Date.parse(safeA);
-  const timeB = Date.parse(safeB);
+  const timeA = parseTimestampMs(safeA);
+  const timeB = parseTimestampMs(safeB);
   if (!Number.isNaN(timeA) && !Number.isNaN(timeB)) {
     return timeA - timeB;
   }

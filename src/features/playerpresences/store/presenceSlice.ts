@@ -6,7 +6,7 @@ interface PresenceState {
   benchLineupIds: string[];
   selectedStartingIds: string[]; // Holds prepared players before "START PERIOD" is pressed
   activePlayersLimit: number;
-  maxPersonalFouls: number | null;
+  maxPersonalFouls: number | null | undefined;
   isLoading: boolean;
 }
 
@@ -16,7 +16,7 @@ const initialState: PresenceState = {
   benchLineupIds: [],
   selectedStartingIds: [],
   activePlayersLimit: 0,
-  maxPersonalFouls: null,
+  maxPersonalFouls: undefined,
   isLoading: false,
 };
 
@@ -34,9 +34,13 @@ export const presenceSlice = createSlice({
     ) => {
       state.activePlayersLimit = action.payload.limit;
       state.currentPeriod = action.payload.period;
-      if (action.payload.maxPersonalFouls !== undefined) {
-        state.maxPersonalFouls = action.payload.maxPersonalFouls;
-      }
+      state.maxPersonalFouls = action.payload.maxPersonalFouls;
+    },
+    setMaxPersonalFouls: (
+      state,
+      action: PayloadAction<number | null | undefined>,
+    ) => {
+      state.maxPersonalFouls = action.payload;
     },
     loadRosterState: (
       state,
@@ -92,6 +96,7 @@ export const presenceSlice = createSlice({
 
 export const {
   setPresenceLimits,
+  setMaxPersonalFouls,
   loadRosterState,
   setSelectedStartingIds,
   commitStartingLineup,

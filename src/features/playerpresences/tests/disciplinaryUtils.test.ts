@@ -227,6 +227,64 @@ describe("disciplinaryUtils", () => {
       expect(state.unservedTimedPenaltyCount).toBe(1);
       expect(state.playersById["p1"].hasActiveTimedExclusion).toBe(true);
     });
+
+    it("should normalize and match .NET System.Text.Json 7-digit fractional tick timestamps against 3-digit ISO timestamps", () => {
+      // .NET DateTime / DateTimeOffset serialization emits up to 7 fractional digits (100ns ticks)
+      const events = [
+        makeEvent({
+          id: "e-dotnet-ticks",
+          periodNumber: 1,
+          matchLineupId: "p1",
+          eventTimestamp: "2026-11-20T10:01:00.1234567Z",
+          foulImpact: "PersonalFoul",
+          penaltyDurationSeconds: 20,
+          sequenceNumber: 1,
+        }),
+      ];
+
+      const presences = [
+        makePresence({
+          id: "pr-1",
+          matchLineupId: "p1",
+          timeIn: "2026-11-20T10:00:00Z",
+          timeOut: "2026-11-20T10:01:00.1234567Z",
+          sequenceNumber: 1,
+        }),
+        makePresence({
+          id: "pr-2",
+          matchLineupId: "p2",
+          timeIn: "2026-11-20T10:00:00.0000000+00:00",
+          timeOut: "2026-11-20T10:01:30.5000000Z",
+          sequenceNumber: 2,
+        }),
+        makePresence({
+          id: "pr-3",
+          matchLineupId: "p3",
+          timeIn: "2026-11-20T10:00:00.000Z",
+          timeOut: null,
+          sequenceNumber: 3,
+        }),
+        // Client-recorded 3-digit millisecond timestamp matching server 7-digit tick exit
+        makePresence({
+          id: "pr-4-sub",
+          matchLineupId: "p4",
+          timeIn: "2026-11-20T12:01:30.500+02:00",
+          timeOut: null,
+          sequenceNumber: 4,
+        }),
+      ];
+
+      const state = calculateDisciplinaryState({
+        activePlayersLimit: 3,
+        maxPersonalFouls: 3,
+        lineupIds: ["p1", "p2", "p3", "p4"],
+        events,
+        presences,
+      });
+
+      expect(state.unservedTimedPenaltyCount).toBe(1);
+      expect(state.playersById["p1"].hasActiveTimedExclusion).toBe(true);
+    });
   });
 
   describe("personal fouls, warnings, and foul-out DQ", () => {

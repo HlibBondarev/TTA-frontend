@@ -2282,7 +2282,7 @@ describe("Hydration Service", () => {
     expect(db.sportconfigurations.put).not.toHaveBeenCalled();
   });
 
-  it("should not call API for shotMap refresh if cached config already has shotMap", async () => {
+  it("should not call API for shotMap refresh if cached config already has shotMap and maxPersonalFouls is defined", async () => {
     vi.mocked(db.timeanchors.where).mockReturnValueOnce({
       equals: vi.fn().mockReturnValueOnce({
         toArray: vi.fn().mockResolvedValueOnce([]),
@@ -2301,6 +2301,7 @@ describe("Hydration Service", () => {
     vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
       id: "cfg-1",
       activePlayersLimit: 6,
+      maxPersonalFouls: null,
       shotMap: "<svg>Existing SVG</svg>",
     } as never);
 
@@ -2533,5 +2534,110 @@ describe("Hydration Service", () => {
         shotMap: "<svg>Goal SVG</svg>",
       }),
     );
+  });
+
+  it("should NOT restore remote maxPersonalFouls via spread if a concurrent update replaced the cached record with one omitting maxPersonalFouls", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ periodNumber: 1 }]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      sportId: "sport-1",
+      configurationId: "cfg-1",
+    } as never);
+
+    // 1st get (pre-request): maxPersonalFouls is 5
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 7,
+      maxPersonalFouls: 5,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: null,
+    } as never);
+
+    // 2nd get (inside transaction): concurrent update replaced record with one omitting maxPersonalFouls
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 7,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: null,
+    } as never);
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      {
+        id: "cfg-1",
+        sportId: "sport-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        playground: null,
+        shotMap: "<svg>Goal SVG</svg>",
+      } as never,
+    ]);
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+    const refreshedConfig = await recoveryState.refreshPromise;
+
+    expect(refreshedConfig?.maxPersonalFouls).toBeUndefined();
+    expect(db.sportconfigurations.put).toHaveBeenCalledWith({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 7,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: "<svg>Goal SVG</svg>",
+    });
+  });
+
+  it("should trigger background config refresh when cached config already has shotMap but maxPersonalFouls is undefined", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ periodNumber: 1 }]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      sportId: "sport-1",
+      configurationId: "cfg-1",
+    } as never);
+
+    // Cached config has shotMap, but maxPersonalFouls is omitted (undefined)
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 7,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: "<svg>Existing ShotMap</svg>",
+    } as never);
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      {
+        id: "cfg-1",
+        sportId: "sport-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        playground: "<svg>Cached Field</svg>",
+        shotMap: "<svg>Existing ShotMap</svg>",
+      } as never,
+    ]);
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+    expect(recoveryState.maxPersonalFouls).toBeUndefined();
+    expect(recoveryState.refreshPromise).toBeDefined();
+
+    const refreshedConfig = await recoveryState.refreshPromise;
+    expect(refreshedConfig?.maxPersonalFouls).toBe(3);
   });
 });

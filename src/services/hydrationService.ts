@@ -251,8 +251,12 @@ const refreshShotMapBackground = (
           const canApplyFreshMaxPersonalFouls =
             freshConfig.maxPersonalFouls !== undefined &&
             cachedConfig?.maxPersonalFouls === preRequestMaxPersonalFouls;
+          const baseFreshConfig = { ...freshConfig };
+          if (!canApplyFreshMaxPersonalFouls) {
+            delete baseFreshConfig.maxPersonalFouls;
+          }
           const updatedConfig = {
-            ...freshConfig,
+            ...baseFreshConfig,
             ...cachedConfig,
             ...(canApplyFreshMaxPersonalFouls
               ? { maxPersonalFouls: freshConfig.maxPersonalFouls }
@@ -313,14 +317,17 @@ const recoverSportConfigurationLimits = async (
     );
   }
 
-  const refreshPromise =
-    tournament.sportId && !config.shotMap
-      ? refreshShotMapBackground(
-          tournament.sportId,
-          tournament.configurationId,
-          config.maxPersonalFouls,
-        )
-      : undefined;
+  const needsConfigRefresh =
+    Boolean(tournament.sportId) &&
+    (!config.shotMap || config.maxPersonalFouls === undefined);
+
+  const refreshPromise = needsConfigRefresh
+    ? refreshShotMapBackground(
+        tournament.sportId,
+        tournament.configurationId,
+        config.maxPersonalFouls,
+      )
+    : undefined;
 
   return {
     activePlayersLimit: config.activePlayersLimit,

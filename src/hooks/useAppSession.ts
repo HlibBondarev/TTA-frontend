@@ -2,7 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 
-import { setPresenceLimits } from "../features/playerpresences/store/presenceSlice";
+import {
+  setPresenceLimits,
+  setMaxPersonalFouls,
+} from "../features/playerpresences/store/presenceSlice";
 import {
   setActiveMatch,
   setRecentActions,
@@ -41,12 +44,20 @@ export function useAppSession() {
 
   const currentUserId = user?.sub ?? user?.email;
   const currentUserIdRef = useRef(currentUserId);
+  const activeMatchIdRef = useRef(activeMatchId);
+  const sessionTokenRef = useRef(0);
 
   useLayoutEffect(() => {
     if (currentUserIdRef.current !== currentUserId) {
       currentUserIdRef.current = currentUserId;
     }
   }, [currentUserId]);
+
+  useLayoutEffect(() => {
+    if (activeMatchIdRef.current !== activeMatchId) {
+      activeMatchIdRef.current = activeMatchId;
+    }
+  }, [activeMatchId]);
 
   // Tab protection during active match session (even during inter-period breaks)
   useEffect(() => {
@@ -90,6 +101,7 @@ export function useAppSession() {
     maxPersonalFouls?: number | null,
   ) => {
     const initiatedUserId = currentUserId;
+    sessionTokenRef.current += 1;
 
     dispatch(
       setPresenceLimits({
@@ -130,6 +142,7 @@ export function useAppSession() {
       throw new StaleUserError();
     }
 
+    activeMatchIdRef.current = matchId;
     dispatch(
       setActiveMatch({
         matchId,
@@ -140,6 +153,7 @@ export function useAppSession() {
 
   const handleResumeMatch = async (matchId: string, teamId: string) => {
     const initiatedUserId = currentUserId;
+    const resumeSessionToken = ++sessionTokenRef.current;
     try {
       const {
         recoveredPeriod,
@@ -172,31 +186,28 @@ export function useAppSession() {
         }),
       );
 
-      if (refreshPromise) {
-        void refreshPromise.then((refreshedConfig) => {
-          if (
-            currentUserIdRef.current === initiatedUserId &&
-            refreshedConfig &&
-            refreshedConfig.maxPersonalFouls !== undefined &&
-            refreshedConfig.maxPersonalFouls !== maxPersonalFouls
-          ) {
-            dispatch(
-              setPresenceLimits({
-                limit: activePlayersLimit,
-                period: recoveredPeriod,
-                maxPersonalFouls: refreshedConfig.maxPersonalFouls,
-              }),
-            );
-          }
-        });
-      }
-
+      activeMatchIdRef.current = matchId;
       dispatch(
         setActiveMatch({
           matchId,
           teamId,
         }),
       );
+
+      if (refreshPromise) {
+        void refreshPromise.then((refreshedConfig) => {
+          if (
+            currentUserIdRef.current === initiatedUserId &&
+            sessionTokenRef.current === resumeSessionToken &&
+            activeMatchIdRef.current === matchId &&
+            refreshedConfig &&
+            refreshedConfig.maxPersonalFouls !== undefined &&
+            refreshedConfig.maxPersonalFouls !== maxPersonalFouls
+          ) {
+            dispatch(setMaxPersonalFouls(refreshedConfig.maxPersonalFouls));
+          }
+        });
+      }
 
       if (recoveredActions.length > 0) {
         dispatch(setRecentActions(recoveredActions));
