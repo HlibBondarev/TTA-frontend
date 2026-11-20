@@ -521,4 +521,119 @@ describe("periodCarryoverUtils", () => {
     expect(tapDqShortSquad.clearedPenaltyEventIds).toEqual([]);
     expect(tapDqShortSquad.selectedStartingIds).toEqual(["p1", "p2"]);
   });
+
+  it("should enforce FIFO clearing order for disqualified players' carried-over penalties so pre-period clearing matches post-start FIFO replay", () => {
+    // Limit = 3. Disqualified players p1 and p2 have carried penalties in FIFO order [p1, p2].
+    // Eligible players: p3, p4, p5.
+    // Before clearing: requiredStartingPlayers = 1, only the oldest FIFO penalty (p1) among non-starters is highlighted/clearable.
+    // Tapping p2 (newer DQ penalty) first is rejected so the user cannot create a pre-period state that contradicts post-start FIFO replay.
+    // Tapping p1 clears p1's penalty (requiredStartingPlayers becomes 2, and p2 now becomes the head of the queue and highlighted).
+    // When Period 2 starts with [p3, p4], replay trims the queue by FIFO (serving p1 and retaining p2), matching pre-period state!
+    const events = [
+      makeEvent({
+        id: "brutality-p1-older",
+        matchLineupId: "p1",
+        periodNumber: 1,
+        foulImpact: "DisqualificationWithSub",
+        penaltyDurationSeconds: 240,
+        eventTimestamp: "2026-11-20T10:07:10.000Z",
+        sequenceNumber: 1,
+      }),
+      makeEvent({
+        id: "brutality-p2-newer",
+        matchLineupId: "p2",
+        periodNumber: 1,
+        foulImpact: "DisqualificationWithSub",
+        penaltyDurationSeconds: 240,
+        eventTimestamp: "2026-11-20T10:07:40.000Z",
+        sequenceNumber: 2,
+      }),
+    ];
+
+    const initialCarryover = calculatePeriodCarryoverState({
+      targetPeriodNumber: 2,
+      activePlayersLimit: 3,
+      maxPersonalFouls: 3,
+      lineupIds: ["p1", "p2", "p3", "p4", "p5"],
+      events,
+      presences: [],
+    });
+
+    expect(initialCarryover.requiredStartingPlayers).toBe(1);
+    expect(initialCarryover.highlightedLineupIds).toEqual(["p1"]);
+
+    // Attempting to clear the newer DQ penalty (p2) out of FIFO order is a no-op
+    const tapNewerDq = applyPrePeriodBenchTap({
+      lineupId: "p2",
+      selectedStartingIds: ["p3"],
+      clearedPenaltyEventIds: [],
+      carryoverState: initialCarryover,
+    });
+
+    expect(tapNewerDq.wasPenaltyCleared).toBe(false);
+    expect(tapNewerDq.clearedPenaltyEventIds).toEqual([]);
+
+    // Tapping the oldest FIFO DQ penalty (p1) succeeds
+    const tapOlderDq = applyPrePeriodBenchTap({
+      lineupId: "p1",
+      selectedStartingIds: ["p3"],
+      clearedPenaltyEventIds: [],
+      carryoverState: initialCarryover,
+    });
+
+    expect(tapOlderDq.wasPenaltyCleared).toBe(true);
+    expect(tapOlderDq.clearedPenaltyEventIds).toEqual(["brutality-p1-older"]);
+
+    const carryoverAfterFirstClear = calculatePeriodCarryoverState({
+      targetPeriodNumber: 2,
+      activePlayersLimit: 3,
+      maxPersonalFouls: 3,
+      lineupIds: ["p1", "p2", "p3", "p4", "p5"],
+      events,
+      presences: [],
+      clearedPenaltyEventIds: tapOlderDq.clearedPenaltyEventIds,
+    });
+
+    expect(carryoverAfterFirstClear.requiredStartingPlayers).toBe(2);
+    expect(carryoverAfterFirstClear.highlightedLineupIds).toEqual(["p2"]);
+    expect(
+      carryoverAfterFirstClear.effectiveCarriedOverPenalties.map(
+        (p) => p.matchLineupId,
+      ),
+    ).toEqual(["p2"]);
+
+    // Starting Period 2 with [p3, p4] reproduces the exact same state during replay (p1 served, p2 retained)
+    const activeStateInPeriod2 = calculateDisciplinaryState({
+      activePlayersLimit: 3,
+      maxPersonalFouls: 3,
+      lineupIds: ["p1", "p2", "p3", "p4", "p5"],
+      events,
+      presences: [
+        makePresence({
+          id: "p2-start-p3",
+          matchLineupId: "p3",
+          periodNumber: 2,
+          timeIn: "2026-11-20T10:10:00.000Z",
+          timeOut: null,
+          sequenceNumber: 3,
+        }),
+        makePresence({
+          id: "p2-start-p4",
+          matchLineupId: "p4",
+          periodNumber: 2,
+          timeIn: "2026-11-20T10:10:00.000Z",
+          timeOut: null,
+          sequenceNumber: 4,
+        }),
+      ],
+    });
+
+    expect(activeStateInPeriod2.unservedTimedPenaltyCount).toBe(1);
+    expect(
+      activeStateInPeriod2.playersById["p1"].hasActiveTimedExclusion,
+    ).toBe(false);
+    expect(
+      activeStateInPeriod2.playersById["p2"].hasActiveTimedExclusion,
+    ).toBe(true);
+  });
 });

@@ -124,12 +124,22 @@ export const calculatePeriodCarryoverState = (
   const canClearNonStarterPenalty =
     nextRequiredIfOneCleared > requiredStartingPlayers;
   const eligibleSet = new Set(eligibleLineupIds);
+  const oldestClearablePenalty = canClearNonStarterPenalty
+    ? effectiveCarriedOverPenalties[0]
+    : undefined;
+  const oldestIneligibleClearableLineupId =
+    oldestClearablePenalty &&
+    !eligibleSet.has(oldestClearablePenalty.matchLineupId)
+      ? oldestClearablePenalty.matchLineupId
+      : undefined;
 
   const highlightedLineupIds = Array.from(
     new Set(
       effectiveCarriedOverPenalties
         .filter(
-          (p) => eligibleSet.has(p.matchLineupId) || canClearNonStarterPenalty,
+          (p) =>
+            eligibleSet.has(p.matchLineupId) ||
+            p.matchLineupId === oldestIneligibleClearableLineupId,
         )
         .map((p) => p.matchLineupId),
     ),
@@ -187,7 +197,12 @@ const handlePrePeriodPenaltyTap = (
   const nextCleared = [...currentCleared, penaltyEventId];
 
   if (isIneligible) {
-    if (updatedRequired <= carryoverState.requiredStartingPlayers) {
+    const oldestActivePenalty = carryoverState.effectiveCarriedOverPenalties[0];
+    const isOldestFifoPenalty = oldestActivePenalty?.eventId === penaltyEventId;
+    if (
+      !isOldestFifoPenalty ||
+      updatedRequired <= carryoverState.requiredStartingPlayers
+    ) {
       return {
         selectedStartingIds: currentSelected,
         clearedPenaltyEventIds: currentCleared,
