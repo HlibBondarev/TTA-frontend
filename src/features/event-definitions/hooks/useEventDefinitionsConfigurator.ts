@@ -52,6 +52,77 @@ const SCORE_ERROR_MESSAGE = `Score must be an integer between 0 and ${MAX_SCORE_
 export const isValidScore = (value: number): boolean =>
   Number.isInteger(value) && value >= 0 && value <= MAX_SCORE_VALUE;
 
+interface CustomDefinitionFallbackInput {
+  id: string;
+  sportId: string;
+  name: string;
+  shortName: string;
+  isPositive: boolean;
+  isShot: boolean;
+  score: number;
+}
+
+const buildCustomDefinitionDraft = (
+  createdResponse: EventDefinitionResponse | undefined,
+  fallback: CustomDefinitionFallbackInput,
+): EventDefinitionResponse => {
+  const effectiveIsPositive = Boolean(
+    createdResponse?.isPositive ?? fallback.isPositive,
+  );
+  return {
+    id: createdResponse?.id ?? fallback.id,
+    sportId: createdResponse?.sportId ?? fallback.sportId,
+    name: createdResponse?.name ?? fallback.name,
+    shortName: createdResponse?.shortName ?? fallback.shortName,
+    isPositive: effectiveIsPositive,
+    isShot: Boolean(createdResponse?.isShot ?? fallback.isShot),
+    score: createdResponse?.score ?? fallback.score,
+    ...(createdResponse?.foulImpact !== undefined
+      ? { foulImpact: createdResponse.foulImpact }
+      : {}),
+    ...(createdResponse?.penaltyDurationSeconds !== undefined
+      ? { penaltyDurationSeconds: createdResponse.penaltyDurationSeconds }
+      : {}),
+    isCustom: true,
+    isEnabled: true,
+    sortOrder: 0,
+  };
+};
+
+const persistCustomDefinitionToDexie = async (
+  draft: EventDefinitionResponse,
+  sportId: string,
+  ownerId: string | undefined,
+): Promise<void> => {
+  if (!db.eventdefinitions || !draft.id) return;
+
+  try {
+    const dictionaryRecord: EventDefinitionLookup = {
+      id: draft.id,
+      sportId,
+      name: draft.name ?? "",
+      shortName: draft.shortName ?? "",
+      isPositive: Boolean(draft.isPositive),
+      isShot: Boolean(draft.isShot),
+      score: draft.score ?? 0,
+      ...(draft.foulImpact !== undefined
+        ? { foulImpact: draft.foulImpact }
+        : {}),
+      ...(draft.penaltyDurationSeconds !== undefined
+        ? { penaltyDurationSeconds: draft.penaltyDurationSeconds }
+        : {}),
+      isCustom: true,
+      ownerId: ownerId ?? null,
+    };
+    await db.eventdefinitions.put(dictionaryRecord);
+  } catch (dexieErr) {
+    console.warn(
+      "Failed to persist custom event definition to Dexie:",
+      dexieErr,
+    );
+  }
+};
+
 export function useEventDefinitionsConfigurator({
   sportId,
   disabled = false,
@@ -450,7 +521,9 @@ export function useEventDefinitionsConfigurator({
     e: React.SyntheticEvent<HTMLFormElement>,
   ) => {
     e.preventDefault();
-    if (isLocked || !newName.trim() || !newShortName.trim()) return;
+    const trimmedName = newName.trim();
+    const trimmedShortName = newShortName.trim();
+    if (isLocked || !trimmedName || !trimmedShortName) return;
     if (!isValidScore(newScore)) {
       setModalError(SCORE_ERROR_MESSAGE);
       return;
@@ -458,18 +531,18 @@ export function useEventDefinitionsConfigurator({
 
     const requestId = requestCountRef.current;
     const isPositive = activeTab === "POSITIVE";
+    const clientGeneratedId = crypto.randomUUID();
 
     try {
       setCreating(true);
       setModalError(null);
 
-      const clientGeneratedId = crypto.randomUUID();
       const createdResponse = await eventDefinitionService.createCustom(
         sportId,
         {
           id: clientGeneratedId,
-          name: newName.trim(),
-          shortName: newShortName.trim(),
+          name: trimmedName,
+          shortName: trimmedShortName,
           isPositive,
           isShot: newIsShot,
           score: newScore,
@@ -478,64 +551,18 @@ export function useEventDefinitionsConfigurator({
 
       if (requestId !== requestCountRef.current) return;
 
-      const effectiveId = createdResponse?.id ?? clientGeneratedId;
-      const effectiveIsPositive = Boolean(
-        createdResponse?.isPositive ?? isPositive,
-      );
+      const draftItem = buildCustomDefinitionDraft(createdResponse, {
+        id: clientGeneratedId,
+        sportId,
+        name: trimmedName,
+        shortName: trimmedShortName,
+        isPositive,
+        isShot: newIsShot,
+        score: newScore,
+      });
 
-      if (db.eventdefinitions) {
-        try {
-          const dictionaryRecord: EventDefinitionLookup = {
-            id: effectiveId,
-            sportId,
-            name: createdResponse?.name ?? newName.trim(),
-            shortName: createdResponse?.shortName ?? newShortName.trim(),
-            isPositive: effectiveIsPositive,
-            isShot: Boolean(createdResponse?.isShot ?? newIsShot),
-            score: createdResponse?.score ?? newScore,
-            ...(createdResponse?.foulImpact !== undefined
-              ? { foulImpact: createdResponse.foulImpact }
-              : {}),
-            ...(createdResponse?.penaltyDurationSeconds !== undefined
-              ? {
-                  penaltyDurationSeconds:
-                    createdResponse.penaltyDurationSeconds,
-                }
-              : {}),
-            isCustom: true,
-            ownerId: currentUserId ?? null,
-          };
-          await db.eventdefinitions.put(dictionaryRecord);
-        } catch (dexieErr) {
-          console.warn(
-            "Failed to persist custom event definition to Dexie:",
-            dexieErr,
-          );
-        }
-      }
-
+      await persistCustomDefinitionToDexie(draftItem, sportId, currentUserId);
       if (requestId !== requestCountRef.current) return;
-
-      const draftItem: EventDefinitionResponse = {
-        id: effectiveId,
-        sportId: createdResponse?.sportId ?? sportId,
-        name: createdResponse?.name ?? newName.trim(),
-        shortName: createdResponse?.shortName ?? newShortName.trim(),
-        isPositive: effectiveIsPositive,
-        isShot: Boolean(createdResponse?.isShot ?? newIsShot),
-        score: createdResponse?.score ?? newScore,
-        ...(createdResponse?.foulImpact !== undefined
-          ? { foulImpact: createdResponse.foulImpact }
-          : {}),
-        ...(createdResponse?.penaltyDurationSeconds !== undefined
-          ? {
-              penaltyDurationSeconds: createdResponse.penaltyDurationSeconds,
-            }
-          : {}),
-        isCustom: true,
-        isEnabled: true,
-        sortOrder: 0,
-      };
 
       const combined = [...definitionsRef.current, draftItem];
       const reordered = groupDefinitionsByEnabled(combined);
@@ -543,7 +570,7 @@ export function useEventDefinitionsConfigurator({
       setDefinitions(reordered);
       notifyParent(reordered);
 
-      setActiveTab(effectiveIsPositive ? "POSITIVE" : "NEGATIVE");
+      setActiveTab(draftItem.isPositive ? "POSITIVE" : "NEGATIVE");
       resetCustomModalForm();
       setIsModalOpen(false);
 
