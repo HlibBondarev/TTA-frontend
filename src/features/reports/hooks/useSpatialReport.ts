@@ -199,6 +199,7 @@ async function fetchSportConfiguration(
   const localConfig = await db.sportconfigurations
     .get(configId)
     .catch(() => undefined);
+  const preRequestMaxPersonalFouls = localConfig?.maxPersonalFouls;
 
   // Preserve immediate return if local cache contains both playground and shotMap SVGs
   if (localConfig?.playground && localConfig?.shotMap) {
@@ -220,6 +221,9 @@ async function fetchSportConfiguration(
       let updatedConfig = {
         ...remoteConfig,
         ...localConfig,
+        ...(remoteConfig.maxPersonalFouls !== undefined
+          ? { maxPersonalFouls: remoteConfig.maxPersonalFouls }
+          : {}),
         playground: remoteConfig.playground || localConfig?.playground || null,
         shotMap: remoteConfig.shotMap || localConfig?.shotMap || null,
       };
@@ -229,9 +233,21 @@ async function fetchSportConfiguration(
           .get(configId)
           .catch(() => undefined);
 
+        const canApplyRemoteMaxPersonalFouls =
+          remoteConfig.maxPersonalFouls !== undefined &&
+          latestLocal?.maxPersonalFouls === preRequestMaxPersonalFouls;
+
+        const baseRemoteConfig = { ...remoteConfig };
+        if (!canApplyRemoteMaxPersonalFouls) {
+          delete baseRemoteConfig.maxPersonalFouls;
+        }
+
         updatedConfig = {
-          ...remoteConfig,
+          ...baseRemoteConfig,
           ...latestLocal,
+          ...(canApplyRemoteMaxPersonalFouls
+            ? { maxPersonalFouls: remoteConfig.maxPersonalFouls }
+            : {}),
           playground:
             remoteConfig.playground ||
             latestLocal?.playground ||

@@ -84,6 +84,10 @@ export const replaceSportEventDefinitionsInDb = async (
     isPositive: def.isPositive,
     isShot: def.isShot ?? false,
     score: def.score ?? 0,
+    ...(def.foulImpact !== undefined ? { foulImpact: def.foulImpact } : {}),
+    ...(def.penaltyDurationSeconds !== undefined
+      ? { penaltyDurationSeconds: def.penaltyDurationSeconds }
+      : {}),
     isCustom: def.isCustom,
     ownerId: def.ownerId ?? (def.isCustom ? (normalizedUserId ?? null) : null),
   }));
@@ -472,59 +476,103 @@ export const createGameEventTx = async (
 
   let createdEvent: GameEvent | null = null;
 
-  await db.transaction(
-    "rw",
-    [db.gameevents, db.timeanchors, db.playerpresences, db.syncQueue],
-    async () => {
-      const nextSeq = await getNextSequenceNumber();
+  const transactionTables = [
+    db.gameevents,
+    db.timeanchors,
+    db.playerpresences,
+    db.syncQueue,
+    ...(db.eventdefinitions ? [db.eventdefinitions] : []),
+  ];
 
-      createdEvent = {
-        id: crypto.randomUUID(),
+  await db.transaction("rw", transactionTables, async () => {
+    const nextSeq = await getNextSequenceNumber();
+    const targetDef = await db.eventdefinitions?.get(params.eventDefinitionId);
+    if (!targetDef) {
+      throw new Error(
+        `Event definition record not found for ID: ${params.eventDefinitionId}`,
+      );
+    }
+
+    createdEvent = {
+      id: crypto.randomUUID(),
+      matchLineupId: params.matchLineupId,
+      eventDefinitionId: params.eventDefinitionId,
+      periodNumber: params.periodNumber,
+      eventTimestamp: params.eventTimestamp,
+      isLeadToGoal: params.isLeadToGoal,
+      locationX: params.locationX ?? null,
+      locationY: params.locationY ?? null,
+      shotLocationX: params.shotLocationX ?? null,
+      shotLocationY: params.shotLocationY ?? null,
+      foulImpact: targetDef.foulImpact ?? "None",
+      penaltyDurationSeconds: targetDef.penaltyDurationSeconds ?? null,
+      createdAt: new Date().toISOString(),
+      sequenceNumber: nextSeq,
+      isSynced: 0,
+    };
+
+    await db.gameevents.add(createdEvent);
+
+    const payload = JSON.stringify([
+      {
+        id: createdEvent.id,
         matchLineupId: params.matchLineupId,
         eventDefinitionId: params.eventDefinitionId,
         periodNumber: params.periodNumber,
-        eventTimestamp: params.eventTimestamp,
         isLeadToGoal: params.isLeadToGoal,
-        locationX: params.locationX ?? null,
-        locationY: params.locationY ?? null,
-        shotLocationX: params.shotLocationX ?? null,
-        shotLocationY: params.shotLocationY ?? null,
-        createdAt: new Date().toISOString(),
-        sequenceNumber: nextSeq,
-        isSynced: 0,
-      };
+        eventTimestamp: params.eventTimestamp,
+        locationX: createdEvent.locationX,
+        locationY: createdEvent.locationY,
+        shotLocationX: createdEvent.shotLocationX,
+        shotLocationY: createdEvent.shotLocationY,
+      },
+    ]);
 
-      await db.gameevents.add(createdEvent);
+    const syncItem: SyncQueueItem = {
+      actionType: "POST",
+      endpoint: `/Matches/${normalizedMatchId}/teams/${
+        normalizedTeamId
+      }/events`,
+      payload,
+      createdAt: params.eventTimestamp,
+    };
 
-      const payload = JSON.stringify([
-        {
-          id: createdEvent.id,
-          matchLineupId: params.matchLineupId,
-          eventDefinitionId: params.eventDefinitionId,
-          periodNumber: params.periodNumber,
-          isLeadToGoal: params.isLeadToGoal,
-          eventTimestamp: params.eventTimestamp,
-          locationX: createdEvent.locationX,
-          locationY: createdEvent.locationY,
-          shotLocationX: createdEvent.shotLocationX,
-          shotLocationY: createdEvent.shotLocationY,
-        },
-      ]);
-
-      const syncItem: SyncQueueItem = {
-        actionType: "POST",
-        endpoint: `/Matches/${normalizedMatchId}/teams/${
-          normalizedTeamId
-        }/events`,
-        payload,
-        createdAt: params.eventTimestamp,
-      };
-
-      await db.syncQueue.add(syncItem);
-    },
-  );
+    await db.syncQueue.add(syncItem);
+  });
 
   return createdEvent!;
+};
+
+const stripDisciplinarySnapshot = (
+  event: GameEvent,
+): Omit<GameEvent, "foulImpact" | "penaltyDurationSeconds"> => {
+  const copy = { ...event };
+  delete copy.foulImpact;
+  delete copy.penaltyDurationSeconds;
+  return copy;
+};
+
+const resolveUpdatedEventSnapshot = (
+  existing: GameEvent,
+  isNewDefinition: boolean,
+  targetDef: EventDefinitionLookup | undefined,
+): Pick<GameEvent, "foulImpact" | "penaltyDurationSeconds"> => {
+  if (!isNewDefinition) {
+    return {
+      ...(existing.foulImpact !== undefined
+        ? { foulImpact: existing.foulImpact }
+        : {}),
+      ...(existing.penaltyDurationSeconds !== undefined
+        ? { penaltyDurationSeconds: existing.penaltyDurationSeconds }
+        : {}),
+    };
+  }
+  return targetDef
+    ? {
+        foulImpact: targetDef.foulImpact ?? "None",
+        penaltyDurationSeconds: targetDef.penaltyDurationSeconds ?? null,
+      }
+    : {};
 };
 
 export const updateGameEventTx = async (
@@ -562,11 +610,12 @@ export const updateGameEventTx = async (
         );
       }
 
+      const isNewDefinition =
+        params.eventDefinitionId !== existing.eventDefinitionId;
       let isShot = true;
-      if (params.eventDefinitionId !== existing.eventDefinitionId) {
-        const targetDef = await db.eventdefinitions.get(
-          params.eventDefinitionId,
-        );
+      let targetDef: EventDefinitionLookup | undefined;
+      if (isNewDefinition) {
+        targetDef = await db.eventdefinitions.get(params.eventDefinitionId);
         if (targetDef) {
           isShot = Boolean(targetDef.isShot);
         }
@@ -587,8 +636,10 @@ export const updateGameEventTx = async (
         ? resolveCoordinateValue(params.shotLocationY, existing.shotLocationY)
         : null;
 
+      const restExisting = stripDisciplinarySnapshot(existing);
+
       updatedEvent = {
-        ...existing,
+        ...restExisting,
         matchLineupId: params.matchLineupId,
         eventDefinitionId: params.eventDefinitionId,
         isLeadToGoal: params.isLeadToGoal,
@@ -596,6 +647,7 @@ export const updateGameEventTx = async (
         locationY,
         shotLocationX,
         shotLocationY,
+        ...resolveUpdatedEventSnapshot(existing, isNewDefinition, targetDef),
       };
 
       await db.gameevents.put(updatedEvent);

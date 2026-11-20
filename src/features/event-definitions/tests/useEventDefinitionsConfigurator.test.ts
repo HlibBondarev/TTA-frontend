@@ -75,6 +75,8 @@ describe("useEventDefinitionsConfigurator", () => {
       shortName: "EX",
       isPositive: false,
       isShot: false,
+      foulImpact: "PersonalFoul" as const,
+      penaltyDurationSeconds: 20,
       isEnabled: true,
       sortOrder: 3,
     },

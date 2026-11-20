@@ -1,0 +1,420 @@
+import type {
+  EventDefinitionLookup,
+  GameEvent,
+  PlayerPresence,
+} from "../../../db/ttaDatabase";
+import {
+  calculateDisciplinaryState,
+  type ActiveTimedPenalty,
+  type PlayerDisciplinaryStatus,
+} from "./disciplinaryUtils";
+
+export interface CalculatePeriodCarryoverInput {
+  targetPeriodNumber: number;
+  activePlayersLimit: number;
+  maxPersonalFouls: number | null | undefined;
+  lineupIds: string[];
+  events: GameEvent[];
+  presences: PlayerPresence[];
+  definitionsById?: ReadonlyMap<string, EventDefinitionLookup>;
+  clearedPenaltyEventIds?: readonly string[];
+}
+
+export interface PeriodCarryoverState {
+  targetPeriodNumber: number;
+  activePlayersLimit: number;
+  maxPersonalFouls: number | null | undefined;
+  isMaxPersonalFoulsKnown: boolean;
+  permanentNoSubCount: number;
+  maxAllowedActive: number;
+  eligibleLineupIds: string[];
+  disqualifiedLineupIds: string[];
+  eligibleLineupCount: number;
+  carriedOverPenalties: ActiveTimedPenalty[];
+  clearedPenaltyEventIds: string[];
+  effectiveCarriedOverPenalties: ActiveTimedPenalty[];
+  effectiveUnservedTimedPenalties: number;
+  highlightedLineupIds: string[];
+  requiredStartingPlayers: number;
+  canResetClearedPenalties: boolean;
+  playersById: Record<string, PlayerDisciplinaryStatus>;
+}
+
+export interface PrePeriodBenchTapInput {
+  lineupId: string;
+  selectedStartingIds: readonly string[];
+  clearedPenaltyEventIds: readonly string[];
+  carryoverState: PeriodCarryoverState;
+}
+
+export interface PrePeriodBenchTapResult {
+  selectedStartingIds: string[];
+  clearedPenaltyEventIds: string[];
+  wasPenaltyCleared: boolean;
+  wasSelectionToggled: boolean;
+}
+
+/**
+ * Pure derivation of period-start carried-over timed penalties, eligible
+ * roster size, highlighted bench players, and required starting lineup size
+ * for period P.
+ */
+export const calculatePeriodCarryoverState = (
+  input: CalculatePeriodCarryoverInput,
+): PeriodCarryoverState => {
+  const targetPeriod = Math.max(1, Math.floor(input.targetPeriodNumber));
+  const previousPeriodCap = targetPeriod > 1 ? targetPeriod - 1 : 0;
+
+  const disciplinaryBeforePeriod = calculateDisciplinaryState({
+    activePlayersLimit: input.activePlayersLimit,
+    maxPersonalFouls: input.maxPersonalFouls,
+    lineupIds: input.lineupIds,
+    events: input.events,
+    presences: input.presences,
+    definitionsById: input.definitionsById,
+    upToPeriodNumber: previousPeriodCap,
+  });
+
+  const uniqueLineupIds = Array.from(new Set(input.lineupIds));
+  const eligibleLineupIds: string[] = [];
+  const disqualifiedLineupIds: string[] = [];
+
+  for (const id of uniqueLineupIds) {
+    const status = disciplinaryBeforePeriod.playersById[id];
+    if (status?.isDisqualified) {
+      disqualifiedLineupIds.push(id);
+    } else {
+      eligibleLineupIds.push(id);
+    }
+  }
+
+  const carriedOverPenalties =
+    targetPeriod === 1 ? [] : disciplinaryBeforePeriod.activeTimedPenalties;
+
+  const carriedIdsSet = new Set(carriedOverPenalties.map((p) => p.eventId));
+  const clearedPenaltyEventIds = Array.from(
+    new Set(
+      (input.clearedPenaltyEventIds ?? []).filter((id) =>
+        carriedIdsSet.has(id),
+      ),
+    ),
+  );
+  const clearedSet = new Set(clearedPenaltyEventIds);
+
+  const effectiveCarriedOverPenalties = carriedOverPenalties.filter(
+    (p) => !clearedSet.has(p.eventId),
+  );
+  const effectiveUnservedTimedPenalties = effectiveCarriedOverPenalties.length;
+
+  const maxAllowedActive =
+    targetPeriod === 1
+      ? disciplinaryBeforePeriod.activePlayersLimit
+      : disciplinaryBeforePeriod.maxAllowedActive;
+
+  const eligibleLineupCount = eligibleLineupIds.length;
+  const requiredStartingPlayers = Math.min(
+    eligibleLineupCount,
+    Math.max(0, maxAllowedActive - effectiveUnservedTimedPenalties),
+  );
+
+  const nextRequiredIfOneCleared = Math.min(
+    eligibleLineupCount,
+    Math.max(0, maxAllowedActive - (effectiveUnservedTimedPenalties - 1)),
+  );
+  const canClearNonStarterPenalty =
+    nextRequiredIfOneCleared > requiredStartingPlayers;
+  const eligibleSet = new Set(eligibleLineupIds);
+  const oldestClearablePenalty = canClearNonStarterPenalty
+    ? effectiveCarriedOverPenalties[0]
+    : undefined;
+  const oldestIneligibleClearableLineupId =
+    oldestClearablePenalty &&
+    !eligibleSet.has(oldestClearablePenalty.matchLineupId)
+      ? oldestClearablePenalty.matchLineupId
+      : undefined;
+
+  const highlightedLineupIds = Array.from(
+    new Set(
+      effectiveCarriedOverPenalties
+        .filter(
+          (p) =>
+            eligibleSet.has(p.matchLineupId) ||
+            p.matchLineupId === oldestIneligibleClearableLineupId,
+        )
+        .map((p) => p.matchLineupId),
+    ),
+  );
+
+  return {
+    targetPeriodNumber: targetPeriod,
+    activePlayersLimit: disciplinaryBeforePeriod.activePlayersLimit,
+    maxPersonalFouls: disciplinaryBeforePeriod.maxPersonalFouls,
+    isMaxPersonalFoulsKnown: disciplinaryBeforePeriod.isMaxPersonalFoulsKnown,
+    permanentNoSubCount:
+      targetPeriod === 1 ? 0 : disciplinaryBeforePeriod.permanentNoSubCount,
+    maxAllowedActive,
+    eligibleLineupIds,
+    disqualifiedLineupIds,
+    eligibleLineupCount,
+    carriedOverPenalties,
+    clearedPenaltyEventIds,
+    effectiveCarriedOverPenalties,
+    effectiveUnservedTimedPenalties,
+    highlightedLineupIds,
+    requiredStartingPlayers,
+    canResetClearedPenalties: clearedPenaltyEventIds.length > 0,
+    playersById: disciplinaryBeforePeriod.playersById,
+  };
+};
+
+/**
+ * Handles tapping a bench player before starting a period:
+ * - Tapping a highlighted eligible player clears 1 carried-over penalty AND
+ *   selects that player for the starting lineup (subsequent taps toggle
+ *   selection while keeping the penalty cleared).
+ * - Tapping a highlighted disqualified player carrying a timed team penalty
+ *   clears 1 carried-over penalty WITHOUT adding them to the starting lineup.
+ * - Tapping a non-highlighted disqualified player is a no-op.
+ * - Tapping a non-highlighted eligible player toggles starting lineup
+ *   selection up to requiredStartingPlayers.
+ */
+const handlePrePeriodPenaltyTap = (
+  lineupId: string,
+  penaltyEventId: string,
+  isIneligible: boolean,
+  currentSelected: string[],
+  currentCleared: string[],
+  carryoverState: PeriodCarryoverState,
+): PrePeriodBenchTapResult => {
+  const updatedRequired = Math.min(
+    carryoverState.eligibleLineupCount,
+    Math.max(
+      0,
+      carryoverState.maxAllowedActive -
+        (carryoverState.effectiveUnservedTimedPenalties - 1),
+    ),
+  );
+  const nextCleared = [...currentCleared, penaltyEventId];
+
+  if (isIneligible) {
+    const oldestActivePenalty = carryoverState.effectiveCarriedOverPenalties[0];
+    const isOldestFifoPenalty = oldestActivePenalty?.eventId === penaltyEventId;
+    if (
+      !isOldestFifoPenalty ||
+      updatedRequired <= carryoverState.requiredStartingPlayers
+    ) {
+      return {
+        selectedStartingIds: currentSelected,
+        clearedPenaltyEventIds: currentCleared,
+        wasPenaltyCleared: false,
+        wasSelectionToggled: false,
+      };
+    }
+    return {
+      selectedStartingIds: currentSelected,
+      clearedPenaltyEventIds: nextCleared,
+      wasPenaltyCleared: true,
+      wasSelectionToggled: false,
+    };
+  }
+
+  const alreadySelected = currentSelected.includes(lineupId);
+  const canSelect =
+    !alreadySelected && currentSelected.length < updatedRequired;
+
+  if (!canSelect) {
+    const oldestActivePenalty = carryoverState.effectiveCarriedOverPenalties[0];
+    const isOldestFifoPenalty = oldestActivePenalty?.eventId === penaltyEventId;
+    if (
+      !isOldestFifoPenalty ||
+      updatedRequired <= carryoverState.requiredStartingPlayers
+    ) {
+      return {
+        selectedStartingIds: currentSelected,
+        clearedPenaltyEventIds: currentCleared,
+        wasPenaltyCleared: false,
+        wasSelectionToggled: false,
+      };
+    }
+    return {
+      selectedStartingIds: currentSelected,
+      clearedPenaltyEventIds: nextCleared,
+      wasPenaltyCleared: true,
+      wasSelectionToggled: false,
+    };
+  }
+
+  const nextSelected = [...currentSelected, lineupId];
+  const normalizedCleared = normalizeClearedPenaltiesForSelectedStarters(
+    nextSelected,
+    nextCleared,
+    carryoverState.carriedOverPenalties,
+  );
+
+  return {
+    selectedStartingIds: nextSelected,
+    clearedPenaltyEventIds: normalizedCleared,
+    wasPenaltyCleared: true,
+    wasSelectionToggled: true,
+  };
+};
+
+const normalizeClearedPenaltiesForSelectedStarters = (
+  selectedLineupIds: readonly string[],
+  clearedPenaltyEventIds: readonly string[],
+  carriedOverPenalties: readonly ActiveTimedPenalty[],
+): string[] => {
+  const selectedSet = new Set(selectedLineupIds);
+  const clearedSet = new Set(clearedPenaltyEventIds);
+
+  // Each selected starter can account for at most 1 specifically served penalty (their oldest cleared penalty).
+  // Any additional cleared penalties (whether on a non-starter or a second penalty on an already-selected starter)
+  // are non-starter clears and must match the oldest remaining FIFO prefix of carriedOverPenalties.
+  const starterClearedIds = new Set<string>();
+  const startersWithSpecificClear = new Set<string>();
+  let nonStarterClearedCount = 0;
+
+  for (const penalty of carriedOverPenalties) {
+    if (!clearedSet.has(penalty.eventId)) continue;
+    if (
+      selectedSet.has(penalty.matchLineupId) &&
+      !startersWithSpecificClear.has(penalty.matchLineupId)
+    ) {
+      starterClearedIds.add(penalty.eventId);
+      startersWithSpecificClear.add(penalty.matchLineupId);
+    } else {
+      nonStarterClearedCount += 1;
+    }
+  }
+
+  const normalizedCleared: string[] = [...starterClearedIds];
+  let remainingFifoToClear = nonStarterClearedCount;
+  for (const penalty of carriedOverPenalties) {
+    if (remainingFifoToClear <= 0) break;
+    if (!starterClearedIds.has(penalty.eventId)) {
+      normalizedCleared.push(penalty.eventId);
+      remainingFifoToClear -= 1;
+    }
+  }
+
+  return normalizedCleared;
+};
+
+const handleDeselectStartingPlayer = (
+  lineupId: string,
+  currentSelected: string[],
+  currentCleared: string[],
+  carryoverState: PeriodCarryoverState,
+): PrePeriodBenchTapResult => {
+  const nextSelected = currentSelected.filter((id) => id !== lineupId);
+  const normalizedCleared = normalizeClearedPenaltiesForSelectedStarters(
+    nextSelected,
+    currentCleared,
+    carryoverState.carriedOverPenalties,
+  );
+
+  return {
+    selectedStartingIds: nextSelected,
+    clearedPenaltyEventIds: normalizedCleared,
+    wasPenaltyCleared: false,
+    wasSelectionToggled: true,
+  };
+};
+
+export const applyPrePeriodBenchTap = (
+  input: PrePeriodBenchTapInput,
+): PrePeriodBenchTapResult => {
+  const { lineupId, carryoverState } = input;
+  const currentSelected = Array.from(new Set(input.selectedStartingIds));
+  const currentCleared = Array.from(new Set(input.clearedPenaltyEventIds));
+
+  const isDisqualified = carryoverState.disqualifiedLineupIds.includes(lineupId);
+  const isEligible = carryoverState.eligibleLineupIds.includes(lineupId);
+  const matchingActivePenalty =
+    carryoverState.effectiveCarriedOverPenalties.find(
+      (p) => p.matchLineupId === lineupId,
+    );
+
+  if (currentSelected.includes(lineupId)) {
+    return handleDeselectStartingPlayer(
+      lineupId,
+      currentSelected,
+      currentCleared,
+      carryoverState,
+    );
+  }
+
+  if (matchingActivePenalty) {
+    return handlePrePeriodPenaltyTap(
+      lineupId,
+      matchingActivePenalty.eventId,
+      isDisqualified || !isEligible,
+      currentSelected,
+      currentCleared,
+      carryoverState,
+    );
+  }
+
+  if (isDisqualified) {
+    return {
+      selectedStartingIds: currentSelected,
+      clearedPenaltyEventIds: currentCleared,
+      wasPenaltyCleared: false,
+      wasSelectionToggled: false,
+    };
+  }
+
+  if (
+    !isEligible ||
+    currentSelected.length >= carryoverState.requiredStartingPlayers
+  ) {
+    return {
+      selectedStartingIds: currentSelected,
+      clearedPenaltyEventIds: currentCleared,
+      wasPenaltyCleared: false,
+      wasSelectionToggled: false,
+    };
+  }
+
+  const nextSelected = [...currentSelected, lineupId];
+  const normalizedCleared = normalizeClearedPenaltiesForSelectedStarters(
+    nextSelected,
+    currentCleared,
+    carryoverState.carriedOverPenalties,
+  );
+
+  return {
+    selectedStartingIds: nextSelected,
+    clearedPenaltyEventIds: normalizedCleared,
+    wasPenaltyCleared: false,
+    wasSelectionToggled: true,
+  };
+};
+
+/**
+ * Restores all manually cleared carried-over penalties before period start and
+ * trims the selected starting lineup to the restored requiredStartingPlayers
+ * count while removing any players who are now highlighted as excluded.
+ */
+export const resetClearedPeriodPenalties = (
+  selectedStartingIds: readonly string[],
+  restoredCarryoverState: PeriodCarryoverState,
+): {
+  selectedStartingIds: string[];
+  clearedPenaltyEventIds: string[];
+} => {
+  const highlightedSet = new Set(restoredCarryoverState.highlightedLineupIds);
+  const eligibleSet = new Set(restoredCarryoverState.eligibleLineupIds);
+
+  const validSelected = Array.from(new Set(selectedStartingIds)).filter(
+    (id) => eligibleSet.has(id) && !highlightedSet.has(id),
+  );
+
+  return {
+    selectedStartingIds: validSelected.slice(
+      0,
+      restoredCarryoverState.requiredStartingPlayers,
+    ),
+    clearedPenaltyEventIds: [],
+  };
+};
