@@ -67,7 +67,10 @@ const VALID_FOUL_IMPACTS = new Set<FoulImpact>([
 ]);
 
 const normalizeFoulImpact = (value: unknown): FoulImpact | undefined => {
-  if (typeof value === "string" && VALID_FOUL_IMPACTS.has(value as FoulImpact)) {
+  if (
+    typeof value === "string" &&
+    VALID_FOUL_IMPACTS.has(value as FoulImpact)
+  ) {
     return value as FoulImpact;
   }
   return undefined;
@@ -135,18 +138,13 @@ const parseTimestampKey = (timestamp?: string | null): number | string => {
   return Number.isNaN(parsed) ? timestamp : parsed;
 };
 
-const compareTimestamps = (
-  a?: string | null,
-  b?: string | null,
-): number => {
-  const safeA = a || "";
-  const safeB = b || "";
-  const timeA = parseTimestampMs(safeA);
-  const timeB = parseTimestampMs(safeB);
+const compareTimestamps = (a = "", b = ""): number => {
+  const timeA = parseTimestampMs(a);
+  const timeB = parseTimestampMs(b);
   if (!Number.isNaN(timeA) && !Number.isNaN(timeB)) {
     return timeA - timeB;
   }
-  return safeA.localeCompare(safeB);
+  return a.localeCompare(b);
 };
 
 export const sortEventsChronologically = (events: GameEvent[]): GameEvent[] => {
@@ -161,6 +159,13 @@ export const sortEventsChronologically = (events: GameEvent[]): GameEvent[] => {
     }
     return a.id.localeCompare(b.id);
   });
+};
+
+const normalizeActivePlayersLimit = (limit: number): number => {
+  if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
+    return Math.floor(limit);
+  }
+  return 0;
 };
 
 const normalizeMaxPersonalFouls = (
@@ -221,10 +226,7 @@ const applyEventToPlayerStatus = (
     }
   }
 
-  if (
-    typeof maxPersonalFouls === "number" &&
-    maxPersonalFouls > 1
-  ) {
+  if (typeof maxPersonalFouls === "number" && maxPersonalFouls > 1) {
     status.hasFoulWarning =
       !status.isDisqualified &&
       status.personalFoulCount === maxPersonalFouls - 1;
@@ -245,6 +247,12 @@ interface TimelineItem {
   entryLineupId?: string;
   activeCountAtTimestamp?: number;
   periodStartCount?: number;
+}
+
+interface PeriodStartBatch {
+  timestamp: string;
+  sequenceNumber: number;
+  lineupIds: Set<string>;
 }
 
 const findEarliestTimeInByPeriod = (
@@ -278,29 +286,23 @@ const countActivePresencesAtEntry = (
   return activeIds.size;
 };
 
-const buildPresenceTimelineItems = (
+const countExitsByPeriodAndTimestamp = (
   presences: PlayerPresence[],
-): TimelineItem[] => {
-  const earliestByPeriod = findEarliestTimeInByPeriod(presences);
-  const exitCountsByPeriodAndTimestamp = new Map<string, number>();
-
+): Map<string, number> => {
+  const counts = new Map<string, number>();
   for (const p of presences) {
     if (p.timeOut !== null) {
       const key = `${p.periodNumber}|${parseTimestampKey(p.timeOut)}`;
-      exitCountsByPeriodAndTimestamp.set(
-        key,
-        (exitCountsByPeriodAndTimestamp.get(key) ?? 0) + 1,
-      );
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
+  return counts;
+};
 
-  const periodStartPresences = new Map<
-    number,
-    { timestamp: string; sequenceNumber: number; lineupIds: Set<string> }
-  >();
-  const items: TimelineItem[] = [];
-
-  const sortedPresences = [...presences].sort((a, b) => {
+const sortPresencesChronologically = (
+  presences: PlayerPresence[],
+): PlayerPresence[] =>
+  [...presences].sort((a, b) => {
     if (a.periodNumber !== b.periodNumber) {
       return a.periodNumber - b.periodNumber;
     }
@@ -309,30 +311,82 @@ const buildPresenceTimelineItems = (
     return a.sequenceNumber - b.sequenceNumber;
   });
 
-  for (const p of sortedPresences) {
-    const earliestTimeIn = earliestByPeriod.get(p.periodNumber);
-    if (
-      earliestTimeIn !== undefined &&
-      compareTimestamps(p.timeIn, earliestTimeIn) === 0
-    ) {
-      const batch = periodStartPresences.get(p.periodNumber);
-      if (batch) {
-        batch.lineupIds.add(p.matchLineupId);
-        batch.sequenceNumber = Math.min(batch.sequenceNumber, p.sequenceNumber);
-      } else {
-        periodStartPresences.set(p.periodNumber, {
-          timestamp: p.timeIn,
-          sequenceNumber: p.sequenceNumber,
-          lineupIds: new Set([p.matchLineupId]),
-        });
-      }
+const isPeriodStartPresence = (
+  presence: PlayerPresence,
+  earliestByPeriod: ReadonlyMap<number, string>,
+): boolean => {
+  const earliestTimeIn = earliestByPeriod.get(presence.periodNumber);
+  return (
+    earliestTimeIn !== undefined &&
+    compareTimestamps(presence.timeIn, earliestTimeIn) === 0
+  );
+};
+
+const recordPeriodStartPresence = (
+  batches: Map<number, PeriodStartBatch>,
+  presence: PlayerPresence,
+): void => {
+  const existing = batches.get(presence.periodNumber);
+  if (existing) {
+    existing.lineupIds.add(presence.matchLineupId);
+    existing.sequenceNumber = Math.min(
+      existing.sequenceNumber,
+      presence.sequenceNumber,
+    );
+    return;
+  }
+  batches.set(presence.periodNumber, {
+    timestamp: presence.timeIn,
+    sequenceNumber: presence.sequenceNumber,
+    lineupIds: new Set([presence.matchLineupId]),
+  });
+};
+
+const consumeMatchingExit = (
+  exitCounts: Map<string, number>,
+  presence: PlayerPresence,
+): boolean => {
+  const exitKey = `${presence.periodNumber}|${parseTimestampKey(presence.timeIn)}`;
+  const matchingExits = exitCounts.get(exitKey) ?? 0;
+  if (matchingExits <= 0) return false;
+  exitCounts.set(exitKey, matchingExits - 1);
+  return true;
+};
+
+const buildPeriodStartBatchItems = (
+  batches: ReadonlyMap<number, PeriodStartBatch>,
+): TimelineItem[] => {
+  const items: TimelineItem[] = [];
+  for (const [periodNumber, batch] of batches.entries()) {
+    if (periodNumber > 1) {
+      items.push({
+        kind: "PERIOD_START_BATCH",
+        periodNumber,
+        timestamp: batch.timestamp,
+        sequenceNumber: batch.sequenceNumber,
+        periodStartCount: batch.lineupIds.size,
+      });
+    }
+  }
+  return items;
+};
+
+const buildPresenceTimelineItems = (
+  presences: PlayerPresence[],
+): TimelineItem[] => {
+  const earliestByPeriod = findEarliestTimeInByPeriod(presences);
+  const exitCountsByPeriodAndTimestamp =
+    countExitsByPeriodAndTimestamp(presences);
+  const periodStartPresences = new Map<number, PeriodStartBatch>();
+  const items: TimelineItem[] = [];
+
+  for (const p of sortPresencesChronologically(presences)) {
+    if (isPeriodStartPresence(p, earliestByPeriod)) {
+      recordPeriodStartPresence(periodStartPresences, p);
       continue;
     }
 
-    const exitKey = `${p.periodNumber}|${parseTimestampKey(p.timeIn)}`;
-    const matchingExits = exitCountsByPeriodAndTimestamp.get(exitKey) ?? 0;
-    if (matchingExits > 0) {
-      exitCountsByPeriodAndTimestamp.set(exitKey, matchingExits - 1);
+    if (consumeMatchingExit(exitCountsByPeriodAndTimestamp, p)) {
       continue;
     }
 
@@ -350,19 +404,7 @@ const buildPresenceTimelineItems = (
     });
   }
 
-  for (const [periodNumber, batch] of periodStartPresences.entries()) {
-    if (periodNumber > 1) {
-      items.push({
-        kind: "PERIOD_START_BATCH",
-        periodNumber,
-        timestamp: batch.timestamp,
-        sequenceNumber: batch.sequenceNumber,
-        periodStartCount: batch.lineupIds.size,
-      });
-    }
-  }
-
-  return items;
+  return [...items, ...buildPeriodStartBatchItems(periodStartPresences)];
 };
 
 const KIND_PRIORITY: Record<TimelineItem["kind"], number> = {
@@ -413,6 +455,139 @@ const trimQueueToCapacity = (
   }
 };
 
+const isRecordInScope = (
+  lineupId: string,
+  periodNumber: number,
+  lineupSet: ReadonlySet<string>,
+  upToPeriodNumber?: number,
+): boolean => {
+  const matchesLineup = lineupSet.size === 0 || lineupSet.has(lineupId);
+  const matchesPeriod =
+    upToPeriodNumber === undefined || periodNumber <= upToPeriodNumber;
+  return matchesLineup && matchesPeriod;
+};
+
+const initializePlayersById = (
+  lineupSet: ReadonlySet<string>,
+): Record<string, PlayerDisciplinaryStatus> => {
+  const playersById: Record<string, PlayerDisciplinaryStatus> = {};
+  for (const id of lineupSet) {
+    playersById[id] = createInitialPlayerStatus(id);
+  }
+  return playersById;
+};
+
+const applyTimelineEvent = (
+  event: GameEvent,
+  rule: EffectiveDisciplinaryRule,
+  playersById: Record<string, PlayerDisciplinaryStatus>,
+  maxPersonalFouls: number | null | undefined,
+  activeTimedPenalties: ActiveTimedPenalty[],
+): number => {
+  const playerId = event.matchLineupId;
+  if (!playersById[playerId]) {
+    playersById[playerId] = createInitialPlayerStatus(playerId);
+  }
+
+  const { isPermanentNoSub } = applyEventToPlayerStatus(
+    playersById[playerId],
+    rule,
+    maxPersonalFouls,
+  );
+
+  if (rule.penaltyDurationSeconds !== null && rule.penaltyDurationSeconds > 0) {
+    activeTimedPenalties.push({
+      eventId: event.id,
+      matchLineupId: playerId,
+      periodNumber: event.periodNumber,
+      eventTimestamp: event.eventTimestamp,
+      sequenceNumber: event.sequenceNumber,
+      foulImpact: rule.foulImpact,
+      penaltyDurationSeconds: rule.penaltyDurationSeconds,
+    });
+  }
+
+  return isPermanentNoSub ? 1 : 0;
+};
+
+const applyTimelinePresenceAdjustment = (
+  item: TimelineItem,
+  activeTimedPenalties: ActiveTimedPenalty[],
+  currentMaxAllowed: number,
+): void => {
+  if (item.kind === "PERIOD_START_BATCH") {
+    const startCount = item.periodStartCount ?? 0;
+    const maxCarryoverAllowed = Math.max(0, currentMaxAllowed - startCount);
+    trimQueueToCapacity(activeTimedPenalties, maxCarryoverAllowed);
+    return;
+  }
+
+  if (item.kind === "MID_PERIOD_ENTRY") {
+    const activeAfterEntry = item.activeCountAtTimestamp ?? 0;
+    const maxUnservedByCapacity = Math.max(
+      0,
+      currentMaxAllowed - activeAfterEntry,
+    );
+    const targetUnservedCount = Math.min(
+      activeTimedPenalties.length,
+      maxUnservedByCapacity,
+    );
+    trimQueueToCapacity(
+      activeTimedPenalties,
+      targetUnservedCount,
+      item.entryLineupId,
+    );
+  }
+};
+
+const replayTimelineItems = (
+  sortedTimeline: TimelineItem[],
+  playersById: Record<string, PlayerDisciplinaryStatus>,
+  safeLimit: number,
+  maxPersonalFouls: number | null | undefined,
+): {
+  activeTimedPenalties: ActiveTimedPenalty[];
+  permanentNoSubCount: number;
+} => {
+  const activeTimedPenalties: ActiveTimedPenalty[] = [];
+  let permanentNoSubCount = 0;
+
+  for (const item of sortedTimeline) {
+    if (item.kind === "EVENT" && item.event && item.rule) {
+      permanentNoSubCount += applyTimelineEvent(
+        item.event,
+        item.rule,
+        playersById,
+        maxPersonalFouls,
+        activeTimedPenalties,
+      );
+      continue;
+    }
+
+    const currentMaxAllowed = Math.max(0, safeLimit - permanentNoSubCount);
+    applyTimelinePresenceAdjustment(
+      item,
+      activeTimedPenalties,
+      currentMaxAllowed,
+    );
+  }
+
+  return { activeTimedPenalties, permanentNoSubCount };
+};
+
+const applyActiveTimedPenaltiesToPlayers = (
+  playersById: Record<string, PlayerDisciplinaryStatus>,
+  activeTimedPenalties: readonly ActiveTimedPenalty[],
+): void => {
+  for (const penalty of activeTimedPenalties) {
+    const status = playersById[penalty.matchLineupId];
+    if (status) {
+      status.hasActiveTimedExclusion = true;
+      status.activeTimedExclusionCount += 1;
+    }
+  }
+};
+
 /**
  * Pure, deterministic derivation of match disciplinary state (personal fouls,
  * warnings, disqualifications, permanent no-sub reductions, and active FIFO
@@ -421,34 +596,29 @@ const trimQueueToCapacity = (
 export const calculateDisciplinaryState = (
   input: CalculateDisciplinaryStateInput,
 ): MatchDisciplinaryState => {
-  const safeLimit =
-    typeof input.activePlayersLimit === "number" &&
-    Number.isFinite(input.activePlayersLimit) &&
-    input.activePlayersLimit > 0
-      ? Math.floor(input.activePlayersLimit)
-      : 0;
+  const safeLimit = normalizeActivePlayersLimit(input.activePlayersLimit);
   const maxPersonalFouls = normalizeMaxPersonalFouls(input.maxPersonalFouls);
-
   const lineupSet = new Set(input.lineupIds);
-  const playersById: Record<string, PlayerDisciplinaryStatus> = {};
-  for (const id of lineupSet) {
-    playersById[id] = createInitialPlayerStatus(id);
-  }
+  const playersById = initializePlayersById(lineupSet);
 
   const relevantEvents = sortEventsChronologically(
-    input.events.filter(
-      (e) =>
-        (lineupSet.size === 0 || lineupSet.has(e.matchLineupId)) &&
-        (input.upToPeriodNumber === undefined ||
-          e.periodNumber <= input.upToPeriodNumber),
+    input.events.filter((e) =>
+      isRecordInScope(
+        e.matchLineupId,
+        e.periodNumber,
+        lineupSet,
+        input.upToPeriodNumber,
+      ),
     ),
   );
 
-  const relevantPresences = input.presences.filter(
-    (p) =>
-      (lineupSet.size === 0 || lineupSet.has(p.matchLineupId)) &&
-      (input.upToPeriodNumber === undefined ||
-        p.periodNumber <= input.upToPeriodNumber),
+  const relevantPresences = input.presences.filter((p) =>
+    isRecordInScope(
+      p.matchLineupId,
+      p.periodNumber,
+      lineupSet,
+      input.upToPeriodNumber,
+    ),
   );
 
   const timelineItems: TimelineItem[] = [
@@ -463,86 +633,17 @@ export const calculateDisciplinaryState = (
     ...buildPresenceTimelineItems(relevantPresences),
   ];
 
-  const sortedTimeline = sortTimelineItems(timelineItems);
-  const activeTimedPenalties: ActiveTimedPenalty[] = [];
-  let permanentNoSubCount = 0;
+  const { activeTimedPenalties, permanentNoSubCount } = replayTimelineItems(
+    sortTimelineItems(timelineItems),
+    playersById,
+    safeLimit,
+    maxPersonalFouls,
+  );
 
-  for (const item of sortedTimeline) {
-    if (item.kind === "EVENT" && item.event && item.rule) {
-      const playerId = item.event.matchLineupId;
-      if (!playersById[playerId]) {
-        playersById[playerId] = createInitialPlayerStatus(playerId);
-      }
-
-      const { isPermanentNoSub } = applyEventToPlayerStatus(
-        playersById[playerId],
-        item.rule,
-        maxPersonalFouls,
-      );
-      if (isPermanentNoSub) {
-        permanentNoSubCount += 1;
-      }
-
-      if (
-        item.rule.penaltyDurationSeconds !== null &&
-        item.rule.penaltyDurationSeconds > 0
-      ) {
-        activeTimedPenalties.push({
-          eventId: item.event.id,
-          matchLineupId: playerId,
-          periodNumber: item.event.periodNumber,
-          eventTimestamp: item.event.eventTimestamp,
-          sequenceNumber: item.event.sequenceNumber,
-          foulImpact: item.rule.foulImpact,
-          penaltyDurationSeconds: item.rule.penaltyDurationSeconds,
-        });
-      }
-      continue;
-    }
-
-    const currentMaxAllowed = Math.max(0, safeLimit - permanentNoSubCount);
-
-    if (item.kind === "PERIOD_START_BATCH") {
-      const startCount = item.periodStartCount ?? 0;
-      const maxCarryoverAllowed = Math.max(0, currentMaxAllowed - startCount);
-      trimQueueToCapacity(activeTimedPenalties, maxCarryoverAllowed);
-      continue;
-    }
-
-    if (item.kind === "MID_PERIOD_ENTRY") {
-      const activeAfterEntry = item.activeCountAtTimestamp ?? 0;
-      const maxUnservedByCapacity = Math.max(
-        0,
-        currentMaxAllowed - activeAfterEntry,
-      );
-      const targetUnservedCount = Math.min(
-        activeTimedPenalties.length,
-        maxUnservedByCapacity,
-      );
-      trimQueueToCapacity(
-        activeTimedPenalties,
-        targetUnservedCount,
-        item.entryLineupId,
-      );
-    }
-  }
-
-  for (const penalty of activeTimedPenalties) {
-    const status = playersById[penalty.matchLineupId];
-    if (status) {
-      status.hasActiveTimedExclusion = true;
-      status.activeTimedExclusionCount += 1;
-    }
-  }
+  applyActiveTimedPenaltiesToPlayers(playersById, activeTimedPenalties);
 
   const maxAllowedActive = Math.max(0, safeLimit - permanentNoSubCount);
-  const unservedTimedPenaltyCount = activeTimedPenalties.length;
   const currentActiveCount = input.activeLineupIds?.length ?? 0;
-  const isShorthanded = currentActiveCount < maxAllowedActive;
-  const shorthandedSlotsAvailable = Math.max(
-    0,
-    maxAllowedActive - currentActiveCount,
-  );
 
   return {
     activePlayersLimit: safeLimit,
@@ -551,9 +652,12 @@ export const calculateDisciplinaryState = (
     permanentNoSubCount,
     maxAllowedActive,
     activeTimedPenalties,
-    unservedTimedPenaltyCount,
-    isShorthanded,
-    shorthandedSlotsAvailable,
+    unservedTimedPenaltyCount: activeTimedPenalties.length,
+    isShorthanded: currentActiveCount < maxAllowedActive,
+    shorthandedSlotsAvailable: Math.max(
+      0,
+      maxAllowedActive - currentActiveCount,
+    ),
     playersById,
   };
 };
