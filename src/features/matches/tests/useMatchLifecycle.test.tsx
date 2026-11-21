@@ -2755,7 +2755,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
         await result.current.revertEndPeriod("seed-end-anchor");
       }),
     ).rejects.toThrow(
-      /Cannot undo period end: multiple pending termination requests match after period end/i,
+      /Cannot undo period end: multiple pending termination requests exist at or after period end/i,
     );
 
     // Anchor must NOT be deleted when undo is ambiguous
@@ -2808,6 +2808,221 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(db.timeanchors.delete).not.toHaveBeenCalled();
     expect(mockTimeAnchors.some((a) => a.id === "seed-end-anchor")).toBe(true);
     expect(mockSyncQueue.some((i) => i.id === 701)).toBe(true);
+    expect(store.getState().match.isPeriodEnded).toBe(true);
+  });
+
+  test("should reject revertEndPeriod without deleting the end anchor when a disciplinary exit shares the anchor millisecond and a legacy period-end termination is later", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockResolvedValue([
+                { id: "lineup-dq-same-ms" },
+                { id: "lineup-legacy-end" },
+              ]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    mockSyncQueue.push(
+      {
+        id: 801,
+        actionType: "PUT",
+        endpoint: "/Matches/test-match-id/presence/terminate",
+        payload: JSON.stringify({
+          periodNumber: 1,
+          playerLineupIds: ["lineup-dq-same-ms"],
+          timeOut: "2020-01-01T10:10:00Z",
+        }),
+        createdAt: "2020-01-01T10:10:00Z",
+      },
+      {
+        id: 802,
+        actionType: "PUT",
+        endpoint: "/Matches/test-match-id/presence/terminate",
+        payload: JSON.stringify({
+          periodNumber: 1,
+          playerLineupIds: ["lineup-legacy-end"],
+          timeOut: "2020-01-01T10:10:00.250Z",
+        }),
+        createdAt: "2020-01-01T10:10:00.250Z",
+      },
+    );
+
+    mockPlayerPresences = [
+      {
+        id: "presence-dq-same-ms",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00Z",
+        matchLineupId: "lineup-dq-same-ms",
+      },
+      {
+        id: "presence-legacy-end",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00.250Z",
+        matchLineupId: "lineup-legacy-end",
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.revertEndPeriod("seed-end-anchor");
+      }),
+    ).rejects.toThrow(
+      /Cannot undo period end: multiple pending termination requests exist at or after period end/i,
+    );
+
+    expect(db.timeanchors.delete).not.toHaveBeenCalled();
+    expect(mockTimeAnchors.some((a) => a.id === "seed-end-anchor")).toBe(true);
+    expect(mockSyncQueue.some((i) => i.id === 801)).toBe(true);
+    expect(mockSyncQueue.some((i) => i.id === 802)).toBe(true);
+    expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:10:00Z");
+    expect(mockPlayerPresences[1].timeOut).toBe("2020-01-01T10:10:00.250Z");
+    expect(store.getState().match.isPeriodEnded).toBe(true);
+  });
+
+  test("should reject revertEndPeriod without deleting the end anchor when a single post-anchor queue item conflicts with closed presence timestamps", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockResolvedValue([{ id: "lineup-1" }, { id: "lineup-2" }]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    mockSyncQueue.push({
+      id: 901,
+      actionType: "PUT",
+      endpoint: "/Matches/test-match-id/presence/terminate",
+      payload: JSON.stringify({
+        periodNumber: 1,
+        playerLineupIds: ["lineup-1"],
+        timeOut: "2020-01-01T10:10:00.250Z",
+      }),
+      createdAt: "2020-01-01T10:10:00.250Z",
+    });
+
+    // Case A: Single post-anchor presence with a different timestamp than the queue item
+    mockPlayerPresences = [
+      {
+        id: "presence-conflict",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00.500Z",
+        matchLineupId: "lineup-2",
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.revertEndPeriod("seed-end-anchor");
+      }),
+    ).rejects.toThrow(
+      /Cannot undo period end: closed presences have conflicting post-anchor timestamps/i,
+    );
+
+    expect(db.timeanchors.delete).not.toHaveBeenCalled();
+    expect(mockTimeAnchors.some((a) => a.id === "seed-end-anchor")).toBe(true);
+    expect(mockSyncQueue.some((i) => i.id === 901)).toBe(true);
+    expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:10:00.500Z");
+
+    // Case B: Multiple distinct post-anchor closed presence timestamps alongside the single queue item
+    mockPlayerPresences = [
+      {
+        id: "presence-matching",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00.250Z",
+        matchLineupId: "lineup-1",
+      },
+      {
+        id: "presence-conflicting",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00.500Z",
+        matchLineupId: "lineup-2",
+      },
+    ];
+
+    await expect(
+      act(async () => {
+        await result.current.revertEndPeriod("seed-end-anchor");
+      }),
+    ).rejects.toThrow(
+      /Cannot undo period end: multiple post-anchor closed presence timestamps are ambiguous/i,
+    );
+
+    expect(db.timeanchors.delete).not.toHaveBeenCalled();
+    expect(mockTimeAnchors.some((a) => a.id === "seed-end-anchor")).toBe(true);
+    expect(mockSyncQueue.some((i) => i.id === 901)).toBe(true);
     expect(store.getState().match.isPeriodEnded).toBe(true);
   });
 });

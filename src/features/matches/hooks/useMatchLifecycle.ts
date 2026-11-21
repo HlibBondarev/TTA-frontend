@@ -458,31 +458,15 @@ const filterPresencesForTerminateItem = (
   );
 };
 
-const resolvePresencesWithoutQueueMatch = (
+const resolvePresencesWithoutAnchor = (
   closedPresences: readonly PlayerPresence[],
-  endAnchorTimestamp?: string,
 ): PlayerPresence[] => {
-  if (!endAnchorTimestamp) {
-    if (hasSingleDistinctTimestamp(closedPresences)) {
-      return [...closedPresences];
-    }
-    throw new Error(
-      "Cannot undo period end: multiple closed presence timestamps exist without an anchor timestamp.",
-    );
+  if (hasSingleDistinctTimestamp(closedPresences)) {
+    return [...closedPresences];
   }
-
-  const postAnchorPresences = closedPresences.filter((p) =>
-    isTimestampAtOrAfter(p.timeOut, endAnchorTimestamp),
+  throw new Error(
+    "Cannot undo period end: multiple closed presence timestamps exist without an anchor timestamp.",
   );
-  if (postAnchorPresences.length === 0) {
-    return [];
-  }
-  if (!hasSingleDistinctTimestamp(postAnchorPresences)) {
-    throw new Error(
-      "Cannot undo period end: multiple post-anchor closed presence timestamps are ambiguous.",
-    );
-  }
-  return postAnchorPresences;
 };
 
 const resolvePlanWithAnchorTimestamp = (
@@ -490,21 +474,6 @@ const resolvePlanWithAnchorTimestamp = (
   closedPresences: readonly PlayerPresence[],
   endAnchorTimestamp: string,
 ): RevertEndPeriodPlan => {
-  const exactQueueMatches = pendingTerminateItems.filter((item) =>
-    timestampsMatch(item.timeOut, endAnchorTimestamp),
-  );
-  const exactPresenceMatches = closedPresences.filter((p) =>
-    timestampsMatch(p.timeOut, endAnchorTimestamp),
-  );
-  if (exactQueueMatches.length > 0 || exactPresenceMatches.length > 0) {
-    return {
-      terminateQueueItemIds: exactQueueMatches
-        .map((item) => item.id)
-        .filter((id): id is number => id !== undefined),
-      presencesToReopen: exactPresenceMatches,
-    };
-  }
-
   const hasInvalidTimestamp = pendingTerminateItems.some(
     (item) => !item.timeOut || Number.isNaN(Date.parse(item.timeOut)),
   );
@@ -519,15 +488,33 @@ const resolvePlanWithAnchorTimestamp = (
   );
   if (postAnchorQueueItems.length > 1) {
     throw new Error(
-      "Cannot undo period end: multiple pending termination requests match after period end.",
+      "Cannot undo period end: multiple pending termination requests exist at or after period end.",
     );
   }
+
+  const postAnchorPresences = closedPresences.filter((p) =>
+    isTimestampAtOrAfter(p.timeOut, endAnchorTimestamp),
+  );
+  if (!hasSingleDistinctTimestamp(postAnchorPresences)) {
+    throw new Error(
+      "Cannot undo period end: multiple post-anchor closed presence timestamps are ambiguous.",
+    );
+  }
+
   if (postAnchorQueueItems.length === 1) {
     const candidate = postAnchorQueueItems[0];
+    const hasConflictingPresenceTimestamp = postAnchorPresences.some(
+      (p) => !timestampsMatch(p.timeOut, candidate.timeOut),
+    );
+    if (hasConflictingPresenceTimestamp) {
+      throw new Error(
+        "Cannot undo period end: closed presences have conflicting post-anchor timestamps.",
+      );
+    }
     return {
       terminateQueueItemIds: candidate.id !== undefined ? [candidate.id] : [],
       presencesToReopen: filterPresencesForTerminateItem(
-        closedPresences,
+        postAnchorPresences,
         candidate,
       ),
     };
@@ -535,10 +522,7 @@ const resolvePlanWithAnchorTimestamp = (
 
   return {
     terminateQueueItemIds: [],
-    presencesToReopen: resolvePresencesWithoutQueueMatch(
-      closedPresences,
-      endAnchorTimestamp,
-    ),
+    presencesToReopen: postAnchorPresences,
   };
 };
 
@@ -571,13 +555,13 @@ const resolveRevertEndPeriodPlan = (
       terminateQueueItemIds: singleItem.id !== undefined ? [singleItem.id] : [],
       presencesToReopen: singleItem.timeOut
         ? filterPresencesForTerminateItem(closedPresences, singleItem)
-        : resolvePresencesWithoutQueueMatch(closedPresences),
+        : resolvePresencesWithoutAnchor(closedPresences),
     };
   }
 
   return {
     terminateQueueItemIds: [],
-    presencesToReopen: resolvePresencesWithoutQueueMatch(closedPresences),
+    presencesToReopen: resolvePresencesWithoutAnchor(closedPresences),
   };
 };
 
