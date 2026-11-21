@@ -1,5 +1,5 @@
 import { apiClient } from "../api/client";
-import { db } from "../db/ttaDatabase";
+import { db, type PlayerPresence } from "../db/ttaDatabase";
 import {
   UNRECOVERABLE_STATUS_CODES,
   extractErrorStatus,
@@ -199,23 +199,111 @@ const isSyncedAnchorItem = (
   return ids.length > 0 && ids.every((id) => syncedAnchors.has(id));
 };
 
+const timestampsEqual = (a?: string | null, b?: string | null): boolean => {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const parsedA = Date.parse(a);
+  const parsedB = Date.parse(b);
+  return (
+    !Number.isNaN(parsedA) && !Number.isNaN(parsedB) && parsedA === parsedB
+  );
+};
+
+const isPresenceSyncedForTerminate = (
+  presence: PlayerPresence,
+  lineupId: string,
+  periodNumber: number | undefined,
+  targetTimeOut: string | undefined,
+  syncedPresences: Set<string>,
+): boolean => {
+  if (presence.matchLineupId !== lineupId || presence.timeOut === null) {
+    return false;
+  }
+  if (periodNumber !== undefined && presence.periodNumber !== periodNumber) {
+    return false;
+  }
+  if (
+    targetTimeOut !== undefined &&
+    !timestampsEqual(presence.timeOut, targetTimeOut)
+  ) {
+    return false;
+  }
+  return presence.isSynced === 1 || syncedPresences.has(presence.id);
+};
+
+const isTerminateQueueItemSynced = (
+  payload: unknown,
+  syncedPresences: Set<string>,
+  matchPresences: readonly PlayerPresence[] | null,
+): boolean => {
+  if (typeof payload !== "object" || payload === null) return false;
+
+  const obj = payload as {
+    periodNumber?: unknown;
+    playerLineupIds?: unknown;
+    timeOut?: unknown;
+  };
+  const periodNumber =
+    typeof obj.periodNumber === "number" ? obj.periodNumber : undefined;
+  const playerLineupIds = Array.isArray(obj.playerLineupIds)
+    ? obj.playerLineupIds.filter((id): id is string => typeof id === "string")
+    : [];
+  const targetTimeOut =
+    typeof obj.timeOut === "string" && obj.timeOut.trim().length > 0
+      ? obj.timeOut
+      : undefined;
+
+  if (playerLineupIds.length === 0) {
+    return periodNumber !== undefined && syncedPresences.size > 0;
+  }
+
+  if (matchPresences === null || matchPresences.length === 0) {
+    return false;
+  }
+
+  return playerLineupIds.every((lineupId) =>
+    matchPresences.some((p) =>
+      isPresenceSyncedForTerminate(
+        p,
+        lineupId,
+        periodNumber,
+        targetTimeOut,
+        syncedPresences,
+      ),
+    ),
+  );
+};
+
 const isSyncedPresenceItem = (
   item: SyncQueueItem,
   payload: unknown,
   syncedPresences: Set<string>,
+  matchPresences: readonly PlayerPresence[] | null = [],
 ): boolean => {
   if (item.endpoint.includes("/presence/terminate")) {
-    return item.actionType === "PUT" && syncedPresences.size > 0;
+    return (
+      item.actionType === "PUT" &&
+      isTerminateQueueItemSynced(payload, syncedPresences, matchPresences)
+    );
   }
 
   if (item.actionType !== "POST") return false;
   const ids = extractPresenceIds(payload);
-  return ids.length > 0 && ids.every((id) => syncedPresences.has(id));
+  return (
+    ids.length > 0 &&
+    ids.every(
+      (id) =>
+        syncedPresences.has(id) ||
+        (matchPresences !== null &&
+          matchPresences.some((p) => p.id === id && p.isSynced === 1)),
+    )
+  );
 };
 
 const shouldDeleteQueueItem = (
   item: SyncQueueItem,
   syncedSets: SyncedEntitySets,
+  matchPresences: readonly PlayerPresence[] | null = [],
 ): boolean => {
   const payload = parsePayload(item.payload);
   if (payload === null) return false;
@@ -232,10 +320,35 @@ const shouldDeleteQueueItem = (
     item.endpoint.includes("/presence") ||
     item.endpoint.includes("/substitutions")
   ) {
-    return isSyncedPresenceItem(item, payload, syncedSets.presences);
+    return isSyncedPresenceItem(
+      item,
+      payload,
+      syncedSets.presences,
+      matchPresences,
+    );
   }
 
   return false;
+};
+
+const loadMatchPresencesForCleanup = async (
+  normalizedMatchId: string,
+): Promise<PlayerPresence[] | null> => {
+  if (!db.matchlineups || !db.playerpresences) return null;
+  try {
+    const lineups = await db.matchlineups
+      .where("matchId")
+      .equals(normalizedMatchId)
+      .toArray();
+    if (!Array.isArray(lineups) || lineups.length === 0) return [];
+    const lineupIds = new Set(lineups.map((l) => l.id));
+    const presences = await db.playerpresences
+      .filter((p) => lineupIds.has(p.matchLineupId))
+      .toArray();
+    return Array.isArray(presences) ? presences : [];
+  } catch {
+    return null;
+  }
 };
 
 const cleanupBatchQueue = async (
@@ -245,6 +358,7 @@ const cleanupBatchQueue = async (
   if (!db.syncQueue) return;
 
   const queueItems = await db.syncQueue.toArray();
+  const matchPresences = await loadMatchPresencesForCleanup(normalizedMatchId);
   const prefix = `/Matches/${normalizedMatchId}/`;
   const syncedSets: SyncedEntitySets = {
     events: new Set(batchData?.syncedEventIds ?? []),
@@ -263,7 +377,7 @@ const cleanupBatchQueue = async (
       continue;
     }
 
-    if (shouldDeleteQueueItem(item, syncedSets)) {
+    if (shouldDeleteQueueItem(item, syncedSets, matchPresences)) {
       idsToDelete.push(item.id);
     }
   }
@@ -293,7 +407,13 @@ export const syncMatchBatch = async (
 
   await db.transaction(
     "rw",
-    [db.gameevents, db.timeanchors, db.playerpresences, db.syncQueue],
+    [
+      db.gameevents,
+      db.timeanchors,
+      db.playerpresences,
+      db.syncQueue,
+      ...(db.matchlineups ? [db.matchlineups] : []),
+    ],
     async () => {
       if (syncedEventIds.length > 0) {
         await db.gameevents
@@ -324,11 +444,6 @@ export const syncMatchBatch = async (
 const extractPresenceLineupIds = (
   presencePayload: Record<string, unknown>,
 ): string[] => {
-  if (Array.isArray(presencePayload.presenceItems)) {
-    return (presencePayload.presenceItems as PresenceItemPayload[]).map(
-      (item) => item.matchLineupId,
-    );
-  }
   if (Array.isArray(presencePayload.playerLineupIds)) {
     return presencePayload.playerLineupIds as string[];
   }
@@ -376,6 +491,30 @@ const extractEventIds = (endpoint: string, payload: unknown): string[] =>
 const extractAnchorIds = (endpoint: string, payload: unknown): string[] =>
   extractEntityIds("anchors", endpoint, payload);
 
+const shouldSyncNonInitializePresence = (
+  presence: PlayerPresence,
+  explicitPresenceIds: Set<string>,
+  affectedLineupIds: Set<string>,
+  targetTimeOut?: string,
+): boolean => {
+  if (explicitPresenceIds.has(presence.id)) {
+    return true;
+  }
+  if (
+    !affectedLineupIds.has(presence.matchLineupId) ||
+    presence.timeIn === null
+  ) {
+    return false;
+  }
+  if (targetTimeOut !== undefined) {
+    return (
+      presence.timeOut !== null &&
+      timestampsEqual(presence.timeOut, targetTimeOut)
+    );
+  }
+  return presence.timeOut !== null;
+};
+
 const syncPresences = async (
   payload: unknown,
   targetStatus: number = 1,
@@ -388,18 +527,38 @@ const syncPresences = async (
     return;
   }
 
+  const explicitPresenceIds = new Set<string>(
+    extractPresenceIds(presencePayload),
+  );
+
+  if (Array.isArray(presencePayload.presenceItems)) {
+    await db.playerpresences
+      .where("periodNumber")
+      .equals(presencePayload.periodNumber)
+      .filter((p) => explicitPresenceIds.has(p.id))
+      .modify({ isSynced: targetStatus });
+    return;
+  }
+
   const affectedLineupIds = new Set<string>(
     extractPresenceLineupIds(presencePayload),
   );
+  const targetTimeOut =
+    typeof presencePayload.timeOut === "string" &&
+    presencePayload.timeOut.trim().length > 0
+      ? presencePayload.timeOut
+      : undefined;
 
   await db.playerpresences
     .where("periodNumber")
     .equals(presencePayload.periodNumber)
-    .filter(
-      (p) =>
-        affectedLineupIds.has(p.matchLineupId) &&
-        p.timeIn !== null &&
-        p.timeOut !== null,
+    .filter((p) =>
+      shouldSyncNonInitializePresence(
+        p,
+        explicitPresenceIds,
+        affectedLineupIds,
+        targetTimeOut,
+      ),
     )
     .modify({ isSynced: targetStatus });
 };
