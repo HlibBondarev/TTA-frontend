@@ -3209,6 +3209,158 @@ describe("Event Database Service (eventService)", () => {
       expect(mockPlayerPresencesUpdate).not.toHaveBeenCalled();
     });
 
+    it("should document the clamped cross-period DQ tradeoff: creating a Period-1 DQ closes an open Period-2 presence at clamped timeIn, and deleting that DQ intentionally leaves the clamped exit closed", async () => {
+      const p1DqTime = "2026-07-22T12:02:00.000Z";
+      const p2TimeIn = "2026-07-22T12:10:00.000Z";
+
+      mockEventDefinitionsGet.mockResolvedValue({
+        id: "def-dq-cross",
+        sportId: "sport-1",
+        name: "Red Card",
+        shortName: "RC",
+        isPositive: false,
+        isShot: false,
+        foulImpact: "DisqualificationNoSub",
+        penaltyDurationSeconds: null,
+      });
+      mockMatchLineupsGet.mockResolvedValue({
+        id: "lineup-11",
+        matchId: "match-123",
+      });
+      mockMatchesGet.mockResolvedValue({
+        id: "match-123",
+        tournamentId: "tourn-1",
+      });
+      mockTournamentsGet.mockResolvedValue({
+        id: "tourn-1",
+        configurationId: "cfg-1",
+      });
+      mockSportConfigurationsGet.mockResolvedValue({
+        id: "cfg-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+      });
+
+      const p2Presence: {
+        id: string;
+        matchLineupId: string;
+        periodNumber: number;
+        timeIn: string;
+        timeOut: string | null;
+        sequenceNumber: number;
+        isSynced: number;
+      } = {
+        id: "pres-p2-open",
+        matchLineupId: "lineup-11",
+        periodNumber: 2,
+        timeIn: p2TimeIn,
+        timeOut: null,
+        sequenceNumber: 15,
+        isSynced: 0,
+      };
+
+      mockPlayerPresencesUpdate.mockImplementation(
+        (_id: string, patch: { timeOut?: string | null }) => {
+          if (patch.timeOut !== undefined) {
+            p2Presence.timeOut = patch.timeOut;
+          }
+          return Promise.resolve(1);
+        },
+      );
+
+      mockPlayerPresencesWhere.mockImplementation((arg: unknown) => {
+        if (arg === "periodNumber") {
+          return {
+            equals: vi.fn().mockReturnValue({
+              filter: vi.fn().mockReturnValue({
+                toArray: vi.fn().mockResolvedValue([
+                  { id: "open-1", matchLineupId: "l1", timeOut: null },
+                ]),
+              }),
+            }),
+          };
+        }
+        if (arg === "matchLineupId") {
+          return {
+            equals: vi.fn().mockReturnValue({
+              toArray: vi.fn().mockResolvedValue([p2Presence]),
+              filter: vi.fn(
+                (predicate: (p: typeof p2Presence) => boolean) => ({
+                  first: vi
+                    .fn()
+                    .mockResolvedValue([p2Presence].find(predicate)),
+                }),
+              ),
+            }),
+          };
+        }
+        return {
+          toArray: vi.fn().mockResolvedValue([]),
+          filter: vi.fn().mockReturnValue({
+            first: vi.fn().mockResolvedValue(undefined),
+          }),
+        };
+      });
+
+      // Step 1: Create Period-1 DQ while player is open in Period 2 -> closes Period-2 presence at clamped timeIn (12:10)
+      const createdDq = await createGameEventTx({
+        matchId: "match-123",
+        teamId: "team-456",
+        matchLineupId: "lineup-11",
+        eventDefinitionId: "def-dq-cross",
+        periodNumber: 1,
+        eventTimestamp: p1DqTime,
+        isLeadToGoal: false,
+      });
+
+      expect(mockPlayerPresencesUpdate).toHaveBeenCalledWith("pres-p2-open", {
+        timeOut: p2TimeIn,
+        isSynced: 0,
+      });
+      expect(p2Presence.timeOut).toBe(p2TimeIn);
+
+      // Step 2: Delete that Period-1 DQ -> clamped exit (12:10 != 12:02) is intentionally NOT auto-reverted
+      mockPlayerPresencesUpdate.mockClear();
+      mockGameEventsGet.mockResolvedValueOnce(createdDq);
+      mockGameEventsWhere.mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([createdDq]),
+        }),
+      });
+      mockSyncQueueFilter.mockImplementation(
+        (predicate: (item: { endpoint: string }) => boolean) => ({
+          toArray: vi.fn().mockResolvedValue(
+            [
+              {
+                id: 30,
+                actionType: "POST",
+                endpoint: "/Matches/match-123/teams/team-456/events",
+                payload: JSON.stringify([{ id: createdDq.id }]),
+              },
+              {
+                id: 67,
+                actionType: "PUT",
+                endpoint: "/Matches/match-123/presence/terminate",
+                payload: JSON.stringify({
+                  periodNumber: 2,
+                  playerLineupIds: ["lineup-11"],
+                  timeOut: p2TimeIn,
+                }),
+                createdAt: p2TimeIn,
+              },
+            ].filter(predicate),
+          ),
+        }),
+      );
+
+      await deleteGameEventTx(createdDq.id);
+
+      expect(mockSyncQueueDelete).toHaveBeenCalledWith(30);
+      expect(mockSyncQueueDelete).not.toHaveBeenCalledWith(67);
+      expect(mockPlayerPresencesUpdate).not.toHaveBeenCalled();
+      expect(p2Presence.timeOut).toBe(p2TimeIn);
+    });
+
     it("should reconcile earlier-period foul edited into a served timed exclusion and preserve a still-active same-period exclusion", async () => {
       const p1FoulTime = "2026-07-22T12:02:00.000Z";
       const p2FoulOutTime = "2026-07-22T12:14:00.000Z";
