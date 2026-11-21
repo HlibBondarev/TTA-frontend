@@ -3025,4 +3025,86 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(mockSyncQueue.some((i) => i.id === 901)).toBe(true);
     expect(store.getState().match.isPeriodEnded).toBe(true);
   });
+
+  test("should preserve a disciplinary exit at the exact anchor timestamp when period ended with no open presences", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockResolvedValue([{ id: "lineup-last-open-dq" }]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    // Disciplinary exit happened immediately before period end (same millisecond as seed-end-anchor,
+    // so queue id 100 < seed-end-anchor queue id 101). Period termination queued NO request because
+    // 0 presences remained open.
+    mockSyncQueue.unshift({
+      id: 100,
+      actionType: "PUT",
+      endpoint: "/Matches/test-match-id/presence/terminate",
+      payload: JSON.stringify({
+        periodNumber: 1,
+        playerLineupIds: ["lineup-last-open-dq"],
+        timeOut: "2020-01-01T10:10:00Z",
+      }),
+      createdAt: "2020-01-01T10:10:00Z",
+    });
+
+    mockPlayerPresences = [
+      {
+        id: "presence-last-open-dq",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00Z",
+        matchLineupId: "lineup-last-open-dq",
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod("seed-end-anchor");
+    });
+
+    // End anchor is deleted, but the disciplinary termination queue item and closed presence are preserved
+    expect(db.timeanchors.delete).toHaveBeenCalledWith("seed-end-anchor");
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(100);
+    expect(mockSyncQueue.some((i) => i.id === 100)).toBe(true);
+    expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:10:00Z");
+    expect(store.getState().match.isPeriodActive).toBe(true);
+    expect(store.getState().match.isPeriodEnded).toBe(false);
+  });
 });

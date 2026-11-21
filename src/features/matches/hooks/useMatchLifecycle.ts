@@ -458,6 +458,53 @@ const filterPresencesForTerminateItem = (
   );
 };
 
+const findEndAnchorSyncQueueId = async (
+  anchorId?: string,
+): Promise<number | undefined> => {
+  if (!anchorId || !db?.syncQueue) return undefined;
+  const matchingItems = await db.syncQueue
+    .filter((item) => item.payload.includes(anchorId))
+    .toArray();
+  const ids = matchingItems
+    .map((item) => item.id)
+    .filter((id): id is number => id !== undefined);
+  return ids.length > 0 ? Math.max(...ids) : undefined;
+};
+
+const isPreAnchorQueueItem = (
+  item: ParsedTerminateQueueItem,
+  endAnchorQueueItemId?: number,
+): boolean =>
+  endAnchorQueueItemId !== undefined &&
+  item.id !== undefined &&
+  item.id < endAnchorQueueItemId;
+
+const excludePreAnchorPresences = (
+  postAnchorPresences: readonly PlayerPresence[],
+  preAnchorQueueItems: readonly ParsedTerminateQueueItem[],
+  endAnchorTimestamp: string,
+): PlayerPresence[] => {
+  const preAnchorAtOrAfter = preAnchorQueueItems.filter((item) =>
+    isTimestampAtOrAfter(item.timeOut, endAnchorTimestamp),
+  );
+  if (preAnchorAtOrAfter.length === 0) {
+    return [...postAnchorPresences];
+  }
+  if (preAnchorAtOrAfter.some((item) => item.playerLineupIds.length === 0)) {
+    throw new Error(
+      "Cannot undo period end: a pre-anchor termination at period end has no playerLineupIds to disambiguate.",
+    );
+  }
+  return postAnchorPresences.filter(
+    (p) =>
+      !preAnchorAtOrAfter.some(
+        (item) =>
+          timestampsMatch(p.timeOut, item.timeOut) &&
+          item.playerLineupIds.includes(p.matchLineupId),
+      ),
+  );
+};
+
 const resolvePresencesWithoutAnchor = (
   closedPresences: readonly PlayerPresence[],
 ): PlayerPresence[] => {
@@ -473,6 +520,7 @@ const resolvePlanWithAnchorTimestamp = (
   pendingTerminateItems: readonly ParsedTerminateQueueItem[],
   closedPresences: readonly PlayerPresence[],
   endAnchorTimestamp: string,
+  endAnchorQueueItemId?: number,
 ): RevertEndPeriodPlan => {
   const hasInvalidTimestamp = pendingTerminateItems.some(
     (item) => !item.timeOut || Number.isNaN(Date.parse(item.timeOut)),
@@ -483,8 +531,13 @@ const resolvePlanWithAnchorTimestamp = (
     );
   }
 
-  const postAnchorQueueItems = pendingTerminateItems.filter((item) =>
-    isTimestampAtOrAfter(item.timeOut, endAnchorTimestamp),
+  const preAnchorQueueItems = pendingTerminateItems.filter((item) =>
+    isPreAnchorQueueItem(item, endAnchorQueueItemId),
+  );
+  const postAnchorQueueItems = pendingTerminateItems.filter(
+    (item) =>
+      !isPreAnchorQueueItem(item, endAnchorQueueItemId) &&
+      isTimestampAtOrAfter(item.timeOut, endAnchorTimestamp),
   );
   if (postAnchorQueueItems.length > 1) {
     throw new Error(
@@ -492,8 +545,13 @@ const resolvePlanWithAnchorTimestamp = (
     );
   }
 
-  const postAnchorPresences = closedPresences.filter((p) =>
+  const rawPostAnchorPresences = closedPresences.filter((p) =>
     isTimestampAtOrAfter(p.timeOut, endAnchorTimestamp),
+  );
+  const postAnchorPresences = excludePreAnchorPresences(
+    rawPostAnchorPresences,
+    preAnchorQueueItems,
+    endAnchorTimestamp,
   );
   if (!hasSingleDistinctTimestamp(postAnchorPresences)) {
     throw new Error(
@@ -534,12 +592,14 @@ const resolveRevertEndPeriodPlan = (
   pendingTerminateItems: readonly ParsedTerminateQueueItem[],
   closedPresences: readonly PlayerPresence[],
   endAnchorTimestamp?: string,
+  endAnchorQueueItemId?: number,
 ): RevertEndPeriodPlan => {
   if (endAnchorTimestamp) {
     return resolvePlanWithAnchorTimestamp(
       pendingTerminateItems,
       closedPresences,
       endAnchorTimestamp,
+      endAnchorQueueItemId,
     );
   }
 
@@ -901,15 +961,18 @@ export const useMatchLifecycle = () => {
         const targetAnchorId = targetAnchor?.id ?? anchorId ?? undefined;
         const endAnchorTimestamp = targetAnchor?.timestamp;
 
-        const [pendingTerminateItems, closedPresences] = await Promise.all([
-          loadPendingTerminateQueueItems(normalizedMatchId, currentPeriod),
-          loadClosedPlayerPresences(normalizedMatchId, currentPeriod),
-        ]);
+        const [pendingTerminateItems, closedPresences, endAnchorQueueItemId] =
+          await Promise.all([
+            loadPendingTerminateQueueItems(normalizedMatchId, currentPeriod),
+            loadClosedPlayerPresences(normalizedMatchId, currentPeriod),
+            findEndAnchorSyncQueueId(targetAnchorId),
+          ]);
 
         const revertPlan = resolveRevertEndPeriodPlan(
           pendingTerminateItems,
           closedPresences,
           endAnchorTimestamp,
+          endAnchorQueueItemId,
         );
 
         if (targetAnchorId) {
