@@ -438,16 +438,7 @@ const purgeTerminateSyncQueueItems = async (
 const shouldApplyLegacyReopenFallback = (
   presences: readonly PlayerPresence[],
   periodEndTimestamp?: string,
-): boolean => {
-  if (presences.length === 1 && !periodEndTimestamp) {
-    return true;
-  }
-  return (
-    presences.every((p) => p.timeOut === presences[0].timeOut) &&
-    periodEndTimestamp === "2020-01-01T10:10:00Z" &&
-    presences[0].timeOut === "2020-01-01T10:00:00Z"
-  );
-};
+): boolean => presences.length === 1 && !periodEndTimestamp;
 
 /**
  * Reopens ONLY the player presences closed by the specific period-end termination action,

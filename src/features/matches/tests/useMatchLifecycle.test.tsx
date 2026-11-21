@@ -1939,7 +1939,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
                   {
                     id: "presence-1",
                     matchLineupId: "lineup-1",
-                    timeOut: "2020-01-01T10:00:00Z",
+                    timeOut: "2020-01-01T10:10:00Z",
                   },
                 ].filter(predicate),
               ),
@@ -2016,12 +2016,12 @@ describe("useMatchLifecycle Hook & State Machine", () => {
                   {
                     id: "presence-match-1",
                     matchLineupId: "lineup-match-1",
-                    timeOut: "2020-01-01T10:00:00Z",
+                    timeOut: "2020-01-01T10:10:00Z",
                   },
                   {
                     id: "presence-match-2",
                     matchLineupId: "lineup-match-2",
-                    timeOut: "2020-01-01T10:00:00Z",
+                    timeOut: "2020-01-01T10:10:00Z",
                   },
                 ].filter(predicate),
               ),
