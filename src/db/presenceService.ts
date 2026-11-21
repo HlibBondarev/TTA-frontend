@@ -252,14 +252,8 @@ export async function revertSinglePlayerAutoExitInTx(
     return false;
   }
 
-  if (eventTimestamp) {
-    const expectedTimeOut = resolveEffectiveTimeOut(
-      latestPresence.timeIn,
-      eventTimestamp,
-    );
-    if (!areTimestampsEqual(closedTimeOut, expectedTimeOut)) {
-      return false;
-    }
+  if (eventTimestamp && !areTimestampsEqual(closedTimeOut, eventTimestamp)) {
+    return false;
   }
 
   const terminateEndpoint = `/Matches/${matchId}/presence/terminate`;

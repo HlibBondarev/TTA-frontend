@@ -752,11 +752,7 @@ const matchesDisqualificationExitCause = (
   if (!closedTimeOut) return false;
 
   if (isDirectDisqualificationImpact(existingRule.foulImpact)) {
-    const expectedTimeOut = resolveEffectiveTimeOut(
-      closedPresence.timeIn,
-      existing.eventTimestamp,
-    );
-    return areTimestampsEqual(closedTimeOut, expectedTimeOut);
+    return areTimestampsEqual(closedTimeOut, existing.eventTimestamp);
   }
 
   if (existingRule.foulImpact !== "PersonalFoul") {
@@ -771,13 +767,9 @@ const matchesDisqualificationExitCause = (
     }),
   ];
 
-  return candidateFouls.some((foul) => {
-    const expectedTimeOut = resolveEffectiveTimeOut(
-      closedPresence.timeIn,
-      foul.eventTimestamp,
-    );
-    return areTimestampsEqual(closedTimeOut, expectedTimeOut);
-  });
+  return candidateFouls.some((foul) =>
+    areTimestampsEqual(closedTimeOut, foul.eventTimestamp),
+  );
 };
 
 const evaluatePlayerPostChangeStatusInTx = async (
