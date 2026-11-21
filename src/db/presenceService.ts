@@ -8,7 +8,7 @@ type TerminatePresenceRequest =
   components["schemas"]["TerminatePresenceRequest"];
 type SubstitutePlayerRequest = components["schemas"]["SubstitutePlayerRequest"];
 
-const resolveEffectiveTimeOut = (
+export const resolveEffectiveTimeOut = (
   timeIn: string | undefined,
   candidateTimeOut: string,
 ): string => {
@@ -23,7 +23,7 @@ const resolveEffectiveTimeOut = (
     : timeIn;
 };
 
-const areTimestampsEqual = (
+export const areTimestampsEqual = (
   first?: string | null,
   second?: string | null,
 ): boolean => {
@@ -133,6 +133,28 @@ const findLatestPresenceInPeriod = (
   }
   return latest;
 };
+
+/**
+ * Finds the player's latest unsynced closed presence in a specific period.
+ * Returns undefined if the player has an open presence in that period or if
+ * the latest presence is already synced.
+ */
+export async function findLatestClosedPresenceInPeriodInTx(
+  matchLineupId: string,
+  periodNumber: number,
+): Promise<PlayerPresence | undefined> {
+  const playerPresences = await listPlayerPresencesInPeriod(
+    matchLineupId,
+    periodNumber,
+  );
+  if (playerPresences.some((p) => p.timeOut === null)) {
+    return undefined;
+  }
+  const latest = findLatestPresenceInPeriod(playerPresences);
+  return latest && latest.timeOut !== null && latest.isSynced === 0
+    ? latest
+    : undefined;
+}
 
 /**
  * Finds the player's latest unsynced closed presence across all periods in Dexie.

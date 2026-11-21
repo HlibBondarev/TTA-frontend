@@ -2913,9 +2913,10 @@ describe("Event Database Service (eventService)", () => {
       expect(mockPlayerPresencesUpdate).not.toHaveBeenCalled();
     });
 
-    it("should revert cross-period match-wide DQ or foul-limit exit in the active period when an earlier-period event is deleted", async () => {
+    it("should revert cross-period match-wide DQ exit in the active period when an earlier-period DQ is deleted and timestamps link causally", async () => {
       const p1EventTime = "2026-07-22T12:02:00.000Z";
-      const p2ExitTime = "2026-07-22T12:12:00.000Z";
+      // Period 1 DQ at 12:02 clamped to Period 2 timeIn (12:10) when closing Period 2 presence
+      const p2ExitTime = "2026-07-22T12:10:00.000Z";
 
       mockGameEventsGet.mockResolvedValueOnce({
         id: "evt-p1-dq",
@@ -3041,6 +3042,495 @@ describe("Event Database Service (eventService)", () => {
         timeOut: null,
         isSynced: 0,
       });
+    });
+
+    it("should reconcile earlier-period foul edited into a served timed exclusion and preserve a still-active same-period exclusion", async () => {
+      const p1FoulTime = "2026-07-22T12:02:00.000Z";
+      const p2FoulOutTime = "2026-07-22T12:14:00.000Z";
+
+      mockMatchLineupsGet.mockResolvedValue({
+        id: "lineup-11",
+        matchId: "match-123",
+      });
+      mockMatchesGet.mockResolvedValue({
+        id: "match-123",
+        tournamentId: "tourn-1",
+      });
+      mockTournamentsGet.mockResolvedValue({
+        id: "tourn-1",
+        configurationId: "cfg-1",
+      });
+      mockSportConfigurationsGet.mockResolvedValue({
+        id: "cfg-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+      });
+
+      // Period 1 has ended; Period 2 is active
+      const anchors = [
+        {
+          id: "anchor-end-1",
+          matchId: "match-123",
+          periodNumber: 1,
+          type: 1,
+          timestamp: "2026-07-22T12:08:00.000Z",
+          sequenceNumber: 10,
+          isSynced: 1,
+        },
+      ];
+      mockTimeAnchorsWhere.mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn((predicate: (a: (typeof anchors)[0]) => boolean) => ({
+            first: vi.fn().mockResolvedValue(anchors.find(predicate)),
+          })),
+        }),
+      });
+
+      const timedExNoPersonalFoulDef = {
+        id: "def-timed-ex-only",
+        sportId: "sport-1",
+        name: "Technical Exclusion",
+        shortName: "TE",
+        isPositive: false,
+        isShot: false,
+        foulImpact: "None" as const,
+        penaltyDurationSeconds: 20,
+      };
+      mockEventDefinitionsGet.mockResolvedValue(timedExNoPersonalFoulDef);
+
+      const p1FoulEvent = {
+        id: "evt-p1-foul-1",
+        matchLineupId: "lineup-11",
+        eventDefinitionId: "def-pf",
+        periodNumber: 1,
+        eventTimestamp: p1FoulTime,
+        isLeadToGoal: false,
+        foulImpact: "PersonalFoul" as const,
+        penaltyDurationSeconds: null,
+        createdAt: p1FoulTime,
+        sequenceNumber: 2,
+        isSynced: 0,
+      };
+      mockGameEventsGet.mockResolvedValueOnce(p1FoulEvent);
+
+      mockGameEventsWhere.mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            p1FoulEvent,
+            {
+              id: "evt-p2-foul-2",
+              matchLineupId: "lineup-11",
+              eventDefinitionId: "def-pf",
+              periodNumber: 2,
+              eventTimestamp: "2026-07-22T12:11:00.000Z",
+              foulImpact: "PersonalFoul",
+              penaltyDurationSeconds: null,
+            },
+            {
+              id: "evt-p2-foul-3",
+              matchLineupId: "lineup-11",
+              eventDefinitionId: "def-pf",
+              periodNumber: 2,
+              eventTimestamp: p2FoulOutTime,
+              foulImpact: "PersonalFoul",
+              penaltyDurationSeconds: null,
+            },
+          ]),
+        }),
+      });
+
+      const p1Closed = {
+        id: "pres-p1-closed",
+        matchLineupId: "lineup-11",
+        periodNumber: 1,
+        timeIn: "2026-07-22T12:00:00.000Z",
+        timeOut: "2026-07-22T12:08:00.000Z",
+        sequenceNumber: 1,
+        isSynced: 1,
+      };
+      const p2Closed = {
+        id: "pres-p2-foulout",
+        matchLineupId: "lineup-11",
+        periodNumber: 2,
+        timeIn: "2026-07-22T12:10:00.000Z",
+        timeOut: p2FoulOutTime,
+        sequenceNumber: 15,
+        isSynced: 0,
+      };
+
+      mockPlayerPresencesWhere.mockImplementation((arg: unknown) => {
+        if (arg === "periodNumber") {
+          return {
+            equals: vi.fn().mockReturnValue({
+              filter: vi.fn().mockReturnValue({
+                toArray: vi.fn().mockResolvedValue([
+                  { id: "open-1", matchLineupId: "l1", timeOut: null },
+                ]),
+              }),
+            }),
+          };
+        }
+        if (arg === "matchLineupId") {
+          return {
+            equals: vi.fn().mockReturnValue({
+              toArray: vi.fn().mockResolvedValue([p1Closed, p2Closed]),
+            }),
+          };
+        }
+        return {
+          toArray: vi.fn().mockResolvedValue([p2Closed]),
+          filter: vi.fn().mockReturnValue({
+            first: vi.fn().mockResolvedValue(undefined),
+          }),
+        };
+      });
+
+      mockSyncQueueFilter.mockImplementation(
+        (predicate: (item: { endpoint: string }) => boolean) => ({
+          toArray: vi.fn().mockResolvedValue(
+            [
+              {
+                id: 10,
+                actionType: "POST",
+                endpoint: "/Matches/match-123/teams/team-456/events",
+                payload: JSON.stringify([
+                  { id: "evt-p1-foul-1", matchLineupId: "lineup-11" },
+                ]),
+              },
+              {
+                id: 63,
+                actionType: "PUT",
+                endpoint: "/Matches/match-123/presence/terminate",
+                payload: JSON.stringify({
+                  periodNumber: 2,
+                  playerLineupIds: ["lineup-11"],
+                  timeOut: p2FoulOutTime,
+                }),
+                createdAt: p2FoulOutTime,
+              },
+            ].filter(predicate),
+          ),
+        }),
+      );
+
+      // 1) Editing Period 1 foul into a served Period 1 timed exclusion drops foul count 3 -> 2 and reverts Period 2 foul-out
+      await updateGameEventTx({
+        eventId: "evt-p1-foul-1",
+        matchLineupId: "lineup-11",
+        eventDefinitionId: "def-timed-ex-only",
+        isLeadToGoal: false,
+      });
+
+      expect(mockSyncQueueDelete).toHaveBeenCalledWith(63);
+      expect(mockPlayerPresencesUpdate).toHaveBeenCalledWith(
+        "pres-p2-foulout",
+        {
+          timeOut: null,
+          isSynced: 0,
+        },
+      );
+
+      // 2) Editing a Period 2 timed exclusion into another Period 2 timed exclusion preserves the Period 2 exit
+      mockSyncQueueDelete.mockClear();
+      mockPlayerPresencesUpdate.mockClear();
+
+      const p2ExclusionEvent = {
+        id: "evt-p2-ex",
+        matchLineupId: "lineup-11",
+        eventDefinitionId: "def-ex-20",
+        periodNumber: 2,
+        eventTimestamp: p2FoulOutTime,
+        isLeadToGoal: false,
+        foulImpact: "PersonalFoul" as const,
+        penaltyDurationSeconds: 20,
+        createdAt: p2FoulOutTime,
+        sequenceNumber: 16,
+        isSynced: 0,
+      };
+      mockGameEventsGet.mockResolvedValueOnce(p2ExclusionEvent);
+      mockGameEventsWhere.mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([p2ExclusionEvent]),
+        }),
+      });
+      mockSyncQueueFilter.mockImplementation(
+        (predicate: (item: { endpoint: string }) => boolean) => ({
+          toArray: vi.fn().mockResolvedValue(
+            [
+              {
+                id: 11,
+                actionType: "POST",
+                endpoint: "/Matches/match-123/teams/team-456/events",
+                payload: JSON.stringify([
+                  { id: "evt-p2-ex", matchLineupId: "lineup-11" },
+                ]),
+              },
+              {
+                id: 64,
+                actionType: "PUT",
+                endpoint: "/Matches/match-123/presence/terminate",
+                payload: JSON.stringify({
+                  periodNumber: 2,
+                  playerLineupIds: ["lineup-11"],
+                  timeOut: p2FoulOutTime,
+                }),
+                createdAt: p2FoulOutTime,
+              },
+            ].filter(predicate),
+          ),
+        }),
+      );
+
+      await updateGameEventTx({
+        eventId: "evt-p2-ex",
+        matchLineupId: "lineup-11",
+        eventDefinitionId: "def-timed-ex-only",
+        isLeadToGoal: false,
+      });
+
+      expect(mockSyncQueueDelete).not.toHaveBeenCalledWith(64);
+      expect(mockPlayerPresencesUpdate).not.toHaveBeenCalled();
+    });
+
+    it("should NOT revert a clamped timed-exclusion exit when deleting an unrelated personal foul or ambiguous earlier event", async () => {
+      const clampedExitTime = "2026-07-22T12:04:00.000Z";
+      const earlierTimedExTime = "2026-07-22T12:01:00.000Z";
+      const personalFoulTime = "2026-07-22T12:02:00.000Z";
+
+      mockMatchLineupsGet.mockResolvedValue({
+        id: "lineup-11",
+        matchId: "match-123",
+      });
+      mockMatchesGet.mockResolvedValue({
+        id: "match-123",
+        tournamentId: "tourn-1",
+      });
+      mockTournamentsGet.mockResolvedValue({
+        id: "tourn-1",
+        configurationId: "cfg-1",
+      });
+      mockSportConfigurationsGet.mockResolvedValue({
+        id: "cfg-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+      });
+
+      // Player re-entered at 12:04; an earlier event at 12:01 was edited into a timed exclusion -> exit clamped to 12:04
+      const clampedPresence = {
+        id: "pres-clamped-1204",
+        matchLineupId: "lineup-11",
+        periodNumber: 2,
+        timeIn: clampedExitTime,
+        timeOut: clampedExitTime,
+        sequenceNumber: 12,
+        isSynced: 0,
+      };
+
+      mockPlayerPresencesWhere.mockImplementation((arg: unknown) => {
+        if (arg === "periodNumber") {
+          return {
+            equals: vi.fn().mockReturnValue({
+              filter: vi.fn().mockReturnValue({
+                toArray: vi.fn().mockResolvedValue([
+                  { id: "open-1", matchLineupId: "l1", timeOut: null },
+                ]),
+              }),
+            }),
+          };
+        }
+        if (arg === "matchLineupId") {
+          return {
+            equals: vi.fn().mockReturnValue({
+              toArray: vi.fn().mockResolvedValue([clampedPresence]),
+            }),
+          };
+        }
+        return {
+          toArray: vi.fn().mockResolvedValue([clampedPresence]),
+        };
+      });
+
+      const earlierTimedExEvent = {
+        id: "evt-earlier-ex-1201",
+        matchLineupId: "lineup-11",
+        eventDefinitionId: "def-ex",
+        periodNumber: 2,
+        eventTimestamp: earlierTimedExTime,
+        foulImpact: "None" as const,
+        penaltyDurationSeconds: 20,
+        isSynced: 0,
+      };
+
+      // Case A: Personal foul at 12:02 (below foul limit) deleted while 12:01 timed exclusion clamped exit to 12:04
+      const belowLimitFoul = {
+        id: "evt-pf-1202",
+        matchLineupId: "lineup-11",
+        eventDefinitionId: "def-pf",
+        periodNumber: 2,
+        eventTimestamp: personalFoulTime,
+        foulImpact: "PersonalFoul" as const,
+        penaltyDurationSeconds: null,
+        isSynced: 0,
+      };
+      mockGameEventsGet.mockResolvedValueOnce(belowLimitFoul);
+      mockGameEventsWhere.mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            earlierTimedExEvent,
+            belowLimitFoul,
+          ]),
+        }),
+      });
+      mockSyncQueueFilter.mockImplementation(
+        (predicate: (item: { endpoint: string }) => boolean) => ({
+          toArray: vi.fn().mockResolvedValue(
+            [
+              {
+                id: 10,
+                actionType: "POST",
+                endpoint: "/Matches/match-123/teams/team-456/events",
+                payload: JSON.stringify([{ id: "evt-pf-1202" }]),
+              },
+              {
+                id: 65,
+                actionType: "PUT",
+                endpoint: "/Matches/match-123/presence/terminate",
+                payload: JSON.stringify({
+                  periodNumber: 2,
+                  playerLineupIds: ["lineup-11"],
+                  timeOut: clampedExitTime,
+                }),
+                createdAt: clampedExitTime,
+              },
+            ].filter(predicate),
+          ),
+        }),
+      );
+
+      await deleteGameEventTx("evt-pf-1202");
+
+      expect(mockSyncQueueDelete).not.toHaveBeenCalledWith(65);
+      expect(mockPlayerPresencesUpdate).not.toHaveBeenCalled();
+
+      // Case B: Even when deleting a 3rd foul (dropping 3 -> 2), the clamped 12:01 timed exclusion blocks ambiguous reversal
+      const p1Foul = {
+        id: "evt-p1-foul-del",
+        matchLineupId: "lineup-11",
+        eventDefinitionId: "def-pf",
+        periodNumber: 1,
+        eventTimestamp: "2026-07-22T11:55:00.000Z",
+        foulImpact: "PersonalFoul" as const,
+        penaltyDurationSeconds: null,
+        isSynced: 0,
+      };
+      mockGameEventsGet.mockResolvedValueOnce(p1Foul);
+      mockGameEventsWhere.mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            p1Foul,
+            earlierTimedExEvent,
+            {
+              id: "evt-pf-2",
+              matchLineupId: "lineup-11",
+              eventDefinitionId: "def-pf",
+              periodNumber: 2,
+              eventTimestamp: personalFoulTime,
+              foulImpact: "PersonalFoul",
+              penaltyDurationSeconds: null,
+            },
+            {
+              id: "evt-pf-3",
+              matchLineupId: "lineup-11",
+              eventDefinitionId: "def-pf",
+              periodNumber: 2,
+              eventTimestamp: "2026-07-22T12:03:00.000Z",
+              foulImpact: "PersonalFoul",
+              penaltyDurationSeconds: null,
+            },
+          ]),
+        }),
+      });
+      mockSyncQueueFilter.mockImplementation(
+        (predicate: (item: { endpoint: string }) => boolean) => ({
+          toArray: vi.fn().mockResolvedValue(
+            [
+              {
+                id: 11,
+                actionType: "POST",
+                endpoint: "/Matches/match-123/teams/team-456/events",
+                payload: JSON.stringify([{ id: "evt-p1-foul-del" }]),
+              },
+              {
+                id: 65,
+                actionType: "PUT",
+                endpoint: "/Matches/match-123/presence/terminate",
+                payload: JSON.stringify({
+                  periodNumber: 2,
+                  playerLineupIds: ["lineup-11"],
+                  timeOut: clampedExitTime,
+                }),
+                createdAt: clampedExitTime,
+              },
+            ].filter(predicate),
+          ),
+        }),
+      );
+
+      await deleteGameEventTx("evt-p1-foul-del");
+
+      expect(mockSyncQueueDelete).not.toHaveBeenCalledWith(65);
+      expect(mockPlayerPresencesUpdate).not.toHaveBeenCalled();
+
+      // Case C: Even when deleting a timed exclusion at 12:02 (clamped to 12:04), the remaining 12:01 timed exclusion makes reversal ambiguous -> rejected
+      const secondTimedEx = {
+        id: "evt-ex-1202",
+        matchLineupId: "lineup-11",
+        eventDefinitionId: "def-ex",
+        periodNumber: 2,
+        eventTimestamp: personalFoulTime,
+        foulImpact: "None" as const,
+        penaltyDurationSeconds: 20,
+        isSynced: 0,
+      };
+      mockGameEventsGet.mockResolvedValueOnce(secondTimedEx);
+      mockGameEventsWhere.mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            earlierTimedExEvent,
+            secondTimedEx,
+          ]),
+        }),
+      });
+      mockSyncQueueFilter.mockImplementation(
+        (predicate: (item: { endpoint: string }) => boolean) => ({
+          toArray: vi.fn().mockResolvedValue(
+            [
+              {
+                id: 12,
+                actionType: "POST",
+                endpoint: "/Matches/match-123/teams/team-456/events",
+                payload: JSON.stringify([{ id: "evt-ex-1202" }]),
+              },
+              {
+                id: 65,
+                actionType: "PUT",
+                endpoint: "/Matches/match-123/presence/terminate",
+                payload: JSON.stringify({
+                  periodNumber: 2,
+                  playerLineupIds: ["lineup-11"],
+                  timeOut: clampedExitTime,
+                }),
+                createdAt: clampedExitTime,
+              },
+            ].filter(predicate),
+          ),
+        }),
+      );
+
+      await deleteGameEventTx("evt-ex-1202");
+
+      expect(mockSyncQueueDelete).not.toHaveBeenCalledWith(65);
+      expect(mockPlayerPresencesUpdate).not.toHaveBeenCalled();
     });
   });
 });

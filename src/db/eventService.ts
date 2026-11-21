@@ -2,6 +2,7 @@ import Dexie from "dexie";
 import {
   db,
   type GameEvent,
+  type PlayerPresence,
   type EventDefinitionLookup,
   type SportConfigurationLookup,
   type UserEventPresetLookup,
@@ -9,7 +10,10 @@ import {
 } from "./ttaDatabase";
 import { matchLockService } from "../services/matchLockService";
 import {
+  areTimestampsEqual,
   findLatestClosedPresenceForPlayerInTx,
+  findLatestClosedPresenceInPeriodInTx,
+  resolveEffectiveTimeOut,
   revertSinglePlayerAutoExitInTx,
   terminateSinglePlayerPresenceInTx,
 } from "./presenceService";
@@ -643,15 +647,47 @@ const resolveEventDisciplinaryRuleInTx = async (
   return resolveEffectiveDisciplinaryRule(event, defsMap);
 };
 
-const hasDisciplinaryImpact = (rule: EffectiveDisciplinaryRule): boolean =>
-  rule.foulImpact !== "None" ||
-  (rule.penaltyDurationSeconds !== null && rule.penaltyDurationSeconds > 0);
+const hasTimedExclusionDuration = (rule: EffectiveDisciplinaryRule): boolean =>
+  rule.penaltyDurationSeconds !== null && rule.penaltyDurationSeconds > 0;
 
-const didRuleContributeToDisqualification = (
-  rule: EffectiveDisciplinaryRule,
+const hasDisciplinaryImpact = (rule: EffectiveDisciplinaryRule): boolean =>
+  rule.foulImpact !== "None" || hasTimedExclusionDuration(rule);
+
+const computePreChangePersonalFoulCount = (
+  existing: GameEvent,
+  existingRule: EffectiveDisciplinaryRule,
+  override: PlayerEventsOverride,
+  postChangePersonalFoulCount: number,
+  defsById: ReadonlyMap<string, EventDefinitionLookup>,
+): number => {
+  if (existingRule.foulImpact !== "PersonalFoul") {
+    return postChangePersonalFoulCount;
+  }
+  const upsertedForSamePlayer =
+    override.upsert && override.upsert.matchLineupId === existing.matchLineupId
+      ? override.upsert
+      : undefined;
+  if (upsertedForSamePlayer) {
+    const nextRule = resolveEffectiveDisciplinaryRule(
+      upsertedForSamePlayer,
+      defsById,
+    );
+    if (nextRule.foulImpact === "PersonalFoul") {
+      return postChangePersonalFoulCount;
+    }
+  }
+  return postChangePersonalFoulCount + 1;
+};
+
+const wasEventDisqualifyingBeforeChange = (
+  existing: GameEvent,
+  existingRule: EffectiveDisciplinaryRule,
+  override: PlayerEventsOverride,
+  postChangePersonalFoulCount: number,
+  defsById: ReadonlyMap<string, EventDefinitionLookup>,
   config: SportConfigurationLookup | undefined,
 ): boolean => {
-  if (isDirectDisqualificationImpact(rule.foulImpact)) {
+  if (isDirectDisqualificationImpact(existingRule.foulImpact)) {
     return true;
   }
   const maxPersonalFouls = config?.maxPersonalFouls;
@@ -659,7 +695,17 @@ const didRuleContributeToDisqualification = (
     typeof maxPersonalFouls === "number" &&
     Number.isFinite(maxPersonalFouls) &&
     maxPersonalFouls > 0;
-  return rule.foulImpact === "PersonalFoul" && hasFoulLimit;
+  if (existingRule.foulImpact !== "PersonalFoul" || !hasFoulLimit) {
+    return false;
+  }
+  const preCount = computePreChangePersonalFoulCount(
+    existing,
+    existingRule,
+    override,
+    postChangePersonalFoulCount,
+    defsById,
+  );
+  return preCount >= Math.floor(maxPersonalFouls);
 };
 
 const isTimestampAtOrAfter = (
@@ -675,20 +721,64 @@ const isTimestampAtOrAfter = (
   return candidate.localeCompare(reference) >= 0;
 };
 
-const hasAnotherTimedExclusionInPeriod = (
+const hasConflictingTimedExclusionInPeriod = (
   playerEvents: readonly GameEvent[],
   defsById: ReadonlyMap<string, EventDefinitionLookup>,
-  periodNumber: number,
-  sinceTimestamp?: string,
+  closedPresence: PlayerPresence,
 ): boolean =>
   playerEvents.some((evt) => {
-    if (evt.periodNumber !== periodNumber) return false;
-    if (!isTimestampAtOrAfter(evt.eventTimestamp, sinceTimestamp)) return false;
+    if (evt.periodNumber !== closedPresence.periodNumber) return false;
     const rule = resolveEffectiveDisciplinaryRule(evt, defsById);
-    return (
-      rule.penaltyDurationSeconds !== null && rule.penaltyDurationSeconds > 0
+    if (!hasTimedExclusionDuration(rule)) return false;
+    if (isTimestampAtOrAfter(evt.eventTimestamp, closedPresence.timeIn)) {
+      return true;
+    }
+    if (!closedPresence.timeOut) return false;
+    const clampedExit = resolveEffectiveTimeOut(
+      closedPresence.timeIn,
+      evt.eventTimestamp,
     );
+    return areTimestampsEqual(clampedExit, closedPresence.timeOut);
   });
+
+const matchesDisqualificationExitCause = (
+  closedPresence: PlayerPresence,
+  existing: GameEvent,
+  existingRule: EffectiveDisciplinaryRule,
+  playerEvents: readonly GameEvent[],
+  defsById: ReadonlyMap<string, EventDefinitionLookup>,
+): boolean => {
+  const closedTimeOut = closedPresence.timeOut;
+  if (!closedTimeOut) return false;
+
+  if (isDirectDisqualificationImpact(existingRule.foulImpact)) {
+    const expectedTimeOut = resolveEffectiveTimeOut(
+      closedPresence.timeIn,
+      existing.eventTimestamp,
+    );
+    return areTimestampsEqual(closedTimeOut, expectedTimeOut);
+  }
+
+  if (existingRule.foulImpact !== "PersonalFoul") {
+    return false;
+  }
+
+  const candidateFouls: GameEvent[] = [
+    existing,
+    ...playerEvents.filter((evt) => {
+      const rule = resolveEffectiveDisciplinaryRule(evt, defsById);
+      return rule.foulImpact === "PersonalFoul";
+    }),
+  ];
+
+  return candidateFouls.some((foul) => {
+    const expectedTimeOut = resolveEffectiveTimeOut(
+      closedPresence.timeIn,
+      foul.eventTimestamp,
+    );
+    return areTimestampsEqual(closedTimeOut, expectedTimeOut);
+  });
+};
 
 const evaluatePlayerPostChangeStatusInTx = async (
   matchId: string,
@@ -696,6 +786,7 @@ const evaluatePlayerPostChangeStatusInTx = async (
   override: PlayerEventsOverride,
 ): Promise<{
   isStillDisqualified: boolean;
+  personalFoulCount: number;
   playerEvents: GameEvent[];
   defsById: Map<string, EventDefinitionLookup>;
   config: SportConfigurationLookup | undefined;
@@ -705,6 +796,7 @@ const evaluatePlayerPostChangeStatusInTx = async (
   if (playerEvents.length === 0) {
     return {
       isStillDisqualified: false,
+      personalFoulCount: 0,
       playerEvents,
       defsById: new Map(),
       config,
@@ -738,7 +830,13 @@ const evaluatePlayerPostChangeStatusInTx = async (
     isStillDisqualified = true;
   }
 
-  return { isStillDisqualified, playerEvents, defsById, config };
+  return {
+    isStillDisqualified,
+    personalFoulCount,
+    playerEvents,
+    defsById,
+    config,
+  };
 };
 
 const isPeriodEndedInTx = async (
@@ -878,13 +976,15 @@ const tryRevertExactTimestampExitInTx = async (
   if (existingPeriodEnded) {
     return false;
   }
+  const latestClosed = await findLatestClosedPresenceInPeriodInTx(
+    existing.matchLineupId,
+    existing.periodNumber,
+  );
+  if (!latestClosed) {
+    return false;
+  }
   if (
-    hasAnotherTimedExclusionInPeriod(
-      playerEvents,
-      defsById,
-      existing.periodNumber,
-      existing.eventTimestamp,
-    )
+    hasConflictingTimedExclusionInPeriod(playerEvents, defsById, latestClosed)
   ) {
     return false;
   }
@@ -909,6 +1009,7 @@ const tryRevertExactTimestampExitInTx = async (
 const tryRevertCrossPeriodDisqualificationExitInTx = async (
   matchId: string,
   existing: GameEvent,
+  existingRule: EffectiveDisciplinaryRule,
   override: PlayerEventsOverride,
   playerEvents: readonly GameEvent[],
   defsById: ReadonlyMap<string, EventDefinitionLookup>,
@@ -931,11 +1032,18 @@ const tryRevertCrossPeriodDisqualificationExitInTx = async (
   }
 
   if (
-    hasAnotherTimedExclusionInPeriod(
+    hasConflictingTimedExclusionInPeriod(playerEvents, defsById, latestClosed)
+  ) {
+    return false;
+  }
+
+  if (
+    !matchesDisqualificationExitCause(
+      latestClosed,
+      existing,
+      existingRule,
       playerEvents,
       defsById,
-      latestClosed.periodNumber,
-      latestClosed.timeIn,
     )
   ) {
     return false;
@@ -975,13 +1083,32 @@ const revertPreviousAutoExitIfEligibleInTx = async (
     return;
   }
 
-  const { isStillDisqualified, playerEvents, defsById, config } =
-    await evaluatePlayerPostChangeStatusInTx(
-      normalizedMatchId,
-      existing.matchLineupId,
-      override,
-    );
+  const {
+    isStillDisqualified,
+    personalFoulCount,
+    playerEvents,
+    defsById,
+    config,
+  } = await evaluatePlayerPostChangeStatusInTx(
+    normalizedMatchId,
+    existing.matchLineupId,
+    override,
+  );
   if (isStillDisqualified) {
+    return;
+  }
+
+  const existingRule =
+    preResolvedRule ?? (await resolveEventDisciplinaryRuleInTx(existing));
+  const wasDisqualifying = wasEventDisqualifyingBeforeChange(
+    existing,
+    existingRule,
+    override,
+    personalFoulCount,
+    defsById,
+    config,
+  );
+  if (!hasTimedExclusionDuration(existingRule) && !wasDisqualifying) {
     return;
   }
 
@@ -999,19 +1126,14 @@ const revertPreviousAutoExitIfEligibleInTx = async (
     config,
     existingPeriodEnded,
   );
-  if (revertedExact) {
-    return;
-  }
-
-  const existingRule =
-    preResolvedRule ?? (await resolveEventDisciplinaryRuleInTx(existing));
-  if (!didRuleContributeToDisqualification(existingRule, config)) {
+  if (revertedExact || !wasDisqualifying) {
     return;
   }
 
   await tryRevertCrossPeriodDisqualificationExitInTx(
     normalizedMatchId,
     existing,
+    existingRule,
     override,
     playerEvents,
     defsById,
@@ -1045,16 +1167,19 @@ const applyDisciplinaryAutoExitInTx = async (
     exitTimestamp,
     event.periodNumber,
   );
+  if (closedInEventPeriod) {
+    return true;
+  }
 
-  if (!closedInEventPeriod && isMatchWideDisqualification) {
-    await terminateSinglePlayerPresenceInTx(
+  if (isMatchWideDisqualification) {
+    return terminateSinglePlayerPresenceInTx(
       normalizedMatchId,
       event.matchLineupId,
       exitTimestamp,
     );
   }
 
-  return true;
+  return false;
 };
 
 const syncDisciplinaryAutoExitOnUpdateInTx = async (
@@ -1070,7 +1195,7 @@ const syncDisciplinaryAutoExitOnUpdateInTx = async (
   }
 
   const override: PlayerEventsOverride = { upsert: nextEvent };
-  const didTriggerNextExit = await applyDisciplinaryAutoExitInTx(
+  const didCloseNextPresence = await applyDisciplinaryAutoExitInTx(
     matchId,
     nextEvent,
     nextEvent.eventTimestamp,
@@ -1079,7 +1204,7 @@ const syncDisciplinaryAutoExitOnUpdateInTx = async (
   );
 
   const shouldCheckRevert =
-    playerChanged || (isNewDefinition && !didTriggerNextExit);
+    playerChanged || (isNewDefinition && !didCloseNextPresence);
 
   if (shouldCheckRevert) {
     await revertPreviousAutoExitIfEligibleInTx(matchId, existing, override);
