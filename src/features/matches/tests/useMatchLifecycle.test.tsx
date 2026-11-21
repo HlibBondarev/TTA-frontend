@@ -3107,4 +3107,75 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(store.getState().match.isPeriodActive).toBe(true);
     expect(store.getState().match.isPeriodEnded).toBe(false);
   });
+
+  test("should preserve an already-synced disciplinary exit at the exact anchor timestamp when its queue item was removed by sync and period ended with no open presences", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockResolvedValue([{ id: "lineup-synced-dq" }]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    // Sync already processed and removed the disciplinary PUT /presence/terminate queue item,
+    // marking the closed presence isSynced: 1, while seed-end-anchor (id: 101) remains pending.
+    mockPlayerPresences = [
+      {
+        id: "presence-synced-dq",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00Z",
+        matchLineupId: "lineup-synced-dq",
+        isSynced: 1,
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+                isSynced?: number;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod("seed-end-anchor");
+    });
+
+    // End anchor is deleted, and the already-synced disciplinary presence MUST remain closed
+    expect(db.timeanchors.delete).toHaveBeenCalledWith("seed-end-anchor");
+    expect(db.playerpresences.update).not.toHaveBeenCalled();
+    expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:10:00Z");
+    expect(mockPlayerPresences[0].isSynced).toBe(1);
+    expect(store.getState().match.isPeriodActive).toBe(true);
+    expect(store.getState().match.isPeriodEnded).toBe(false);
+  });
 });

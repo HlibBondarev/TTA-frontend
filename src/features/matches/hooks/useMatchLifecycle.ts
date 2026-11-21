@@ -440,7 +440,13 @@ const loadClosedPlayerPresences = async (
   return db.playerpresences
     .where("periodNumber")
     .equals(periodNumber)
-    .filter((p) => p.timeOut !== null && lineupIds.has(p.matchLineupId))
+    .filter(
+      (p) =>
+        p.timeOut !== null &&
+        p.isSynced !== 1 &&
+        p.isSynced !== -1 &&
+        lineupIds.has(p.matchLineupId),
+    )
     .toArray();
 };
 
