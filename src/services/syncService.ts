@@ -294,8 +294,7 @@ const isSyncedPresenceItem = (
     ids.every(
       (id) =>
         syncedPresences.has(id) ||
-        (matchPresences !== null &&
-          matchPresences.some((p) => p.id === id && p.isSynced === 1)),
+        Boolean(matchPresences?.some((p) => p.id === id && p.isSynced === 1)),
     )
   );
 };

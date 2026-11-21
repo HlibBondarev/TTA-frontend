@@ -998,16 +998,27 @@ const tryRevertExactTimestampExitInTx = async (
   );
 };
 
-const tryRevertCrossPeriodDisqualificationExitInTx = async (
-  matchId: string,
-  existing: GameEvent,
-  existingRule: EffectiveDisciplinaryRule,
-  override: PlayerEventsOverride,
-  playerEvents: readonly GameEvent[],
-  defsById: ReadonlyMap<string, EventDefinitionLookup>,
-  config: SportConfigurationLookup | undefined,
-  existingPeriodEnded: boolean,
-): Promise<boolean> => {
+interface CrossPeriodDisqualificationRevertParams {
+  matchId: string;
+  existing: GameEvent;
+  existingRule: EffectiveDisciplinaryRule;
+  override: PlayerEventsOverride;
+  playerEvents: readonly GameEvent[];
+  defsById: ReadonlyMap<string, EventDefinitionLookup>;
+  config: SportConfigurationLookup | undefined;
+  existingPeriodEnded: boolean;
+}
+
+const tryRevertCrossPeriodDisqualificationExitInTx = async ({
+  matchId,
+  existing,
+  existingRule,
+  override,
+  playerEvents,
+  defsById,
+  config,
+  existingPeriodEnded,
+}: CrossPeriodDisqualificationRevertParams): Promise<boolean> => {
   const latestClosed = await findLatestClosedPresenceForPlayerInTx(
     existing.matchLineupId,
   );
@@ -1122,8 +1133,8 @@ const revertPreviousAutoExitIfEligibleInTx = async (
     return;
   }
 
-  await tryRevertCrossPeriodDisqualificationExitInTx(
-    normalizedMatchId,
+  await tryRevertCrossPeriodDisqualificationExitInTx({
+    matchId: normalizedMatchId,
     existing,
     existingRule,
     override,
@@ -1131,7 +1142,7 @@ const revertPreviousAutoExitIfEligibleInTx = async (
     defsById,
     config,
     existingPeriodEnded,
-  );
+  });
 };
 
 const applyDisciplinaryAutoExitInTx = async (
