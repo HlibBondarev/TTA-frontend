@@ -2537,4 +2537,277 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     // And the mid-period disciplinary exit presence must NOT be reopened!
     expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:04:00Z");
   });
+
+  test("should resolve an unambiguous legacy period-end termination when anchor timestamp and roster timeOut differ while preserving earlier disciplinary exits", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockResolvedValue([
+                { id: "lineup-dq-mid-period" },
+                { id: "lineup-legacy-end-1" },
+                { id: "lineup-legacy-end-2" },
+              ]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    // Anchor timestamp is "2020-01-01T10:10:00Z" (seeded by createTestStore).
+    // Legacy panel generated roster termination slightly after the anchor ("2020-01-01T10:10:00.250Z").
+    mockSyncQueue.push(
+      {
+        id: 501,
+        actionType: "PUT",
+        endpoint: "/Matches/test-match-id/presence/terminate",
+        payload: JSON.stringify({
+          periodNumber: 1,
+          playerLineupIds: ["lineup-dq-mid-period"],
+          timeOut: "2020-01-01T10:04:00Z",
+        }),
+        createdAt: "2020-01-01T10:04:00Z",
+      },
+      {
+        id: 502,
+        actionType: "PUT",
+        endpoint: "/Matches/test-match-id/presence/terminate",
+        payload: JSON.stringify({
+          periodNumber: 1,
+          playerLineupIds: ["lineup-legacy-end-1", "lineup-legacy-end-2"],
+          timeOut: "2020-01-01T10:10:00.250Z",
+        }),
+        createdAt: "2020-01-01T10:10:00.250Z",
+      },
+    );
+
+    mockPlayerPresences = [
+      {
+        id: "presence-dq-mid-period",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:04:00Z",
+        matchLineupId: "lineup-dq-mid-period",
+      },
+      {
+        id: "presence-legacy-end-1",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00.250Z",
+        matchLineupId: "lineup-legacy-end-1",
+      },
+      {
+        id: "presence-legacy-end-2",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00.250Z",
+        matchLineupId: "lineup-legacy-end-2",
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod("seed-end-anchor");
+    });
+
+    // Anchor deleted
+    expect(db.timeanchors.delete).toHaveBeenCalledWith("seed-end-anchor");
+    // Legacy period-end termination queue item (502) deleted; mid-period DQ item (501) preserved
+    expect(db.syncQueue.delete).toHaveBeenCalledWith(502);
+    expect(db.syncQueue.delete).not.toHaveBeenCalledWith(501);
+    expect(mockSyncQueue.some((i) => i.id === 501)).toBe(true);
+    expect(mockSyncQueue.some((i) => i.id === 502)).toBe(false);
+
+    // Legacy period-end presences reopened; mid-period DQ presence kept closed
+    expect(
+      mockPlayerPresences.find((p) => p.id === "presence-legacy-end-1")
+        ?.timeOut,
+    ).toBeNull();
+    expect(
+      mockPlayerPresences.find((p) => p.id === "presence-legacy-end-2")
+        ?.timeOut,
+    ).toBeNull();
+    expect(
+      mockPlayerPresences.find((p) => p.id === "presence-dq-mid-period")
+        ?.timeOut,
+    ).toBe("2020-01-01T10:04:00Z");
+
+    expect(store.getState().match.isPeriodActive).toBe(true);
+    expect(store.getState().match.isPeriodEnded).toBe(false);
+  });
+
+  test("should reject an ambiguous revertEndPeriod without deleting the end anchor when multiple post-anchor termination requests exist", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockResolvedValue([{ id: "lineup-1" }, { id: "lineup-2" }]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    mockSyncQueue.push(
+      {
+        id: 601,
+        actionType: "PUT",
+        endpoint: "/Matches/test-match-id/presence/terminate",
+        payload: JSON.stringify({
+          periodNumber: 1,
+          playerLineupIds: ["lineup-1"],
+          timeOut: "2020-01-01T10:10:00.250Z",
+        }),
+        createdAt: "2020-01-01T10:10:00.250Z",
+      },
+      {
+        id: 602,
+        actionType: "PUT",
+        endpoint: "/Matches/test-match-id/presence/terminate",
+        payload: JSON.stringify({
+          periodNumber: 1,
+          playerLineupIds: ["lineup-2"],
+          timeOut: "2020-01-01T10:10:00.500Z",
+        }),
+        createdAt: "2020-01-01T10:10:00.500Z",
+      },
+    );
+
+    mockPlayerPresences = [
+      {
+        id: "presence-1",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00.250Z",
+        matchLineupId: "lineup-1",
+      },
+      {
+        id: "presence-2",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00.500Z",
+        matchLineupId: "lineup-2",
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.revertEndPeriod("seed-end-anchor");
+      }),
+    ).rejects.toThrow(
+      /Cannot undo period end: multiple pending termination requests match after period end/i,
+    );
+
+    // Anchor must NOT be deleted when undo is ambiguous
+    expect(db.timeanchors.delete).not.toHaveBeenCalled();
+    expect(mockTimeAnchors.some((a) => a.id === "seed-end-anchor")).toBe(true);
+    // Queue items and presences remain intact
+    expect(mockSyncQueue.some((i) => i.id === 601)).toBe(true);
+    expect(mockSyncQueue.some((i) => i.id === 602)).toBe(true);
+    expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:10:00.250Z");
+    expect(mockPlayerPresences[1].timeOut).toBe("2020-01-01T10:10:00.500Z");
+    // Period remains ended
+    expect(store.getState().match.isPeriodEnded).toBe(true);
+    expect(store.getState().match.isPeriodActive).toBe(false);
+  });
+
+  test("should reject revertEndPeriod without deleting the end anchor when a pending termination queue item has no valid timestamp", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    mockSyncQueue.push({
+      id: 701,
+      actionType: "PUT",
+      endpoint: "/Matches/test-match-id/presence/terminate",
+      payload: JSON.stringify({
+        periodNumber: 1,
+        playerLineupIds: ["lineup-1"],
+      }),
+      createdAt: "2020-01-01T10:10:00Z",
+    });
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.revertEndPeriod("seed-end-anchor");
+      }),
+    ).rejects.toThrow(
+      /Cannot undo period end: pending termination queue item is missing a valid timestamp/i,
+    );
+
+    expect(db.timeanchors.delete).not.toHaveBeenCalled();
+    expect(mockTimeAnchors.some((a) => a.id === "seed-end-anchor")).toBe(true);
+    expect(mockSyncQueue.some((i) => i.id === 701)).toBe(true);
+    expect(store.getState().match.isPeriodEnded).toBe(true);
+  });
 });

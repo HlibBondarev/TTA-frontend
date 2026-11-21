@@ -337,27 +337,17 @@ const findTargetEndAnchor = async (
   return endAnchors[0];
 };
 
-/**
- * Resolves and deletes the period end time anchor along with its matching sync queue entry.
- * Returns the timestamp of the deleted PeriodEnd anchor when available.
- */
-const deleteEndAnchorAndSyncQueue = async (
-  matchId: string,
-  periodNumber: number,
-  anchorId?: string | null,
-): Promise<string | undefined> => {
-  const targetAnchor = await findTargetEndAnchor(
-    matchId,
-    periodNumber,
-    anchorId,
-  );
-  const targetAnchorId = targetAnchor?.id ?? anchorId ?? undefined;
+interface ParsedTerminateQueueItem {
+  id: number | undefined;
+  periodNumber: number | undefined;
+  playerLineupIds: string[];
+  timeOut: string | undefined;
+}
 
-  if (!targetAnchorId) return undefined;
-
-  await deleteTimeAnchorWithQueue(targetAnchorId);
-  return targetAnchor?.timestamp;
-};
+interface RevertEndPeriodPlan {
+  terminateQueueItemIds: number[];
+  presencesToReopen: PlayerPresence[];
+}
 
 const timestampsMatch = (a?: string | null, b?: string | null): boolean => {
   if (!a || !b) return false;
@@ -369,87 +359,77 @@ const timestampsMatch = (a?: string | null, b?: string | null): boolean => {
   );
 };
 
-/**
- * Removes ONLY the period-end /presence/terminate sync request from queue for a given period,
- * preserving any earlier mid-period disciplinary auto-exit /presence/terminate queue items.
- */
-const purgeTerminateSyncQueueItems = async (
-  matchId: string,
-  periodNumber: number,
-  endAnchorTimestamp?: string,
-): Promise<string | undefined> => {
-  if (!matchId || !db?.syncQueue) return undefined;
-
-  const terminateEndpoint = `/Matches/${matchId}/presence/terminate`;
-  const pendingTerminateItems = await db.syncQueue
-    .filter((item) => {
-      if (item.endpoint !== terminateEndpoint) return false;
-      try {
-        const data = JSON.parse(item.payload) as { periodNumber?: number };
-        return data.periodNumber === periodNumber;
-      } catch {
-        return false;
-      }
-    })
-    .toArray();
-
-  if (pendingTerminateItems.length === 0) return undefined;
-
-  if (endAnchorTimestamp) {
-    const exactMatches = pendingTerminateItems.filter((item) => {
-      try {
-        const data = JSON.parse(item.payload) as { timeOut?: string };
-        return timestampsMatch(data.timeOut, endAnchorTimestamp);
-      } catch {
-        return false;
-      }
-    });
-
-    await Promise.all(
-      exactMatches.map(async (item) => {
-        if (item.id !== undefined) {
-          await db.syncQueue.delete(item.id);
-        }
-      }),
-    );
-
-    return endAnchorTimestamp;
-  }
-
-  // Fallback when no anchor timestamp was found in DB: only purge the single terminate item if unambiguous
-  if (pendingTerminateItems.length === 1) {
-    const singleItem = pendingTerminateItems[0];
-    let singleTimeOut: string | undefined;
-    try {
-      const data = JSON.parse(singleItem.payload) as { timeOut?: string };
-      singleTimeOut = data.timeOut;
-    } catch {
-      singleTimeOut = undefined;
-    }
-    if (singleItem.id !== undefined) {
-      await db.syncQueue.delete(singleItem.id);
-    }
-    return singleTimeOut;
-  }
-
-  return undefined;
+const isTimestampAtOrAfter = (
+  candidate?: string | null,
+  reference?: string | null,
+): boolean => {
+  if (!candidate || !reference) return false;
+  const parsedCandidate = Date.parse(candidate);
+  const parsedReference = Date.parse(reference);
+  return (
+    !Number.isNaN(parsedCandidate) &&
+    !Number.isNaN(parsedReference) &&
+    parsedCandidate >= parsedReference
+  );
 };
 
-const shouldApplyLegacyReopenFallback = (
+const hasSingleDistinctTimestamp = (
   presences: readonly PlayerPresence[],
-  periodEndTimestamp?: string,
-): boolean => presences.length === 1 && !periodEndTimestamp;
+): boolean => {
+  if (presences.length <= 1) return true;
+  const firstTimeOut = presences[0].timeOut;
+  return presences.every((p) => timestampsMatch(p.timeOut, firstTimeOut));
+};
 
-/**
- * Reopens ONLY the player presences closed by the specific period-end termination action,
- * keeping earlier mid-period disciplinary auto-exits closed.
- */
-const reopenClosedPlayerPresences = async (
+const parseTerminateQueueItem = (item: {
+  id?: number;
+  payload: string;
+}): ParsedTerminateQueueItem | null => {
+  try {
+    const data = JSON.parse(item.payload) as {
+      periodNumber?: unknown;
+      playerLineupIds?: unknown;
+      timeOut?: unknown;
+    };
+    const periodNumber =
+      typeof data.periodNumber === "number" ? data.periodNumber : undefined;
+    const playerLineupIds = Array.isArray(data.playerLineupIds)
+      ? data.playerLineupIds.filter((id): id is string => typeof id === "string")
+      : [];
+    const timeOut =
+      typeof data.timeOut === "string" && data.timeOut.trim().length > 0
+        ? data.timeOut
+        : undefined;
+    return { id: item.id, periodNumber, playerLineupIds, timeOut };
+  } catch {
+    return null;
+  }
+};
+
+const loadPendingTerminateQueueItems = async (
   matchId: string,
   periodNumber: number,
-  periodEndTimestamp?: string,
-): Promise<void> => {
-  if (!matchId || !db?.playerpresences || !db?.matchlineups) return;
+): Promise<ParsedTerminateQueueItem[]> => {
+  if (!matchId || !db?.syncQueue) return [];
+
+  const terminateEndpoint = `/Matches/${matchId}/presence/terminate`;
+  const rawItems = await db.syncQueue
+    .filter((item) => item.endpoint === terminateEndpoint)
+    .toArray();
+
+  return rawItems
+    .map((item) => parseTerminateQueueItem(item))
+    .filter(
+      (parsed): parsed is ParsedTerminateQueueItem =>
+        parsed !== null && parsed.periodNumber === periodNumber,
+    );
+};
+
+const loadClosedPlayerPresences = async (
+  matchId: string,
+  periodNumber: number,
+): Promise<PlayerPresence[]> => {
+  if (!matchId || !db?.playerpresences || !db?.matchlineups) return [];
 
   const lineups = await db.matchlineups
     .where("matchId")
@@ -457,35 +437,148 @@ const reopenClosedPlayerPresences = async (
     .toArray();
   const lineupIds = new Set(lineups.map((l) => l.id));
 
-  const presences = await db.playerpresences
+  return db.playerpresences
     .where("periodNumber")
     .equals(periodNumber)
     .filter((p) => p.timeOut !== null && lineupIds.has(p.matchLineupId))
     .toArray();
+};
 
-  if (presences.length === 0) return;
+const filterPresencesForTerminateItem = (
+  closedPresences: readonly PlayerPresence[],
+  item: ParsedTerminateQueueItem,
+): PlayerPresence[] => {
+  if (!item.timeOut) return [];
+  const lineupSet =
+    item.playerLineupIds.length > 0 ? new Set(item.playerLineupIds) : null;
+  return closedPresences.filter(
+    (p) =>
+      timestampsMatch(p.timeOut, item.timeOut) &&
+      (lineupSet === null || lineupSet.has(p.matchLineupId)),
+  );
+};
 
-  let presencesToReopen = periodEndTimestamp
-    ? presences.filter((p) => timestampsMatch(p.timeOut, periodEndTimestamp))
-    : [];
-
-  if (
-    presencesToReopen.length === 0 &&
-    shouldApplyLegacyReopenFallback(presences, periodEndTimestamp)
-  ) {
-    presencesToReopen = presences;
+const resolvePresencesWithoutQueueMatch = (
+  closedPresences: readonly PlayerPresence[],
+  endAnchorTimestamp?: string,
+): PlayerPresence[] => {
+  if (!endAnchorTimestamp) {
+    if (hasSingleDistinctTimestamp(closedPresences)) {
+      return [...closedPresences];
+    }
+    throw new Error(
+      "Cannot undo period end: multiple closed presence timestamps exist without an anchor timestamp.",
+    );
   }
 
-  if (presencesToReopen.length === 0) return;
-
-  await Promise.all(
-    presencesToReopen.map((p) =>
-      db.playerpresences.update(p.id, {
-        timeOut: null,
-        isSynced: 0,
-      }),
-    ),
+  const postAnchorPresences = closedPresences.filter((p) =>
+    isTimestampAtOrAfter(p.timeOut, endAnchorTimestamp),
   );
+  if (postAnchorPresences.length === 0) {
+    return [];
+  }
+  if (!hasSingleDistinctTimestamp(postAnchorPresences)) {
+    throw new Error(
+      "Cannot undo period end: multiple post-anchor closed presence timestamps are ambiguous.",
+    );
+  }
+  return postAnchorPresences;
+};
+
+const resolvePlanWithAnchorTimestamp = (
+  pendingTerminateItems: readonly ParsedTerminateQueueItem[],
+  closedPresences: readonly PlayerPresence[],
+  endAnchorTimestamp: string,
+): RevertEndPeriodPlan => {
+  const exactQueueMatches = pendingTerminateItems.filter((item) =>
+    timestampsMatch(item.timeOut, endAnchorTimestamp),
+  );
+  const exactPresenceMatches = closedPresences.filter((p) =>
+    timestampsMatch(p.timeOut, endAnchorTimestamp),
+  );
+  if (exactQueueMatches.length > 0 || exactPresenceMatches.length > 0) {
+    return {
+      terminateQueueItemIds: exactQueueMatches
+        .map((item) => item.id)
+        .filter((id): id is number => id !== undefined),
+      presencesToReopen: exactPresenceMatches,
+    };
+  }
+
+  const hasInvalidTimestamp = pendingTerminateItems.some(
+    (item) => !item.timeOut || Number.isNaN(Date.parse(item.timeOut)),
+  );
+  if (hasInvalidTimestamp) {
+    throw new Error(
+      "Cannot undo period end: pending termination queue item is missing a valid timestamp.",
+    );
+  }
+
+  const postAnchorQueueItems = pendingTerminateItems.filter((item) =>
+    isTimestampAtOrAfter(item.timeOut, endAnchorTimestamp),
+  );
+  if (postAnchorQueueItems.length > 1) {
+    throw new Error(
+      "Cannot undo period end: multiple pending termination requests match after period end.",
+    );
+  }
+  if (postAnchorQueueItems.length === 1) {
+    const candidate = postAnchorQueueItems[0];
+    return {
+      terminateQueueItemIds: candidate.id !== undefined ? [candidate.id] : [],
+      presencesToReopen: filterPresencesForTerminateItem(
+        closedPresences,
+        candidate,
+      ),
+    };
+  }
+
+  return {
+    terminateQueueItemIds: [],
+    presencesToReopen: resolvePresencesWithoutQueueMatch(
+      closedPresences,
+      endAnchorTimestamp,
+    ),
+  };
+};
+
+/**
+ * Resolves the exact period-end termination queue item(s) and closed presences to revert,
+ * preserving earlier mid-period disciplinary exits and rejecting ambiguous states before anchor deletion.
+ */
+const resolveRevertEndPeriodPlan = (
+  pendingTerminateItems: readonly ParsedTerminateQueueItem[],
+  closedPresences: readonly PlayerPresence[],
+  endAnchorTimestamp?: string,
+): RevertEndPeriodPlan => {
+  if (endAnchorTimestamp) {
+    return resolvePlanWithAnchorTimestamp(
+      pendingTerminateItems,
+      closedPresences,
+      endAnchorTimestamp,
+    );
+  }
+
+  if (pendingTerminateItems.length > 1) {
+    throw new Error(
+      "Cannot undo period end: multiple pending termination requests exist without an anchor timestamp.",
+    );
+  }
+
+  if (pendingTerminateItems.length === 1) {
+    const singleItem = pendingTerminateItems[0];
+    return {
+      terminateQueueItemIds: singleItem.id !== undefined ? [singleItem.id] : [],
+      presencesToReopen: singleItem.timeOut
+        ? filterPresencesForTerminateItem(closedPresences, singleItem)
+        : resolvePresencesWithoutQueueMatch(closedPresences),
+    };
+  }
+
+  return {
+    terminateQueueItemIds: [],
+    presencesToReopen: resolvePresencesWithoutQueueMatch(closedPresences),
+  };
 };
 
 export const useMatchLifecycle = () => {
@@ -815,11 +908,30 @@ export const useMatchLifecycle = () => {
       [db.timeanchors, db.syncQueue, db.playerpresences, db.matchlineups],
       async () => {
         if (!normalizedMatchId) return;
-        const endAnchorTimestamp = await deleteEndAnchorAndSyncQueue(
+
+        const targetAnchor = await findTargetEndAnchor(
           normalizedMatchId,
           currentPeriod,
           anchorId,
         );
+        const targetAnchorId = targetAnchor?.id ?? anchorId ?? undefined;
+        const endAnchorTimestamp = targetAnchor?.timestamp;
+
+        const [pendingTerminateItems, closedPresences] = await Promise.all([
+          loadPendingTerminateQueueItems(normalizedMatchId, currentPeriod),
+          loadClosedPlayerPresences(normalizedMatchId, currentPeriod),
+        ]);
+
+        const revertPlan = resolveRevertEndPeriodPlan(
+          pendingTerminateItems,
+          closedPresences,
+          endAnchorTimestamp,
+        );
+
+        if (targetAnchorId) {
+          await deleteTimeAnchorWithQueue(targetAnchorId);
+        }
+
         if (
           normalizedMatchId &&
           matchLockService.isMatchLocked(normalizedMatchId)
@@ -830,15 +942,20 @@ export const useMatchLifecycle = () => {
             } is locked for finalization.`,
           );
         }
-        const resolvedEndTimestamp = await purgeTerminateSyncQueueItems(
-          normalizedMatchId,
-          currentPeriod,
-          endAnchorTimestamp,
+
+        await Promise.all(
+          revertPlan.terminateQueueItemIds.map((id) =>
+            db.syncQueue.delete(id),
+          ),
         );
-        await reopenClosedPlayerPresences(
-          normalizedMatchId,
-          currentPeriod,
-          endAnchorTimestamp ?? resolvedEndTimestamp,
+
+        await Promise.all(
+          revertPlan.presencesToReopen.map((p) =>
+            db.playerpresences.update(p.id, {
+              timeOut: null,
+              isSynced: 0,
+            }),
+          ),
         );
       },
     );
