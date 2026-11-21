@@ -49,14 +49,17 @@ interface LineupScopedRecord {
   matchLineupId: string;
 }
 
-interface LineupTableLike<T extends LineupScopedRecord> {
-  where?: (index: string) => {
-    anyOf?: (keys: string[]) => { toArray?: () => Promise<T[]> };
-  };
-  filter?: (predicate: (item: T) => boolean) => {
-    toArray?: () => Promise<T[]>;
-  };
+interface ArrayQueryable<T> {
   toArray?: () => Promise<T[]>;
+}
+
+interface LineupTableLike<
+  T extends LineupScopedRecord,
+> extends ArrayQueryable<T> {
+  where?: (index: string) => {
+    anyOf?: (keys: string[]) => ArrayQueryable<T>;
+  };
+  filter?: (predicate: (item: T) => boolean) => ArrayQueryable<T>;
 }
 
 const EMPTY_RAW_DATA: RawDisciplinaryData = {
@@ -100,39 +103,34 @@ const deriveActiveAndBenchForPeriod = (
   return { active, bench };
 };
 
+const toArrayIfAvailable = async <T>(
+  queryable: ArrayQueryable<T> | undefined,
+): Promise<T[] | undefined> => {
+  if (typeof queryable?.toArray !== "function") return undefined;
+  const rows = await queryable.toArray();
+  return Array.isArray(rows) ? rows : undefined;
+};
+
 const fetchRecordsForLineups = async <T extends LineupScopedRecord>(
   table: LineupTableLike<T> | undefined,
   lineupIds: string[],
 ): Promise<T[]> => {
   if (lineupIds.length === 0 || !table) return [];
+
+  const indexedRows = await toArrayIfAvailable(
+    table.where?.("matchLineupId")?.anyOf?.(lineupIds),
+  );
+  if (indexedRows) return indexedRows;
+
   const lineupSet = new Set(lineupIds);
+  const filteredRows = await toArrayIfAvailable(
+    table.filter?.((item) => lineupSet.has(item.matchLineupId)),
+  );
+  if (filteredRows) return filteredRows;
 
-  if (typeof table.where === "function") {
-    const anyOfChain = table.where("matchLineupId")?.anyOf?.(lineupIds);
-    if (typeof anyOfChain?.toArray === "function") {
-      const res = await anyOfChain.toArray();
-      if (Array.isArray(res)) return res;
-    }
-  }
-
-  if (typeof table.filter === "function") {
-    const filterChain = table.filter((item) =>
-      lineupSet.has(item.matchLineupId),
-    );
-    if (typeof filterChain?.toArray === "function") {
-      const res = await filterChain.toArray();
-      if (Array.isArray(res)) return res;
-    }
-  }
-
-  if (typeof table.toArray === "function") {
-    const all = await table.toArray();
-    if (Array.isArray(all)) {
-      return all.filter((item) => lineupSet.has(item.matchLineupId));
-    }
-  }
-
-  return [];
+  const allRows = await toArrayIfAvailable(table);
+  if (!allRows) return [];
+  return allRows.filter((item) => lineupSet.has(item.matchLineupId));
 };
 
 const fetchEventDefinitionsMap = async (): Promise<

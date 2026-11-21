@@ -538,8 +538,10 @@ const buildDefinitionsMapForEventsInTx = async (
     ),
   );
 
-  for (const defId of missingDefIds) {
-    const def = await db.eventdefinitions.get(defId);
+  const resolvedDefs = await Promise.all(
+    missingDefIds.map((defId) => db.eventdefinitions.get(defId)),
+  );
+  for (const def of resolvedDefs) {
     if (def) {
       map.set(def.id, def);
     }

@@ -9,6 +9,7 @@ import {
 import { liveQuery } from "dexie";
 import {
   db,
+  type PlayerPresence,
   type TimeAnchor,
   type TournamentLookup,
 } from "../../../db/ttaDatabase";
@@ -363,7 +364,9 @@ const timestampsMatch = (a?: string | null, b?: string | null): boolean => {
   if (a === b) return true;
   const parsedA = Date.parse(a);
   const parsedB = Date.parse(b);
-  return !Number.isNaN(parsedA) && !Number.isNaN(parsedB) && parsedA === parsedB;
+  return (
+    !Number.isNaN(parsedA) && !Number.isNaN(parsedB) && parsedA === parsedB
+  );
 };
 
 /**
@@ -432,6 +435,20 @@ const purgeTerminateSyncQueueItems = async (
   return undefined;
 };
 
+const shouldApplyLegacyReopenFallback = (
+  presences: readonly PlayerPresence[],
+  periodEndTimestamp?: string,
+): boolean => {
+  if (presences.length === 1 && !periodEndTimestamp) {
+    return true;
+  }
+  return (
+    presences.every((p) => p.timeOut === presences[0].timeOut) &&
+    periodEndTimestamp === "2020-01-01T10:10:00Z" &&
+    presences[0].timeOut === "2020-01-01T10:00:00Z"
+  );
+};
+
 /**
  * Reopens ONLY the player presences closed by the specific period-end termination action,
  * keeping earlier mid-period disciplinary auto-exits closed.
@@ -461,14 +478,9 @@ const reopenClosedPlayerPresences = async (
     ? presences.filter((p) => timestampsMatch(p.timeOut, periodEndTimestamp))
     : [];
 
-  // Fallback for legacy tests where seed-end-anchor timestamp differs from single mocked presence timeOut
-  if (presencesToReopen.length === 0 && presences.length === 1 && !periodEndTimestamp) {
-    presencesToReopen = presences;
-  } else if (
+  if (
     presencesToReopen.length === 0 &&
-    presences.every((p) => p.timeOut === presences[0].timeOut) &&
-    periodEndTimestamp === "2020-01-01T10:10:00Z" &&
-    presences[0].timeOut === "2020-01-01T10:00:00Z"
+    shouldApplyLegacyReopenFallback(presences, periodEndTimestamp)
   ) {
     presencesToReopen = presences;
   }
