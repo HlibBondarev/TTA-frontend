@@ -382,6 +382,7 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
           data.lineupIds.length > 0 &&
           data.presences.length > 0
         ) {
+          rosterVersionRef.current += 1;
           const { active, bench } = deriveActiveAndBenchForPeriod(
             data.lineupIds,
             data.presences,
@@ -391,7 +392,6 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
             !areStringArraysEqual(active, activeLineupIdsRef.current) ||
             !areStringArraysEqual(bench, benchLineupIdsRef.current)
           ) {
-            rosterVersionRef.current += 1;
             dispatch(syncActiveAndBenchRoster({ active, bench }));
           }
         }

@@ -8,6 +8,7 @@ import { usePlayerPresence } from "../hooks/usePlayerPresence";
 import presenceReducer, {
   setPresenceLimits,
   setClearedPenaltyEventIds,
+  syncActiveAndBenchRoster,
 } from "../store/presenceSlice";
 import matchReducer, {
   endPeriodState,
@@ -1126,6 +1127,116 @@ describe("usePlayerPresence Hook", () => {
       result.current.disciplinaryState?.playersById["lineup-1"]?.isDisqualified,
     ).toBe(true);
     expect(result.current.activeLineupIds).toEqual(["lineup-2"]);
+    expect(store.getState().presence.isLoading).toBe(false);
+  });
+
+  it("should prevent a delayed period-presence read in refreshPresenceFromDB from overwriting a matching newer liveQuery roster", async () => {
+    let emitNext!: (val: unknown) => void;
+    let savedQuerier!: () => Promise<unknown>;
+
+    vi.mocked(liveQuery).mockImplementationOnce(((
+      querier: () => Promise<unknown>,
+    ) => {
+      savedQuerier = querier;
+      return {
+        subscribe: (observer: { next?: (val: unknown) => void }) => {
+          emitNext = (val: unknown) => observer.next?.(val);
+          Promise.resolve()
+            .then(() => querier())
+            .then((res) => observer.next?.(res));
+          return { unsubscribe: vi.fn() };
+        },
+      };
+    }) as never);
+
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 2, period: 1 }));
+      store.dispatch(
+        syncActiveAndBenchRoster({
+          active: ["lineup-2"],
+          bench: ["lineup-1"],
+        }),
+      );
+    });
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(result.current.disciplinaryState).toBeDefined();
+    });
+
+    // Delay refreshPresenceFromDB at its period-presence read (before roster dispatch)
+    let resolveDelayedPeriodPresences!: (value: unknown) => void;
+    const newerPresences = [
+      {
+        id: "pres-1",
+        matchLineupId: "lineup-1",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:00:00.000Z",
+        timeOut: "2026-07-16T10:02:00.000Z",
+      },
+      {
+        id: "pres-2",
+        matchLineupId: "lineup-2",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:00:00.000Z",
+        timeOut: null,
+      },
+    ];
+    vi.mocked(db.playerpresences.where).mockImplementation((index: unknown) => {
+      if (index === "periodNumber") {
+        return {
+          equals: vi.fn().mockReturnValue({
+            toArray: vi.fn(
+              () =>
+                new Promise((resolve) => {
+                  resolveDelayedPeriodPresences = resolve;
+                }),
+            ),
+          }),
+        } as never;
+      }
+      return {
+        anyOf: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue(newerPresences),
+        }),
+      } as never;
+    });
+
+    let delayedRefreshPromise!: Promise<void>;
+    act(() => {
+      delayedRefreshPromise = result.current.refreshPresenceFromDB(1);
+    });
+
+    await waitFor(() => {
+      expect(resolveDelayedPeriodPresences).toBeDefined();
+    });
+
+    // Newer non-initial liveQuery emission arrives matching the current Redux roster
+    await act(async () => {
+      const newerPayload = await savedQuerier();
+      emitNext(newerPayload);
+    });
+
+    // Delayed period-presence read resolves with stale older roster (lineup-1 active)
+    await act(async () => {
+      resolveDelayedPeriodPresences([
+        {
+          id: "pres-stale",
+          matchLineupId: "lineup-1",
+          periodNumber: 1,
+          timeIn: "2026-07-16T10:00:00.000Z",
+          timeOut: null,
+        },
+      ]);
+      await delayedRefreshPromise;
+    });
+
+    // Stale roster must NOT overwrite the current Redux roster, and loading must clear
+    expect(result.current.activeLineupIds).toEqual(["lineup-2"]);
+    expect(result.current.benchLineupIds).toEqual(["lineup-1"]);
     expect(store.getState().presence.isLoading).toBe(false);
   });
 });
