@@ -664,7 +664,7 @@ const computePreChangePersonalFoulCount = (
     return postChangePersonalFoulCount;
   }
   const upsertedForSamePlayer =
-    override.upsert && override.upsert.matchLineupId === existing.matchLineupId
+    override.upsert?.matchLineupId === existing.matchLineupId
       ? override.upsert
       : undefined;
   if (upsertedForSamePlayer) {
