@@ -1001,4 +1001,131 @@ describe("usePlayerPresence Hook", () => {
 
     expect(initializePeriodPresenceTx).not.toHaveBeenCalled();
   });
+
+  it("should prevent an earlier delayed refreshPresenceFromDB from overwriting a newer liveQuery emission", async () => {
+    let emitNext!: (val: unknown) => void;
+    let savedQuerier!: () => Promise<unknown>;
+
+    vi.mocked(liveQuery).mockImplementationOnce(((
+      querier: () => Promise<unknown>,
+    ) => {
+      savedQuerier = querier;
+      return {
+        subscribe: (observer: { next?: (val: unknown) => void }) => {
+          emitNext = (val: unknown) => observer.next?.(val);
+          Promise.resolve()
+            .then(() => querier())
+            .then((res) => observer.next?.(res));
+          return { unsubscribe: vi.fn() };
+        },
+      };
+    }) as never);
+
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValue([
+      {
+        id: "def-dq",
+        sportId: "sport-1",
+        name: "Red Card",
+        shortName: "RC",
+        isPositive: false,
+        isShot: false,
+        foulImpact: "DisqualificationWithSub",
+        penaltyDurationSeconds: null,
+      },
+    ] as never);
+
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 2, period: 1 }));
+    });
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(result.current.disciplinaryState).toBeDefined();
+    });
+
+    // Delay the earlier refreshPresenceFromDB at its gameevents read
+    let resolveDelayedRefreshEvents!: (value: unknown) => void;
+    vi.mocked(db.gameevents.where).mockReturnValueOnce({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi.fn(
+          () =>
+            new Promise((resolve) => {
+              resolveDelayedRefreshEvents = resolve;
+            }),
+        ),
+      }),
+    } as never);
+
+    let delayedRefreshPromise!: Promise<void>;
+    act(() => {
+      delayedRefreshPromise = result.current.refreshPresenceFromDB(1);
+    });
+
+    await waitFor(() => {
+      expect(resolveDelayedRefreshEvents).toBeDefined();
+    });
+
+    // Newer liveQuery emission arrives while refreshPresenceFromDB is still in flight
+    vi.mocked(db.gameevents.where).mockReturnValue({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "evt-dq-newer",
+            matchLineupId: "lineup-1",
+            eventDefinitionId: "def-dq",
+            periodNumber: 1,
+            eventTimestamp: "2026-07-16T10:02:00.000Z",
+            isLeadToGoal: false,
+            foulImpact: "DisqualificationWithSub",
+            penaltyDurationSeconds: null,
+            createdAt: "2026-07-16T10:02:00.000Z",
+            sequenceNumber: 2,
+            isSynced: 0,
+          },
+        ]),
+      }),
+    } as never);
+    vi.mocked(db.playerpresences.toArray).mockResolvedValue([
+      {
+        id: "pres-1",
+        matchLineupId: "lineup-1",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:00:00.000Z",
+        timeOut: "2026-07-16T10:02:00.000Z",
+      },
+      {
+        id: "pres-2",
+        matchLineupId: "lineup-2",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:00:00.000Z",
+        timeOut: null,
+      },
+    ] as never);
+
+    await act(async () => {
+      const newerPayload = await savedQuerier();
+      emitNext(newerPayload);
+    });
+
+    expect(
+      result.current.disciplinaryState?.playersById["lineup-1"]?.isDisqualified,
+    ).toBe(true);
+    expect(result.current.activeLineupIds).toEqual(["lineup-2"]);
+
+    // Now the earlier delayed refresh resolves with older (empty events) snapshot
+    await act(async () => {
+      resolveDelayedRefreshEvents([]);
+      await delayedRefreshPromise;
+    });
+
+    // Newer liveQuery snapshot must NOT be overwritten, and loading state must be cleared
+    expect(
+      result.current.disciplinaryState?.playersById["lineup-1"]?.isDisqualified,
+    ).toBe(true);
+    expect(result.current.activeLineupIds).toEqual(["lineup-2"]);
+    expect(store.getState().presence.isLoading).toBe(false);
+  });
 });

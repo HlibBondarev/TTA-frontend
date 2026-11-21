@@ -305,6 +305,8 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
   // Safeguard: guarantees up-to-date periodNumber inside async callbacks
   const currentPeriodRef = useRef(currentPeriod);
   const refreshRequestRef = useRef(0);
+  const rosterVersionRef = useRef(0);
+  const rawDataVersionRef = useRef(0);
 
   const {
     activeLineupIds,
@@ -353,18 +355,19 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
     let isInitialEmission = true;
 
     const subscription = liveQuery(async () => {
-      const requestIdBeforeLoad = refreshRequestRef.current;
+      const rawDataVersionBeforeLoad = rawDataVersionRef.current;
       const data = await loadRawDisciplinaryData(normalizedMatchId);
-      return { data, requestIdBeforeLoad };
+      return { data, rawDataVersionBeforeLoad };
     }).subscribe({
-      next: ({ data, requestIdBeforeLoad }) => {
+      next: ({ data, rawDataVersionBeforeLoad }) => {
         const wasInitial = isInitialEmission;
         isInitialEmission = false;
 
-        if (requestIdBeforeLoad !== refreshRequestRef.current) {
+        if (rawDataVersionBeforeLoad !== rawDataVersionRef.current) {
           return;
         }
 
+        rawDataVersionRef.current += 1;
         setRawData(data);
 
         if (
@@ -388,6 +391,7 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
             !areStringArraysEqual(active, activeLineupIdsRef.current) ||
             !areStringArraysEqual(bench, benchLineupIdsRef.current)
           ) {
+            rosterVersionRef.current += 1;
             dispatch(syncActiveAndBenchRoster({ active, bench }));
           }
         }
@@ -477,6 +481,8 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
   const refreshPresenceFromDB = useCallback(
     async (overridePeriodNumber?: number) => {
       const requestId = ++refreshRequestRef.current;
+      const rosterVersion = ++rosterVersionRef.current;
+      const rawDataVersion = ++rawDataVersionRef.current;
       const periodToFetch = overridePeriodNumber ?? currentPeriodRef.current;
       dispatch(setLoading(true));
       try {
@@ -511,7 +517,7 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
         );
 
         if (
-          requestId === refreshRequestRef.current &&
+          rosterVersion === rosterVersionRef.current &&
           periodToFetch === currentPeriodRef.current
         ) {
           dispatch(
@@ -540,7 +546,7 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
             fetchDbMaxPersonalFouls(matchId),
           ]);
 
-        if (requestId === refreshRequestRef.current) {
+        if (rawDataVersion === rawDataVersionRef.current) {
           setRawData({
             lineupIds,
             events,
