@@ -554,4 +554,36 @@ describe("useTTAConsole Custom Hook", () => {
 
     expect(result.current.selectedPlayerId).toBeNull();
   });
+
+  it("should clear stale selectedPlayerId and skip recordGameEvent in handleEnter if player exited activeLineupIds", async () => {
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+      presence: { activeLineupIds: ["player-1", "player-2"] },
+    });
+
+    const { result } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.handleActionSelect("Goal", true, "def-goal-1", true);
+      result.current.setSelectedPlayerId("player-2");
+    });
+
+    const staleHandleEnter = result.current.handleEnter;
+
+    act(() => {
+      store.dispatch({
+        type: "presence/syncActiveAndBenchRoster",
+        payload: { active: ["player-1"], bench: ["player-2"] },
+      });
+    });
+
+    await act(async () => {
+      await staleHandleEnter();
+    });
+
+    expect(mockRecordGameEvent).not.toHaveBeenCalled();
+    expect(result.current.selectedPlayerId).toBeNull();
+  });
 });

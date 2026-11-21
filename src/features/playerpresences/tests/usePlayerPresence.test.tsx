@@ -121,6 +121,7 @@ describe("usePlayerPresence Hook", () => {
       { id: "lineup-1", matchId: "test-match" },
       { id: "lineup-2", matchId: "test-match" },
     ] as never);
+    vi.mocked(db.playerpresences.where).mockReturnThis();
     vi.mocked(db.playerpresences.toArray).mockResolvedValue([
       {
         id: "pres-1",
@@ -533,6 +534,8 @@ describe("usePlayerPresence Hook", () => {
       "test-match",
       1,
       "lineup-2",
+      undefined,
+      2,
     );
     expect(result.current.activeLineupIds).toEqual(["lineup-1", "lineup-2"]);
 
@@ -635,6 +638,7 @@ describe("usePlayerPresence Hook", () => {
         ]),
       }),
     } as never);
+    vi.mocked(db.playerpresences.where).mockReturnThis();
     vi.mocked(db.playerpresences.toArray).mockResolvedValue([
       {
         id: "pres-l1",
@@ -796,6 +800,7 @@ describe("usePlayerPresence Hook", () => {
 
   it("should support pre-period bench tap toggle before DB lineup loads and fallback table scans", async () => {
     vi.mocked(db.matchlineups.toArray).mockResolvedValue([] as never);
+    const originalWhere = db.gameevents.where;
     // Simulate table without .where().anyOf() to exercise .toArray() fallback path
     (db.gameevents as unknown as Record<string, unknown>).where = undefined;
     vi.mocked(db.gameevents.toArray).mockResolvedValue([
@@ -831,5 +836,169 @@ describe("usePlayerPresence Hook", () => {
       expect(secondTap?.wasSelectionToggled).toBe(true);
     });
     expect(result.current.selectedStartingIds).toEqual([]);
+    (db.gameevents as unknown as Record<string, unknown>).where = originalWhere;
+  });
+
+  it("should preserve clearedPenaltyEventIds and load all-period presences on same-period refreshPresenceFromDB", async () => {
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValue([
+      {
+        id: "def-ex",
+        sportId: "sport-1",
+        name: "Exclusion",
+        shortName: "EX",
+        isPositive: false,
+        isShot: false,
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: 20,
+      },
+    ] as never);
+    vi.mocked(db.gameevents.where).mockReturnValue({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "evt-ex-p1",
+            matchLineupId: "lineup-1",
+            eventDefinitionId: "def-ex",
+            periodNumber: 1,
+            eventTimestamp: "2026-07-16T10:03:00.000Z",
+            isLeadToGoal: false,
+            foulImpact: "PersonalFoul",
+            penaltyDurationSeconds: 20,
+            createdAt: "2026-07-16T10:03:00.000Z",
+            sequenceNumber: 2,
+            isSynced: 0,
+          },
+        ]),
+      }),
+    } as never);
+
+    const period1Presences = [
+      {
+        id: "pres-p1",
+        matchLineupId: "lineup-1",
+        periodNumber: 1,
+        timeIn: "2026-07-16T10:00:00.000Z",
+        timeOut: "2026-07-16T10:03:00.000Z",
+        sequenceNumber: 1,
+        isSynced: 0,
+      },
+    ];
+    vi.mocked(db.playerpresences.where).mockImplementation((index: unknown) => {
+      if (index === "periodNumber") {
+        return {
+          equals: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        } as never;
+      }
+      return {
+        anyOf: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue(period1Presences),
+        }),
+      } as never;
+    });
+
+    act(() => {
+      store.dispatch(incrementPeriodNumber());
+      store.dispatch(setPresenceLimits({ limit: 2, period: 2 }));
+      store.dispatch(setClearedPenaltyEventIds(["evt-ex-p1"]));
+    });
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await result.current.refreshPresenceFromDB(2);
+    });
+
+    expect(result.current.clearedPenaltyEventIds).toEqual(["evt-ex-p1"]);
+    expect(result.current.carryoverState?.carriedOverPenalties).toHaveLength(1);
+    expect(
+      result.current.carryoverState?.effectiveCarriedOverPenalties,
+    ).toHaveLength(0);
+  });
+
+  it("should reject enterShorthandedPlayer when activePlayersLimit > 0 and maxAllowedActive is 0", async () => {
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValue([
+      {
+        id: "def-nosub",
+        sportId: "sport-1",
+        name: "Brutality",
+        shortName: "BR",
+        isPositive: false,
+        isShot: false,
+        foulImpact: "DisqualificationNoSub",
+        penaltyDurationSeconds: null,
+      },
+    ] as never);
+    vi.mocked(db.gameevents.where).mockReturnValue({
+      anyOf: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "evt-nosub-1",
+            matchLineupId: "lineup-1",
+            eventDefinitionId: "def-nosub",
+            periodNumber: 1,
+            eventTimestamp: "2026-07-16T10:02:00.000Z",
+            isLeadToGoal: false,
+            foulImpact: "DisqualificationNoSub",
+            penaltyDurationSeconds: null,
+            createdAt: "2026-07-16T10:02:00.000Z",
+            sequenceNumber: 1,
+            isSynced: 0,
+          },
+        ]),
+      }),
+    } as never);
+    vi.mocked(db.playerpresences.toArray).mockResolvedValue([]);
+
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 1, period: 1 }));
+    });
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(result.current.maxAllowedActive).toBe(0);
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.enterShorthandedPlayer?.("lineup-2", 1);
+      }),
+    ).rejects.toThrow("Cannot exceed the limit of 0 active players.");
+
+    expect(enterShorthandedPlayerTx).not.toHaveBeenCalled();
+  });
+
+  it("should reject startPeriodWithRoster if staged starters include players not in match lineup", async () => {
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 2, period: 1 }));
+    });
+
+    const { result } = renderHook(() => usePlayerPresence("test-match"), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await result.current.refreshPresenceFromDB(1);
+    });
+
+    act(() => {
+      result.current.stageStartingLineup(["lineup-1", "unknown-player"]);
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.startPeriodWithRoster("2026-07-16T10:00:00.000Z");
+      }),
+    ).rejects.toThrow(
+      "Starting lineup contains players who are not in the match lineup.",
+    );
+
+    expect(initializePeriodPresenceTx).not.toHaveBeenCalled();
   });
 });

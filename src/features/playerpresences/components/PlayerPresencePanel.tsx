@@ -1,4 +1,10 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import { usePlayerPresence } from "../hooks/usePlayerPresence";
 import { db } from "../../../db/ttaDatabase";
 import type { MatchLineupLookup } from "../../../db/ttaDatabase";
@@ -9,19 +15,19 @@ import type { PlayerDisciplinaryStatus } from "../utils/disciplinaryUtils";
 interface PlayerTileBadgesProps {
   status?: PlayerDisciplinaryStatus;
   maxPersonalFouls?: number | null;
-  isHighlightedTimedPenalty?: boolean;
+  hasEffectiveTimedExclusion?: boolean;
 }
 
 const PlayerTileBadges: React.FC<PlayerTileBadgesProps> = ({
   status,
   maxPersonalFouls,
-  isHighlightedTimedPenalty = false,
+  hasEffectiveTimedExclusion,
 }) => {
   const showFouls =
     maxPersonalFouls !== null && (status?.personalFoulCount ?? 0) > 0;
   const isDisqualified = Boolean(status?.isDisqualified);
   const hasTimedExclusion =
-    Boolean(status?.hasActiveTimedExclusion) || isHighlightedTimedPenalty;
+    hasEffectiveTimedExclusion ?? Boolean(status?.hasActiveTimedExclusion);
 
   if (!showFouls && !isDisqualified && !hasTimedExclusion) {
     return null;
@@ -78,6 +84,7 @@ const getBenchPlayerButtonClass = (
   isSelectedStarter: boolean,
   isPeriodActive: boolean,
   isHighlightedCarryover: boolean,
+  hasEffectiveTimedExclusion: boolean,
   status?: PlayerDisciplinaryStatus,
 ): string => {
   if (!isPeriodActive && isSelectedStarter) {
@@ -89,7 +96,7 @@ const getBenchPlayerButtonClass = (
   if (status?.isDisqualified) {
     return "bg-rose-950/60 text-rose-300 opacity-60 cursor-not-allowed";
   }
-  if (status?.hasActiveTimedExclusion) {
+  if (hasEffectiveTimedExclusion) {
     return "bg-amber-950/80 text-amber-200 ring-1 ring-amber-500/70";
   }
   if (status?.hasFoulWarning) {
@@ -149,6 +156,12 @@ export const PlayerPresencePanel: React.FC<{
     setPrevLifecycle({ currentPeriod, isPeriodActive, isPeriodEnded });
     setErrorMessage(null);
   }
+
+  const selectedPlayerIdRef = useRef(selectedPlayerId);
+
+  useEffect(() => {
+    selectedPlayerIdRef.current = selectedPlayerId;
+  }, [selectedPlayerId]);
 
   useEffect(() => {
     if (
@@ -266,9 +279,12 @@ export const PlayerPresencePanel: React.FC<{
     }
 
     if (selectedPlayerId) {
+      const outPlayerId = selectedPlayerId;
       try {
-        await executeSubstitution(selectedPlayerId, benchId, currentPeriod);
-        setSelectedPlayerId(null);
+        await executeSubstitution(outPlayerId, benchId, currentPeriod);
+        if (selectedPlayerIdRef.current === outPlayerId) {
+          setSelectedPlayerId(null);
+        }
       } catch {
         setErrorMessage("Substitution failed.");
       }
@@ -394,10 +410,17 @@ export const PlayerPresencePanel: React.FC<{
       <div className="grid grid-cols-4 gap-1">
         {sortedBenchLineupIds.map((id) => {
           const status = playersById?.[id];
+          const isSelectedStarter =
+            !isPeriodActive && selectedStartingIds.includes(id);
           const isHighlightedCarryover =
             !isPeriodActive && highlightedSet.has(id);
           const isLockedDq =
-            Boolean(status?.isDisqualified) && !isHighlightedCarryover;
+            Boolean(status?.isDisqualified) &&
+            !isHighlightedCarryover &&
+            !isSelectedStarter;
+          const hasEffectiveTimedExclusion = isPeriodActive
+            ? Boolean(status?.hasActiveTimedExclusion)
+            : isHighlightedCarryover;
 
           return (
             <button
@@ -407,11 +430,12 @@ export const PlayerPresencePanel: React.FC<{
               onClick={() => {
                 handleBenchTap(id).catch(() => {});
               }}
-              aria-pressed={selectedStartingIds.includes(id)}
+              aria-pressed={isSelectedStarter}
               className={`p-2 min-h-11 rounded text-xs font-bold transition-colors ${getBenchPlayerButtonClass(
-                selectedStartingIds.includes(id),
+                isSelectedStarter,
                 isPeriodActive,
                 isHighlightedCarryover,
+                hasEffectiveTimedExclusion,
                 status,
               )}`}
             >
@@ -419,7 +443,7 @@ export const PlayerPresencePanel: React.FC<{
               <PlayerTileBadges
                 status={status}
                 maxPersonalFouls={maxPersonalFouls}
-                isHighlightedTimedPenalty={isHighlightedCarryover}
+                hasEffectiveTimedExclusion={hasEffectiveTimedExclusion}
               />
             </button>
           );

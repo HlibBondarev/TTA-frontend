@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSelector, useDispatch } from "react-redux";
+import { useSelector, useDispatch, useStore } from "react-redux";
 import { useMatchLifecycle } from "./useMatchLifecycle";
 import { useGameEvents } from "./useGameEvents";
 import { resetMatchState } from "../store/matchSlice";
@@ -12,6 +12,7 @@ export interface UseTTAConsoleOptions {
 
 export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   const dispatch = useDispatch<AppDispatch>();
+  const store = useStore<RootState>();
   const activeMatchId = useSelector(
     (state: RootState) => state.match.activeMatchId,
   );
@@ -101,6 +102,16 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
       activeMatchId &&
       !isSubmitting
     ) {
+      const latestActiveLineupIds =
+        store.getState().presence?.activeLineupIds ?? activeLineupIds;
+      if (
+        latestActiveLineupIds.length > 0 &&
+        !latestActiveLineupIds.includes(selectedPlayerId)
+      ) {
+        setSelectedPlayerId(null);
+        return;
+      }
+
       setIsSubmitting(true);
       setConsoleError(null);
       try {

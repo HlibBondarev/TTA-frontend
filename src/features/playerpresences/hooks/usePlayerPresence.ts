@@ -14,7 +14,6 @@ import {
   enterShorthandedPlayerTx,
 } from "../../../db/presenceService";
 import {
-  loadRosterState,
   syncActiveAndBenchRoster,
   setSelectedStartingIds,
   setClearedPenaltyEventIds,
@@ -226,6 +225,40 @@ const hasDisciplinaryCarryoverConstraints = (
   carryover.permanentNoSubCount > 0 ||
   (lineupCount >= activePlayersLimit &&
     carryover.requiredStartingPlayers < activePlayersLimit);
+
+const validateStartingLineup = (
+  selectedStartingIds: readonly string[],
+  rawLineupIds: readonly string[],
+  disqualifiedLineupIds: readonly string[],
+  expectedStarters: number,
+): void => {
+  if (rawLineupIds.length >= expectedStarters) {
+    const matchLineupSet = new Set(rawLineupIds);
+    const hasUnknownStarter = selectedStartingIds.some(
+      (id) => !matchLineupSet.has(id),
+    );
+    if (hasUnknownStarter) {
+      throw new Error(
+        "Starting lineup contains players who are not in the match lineup.",
+      );
+    }
+  }
+
+  const hasDisqualifiedStarter = selectedStartingIds.some((id) =>
+    disqualifiedLineupIds.includes(id),
+  );
+  if (hasDisqualifiedStarter) {
+    throw new Error(
+      "Disqualified players cannot be included in the starting lineup.",
+    );
+  }
+
+  if (selectedStartingIds.length !== expectedStarters) {
+    throw new Error(
+      `Starting lineup must contain exactly ${expectedStarters} players.`,
+    );
+  }
+};
 
 export interface UsePlayerPresenceResult {
   currentPeriod: number;
@@ -482,34 +515,39 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
           periodToFetch === currentPeriodRef.current
         ) {
           dispatch(
-            loadRosterState({ active: activeLineups, bench: benchLineups }),
+            syncActiveAndBenchRoster({
+              active: activeLineups,
+              bench: benchLineups,
+            }),
           );
         }
 
-        const [events, definitionsById, dbMaxPersonalFouls] = await Promise.all(
-          [
+        const [events, allPresences, definitionsById, dbMaxPersonalFouls] =
+          await Promise.all([
             fetchRecordsForLineups<GameEvent>(
               db?.gameevents as unknown as
                 | LineupTableLike<GameEvent>
                 | undefined,
               lineupIds,
             ),
+            fetchRecordsForLineups<PlayerPresence>(
+              db?.playerpresences as unknown as
+                | LineupTableLike<PlayerPresence>
+                | undefined,
+              lineupIds,
+            ),
             fetchEventDefinitionsMap(),
             fetchDbMaxPersonalFouls(matchId),
-          ],
-        );
+          ]);
 
         if (requestId === refreshRequestRef.current) {
-          setRawData((prev) => ({
+          setRawData({
             lineupIds,
             events,
-            presences:
-              prev.presences.length > rawPresences.length
-                ? prev.presences
-                : rawPresences,
+            presences: allPresences,
             definitionsById,
             dbMaxPersonalFouls,
-          }));
+          });
         }
       } catch (error) {
         console.error("Failed to load local presence state:", error);
@@ -633,20 +671,12 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
         ? targetCarryover.requiredStartingPlayers
         : activePlayersLimit;
 
-      const hasDisqualifiedStarter = selectedStartingIds.some((id) =>
-        targetCarryover.disqualifiedLineupIds.includes(id),
+      validateStartingLineup(
+        selectedStartingIds,
+        rawData.lineupIds,
+        targetCarryover.disqualifiedLineupIds,
+        expectedStarters,
       );
-      if (hasDisqualifiedStarter) {
-        throw new Error(
-          "Disqualified players cannot be included in the starting lineup.",
-        );
-      }
-
-      if (selectedStartingIds.length !== expectedStarters) {
-        throw new Error(
-          `Starting lineup must contain exactly ${expectedStarters} players.`,
-        );
-      }
       try {
         await initializePeriodPresenceTx(
           matchId,
@@ -669,6 +699,7 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
       activePlayersLimit,
       effectiveMaxPersonalFouls,
       effectiveLineupIds,
+      rawData.lineupIds,
       rawData.events,
       rawData.presences,
       rawData.definitionsById,
@@ -736,10 +767,10 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
         throw new Error("Player is already active.");
       }
       const maxAllowed =
-        disciplinaryState.maxAllowedActive > 0
+        activePlayersLimit > 0
           ? disciplinaryState.maxAllowedActive
-          : activePlayersLimit;
-      if (maxAllowed > 0 && activeLineupIds.length >= maxAllowed) {
+          : undefined;
+      if (maxAllowed !== undefined && activeLineupIds.length >= maxAllowed) {
         throw new Error(
           `Cannot exceed the limit of ${maxAllowed} active players.`,
         );
@@ -747,7 +778,13 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
 
       dispatch(optimisticEnterActivePlayer(inLineupId));
       try {
-        await enterShorthandedPlayerTx(matchId, targetPeriod, inLineupId);
+        await enterShorthandedPlayerTx(
+          matchId,
+          targetPeriod,
+          inLineupId,
+          undefined,
+          maxAllowed,
+        );
       } catch (error) {
         console.error("Failed to enter shorthanded player in DB:", error);
         await refreshPresenceFromDB(targetPeriod);
