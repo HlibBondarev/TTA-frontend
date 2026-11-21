@@ -7,6 +7,7 @@ import {
   enterShorthandedPlayerTx,
   terminateSinglePlayerPresenceInTx,
   revertSinglePlayerAutoExitInTx,
+  findLatestClosedPresenceForPlayerInTx,
 } from "../../db/presenceService";
 
 vi.mock("../../db/ttaDatabase", () => ({
@@ -440,6 +441,127 @@ describe("presenceService Database Transactions", () => {
     ).rejects.toThrow("Player already has an active presence in this period.");
   });
 
+  it("enterShorthandedPlayerTx should allow entry when open count is below maxAllowedActive", async () => {
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { id: "lineup-1", matchId: mockMatchId },
+          { id: "lineup-in", matchId: mockMatchId },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    const periodOpenPool = [
+      { id: "p-1", matchLineupId: "lineup-1", timeOut: null },
+      { id: "p-other-match", matchLineupId: "foreign-lineup", timeOut: null },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockImplementation((arg: unknown) => {
+      if (arg === "periodNumber") {
+        return {
+          equals: vi.fn().mockReturnValue({
+            filter: vi.fn(
+              (predicate: (p: (typeof periodOpenPool)[0]) => boolean) => ({
+                toArray: vi
+                  .fn()
+                  .mockResolvedValue(periodOpenPool.filter(predicate)),
+              }),
+            ),
+          }),
+        } as unknown as ReturnType<typeof db.playerpresences.where>;
+      }
+      return {
+        filter: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue(undefined),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>;
+    });
+
+    const entryTime = "2026-07-22T10:03:00.000Z";
+    const newId = await enterShorthandedPlayerTx(
+      mockMatchId,
+      mockPeriodNumber,
+      "lineup-in",
+      entryTime,
+      2,
+    );
+
+    expect(newId).toBeDefined();
+    expect(db.transaction).toHaveBeenCalledWith(
+      "rw",
+      [
+        db.playerpresences,
+        db.gameevents,
+        db.timeanchors,
+        db.syncQueue,
+        db.matchlineups,
+      ],
+      expect.any(Function),
+    );
+    expect(db.playerpresences.add).toHaveBeenCalledTimes(1);
+    expect(db.syncQueue.add).toHaveBeenCalledTimes(1);
+  });
+
+  it("enterShorthandedPlayerTx should reject entry when open count is at maxAllowedActive", async () => {
+    const periodOpenPool = [
+      { id: "p-1", matchLineupId: "lineup-1", timeOut: null },
+      { id: "p-2", matchLineupId: "lineup-2", timeOut: null },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockImplementation((arg: unknown) => {
+      if (arg === "periodNumber") {
+        return {
+          equals: vi.fn().mockReturnValue({
+            filter: vi.fn(
+              (predicate: (p: (typeof periodOpenPool)[0]) => boolean) => ({
+                toArray: vi
+                  .fn()
+                  .mockResolvedValue(periodOpenPool.filter(predicate)),
+              }),
+            ),
+          }),
+        } as unknown as ReturnType<typeof db.playerpresences.where>;
+      }
+      return {
+        filter: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue(undefined),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>;
+    });
+
+    await expect(
+      enterShorthandedPlayerTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-in",
+        "2026-07-22T10:03:00.000Z",
+        2,
+      ),
+    ).rejects.toThrow("Cannot exceed the limit of 2 active players.");
+    expect(db.playerpresences.add).not.toHaveBeenCalled();
+    expect(db.syncQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("enterShorthandedPlayerTx should reject entry when maxAllowedActive is 0", async () => {
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      filter: vi.fn().mockReturnValue({
+        first: vi.fn().mockResolvedValue(undefined),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    await expect(
+      enterShorthandedPlayerTx(
+        mockMatchId,
+        mockPeriodNumber,
+        "lineup-in",
+        "2026-07-22T10:03:00.000Z",
+        0,
+      ),
+    ).rejects.toThrow("Cannot exceed the limit of 0 active players.");
+    expect(db.playerpresences.add).not.toHaveBeenCalled();
+    expect(db.syncQueue.add).not.toHaveBeenCalled();
+  });
+
   it("terminateSinglePlayerPresenceInTx should close open presence and clamp timeOut >= timeIn", async () => {
     const filterMock = vi.fn().mockReturnValue({
       first: vi.fn().mockResolvedValue({
@@ -615,7 +737,7 @@ describe("presenceService Database Transactions", () => {
       });
     });
 
-    it("should resolve tie-breaking by timeIn when sequenceNumbers match and return false when no queue item matches", async () => {
+    it("should resolve tie-breaking by timeIn when sequenceNumbers match and reopen the later interval", async () => {
       const firstInterval = {
         id: "pres-seq-tie-1",
         matchLineupId: "lineup-11",
@@ -636,13 +758,59 @@ describe("presenceService Database Transactions", () => {
       };
 
       vi.mocked(db.playerpresences.where).mockReturnValue({
-        toArray: vi.fn().mockResolvedValue([secondInterval, firstInterval]),
+        toArray: vi.fn().mockResolvedValue([firstInterval, secondInterval]),
       } as unknown as ReturnType<typeof db.playerpresences.where>);
 
       vi.mocked(db.syncQueue.filter).mockReturnValue({
         toArray: vi.fn().mockResolvedValue([
           {
             id: 77,
+            actionType: "PUT",
+            endpoint: `/Matches/${mockMatchId}/presence/terminate`,
+            payload: JSON.stringify({
+              periodNumber: 2,
+              playerLineupIds: ["lineup-11"],
+              timeOut: "custom-time-04",
+            }),
+            createdAt: "custom-time-04",
+          },
+        ]),
+      } as unknown as ReturnType<typeof db.syncQueue.filter>);
+
+      const reverted = await revertSinglePlayerAutoExitInTx(
+        mockMatchId,
+        "lineup-11",
+        2,
+        "custom-time-04",
+      );
+
+      expect(reverted).toBe(true);
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(77);
+      expect(db.playerpresences.update).toHaveBeenCalledWith("pres-seq-tie-2", {
+        timeOut: null,
+        isSynced: 0,
+      });
+    });
+
+    it("should return false when matching queue item is missing timeOut", async () => {
+      const closedInterval = {
+        id: "pres-missing-timeout",
+        matchLineupId: "lineup-11",
+        periodNumber: 2,
+        timeIn: "custom-time-03",
+        timeOut: "custom-time-04",
+        sequenceNumber: 4,
+        isSynced: 0,
+      };
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([closedInterval]),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      vi.mocked(db.syncQueue.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: 78,
             actionType: "PUT",
             endpoint: `/Matches/${mockMatchId}/presence/terminate`,
             payload: JSON.stringify({
@@ -665,6 +833,65 @@ describe("presenceService Database Transactions", () => {
       expect(reverted).toBe(false);
       expect(db.syncQueue.delete).not.toHaveBeenCalled();
       expect(db.playerpresences.update).not.toHaveBeenCalled();
+    });
+
+    it("should revert latest unsynced single-player auto-exit when eventTimestamp is omitted and locate latest closed presence across periods", async () => {
+      const period1Closed = {
+        id: "pres-p1-closed",
+        matchLineupId: "lineup-11",
+        periodNumber: 1,
+        timeIn: "2026-07-22T10:00:00.000Z",
+        timeOut: "2026-07-22T10:08:00.000Z",
+        sequenceNumber: 2,
+        isSynced: 1,
+      };
+      const period2Closed = {
+        id: "pres-p2-closed",
+        matchLineupId: "lineup-11",
+        periodNumber: 2,
+        timeIn: "2026-07-22T10:10:00.000Z",
+        timeOut: "2026-07-22T10:14:00.000Z",
+        sequenceNumber: 6,
+        isSynced: 0,
+      };
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([period1Closed, period2Closed]),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      const latest = await findLatestClosedPresenceForPlayerInTx("lineup-11");
+      expect(latest?.id).toBe("pres-p2-closed");
+
+      vi.mocked(db.syncQueue.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: 88,
+            actionType: "PUT",
+            endpoint: `/Matches/${mockMatchId}/presence/terminate`,
+            payload: JSON.stringify({
+              periodNumber: 2,
+              playerLineupIds: ["lineup-11"],
+              timeOut: "2026-07-22T10:14:00.000Z",
+            }),
+            createdAt: "2026-07-22T10:14:00.000Z",
+          },
+        ]),
+      } as unknown as ReturnType<typeof db.syncQueue.filter>);
+
+      const reverted = await revertSinglePlayerAutoExitInTx(
+        mockMatchId,
+        "lineup-11",
+        2,
+      );
+
+      expect(reverted).toBe(true);
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(88);
+      expect(db.playerpresences.update).toHaveBeenCalledWith("pres-p2-closed", {
+        timeOut: null,
+        isSynced: 0,
+      });
     });
 
     it("should not revert if the player already has an open presence in the period", async () => {

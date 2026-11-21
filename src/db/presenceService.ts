@@ -112,6 +112,16 @@ const isPresenceLater = (
   return candidate.timeIn.localeCompare(currentLatest.timeIn) > 0;
 };
 
+const isPresenceLaterAcrossPeriods = (
+  candidate: PlayerPresence,
+  currentLatest: PlayerPresence,
+): boolean => {
+  if (candidate.periodNumber !== currentLatest.periodNumber) {
+    return candidate.periodNumber > currentLatest.periodNumber;
+  }
+  return isPresenceLater(candidate, currentLatest);
+};
+
 const findLatestPresenceInPeriod = (
   presences: readonly PlayerPresence[],
 ): PlayerPresence | undefined => {
@@ -123,6 +133,47 @@ const findLatestPresenceInPeriod = (
   }
   return latest;
 };
+
+/**
+ * Finds the player's latest unsynced closed presence across all periods in Dexie.
+ * Returns undefined if the player currently has any open presence or if the
+ * latest presence is already synced.
+ */
+export async function findLatestClosedPresenceForPlayerInTx(
+  matchLineupId: string,
+): Promise<PlayerPresence | undefined> {
+  if (typeof db.playerpresences?.where !== "function") {
+    return undefined;
+  }
+
+  const byLineup = db.playerpresences.where("matchLineupId");
+  const equalsChain =
+    typeof byLineup?.equals === "function"
+      ? byLineup.equals(matchLineupId)
+      : undefined;
+  if (typeof equalsChain?.toArray !== "function") {
+    return undefined;
+  }
+
+  const rows = await equalsChain.toArray();
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return undefined;
+  }
+  if (rows.some((p) => p.timeOut === null)) {
+    return undefined;
+  }
+
+  let latest: PlayerPresence | undefined;
+  for (const p of rows) {
+    if (!latest || isPresenceLaterAcrossPeriods(p, latest)) {
+      latest = p;
+    }
+  }
+
+  return latest && latest.timeOut !== null && latest.isSynced === 0
+    ? latest
+    : undefined;
+}
 
 const matchesSinglePlayerTerminateItem = (
   item: SyncQueueItem,
@@ -155,12 +206,15 @@ const matchesSinglePlayerTerminateItem = (
  * Reverts a previous unsynced single-player disciplinary auto-exit inside an
  * active Dexie transaction by deleting the matching single-player
  * PUT /presence/terminate queue item and reopening the closed presence.
+ * When eventTimestamp is provided, enforces exact timestamp matching against
+ * the closed presence's timeOut; when omitted, matches the player's latest
+ * unsynced single-player auto-exit in that period.
  */
 export async function revertSinglePlayerAutoExitInTx(
   matchId: string,
   matchLineupId: string,
   periodNumber: number,
-  eventTimestamp: string,
+  eventTimestamp?: string,
 ): Promise<boolean> {
   const playerPresences = await listPlayerPresencesInPeriod(
     matchLineupId,
@@ -176,12 +230,14 @@ export async function revertSinglePlayerAutoExitInTx(
     return false;
   }
 
-  const expectedTimeOut = resolveEffectiveTimeOut(
-    latestPresence.timeIn,
-    eventTimestamp,
-  );
-  if (!areTimestampsEqual(closedTimeOut, expectedTimeOut)) {
-    return false;
+  if (eventTimestamp) {
+    const expectedTimeOut = resolveEffectiveTimeOut(
+      latestPresence.timeIn,
+      eventTimestamp,
+    );
+    if (!areTimestampsEqual(closedTimeOut, expectedTimeOut)) {
+      return false;
+    }
   }
 
   const terminateEndpoint = `/Matches/${matchId}/presence/terminate`;
@@ -309,20 +365,80 @@ export async function initializePeriodPresenceTx(
   );
 }
 
+const resolveOptionalMatchLineupIdSet = async (
+  matchId: string,
+): Promise<Set<string> | undefined> => {
+  if (typeof db.matchlineups?.where !== "function") {
+    return undefined;
+  }
+  const equalsChain = db.matchlineups.where("matchId")?.equals?.(matchId);
+  if (typeof equalsChain?.toArray !== "function") {
+    return undefined;
+  }
+  const matchLineups = await equalsChain.toArray();
+  if (!Array.isArray(matchLineups) || matchLineups.length === 0) {
+    return undefined;
+  }
+  return new Set(matchLineups.map((l) => l.id));
+};
+
 const resolveMatchLineupIdSet = async (
   matchId: string,
   fallbackLineupIds: string[],
-): Promise<Set<string>> => {
-  if (typeof db.matchlineups?.where === "function") {
-    const equalsChain = db.matchlineups.where("matchId")?.equals?.(matchId);
-    if (typeof equalsChain?.toArray === "function") {
-      const matchLineups = await equalsChain.toArray();
-      if (Array.isArray(matchLineups) && matchLineups.length > 0) {
-        return new Set(matchLineups.map((l) => l.id));
-      }
-    }
+): Promise<Set<string>> =>
+  (await resolveOptionalMatchLineupIdSet(matchId)) ??
+  new Set(fallbackLineupIds);
+
+const countOpenPresencesInPeriodInTx = async (
+  matchId: string,
+  periodNumber: number,
+): Promise<number> => {
+  if (typeof db.playerpresences?.where !== "function") {
+    return 0;
   }
-  return new Set(fallbackLineupIds);
+
+  const matchLineupIds = await resolveOptionalMatchLineupIdSet(matchId);
+  const byPeriod = db.playerpresences
+    .where("periodNumber")
+    ?.equals?.(periodNumber);
+  const filtered =
+    typeof byPeriod?.filter === "function"
+      ? byPeriod.filter(
+          (p) =>
+            p.timeOut === null &&
+            (!matchLineupIds || matchLineupIds.has(p.matchLineupId)),
+        )
+      : undefined;
+  if (typeof filtered?.toArray !== "function") {
+    return 0;
+  }
+
+  const openRows = await filtered.toArray();
+  return Array.isArray(openRows) ? openRows.length : 0;
+};
+
+const assertShorthandedCapacityInTx = async (
+  matchId: string,
+  periodNumber: number,
+  maxAllowedActive?: number,
+): Promise<void> => {
+  if (
+    typeof maxAllowedActive !== "number" ||
+    !Number.isFinite(maxAllowedActive)
+  ) {
+    return;
+  }
+
+  const effectiveCap = Math.max(0, Math.floor(maxAllowedActive));
+  const openCount =
+    effectiveCap > 0
+      ? await countOpenPresencesInPeriodInTx(matchId, periodNumber)
+      : 0;
+  if (openCount >= effectiveCap) {
+    throw new Error(
+      `Cannot exceed the limit of ${effectiveCap} active players.`,
+    );
+  }
 };
 
 /**
@@ -471,59 +587,67 @@ export async function enterShorthandedPlayerTx(
   periodNumber: number,
   playerInLineupId: string,
   entryTimestamp = new Date().toISOString(),
+  maxAllowedActive?: number,
 ): Promise<string> {
   let newPresenceId = "";
+  const tables = [
+    db.playerpresences,
+    db.gameevents,
+    db.timeanchors,
+    db.syncQueue,
+    ...(db.matchlineups ? [db.matchlineups] : []),
+  ];
 
-  await db.transaction(
-    "rw",
-    [db.playerpresences, db.gameevents, db.timeanchors, db.syncQueue],
-    async () => {
-      const existingOpenPresence = await findOpenPresenceForPlayer(
-        playerInLineupId,
-        periodNumber,
-      );
-      if (existingOpenPresence) {
-        throw new Error(
-          "Player already has an active presence in this period.",
-        );
-      }
+  await db.transaction("rw", tables, async () => {
+    const existingOpenPresence = await findOpenPresenceForPlayer(
+      playerInLineupId,
+      periodNumber,
+    );
+    if (existingOpenPresence) {
+      throw new Error("Player already has an active presence in this period.");
+    }
 
-      const nextSeq = await getNextSequenceNumber();
-      newPresenceId = crypto.randomUUID();
+    await assertShorthandedCapacityInTx(
+      matchId,
+      periodNumber,
+      maxAllowedActive,
+    );
 
-      const incomingPresence: PlayerPresence = {
-        id: newPresenceId,
-        matchLineupId: playerInLineupId,
-        periodNumber,
-        timeIn: entryTimestamp,
-        timeOut: null,
-        sequenceNumber: nextSeq,
-        isSynced: 0,
-      };
+    const nextSeq = await getNextSequenceNumber();
+    newPresenceId = crypto.randomUUID();
 
-      await db.playerpresences.add(incomingPresence);
+    const incomingPresence: PlayerPresence = {
+      id: newPresenceId,
+      matchLineupId: playerInLineupId,
+      periodNumber,
+      timeIn: entryTimestamp,
+      timeOut: null,
+      sequenceNumber: nextSeq,
+      isSynced: 0,
+    };
 
-      const requestDto: InitializePresenceRequest = {
-        periodNumber,
-        timeIn: entryTimestamp,
-        presenceItems: [
-          {
-            id: newPresenceId,
-            matchLineupId: playerInLineupId,
-          },
-        ],
-      };
+    await db.playerpresences.add(incomingPresence);
 
-      const syncItem: SyncQueueItem = {
-        actionType: "POST",
-        endpoint: `/Matches/${matchId}/presence/initialize`,
-        payload: JSON.stringify(requestDto),
-        createdAt: entryTimestamp,
-      };
+    const requestDto: InitializePresenceRequest = {
+      periodNumber,
+      timeIn: entryTimestamp,
+      presenceItems: [
+        {
+          id: newPresenceId,
+          matchLineupId: playerInLineupId,
+        },
+      ],
+    };
 
-      await db.syncQueue.add(syncItem);
-    },
-  );
+    const syncItem: SyncQueueItem = {
+      actionType: "POST",
+      endpoint: `/Matches/${matchId}/presence/initialize`,
+      payload: JSON.stringify(requestDto),
+      createdAt: entryTimestamp,
+    };
+
+    await db.syncQueue.add(syncItem);
+  });
 
   return newPresenceId;
 }
