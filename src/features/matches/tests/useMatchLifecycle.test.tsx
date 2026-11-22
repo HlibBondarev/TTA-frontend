@@ -3339,20 +3339,70 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     });
 
     await waitFor(() => {
+      expect(result.current.isLoadingConfig).toBe(false);
       expect(result.current.isPeriodEnded).toBe(true);
     });
 
-    await act(async () => {
-      await result.current.revertEndPeriod("stale-nonexistent-end-anchor");
+    act(() => {
+      result.current.setIsResultModalOpen(true);
     });
+    expect(result.current.isResultModalOpen).toBe(true);
 
-    expect(db.timeanchors.delete).not.toHaveBeenCalled();
-    expect(db.syncQueue.delete).not.toHaveBeenCalled();
-    expect(db.playerpresences.update).not.toHaveBeenCalled();
-    expect(mockTimeAnchors.some((a) => a.id === "seed-end-anchor")).toBe(true);
-    expect(mockSyncQueue.some((i) => i.id === 950)).toBe(true);
-    expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:10:00Z");
-    expect(store.getState().match.isPeriodEnded).toBe(true);
-    expect(store.getState().match.isPeriodActive).toBe(false);
+    const dispatchSpy = vi.spyOn(store, "dispatch");
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    // Keep findTargetEndAnchor's .filter().toArray() working while failing syncPeriodStateWithDB's .toArray() refresh
+    vi.mocked(db.timeanchors.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockImplementation((matchIdVal: string) => {
+            const cleanId =
+              typeof matchIdVal === "string" ? matchIdVal.trim() : matchIdVal;
+            const matchAnchors = mockTimeAnchors.filter(
+              (a) => a.matchId === cleanId,
+            );
+            return {
+              toArray: vi
+                .fn()
+                .mockRejectedValue(new Error("IndexedDB refresh failed")),
+              filter: vi
+                .fn()
+                .mockImplementation(
+                  (predicate: (a: TimeAnchor) => boolean) => ({
+                    toArray: vi
+                      .fn()
+                      .mockResolvedValue([...matchAnchors.filter(predicate)]),
+                  }),
+                ),
+            };
+          }),
+        }) as unknown as ReturnType<typeof db.timeanchors.where>,
+    );
+
+    try {
+      await act(async () => {
+        await result.current.revertEndPeriod("stale-nonexistent-end-anchor");
+      });
+
+      expect(db.timeanchors.delete).not.toHaveBeenCalled();
+      expect(db.syncQueue.delete).not.toHaveBeenCalled();
+      expect(db.playerpresences.update).not.toHaveBeenCalled();
+      expect(dispatchSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "match/startPeriodState" }),
+      );
+      expect(result.current.isResultModalOpen).toBe(true);
+      expect(mockTimeAnchors.some((a) => a.id === "seed-end-anchor")).toBe(
+        true,
+      );
+      expect(mockSyncQueue.some((i) => i.id === 950)).toBe(true);
+      expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:10:00Z");
+      expect(store.getState().match.isPeriodEnded).toBe(true);
+      expect(store.getState().match.isPeriodActive).toBe(false);
+    } finally {
+      consoleErrorSpy.mockRestore();
+      dispatchSpy.mockRestore();
+    }
   });
 });

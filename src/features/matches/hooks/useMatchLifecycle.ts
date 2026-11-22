@@ -968,11 +968,11 @@ export const useMatchLifecycle = () => {
 
     const currentPeriod = periodNumberRef.current;
 
-    await db.transaction(
+    const didRevertEndAnchor = await db.transaction(
       "rw",
       [db.timeanchors, db.syncQueue, db.playerpresences, db.matchlineups],
-      async () => {
-        if (!normalizedMatchId) return;
+      async (): Promise<boolean> => {
+        if (!normalizedMatchId) return false;
 
         const targetAnchor = await findTargetEndAnchor(
           normalizedMatchId,
@@ -980,7 +980,7 @@ export const useMatchLifecycle = () => {
           anchorId,
         );
         if (!targetAnchor) {
-          return;
+          return false;
         }
         if (targetAnchor.isSynced === 1) {
           throw new Error(
@@ -1006,10 +1006,7 @@ export const useMatchLifecycle = () => {
 
         await deleteTimeAnchorWithQueue(targetAnchorId);
 
-        if (
-          normalizedMatchId &&
-          matchLockService.isMatchLocked(normalizedMatchId)
-        ) {
+        if (matchLockService.isMatchLocked(normalizedMatchId)) {
           throw new Error(
             `Cannot complete period end revert: match ${
               normalizedMatchId
@@ -1029,16 +1026,20 @@ export const useMatchLifecycle = () => {
             }),
           ),
         );
+
+        return true;
       },
     );
 
     if (!isCurrentContext(normalizedMatchId, currentPeriod)) {
       return;
     }
-    setIsResultModalOpen(false);
-    isPeriodActiveRef.current = true;
-    isPeriodEndedRef.current = false;
-    dispatch(startPeriodState());
+    if (didRevertEndAnchor) {
+      setIsResultModalOpen(false);
+      isPeriodActiveRef.current = true;
+      isPeriodEndedRef.current = false;
+      dispatch(startPeriodState());
+    }
     await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
   };
 
