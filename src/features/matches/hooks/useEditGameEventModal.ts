@@ -369,7 +369,7 @@ export function useEditGameEventModal({
     db.gameevents
       .get(action.id)
       .then((evt) => {
-        if (!isMounted) return;
+        if (!isMounted) return null;
         if (evt) {
           applyInitialFieldLocation(
             evt,
@@ -386,13 +386,12 @@ export function useEditGameEventModal({
           );
         }
         setIsLocationLoaded(true);
-        void loadActiveLineupIdsForEvent(evt, action.timestamp).then(
-          (activeIds) => {
-            if (isMounted) {
-              setActiveLineupIdsAtEvent(activeIds);
-            }
-          },
-        );
+        return loadActiveLineupIdsForEvent(evt, action.timestamp);
+      })
+      .then((activeIds) => {
+        if (isMounted && activeIds) {
+          setActiveLineupIdsAtEvent(activeIds);
+        }
       })
       .catch(() => {
         if (isMounted) {
