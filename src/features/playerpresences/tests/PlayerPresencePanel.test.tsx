@@ -411,7 +411,9 @@ describe("PlayerPresencePanel Component", () => {
       />,
     );
 
-    const shorthandedToggle = await screen.findByTestId("shorthanded-indicator");
+    const shorthandedToggle = await screen.findByTestId(
+      "shorthanded-indicator",
+    );
     expect(shorthandedToggle).toHaveTextContent("Shorthanded 1/7");
     expect(shorthandedToggle).toHaveAttribute("aria-pressed", "false");
 
@@ -520,9 +522,13 @@ describe("PlayerPresencePanel Component", () => {
   });
 
   it("should disarm synchronously on failed shorthanded entry and prevent disqualified bench entry when armed", async () => {
-    const mockEnterShorthanded = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("Entry failed"));
+    let rejectEntry!: (error: Error) => void;
+    const mockEnterShorthanded = vi.fn().mockImplementationOnce(
+      () =>
+        new Promise<string>((_resolve, reject) => {
+          rejectEntry = reject;
+        }),
+    );
 
     vi.mocked(db.matchlineups.where).mockReturnValue({
       equals: vi.fn().mockReturnValue({
@@ -579,8 +585,12 @@ describe("PlayerPresencePanel Component", () => {
       />,
     );
 
-    const shorthandedToggle = await screen.findByTestId("shorthanded-indicator");
-    const eligibleBenchBtn = (await screen.findByText("#10")).closest("button")!;
+    const shorthandedToggle = await screen.findByTestId(
+      "shorthanded-indicator",
+    );
+    const eligibleBenchBtn = (await screen.findByText("#10")).closest(
+      "button",
+    )!;
     const dqBenchBtn = (await screen.findByText("#11")).closest("button")!;
 
     fireEvent.click(shorthandedToggle);
@@ -590,9 +600,21 @@ describe("PlayerPresencePanel Component", () => {
 
     fireEvent.click(eligibleBenchBtn);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Failed to enter player.",
-    );
+    // Must disarm synchronously before the entry promise settles
+    expect(shorthandedToggle).toHaveAttribute("aria-pressed", "false");
+    expect(mockEnterShorthanded).toHaveBeenCalledTimes(1);
+
+    // A rapid second tap while in flight must not trigger a duplicate entry
+    fireEvent.click(eligibleBenchBtn);
+    expect(mockEnterShorthanded).toHaveBeenCalledTimes(1);
+
+    rejectEntry(new Error("Entry failed"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Failed to enter player.",
+      );
+    });
     expect(shorthandedToggle).toHaveAttribute("aria-pressed", "false");
   });
 
@@ -630,7 +652,9 @@ describe("PlayerPresencePanel Component", () => {
       </Provider>,
     );
 
-    const shorthandedToggle = await screen.findByTestId("shorthanded-indicator");
+    const shorthandedToggle = await screen.findByTestId(
+      "shorthanded-indicator",
+    );
     fireEvent.click(shorthandedToggle);
     expect(shorthandedToggle).toHaveAttribute("aria-pressed", "true");
 
