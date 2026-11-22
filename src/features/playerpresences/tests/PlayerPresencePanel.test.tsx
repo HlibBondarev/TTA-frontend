@@ -356,4 +356,422 @@ describe("PlayerPresencePanel Component", () => {
       expect(screen.queryByRole("alert")).toBeNull();
     });
   });
+
+  it("should automatically clear stale selectedPlayerId when the selected player exits activeLineupIds", async () => {
+    const mockSetSelected = vi.fn();
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      currentPeriod: 1,
+      activeLineupIds: ["lineup-1"],
+      benchLineupIds: ["lineup-2"],
+      selectedStartingIds: [],
+      activePlayersLimit: 7,
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      executeSubstitution: mockExecuteSubstitution,
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    } as unknown as ReturnType<typeof usePlayerPresence>);
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId="lineup-2"
+        setSelectedPlayerId={mockSetSelected}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockSetSelected).toHaveBeenCalledWith(null);
+    });
+  });
+
+  it("should support direct shorthanded bench entry without outgoing player selection", async () => {
+    const mockEnterShorthanded = vi.fn().mockResolvedValue("new-id");
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      currentPeriod: 1,
+      activeLineupIds: ["lineup-1"],
+      benchLineupIds: ["lineup-2"],
+      selectedStartingIds: [],
+      activePlayersLimit: 7,
+      maxAllowedActive: 7,
+      isShorthanded: true,
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      executeSubstitution: mockExecuteSubstitution,
+      enterShorthandedPlayer: mockEnterShorthanded,
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    } as unknown as ReturnType<typeof usePlayerPresence>);
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByTestId("shorthanded-indicator"),
+    ).toHaveTextContent("Shorthanded 1/7");
+
+    const benchBtn = await screen.findByText("#10");
+    fireEvent.click(benchBtn);
+
+    await waitFor(() => {
+      expect(mockEnterShorthanded).toHaveBeenCalledWith("lineup-2", 1);
+    });
+  });
+
+  it("should render disciplinary badges (foul count, warning, timed exclusion, DQ) and pre-period Reset button", async () => {
+    const mockResetCleared = vi.fn();
+    const mockPrePeriodTap = vi.fn();
+
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      currentPeriod: 2,
+      activeLineupIds: [],
+      benchLineupIds: ["lineup-1", "lineup-2"],
+      selectedStartingIds: ["lineup-1"],
+      activePlayersLimit: 7,
+      maxPersonalFouls: 3,
+      requiredStartingPlayers: 6,
+      carryoverState: {
+        targetPeriodNumber: 2,
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        isMaxPersonalFoulsKnown: true,
+        permanentNoSubCount: 0,
+        maxAllowedActive: 7,
+        eligibleLineupIds: ["lineup-1"],
+        disqualifiedLineupIds: ["lineup-2"],
+        eligibleLineupCount: 1,
+        carriedOverPenalties: [],
+        clearedPenaltyEventIds: ["evt-1"],
+        effectiveCarriedOverPenalties: [],
+        effectiveUnservedTimedPenalties: 1,
+        highlightedLineupIds: ["lineup-1"],
+        requiredStartingPlayers: 6,
+        canResetClearedPenalties: true,
+        playersById: {
+          "lineup-1": {
+            matchLineupId: "lineup-1",
+            personalFoulCount: 2,
+            hasFoulWarning: true,
+            isDisqualified: false,
+            disqualificationReason: null,
+            hasActiveTimedExclusion: true,
+            activeTimedExclusionCount: 1,
+          },
+          "lineup-2": {
+            matchLineupId: "lineup-2",
+            personalFoulCount: 3,
+            hasFoulWarning: false,
+            isDisqualified: true,
+            disqualificationReason: "PersonalFoulLimit",
+            hasActiveTimedExclusion: false,
+            activeTimedExclusionCount: 0,
+          },
+        },
+      },
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      handlePrePeriodBenchTap: mockPrePeriodTap,
+      resetPrePeriodClearedPenalties: mockResetCleared,
+      executeSubstitution: mockExecuteSubstitution,
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    } as unknown as ReturnType<typeof usePlayerPresence>);
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+      {
+        preloadedState: {
+          match: { isPeriodActive: false, periodNumber: 2 },
+        } as unknown as RootState,
+      },
+    );
+
+    expect(await screen.findByTestId("starting-counter")).toHaveTextContent(
+      "1/6",
+    );
+    expect(screen.getAllByTestId("foul-count-badge")[0]).toHaveTextContent(
+      "F2",
+    );
+    expect(screen.getByTestId("timed-exclusion-badge")).toHaveTextContent("EX");
+    expect(screen.getByTestId("dq-badge")).toHaveTextContent("DQ");
+
+    const resetBtn = screen.getByRole("button", { name: "Reset" });
+    fireEvent.click(resetBtn);
+    expect(mockResetCleared).toHaveBeenCalled();
+  });
+
+  it("should allow deselecting an already-staged disqualified starter while keeping unstaged DQ players disabled", async () => {
+    const mockPrePeriodTap = vi.fn();
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { id: "lineup-1", matchId: "test-match", number: 5 },
+          { id: "lineup-2", matchId: "test-match", number: 10 },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      currentPeriod: 2,
+      activeLineupIds: [],
+      benchLineupIds: ["lineup-1", "lineup-2"],
+      selectedStartingIds: ["lineup-1"],
+      activePlayersLimit: 7,
+      maxPersonalFouls: 3,
+      requiredStartingPlayers: 6,
+      carryoverState: {
+        targetPeriodNumber: 2,
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        isMaxPersonalFoulsKnown: true,
+        permanentNoSubCount: 0,
+        maxAllowedActive: 7,
+        eligibleLineupIds: [],
+        disqualifiedLineupIds: ["lineup-1", "lineup-2"],
+        eligibleLineupCount: 0,
+        carriedOverPenalties: [],
+        clearedPenaltyEventIds: [],
+        effectiveCarriedOverPenalties: [],
+        effectiveUnservedTimedPenalties: 0,
+        highlightedLineupIds: [],
+        requiredStartingPlayers: 0,
+        canResetClearedPenalties: false,
+        playersById: {
+          "lineup-1": {
+            matchLineupId: "lineup-1",
+            personalFoulCount: 3,
+            hasFoulWarning: false,
+            isDisqualified: true,
+            disqualificationReason: "PersonalFoulLimit",
+            hasActiveTimedExclusion: false,
+            activeTimedExclusionCount: 0,
+          },
+          "lineup-2": {
+            matchLineupId: "lineup-2",
+            personalFoulCount: 3,
+            hasFoulWarning: false,
+            isDisqualified: true,
+            disqualificationReason: "PersonalFoulLimit",
+            hasActiveTimedExclusion: false,
+            activeTimedExclusionCount: 0,
+          },
+        },
+      },
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      handlePrePeriodBenchTap: mockPrePeriodTap,
+      executeSubstitution: mockExecuteSubstitution,
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    } as unknown as ReturnType<typeof usePlayerPresence>);
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+      {
+        preloadedState: {
+          match: { isPeriodActive: false, periodNumber: 2 },
+        } as unknown as RootState,
+      },
+    );
+
+    const stagedDqBtn = (await screen.findByText("#5")).closest("button")!;
+    const unstagedDqBtn = (await screen.findByText("#10")).closest("button")!;
+
+    expect(stagedDqBtn).not.toBeDisabled();
+    expect(unstagedDqBtn).toBeDisabled();
+
+    fireEvent.click(stagedDqBtn);
+    expect(mockPrePeriodTap).toHaveBeenCalledWith("lineup-1");
+  });
+
+  it("should hide EX badge and amber style before period start when carried-over penalty is cleared, and keep EX during active period", async () => {
+    const mockHookBase = {
+      currentPeriod: 2,
+      activeLineupIds: [],
+      benchLineupIds: ["lineup-1"],
+      selectedStartingIds: [],
+      activePlayersLimit: 7,
+      maxPersonalFouls: 3,
+      requiredStartingPlayers: 7,
+      carryoverState: {
+        targetPeriodNumber: 2,
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        isMaxPersonalFoulsKnown: true,
+        permanentNoSubCount: 0,
+        maxAllowedActive: 7,
+        eligibleLineupIds: ["lineup-1"],
+        disqualifiedLineupIds: [],
+        eligibleLineupCount: 1,
+        carriedOverPenalties: [],
+        clearedPenaltyEventIds: ["evt-1"],
+        effectiveCarriedOverPenalties: [],
+        effectiveUnservedTimedPenalties: 0,
+        highlightedLineupIds: [],
+        requiredStartingPlayers: 7,
+        canResetClearedPenalties: true,
+        playersById: {
+          "lineup-1": {
+            matchLineupId: "lineup-1",
+            personalFoulCount: 1,
+            hasFoulWarning: false,
+            isDisqualified: false,
+            disqualificationReason: null,
+            hasActiveTimedExclusion: true,
+            activeTimedExclusionCount: 1,
+          },
+        },
+      },
+      disciplinaryState: {
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        isMaxPersonalFoulsKnown: true,
+        permanentNoSubCount: 0,
+        maxAllowedActive: 7,
+        activeTimedPenalties: [],
+        isShorthanded: false,
+        shorthandedSlotsAvailable: 0,
+        playersById: {
+          "lineup-1": {
+            matchLineupId: "lineup-1",
+            personalFoulCount: 1,
+            hasFoulWarning: false,
+            isDisqualified: false,
+            disqualificationReason: null,
+            hasActiveTimedExclusion: true,
+            activeTimedExclusionCount: 1,
+          },
+        },
+      },
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      executeSubstitution: mockExecuteSubstitution,
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    } as unknown as ReturnType<typeof usePlayerPresence>;
+
+    vi.mocked(usePlayerPresence).mockReturnValue(mockHookBase);
+
+    const { rerender } = render(
+      <Provider
+        store={createTestStore({
+          match: { isPeriodActive: false, periodNumber: 2 },
+        })}
+      >
+        <PlayerPresencePanel
+          matchId="test-match"
+          selectedPlayerId={null}
+          setSelectedPlayerId={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    const prePeriodBtn = (await screen.findByText("#5")).closest("button")!;
+    expect(screen.queryByTestId("timed-exclusion-badge")).toBeNull();
+    expect(prePeriodBtn).toHaveClass("bg-gray-800");
+    expect(prePeriodBtn).not.toHaveClass("bg-amber-950/80");
+
+    rerender(
+      <Provider
+        store={createTestStore({
+          match: { isPeriodActive: true, periodNumber: 2 },
+        })}
+      >
+        <PlayerPresencePanel
+          matchId="test-match"
+          selectedPlayerId={null}
+          setSelectedPlayerId={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    const activePeriodBtn = (await screen.findByText("#5")).closest("button")!;
+    expect(screen.getByTestId("timed-exclusion-badge")).toHaveTextContent("EX");
+    expect(activePeriodBtn).toHaveClass("bg-amber-950/80");
+  });
+
+  it("should not clear selectedPlayerId after substitution if selection changed while substitution was in flight", async () => {
+    let resolveSub!: (value: string) => void;
+    mockExecuteSubstitution.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveSub = resolve;
+        }),
+    );
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { id: "lineup-1", matchId: "test-match", number: 5 },
+          { id: "lineup-3", matchId: "test-match", number: 7 },
+          { id: "lineup-2", matchId: "test-match", number: 10 },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      currentPeriod: 1,
+      activeLineupIds: ["lineup-1", "lineup-3"],
+      benchLineupIds: ["lineup-2"],
+      selectedStartingIds: [],
+      activePlayersLimit: 7,
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      executeSubstitution: mockExecuteSubstitution,
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    });
+
+    const mockSetSelected = vi.fn();
+    const store = createTestStore({ match: { isPeriodActive: true } });
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <PlayerPresencePanel
+          matchId="test-match"
+          selectedPlayerId="lineup-1"
+          setSelectedPlayerId={mockSetSelected}
+        />
+      </Provider>,
+    );
+
+    const benchBtn = await screen.findByText("#10");
+    fireEvent.click(benchBtn);
+
+    // While executeSubstitution is still pending, user selects a different active player
+    rerender(
+      <Provider store={store}>
+        <PlayerPresencePanel
+          matchId="test-match"
+          selectedPlayerId="lineup-3"
+          setSelectedPlayerId={mockSetSelected}
+        />
+      </Provider>,
+    );
+
+    resolveSub("new-presence-id");
+
+    await waitFor(() => {
+      expect(mockExecuteSubstitution).toHaveBeenCalledWith(
+        "lineup-1",
+        "lineup-2",
+        1,
+      );
+    });
+    expect(mockSetSelected).not.toHaveBeenCalledWith(null);
+  });
 });

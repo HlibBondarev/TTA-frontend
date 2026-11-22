@@ -832,7 +832,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     expect(defaultPresenceMock.startPeriodWithRoster).not.toHaveBeenCalled();
   });
 
-  test("should keep period 2 inactive if startPeriodWithRoster fails during START PERIOD 2", async () => {
+  test("should revert to ended period 1 and delete period 2 start anchor if startPeriodWithRoster fails during START PERIOD 2", async () => {
     vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
       ...defaultPresenceMock,
       startPeriodWithRoster: vi
@@ -864,8 +864,8 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     fireEvent.click(startBtn);
 
     await waitFor(() => {
-      expect(store.getState().match.periodNumber).toBe(2);
-      expect(store.getState().match.isPeriodEnded).toBe(false);
+      expect(store.getState().match.periodNumber).toBe(1);
+      expect(store.getState().match.isPeriodEnded).toBe(true);
       expect(store.getState().match.isPeriodActive).toBe(false);
 
       const addedAnchor = vi
@@ -880,6 +880,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       expect(addedAnchor).toBeDefined();
       expect(addedAnchor?.periodNumber).toBe(2);
       expect(db.timeanchors.delete).toHaveBeenCalledWith(addedAnchor?.id);
+      expect(defaultPresenceMock.refreshPresenceFromDB).toHaveBeenCalledWith(1);
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -1064,6 +1065,31 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     );
     expect(store.getState().match.isPeriodActive).toBe(false);
     expect(db.timeanchors.add).not.toHaveBeenCalled();
+    expect(defaultPresenceMock.startPeriodWithRoster).not.toHaveBeenCalled();
+  });
+
+  test("should validate against requiredStartingPlayers when starting shorthanded due to carried-over penalties", async () => {
+    vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
+      ...defaultPresenceMock,
+      selectedStartingIds: ["p1", "p2", "p3", "p4", "p5"],
+      activePlayersLimit: 7,
+      requiredStartingPlayers: 6,
+    } as unknown as ReturnType<typeof usePlayerPresenceModule.usePlayerPresence>);
+
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <MatchLifecyclePanel />
+      </Provider>,
+    );
+
+    const startBtn = screen.getByRole("button", { name: "START PERIOD" });
+    await waitFor(() => expect(startBtn).not.toBeDisabled());
+    fireEvent.click(startBtn);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Select exactly 6 players.",
+    );
     expect(defaultPresenceMock.startPeriodWithRoster).not.toHaveBeenCalled();
   });
 });
