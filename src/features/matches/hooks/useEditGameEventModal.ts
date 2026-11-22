@@ -265,7 +265,7 @@ async function loadActiveLineupIdsForEvent(
     return new Set();
   }
 
-  const rawTimestamp = evt?.eventTimestamp || fallbackTimestamp;
+  const rawTimestamp = evt?.eventTimestamp ?? fallbackTimestamp;
   const eventTimeMs = parseEventTimestampMs(rawTimestamp);
   if (Number.isNaN(eventTimeMs)) {
     return new Set();

@@ -117,7 +117,13 @@ vi.mock("../../../db/ttaDatabase", () => ({
       get: vi.fn().mockImplementation((id: string) => {
         const defs: Record<
           string,
-          { id: string; name: string; isPositive: boolean; isShot?: boolean; score?: number }
+          {
+            id: string;
+            name: string;
+            isPositive: boolean;
+            isShot?: boolean;
+            score?: number;
+          }
         > = {
           "def-1": {
             id: "def-1",
@@ -145,7 +151,13 @@ vi.mock("../../../db/ttaDatabase", () => ({
         equals: vi.fn().mockReturnValue({
           toArray: vi.fn().mockResolvedValue([
             { id: "def-1", name: "Pass", isPositive: true, isShot: false },
-            { id: "def-2", name: "Goal", isPositive: true, isShot: true, score: 1 },
+            {
+              id: "def-2",
+              name: "Goal",
+              isPositive: true,
+              isShot: true,
+              score: 1,
+            },
             { id: "def-3", name: "Foul", isPositive: false, isShot: false },
           ]),
         }),
@@ -867,7 +879,13 @@ describe("useEditGameEventModal Custom Hook", () => {
 
     vi.mocked(db.eventdefinitions.bulkGet).mockResolvedValueOnce([
       { id: "def-enabled-1", name: "Steal", isPositive: true, isShot: false },
-      { id: "def-enabled-2", name: "Goal", isPositive: true, isShot: true, score: 1 },
+      {
+        id: "def-enabled-2",
+        name: "Goal",
+        isPositive: true,
+        isShot: true,
+        score: 1,
+      },
     ] as never);
 
     const { result } = renderHook(() =>
@@ -1497,9 +1515,9 @@ describe("useEditGameEventModal Custom Hook", () => {
       });
 
       expect(db.playerpresences.where).toHaveBeenCalledWith("periodNumber");
-      expect(
-        result.current.activeAtEventLineups.map((l) => l.number),
-      ).toEqual([3, 10]);
+      expect(result.current.activeAtEventLineups.map((l) => l.number)).toEqual([
+        3, 10,
+      ]);
       expect(result.current.benchAtEventLineups.map((l) => l.number)).toEqual([
         7, 12,
       ]);
@@ -1598,12 +1616,13 @@ describe("useEditGameEventModal Custom Hook", () => {
         eventTimestamp: "invalid-date",
       } as never);
 
-      const { result: resultInvalidTs } = renderHook(() =>
-        useEditGameEventModal({
-          action: { ...sampleAction, timestamp: "also-invalid" },
-          matchId: "match-1",
-          onClose: vi.fn(),
-        }),
+      const { result: resultInvalidTs, unmount: unmountInvalidTs } = renderHook(
+        () =>
+          useEditGameEventModal({
+            action: { ...sampleAction, timestamp: "also-invalid" },
+            matchId: "match-1",
+            onClose: vi.fn(),
+          }),
       );
 
       await waitFor(() => {
@@ -1613,6 +1632,30 @@ describe("useEditGameEventModal Custom Hook", () => {
       expect(db.playerpresences.where).not.toHaveBeenCalled();
       expect(resultInvalidTs.current.hasEventPresenceGrouping).toBe(false);
       expect(resultInvalidTs.current.error).toBeNull();
+      unmountInvalidTs();
+
+      // Empty persisted eventTimestamp must not fall back to action.timestamp
+      vi.mocked(db.gameevents.get).mockResolvedValueOnce({
+        id: "action-123",
+        periodNumber: 1,
+        eventTimestamp: "",
+      } as never);
+
+      const { result: resultEmptyTs } = renderHook(() =>
+        useEditGameEventModal({
+          action: { ...sampleAction, timestamp: "2026-11-20T10:05:00.000Z" },
+          matchId: "match-1",
+          onClose: vi.fn(),
+        }),
+      );
+
+      await waitFor(() => {
+        expect(resultEmptyTs.current.isLocationLoaded).toBe(true);
+      });
+
+      expect(db.playerpresences.where).not.toHaveBeenCalled();
+      expect(resultEmptyTs.current.hasEventPresenceGrouping).toBe(false);
+      expect(resultEmptyTs.current.error).toBeNull();
     });
 
     it("should fall back cleanly without setting error when playerpresences query rejects", async () => {
