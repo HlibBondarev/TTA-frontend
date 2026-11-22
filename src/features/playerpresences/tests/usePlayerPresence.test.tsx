@@ -4,7 +4,10 @@ import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import React from "react";
 import { liveQuery } from "dexie";
-import { usePlayerPresence } from "../hooks/usePlayerPresence";
+import {
+  usePlayerPresence,
+  fetchRecordsForLineups,
+} from "../hooks/usePlayerPresence";
 import presenceReducer, {
   setPresenceLimits,
   setClearedPenaltyEventIds,
@@ -846,38 +849,48 @@ describe("usePlayerPresence Hook", () => {
       },
     ] as never);
 
+    const fallbackEvents = [
+      {
+        id: "evt-included",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-pf",
+        periodNumber: 1,
+        eventTimestamp: "2026-07-16T10:01:00.000Z",
+        isLeadToGoal: false,
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: null,
+        createdAt: "2026-07-16T10:01:00.000Z",
+        sequenceNumber: 1,
+        isSynced: 0,
+      },
+      {
+        id: "evt-excluded",
+        matchLineupId: "lineup-other",
+        eventDefinitionId: "def-pf",
+        periodNumber: 1,
+        eventTimestamp: "2026-07-16T10:02:00.000Z",
+        isLeadToGoal: false,
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: null,
+        createdAt: "2026-07-16T10:02:00.000Z",
+        sequenceNumber: 2,
+        isSynced: 0,
+      },
+    ];
+
+    const scannedRows = await fetchRecordsForLineups(
+      { toArray: () => Promise.resolve(fallbackEvents) },
+      ["lineup-1"],
+    );
+    expect(scannedRows.map((evt) => evt.id)).toEqual(["evt-included"]);
+
     const originalWhere = db.gameevents.where;
     // Simulate table without .where().anyOf() to exercise .toArray() fallback path
     (db.gameevents as unknown as Record<string, unknown>).where = undefined;
     try {
-      vi.mocked(db.gameevents.toArray).mockResolvedValue([
-        {
-          id: "evt-included",
-          matchLineupId: "lineup-1",
-          eventDefinitionId: "def-pf",
-          periodNumber: 1,
-          eventTimestamp: "2026-07-16T10:01:00.000Z",
-          isLeadToGoal: false,
-          foulImpact: "PersonalFoul",
-          penaltyDurationSeconds: null,
-          createdAt: "2026-07-16T10:01:00.000Z",
-          sequenceNumber: 1,
-          isSynced: 0,
-        },
-        {
-          id: "evt-excluded",
-          matchLineupId: "lineup-other",
-          eventDefinitionId: "def-pf",
-          periodNumber: 1,
-          eventTimestamp: "2026-07-16T10:02:00.000Z",
-          isLeadToGoal: false,
-          foulImpact: "PersonalFoul",
-          penaltyDurationSeconds: null,
-          createdAt: "2026-07-16T10:02:00.000Z",
-          sequenceNumber: 2,
-          isSynced: 0,
-        },
-      ] as never);
+      vi.mocked(db.gameevents.toArray).mockResolvedValue(
+        fallbackEvents as never,
+      );
 
       const { result } = renderHook(() => usePlayerPresence("test-match"), {
         wrapper,

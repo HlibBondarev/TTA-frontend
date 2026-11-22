@@ -44,15 +44,15 @@ interface RawDisciplinaryData {
   dbMaxPersonalFouls?: number | null;
 }
 
-interface LineupScopedRecord {
+export interface LineupScopedRecord {
   matchLineupId: string;
 }
 
-interface ArrayQueryable<T> {
+export interface ArrayQueryable<T> {
   toArray?: () => Promise<T[]>;
 }
 
-interface LineupTableLike<
+export interface LineupTableLike<
   T extends LineupScopedRecord,
 > extends ArrayQueryable<T> {
   where?: (index: string) => {
@@ -110,7 +110,7 @@ const toArrayIfAvailable = async <T>(
   return Array.isArray(rows) ? rows : undefined;
 };
 
-const fetchRecordsForLineups = async <T extends LineupScopedRecord>(
+export const fetchRecordsForLineups = async <T extends LineupScopedRecord>(
   table: LineupTableLike<T> | undefined,
   lineupIds: string[],
 ): Promise<T[]> => {
@@ -773,9 +773,7 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
         throw new Error("Player is already active.");
       }
       const maxAllowed =
-        activePlayersLimit > 0
-          ? disciplinaryState.maxAllowedActive
-          : undefined;
+        activePlayersLimit > 0 ? disciplinaryState.maxAllowedActive : undefined;
       if (maxAllowed !== undefined && activeLineupIds.length >= maxAllowed) {
         throw new Error(
           `Cannot exceed the limit of ${maxAllowed} active players.`,
