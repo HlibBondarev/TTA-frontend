@@ -125,7 +125,7 @@ const EditGameEventModalContent: React.FC<{
     }
 
     return (
-      <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-1">
+      <div className="grid grid-cols-3 gap-1.5">
         {!isDefinitionsLoaded ? (
           <div className="col-span-3 p-4 text-center text-xs text-gray-400 italic">
             Loading action definitions...
@@ -161,7 +161,7 @@ const EditGameEventModalContent: React.FC<{
       titleId="edit-game-event-title"
       title="Edit Action"
       titleClassName="text-blue-400"
-      maxWidthClass="max-w-md"
+      maxWidthClass="max-w-sm"
     >
       <div className="space-y-3 overflow-y-auto pr-1">
         {error && (
@@ -175,7 +175,7 @@ const EditGameEventModalContent: React.FC<{
 
         {/* Player Roster Selection */}
         {hasEventPresenceGrouping ? (
-          <div className="max-h-40 overflow-y-auto pr-1 space-y-2">
+          <div className="space-y-2">
             <div>
               <span className="block text-[10px] uppercase text-blue-300 font-bold mb-1">
                 Active at Event Time
@@ -206,14 +206,12 @@ const EditGameEventModalContent: React.FC<{
             <span className="block text-[10px] uppercase text-gray-400 font-bold mb-1">
               Player (Full Roster)
             </span>
-            <div className="max-h-36 overflow-y-auto pr-1">
-              <RosterSectionGrid
-                players={lineups}
-                selectedMatchLineupId={selectedMatchLineupId}
-                variant="default"
-                onSelectPlayer={setSelectedMatchLineupId}
-              />
-            </div>
+            <RosterSectionGrid
+              players={lineups}
+              selectedMatchLineupId={selectedMatchLineupId}
+              variant="default"
+              onSelectPlayer={setSelectedMatchLineupId}
+            />
           </div>
         )}
 
