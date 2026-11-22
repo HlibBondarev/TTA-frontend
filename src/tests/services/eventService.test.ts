@@ -1693,7 +1693,7 @@ describe("Event Database Service (eventService)", () => {
         maxPersonalFouls: 3,
       });
 
-      // Only 1 prior foul -> total 2 (< 3) -> should NOT auto-exit
+      // Only 1 prior foul -> total 2 (< 3) -> should NOT auto-exit even with an open presence
       mockGameEventsWhere.mockReturnValueOnce({
         equals: vi.fn().mockReturnValue({
           toArray: vi.fn().mockResolvedValue([
@@ -1705,6 +1705,17 @@ describe("Event Database Service (eventService)", () => {
               penaltyDurationSeconds: null,
             },
           ]),
+        }),
+      });
+      mockPlayerPresencesWhere.mockReturnValue({
+        filter: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue({
+            id: "pres-open-below-limit",
+            matchLineupId: "lineup-1",
+            periodNumber: 1,
+            timeIn: "2026-07-22T12:00:00.000Z",
+            timeOut: null,
+          }),
         }),
       });
 
@@ -1719,6 +1730,67 @@ describe("Event Database Service (eventService)", () => {
       });
 
       expect(mockPlayerPresencesUpdate).not.toHaveBeenCalled();
+      expect(db.syncQueue.add).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: "PUT",
+          endpoint: "/Matches/match-123/presence/terminate",
+        }),
+      );
+
+      // maxPersonalFouls is null -> should NOT auto-exit even with 3 fouls and an open presence
+      mockSportConfigurationsGet.mockResolvedValueOnce({
+        id: "cfg-1",
+        maxPersonalFouls: null,
+      });
+      mockGameEventsWhere.mockReturnValueOnce({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            {
+              id: "f1",
+              matchLineupId: "lineup-1",
+              eventDefinitionId: "def-pf",
+              foulImpact: "PersonalFoul",
+              penaltyDurationSeconds: null,
+            },
+            {
+              id: "f2",
+              matchLineupId: "lineup-1",
+              eventDefinitionId: "def-pf",
+              foulImpact: "PersonalFoul",
+              penaltyDurationSeconds: null,
+            },
+          ]),
+        }),
+      });
+      mockPlayerPresencesWhere.mockReturnValue({
+        filter: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue({
+            id: "pres-open-null-limit",
+            matchLineupId: "lineup-1",
+            periodNumber: 1,
+            timeIn: "2026-07-22T12:00:00.000Z",
+            timeOut: null,
+          }),
+        }),
+      });
+
+      await createGameEventTx({
+        matchId: "match-123",
+        teamId: "team-456",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-pf",
+        periodNumber: 1,
+        eventTimestamp: "2026-07-22T12:05:30.000Z",
+        isLeadToGoal: false,
+      });
+
+      expect(mockPlayerPresencesUpdate).not.toHaveBeenCalled();
+      expect(db.syncQueue.add).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: "PUT",
+          endpoint: "/Matches/match-123/presence/terminate",
+        }),
+      );
 
       // 2 prior fouls -> total 3 (== 3) -> SHOULD auto-exit
       mockGameEventsWhere.mockReturnValueOnce({
@@ -3848,6 +3920,175 @@ describe("Event Database Service (eventService)", () => {
 
       expect(mockSyncQueueDelete).not.toHaveBeenCalledWith(65);
       expect(mockPlayerPresencesUpdate).not.toHaveBeenCalled();
+    });
+
+    it("should fall back to stored definition for undefined penaltyDurationSeconds while preserving snapshotted foulImpact on reassign and delete", async () => {
+      const eventTime = "2026-07-22T12:03:00.000Z";
+      // Event has a snapshotted foulImpact ("None") while penaltyDurationSeconds is undefined,
+      // and the stored definition has foulImpact: "DisqualificationNoSub" and penaltyDurationSeconds: 20.
+      // The snapshotted foulImpact ("None") must remain authoritative (not treated as match-wide DQ),
+      // while undefined penaltyDurationSeconds falls back to the stored definition's 20s duration.
+      const partialSnapshotEvent = {
+        id: "evt-partial-snap",
+        matchLineupId: "lineup-1",
+        eventDefinitionId: "def-timed-ex",
+        periodNumber: 1,
+        eventTimestamp: eventTime,
+        isLeadToGoal: false,
+        foulImpact: "None" as const,
+        penaltyDurationSeconds: undefined,
+        createdAt: eventTime,
+        sequenceNumber: 4,
+        isSynced: 0,
+      };
+
+      const storedDef = {
+        id: "def-timed-ex",
+        sportId: "sport-1",
+        name: "Timed Exclusion",
+        shortName: "EX",
+        isPositive: false,
+        isShot: false,
+        foulImpact: "DisqualificationNoSub" as const,
+        penaltyDurationSeconds: 20,
+      };
+      mockEventDefinitionsGet.mockResolvedValue(storedDef);
+
+      mockMatchLineupsGet.mockImplementation((id: string) =>
+        Promise.resolve({ id, matchId: "match-123" }),
+      );
+      mockMatchesGet.mockResolvedValue({
+        id: "match-123",
+        tournamentId: "tourn-1",
+      });
+      mockTournamentsGet.mockResolvedValue({
+        id: "tourn-1",
+        configurationId: "cfg-1",
+      });
+      mockSportConfigurationsGet.mockResolvedValue({
+        id: "cfg-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+      });
+
+      const closedOldPlayerPresence = {
+        id: "pres-old-closed",
+        matchLineupId: "lineup-1",
+        periodNumber: 1,
+        timeIn: "2026-07-22T12:00:00.000Z",
+        timeOut: eventTime,
+        sequenceNumber: 1,
+        isSynced: 0,
+      };
+      // New player has an open presence in Period 2 (not Period 1).
+      // Because snapshotted foulImpact ("None") is preserved over storedDef.foulImpact ("DisqualificationNoSub"),
+      // the event is a period-1 timed exclusion (not a match-wide DQ), so Period 2 presence is NOT closed,
+      // while Period 1 open presence for lineup-2 IS closed.
+      const openNewPlayerPresenceP1 = {
+        id: "pres-new-open-p1",
+        matchLineupId: "lineup-2",
+        periodNumber: 1,
+        timeIn: "2026-07-22T12:00:00.000Z",
+        timeOut: null,
+        sequenceNumber: 2,
+        isSynced: 0,
+      };
+
+      mockGameEventsGet.mockResolvedValueOnce(partialSnapshotEvent);
+      mockGameEventsWhere.mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      });
+
+      mockPlayerPresencesWhere.mockImplementation((arg: unknown) => {
+        if (arg === "periodNumber") {
+          return {
+            equals: vi.fn().mockReturnValue({
+              filter: vi.fn().mockReturnValue({
+                toArray: vi.fn().mockResolvedValue([openNewPlayerPresenceP1]),
+              }),
+            }),
+          };
+        }
+        return {
+          toArray: vi.fn().mockResolvedValue([closedOldPlayerPresence]),
+          filter: vi.fn(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                periodNumber: number;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              first: vi
+                .fn()
+                .mockResolvedValue(
+                  [openNewPlayerPresenceP1, closedOldPlayerPresence].find(
+                    predicate,
+                  ),
+                ),
+            }),
+          ),
+        };
+      });
+
+      mockSyncQueueFilter.mockImplementation(
+        (predicate: (item: { endpoint: string }) => boolean) => ({
+          toArray: vi.fn().mockResolvedValue(
+            [
+              {
+                id: 30,
+                actionType: "POST",
+                endpoint: "/Matches/match-123/teams/team-456/events",
+                payload: JSON.stringify([
+                  { id: "evt-partial-snap", matchLineupId: "lineup-1" },
+                ]),
+              },
+              {
+                id: 31,
+                actionType: "PUT",
+                endpoint: "/Matches/match-123/presence/terminate",
+                payload: JSON.stringify({
+                  periodNumber: 1,
+                  playerLineupIds: ["lineup-1"],
+                  timeOut: eventTime,
+                }),
+                createdAt: eventTime,
+              },
+            ].filter(predicate),
+          ),
+        }),
+      );
+
+      // Reassigning event from lineup-1 to lineup-2 without changing eventDefinitionId
+      const updated = await updateGameEventTx({
+        eventId: "evt-partial-snap",
+        matchLineupId: "lineup-2",
+        eventDefinitionId: "def-timed-ex",
+        isLeadToGoal: false,
+      });
+
+      // Preserves snapshotted foulImpact ("None") on updated event
+      expect(updated.foulImpact).toBe("None");
+      expect(updated.penaltyDurationSeconds).toBeUndefined();
+      // Closes lineup-2's open presence in Period 1 via fallback definition's penaltyDurationSeconds (20s)
+      expect(mockPlayerPresencesUpdate).toHaveBeenCalledWith(
+        "pres-new-open-p1",
+        {
+          timeOut: eventTime,
+          isSynced: 0,
+        },
+      );
+      // Reverts lineup-1's previous timed-exclusion exit in Period 1 via resolveEventDisciplinaryRuleInTx fallback
+      expect(mockSyncQueueDelete).toHaveBeenCalledWith(31);
+      expect(mockPlayerPresencesUpdate).toHaveBeenCalledWith(
+        "pres-old-closed",
+        {
+          timeOut: null,
+          isSynced: 0,
+        },
+      );
     });
   });
 });

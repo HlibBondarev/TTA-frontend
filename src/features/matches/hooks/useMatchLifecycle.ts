@@ -903,7 +903,10 @@ export const useMatchLifecycle = () => {
     await deleteTimeAnchorWithQueue(anchorId);
   };
 
-  const revertStartPeriod = async (anchorId?: string | null) => {
+  const revertStartPeriod = async (
+    anchorId?: string | null,
+    restorePeriodNumber?: number,
+  ) => {
     ++syncRequestIdRef.current;
     const normalizedMatchId = activeMatchIdRef.current?.trim();
     if (
@@ -924,6 +927,13 @@ export const useMatchLifecycle = () => {
     if (!isCurrentContext(normalizedMatchId, currentPeriod)) {
       return;
     }
+    const targetPeriodToRestore =
+      typeof restorePeriodNumber === "number" &&
+      Number.isFinite(restorePeriodNumber) &&
+      restorePeriodNumber > 0
+        ? restorePeriodNumber
+        : currentPeriod;
+    periodNumberRef.current = targetPeriodToRestore;
     isPeriodActiveRef.current = false;
     isInsideStoppageRef.current = false;
     isPeriodEndedRef.current = false;
@@ -932,9 +942,12 @@ export const useMatchLifecycle = () => {
         isPeriodActive: false,
         isInsideStoppage: false,
         isPeriodEnded: false,
+        ...(targetPeriodToRestore !== currentPeriod
+          ? { periodNumber: targetPeriodToRestore }
+          : {}),
       }),
     );
-    await syncPeriodStateWithDB(normalizedMatchId, currentPeriod);
+    await syncPeriodStateWithDB(normalizedMatchId, targetPeriodToRestore);
   };
 
   const revertEndPeriod = async (anchorId?: string | null) => {

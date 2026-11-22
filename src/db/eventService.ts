@@ -540,7 +540,10 @@ const buildDefinitionsMapForEventsInTx = async (
     new Set(
       events
         .filter(
-          (e) => e.foulImpact === undefined && !map.has(e.eventDefinitionId),
+          (e) =>
+            (e.foulImpact === undefined ||
+              e.penaltyDurationSeconds === undefined) &&
+            !map.has(e.eventDefinitionId),
         )
         .map((e) => e.eventDefinitionId),
     ),
@@ -636,7 +639,8 @@ const resolveEventDisciplinaryRuleInTx = async (
 ): Promise<EffectiveDisciplinaryRule> => {
   let defsMap: Map<string, EventDefinitionLookup> | undefined;
   if (
-    event.foulImpact === undefined &&
+    (event.foulImpact === undefined ||
+      event.penaltyDurationSeconds === undefined) &&
     typeof db.eventdefinitions?.get === "function"
   ) {
     const def = await db.eventdefinitions.get(event.eventDefinitionId);
@@ -1458,7 +1462,8 @@ export const updateGameEventTx = async (
 
     if (
       !targetDef &&
-      nextEvent.foulImpact === undefined &&
+      (nextEvent.foulImpact === undefined ||
+        nextEvent.penaltyDurationSeconds === undefined) &&
       params.matchLineupId !== existing.matchLineupId
     ) {
       targetDef = await db.eventdefinitions?.get(nextEvent.eventDefinitionId);

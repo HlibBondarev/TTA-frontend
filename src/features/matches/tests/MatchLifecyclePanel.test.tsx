@@ -832,7 +832,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     expect(defaultPresenceMock.startPeriodWithRoster).not.toHaveBeenCalled();
   });
 
-  test("should keep period 2 inactive if startPeriodWithRoster fails during START PERIOD 2", async () => {
+  test("should revert to ended period 1 and delete period 2 start anchor if startPeriodWithRoster fails during START PERIOD 2", async () => {
     vi.spyOn(usePlayerPresenceModule, "usePlayerPresence").mockReturnValue({
       ...defaultPresenceMock,
       startPeriodWithRoster: vi
@@ -864,8 +864,8 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
     fireEvent.click(startBtn);
 
     await waitFor(() => {
-      expect(store.getState().match.periodNumber).toBe(2);
-      expect(store.getState().match.isPeriodEnded).toBe(false);
+      expect(store.getState().match.periodNumber).toBe(1);
+      expect(store.getState().match.isPeriodEnded).toBe(true);
       expect(store.getState().match.isPeriodActive).toBe(false);
 
       const addedAnchor = vi
@@ -880,6 +880,7 @@ describe("MatchLifecyclePanel Component Integration & State Machine", () => {
       expect(addedAnchor).toBeDefined();
       expect(addedAnchor?.periodNumber).toBe(2);
       expect(db.timeanchors.delete).toHaveBeenCalledWith(addedAnchor?.id);
+      expect(defaultPresenceMock.refreshPresenceFromDB).toHaveBeenCalledWith(1);
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(

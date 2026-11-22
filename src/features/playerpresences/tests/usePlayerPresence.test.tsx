@@ -799,24 +799,8 @@ describe("usePlayerPresence Hook", () => {
     expect(result.current.clearedPenaltyEventIds).toEqual([]);
   });
 
-  it("should support pre-period bench tap toggle before DB lineup loads and fallback table scans", async () => {
+  it("should support pre-period bench tap toggle before DB lineup loads", async () => {
     vi.mocked(db.matchlineups.toArray).mockResolvedValue([] as never);
-    const originalWhere = db.gameevents.where;
-    // Simulate table without .where().anyOf() to exercise .toArray() fallback path
-    (db.gameevents as unknown as Record<string, unknown>).where = undefined;
-    vi.mocked(db.gameevents.toArray).mockResolvedValue([
-      {
-        id: "evt-fallback",
-        matchLineupId: "lineup-1",
-        eventDefinitionId: "def-1",
-        periodNumber: 1,
-        eventTimestamp: "2026-07-16T10:01:00.000Z",
-        isLeadToGoal: false,
-        createdAt: "2026-07-16T10:01:00.000Z",
-        sequenceNumber: 1,
-        isSynced: 0,
-      },
-    ] as never);
 
     act(() => {
       store.dispatch(setPresenceLimits({ limit: 3, period: 1 }));
@@ -837,7 +821,82 @@ describe("usePlayerPresence Hook", () => {
       expect(secondTap?.wasSelectionToggled).toBe(true);
     });
     expect(result.current.selectedStartingIds).toEqual([]);
-    (db.gameevents as unknown as Record<string, unknown>).where = originalWhere;
+  });
+
+  it("should fall back to .toArray() table scan in fetchRecordsForLineups when table lacks .where().anyOf()", async () => {
+    vi.mocked(db.matchlineups.toArray).mockResolvedValue([
+      {
+        id: "lineup-1",
+        matchId: "test-match",
+        playerRosterId: "roster-1",
+        number: 7,
+        positionId: null,
+      },
+    ] as never);
+    vi.mocked(db.eventdefinitions.toArray).mockResolvedValue([
+      {
+        id: "def-pf",
+        sportId: "sport-1",
+        name: "Personal Foul",
+        shortName: "PF",
+        isPositive: false,
+        isShot: false,
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: null,
+      },
+    ] as never);
+
+    const originalWhere = db.gameevents.where;
+    // Simulate table without .where().anyOf() to exercise .toArray() fallback path
+    (db.gameevents as unknown as Record<string, unknown>).where = undefined;
+    try {
+      vi.mocked(db.gameevents.toArray).mockResolvedValue([
+        {
+          id: "evt-included",
+          matchLineupId: "lineup-1",
+          eventDefinitionId: "def-pf",
+          periodNumber: 1,
+          eventTimestamp: "2026-07-16T10:01:00.000Z",
+          isLeadToGoal: false,
+          foulImpact: "PersonalFoul",
+          penaltyDurationSeconds: null,
+          createdAt: "2026-07-16T10:01:00.000Z",
+          sequenceNumber: 1,
+          isSynced: 0,
+        },
+        {
+          id: "evt-excluded",
+          matchLineupId: "lineup-other",
+          eventDefinitionId: "def-pf",
+          periodNumber: 1,
+          eventTimestamp: "2026-07-16T10:02:00.000Z",
+          isLeadToGoal: false,
+          foulImpact: "PersonalFoul",
+          penaltyDurationSeconds: null,
+          createdAt: "2026-07-16T10:02:00.000Z",
+          sequenceNumber: 2,
+          isSynced: 0,
+        },
+      ] as never);
+
+      const { result } = renderHook(() => usePlayerPresence("test-match"), {
+        wrapper,
+      });
+
+      await waitFor(() => {
+        expect(db.gameevents.toArray).toHaveBeenCalled();
+        expect(
+          result.current.disciplinaryState?.playersById["lineup-1"]
+            ?.personalFoulCount,
+        ).toBe(1);
+        expect(
+          result.current.disciplinaryState?.playersById["lineup-other"],
+        ).toBeUndefined();
+      });
+    } finally {
+      (db.gameevents as unknown as Record<string, unknown>).where =
+        originalWhere;
+    }
   });
 
   it("should preserve clearedPenaltyEventIds and load all-period presences on same-period refreshPresenceFromDB", async () => {

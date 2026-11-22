@@ -228,7 +228,7 @@ const isPresenceSyncedForTerminate = (
   ) {
     return false;
   }
-  return presence.isSynced === 1 || syncedPresences.has(presence.id);
+  return syncedPresences.has(presence.id);
 };
 
 const isTerminateQueueItemSynced = (

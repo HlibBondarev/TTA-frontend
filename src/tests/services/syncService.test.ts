@@ -2611,6 +2611,72 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       expect(db.syncQueue.delete).not.toHaveBeenCalledWith(12);
     });
 
+    it("retains PUT /presence/terminate queue item when local presence has isSynced === 1 from prior initialize but is NOT in syncedPresenceIds, and deletes it when ID is in syncedPresenceIds", async () => {
+      const mockLineups = [{ id: "l1", matchId: "m123" }];
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue(mockLineups),
+        }),
+      } as never);
+
+      const mockPresences = [
+        {
+          id: "p1-closed",
+          matchLineupId: "l1",
+          periodNumber: 1,
+          timeIn: "2026-10-05T12:00:00.000Z",
+          timeOut: "2026-10-05T12:03:00.000Z",
+          isSynced: 1, // Marked synced by prior POST /presence/initialize
+        },
+      ];
+
+      vi.mocked(db.playerpresences.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockPresences),
+      } as never);
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
+      } as never);
+
+      const mockQueueItems = [
+        {
+          id: 99,
+          actionType: "PUT",
+          endpoint: "/Matches/m123/presence/terminate",
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["l1"],
+            timeOut: "2026-10-05T12:03:00.000Z",
+          }),
+        },
+      ];
+
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue(
+        mockQueueItems as never,
+      );
+
+      // Case 1: p1-closed is NOT in syncedPresenceIds -> queue item 99 must be retained
+      vi.mocked(apiClient.post).mockResolvedValueOnce({
+        syncedEventIds: [],
+        syncedAnchorIds: [],
+        syncedPresenceIds: ["p-other"],
+      });
+
+      await syncMatchBatch("m123");
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(99);
+
+      // Case 2: p1-closed IS in syncedPresenceIds -> queue item 99 is deleted
+      vi.mocked(apiClient.post).mockResolvedValueOnce({
+        syncedEventIds: [],
+        syncedAnchorIds: [],
+        syncedPresenceIds: ["p1-closed"],
+      });
+
+      await syncMatchBatch("m123");
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(99);
+    });
+
     it("scopes syncPresences in markEntitiesSynced to exact timeOut for PUT /presence/terminate and marks explicit presence IDs for POST /presence/initialize", async () => {
       type PresenceFilterFn = (p: {
         id: string;
