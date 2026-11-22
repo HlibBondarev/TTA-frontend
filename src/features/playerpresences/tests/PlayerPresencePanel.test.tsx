@@ -385,7 +385,7 @@ describe("PlayerPresencePanel Component", () => {
     });
   });
 
-  it("should support direct shorthanded bench entry without outgoing player selection", async () => {
+  it("should require explicit arming via the shorthanded toggle before entering a bench player, and show a hint when tapped unarmed", async () => {
     const mockEnterShorthanded = vi.fn().mockResolvedValue("new-id");
     vi.mocked(usePlayerPresence).mockReturnValue({
       currentPeriod: 1,
@@ -411,16 +411,282 @@ describe("PlayerPresencePanel Component", () => {
       />,
     );
 
-    expect(
-      await screen.findByTestId("shorthanded-indicator"),
-    ).toHaveTextContent("Shorthanded 1/7");
+    const shorthandedToggle = await screen.findByTestId("shorthanded-indicator");
+    expect(shorthandedToggle).toHaveTextContent("Shorthanded 1/7");
+    expect(shorthandedToggle).toHaveAttribute("aria-pressed", "false");
 
     const benchBtn = await screen.findByText("#10");
+
+    // Unarmed bench tap shows guidance hint and does not enter player
+    fireEvent.click(benchBtn);
+    expect(mockEnterShorthanded).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Select an active player to substitute, or tap Shorthanded to enter a player.",
+    );
+
+    // Arming clears alert, updates label, and highlights eligible bench player
+    fireEvent.click(shorthandedToggle);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(shorthandedToggle).toHaveAttribute("aria-pressed", "true");
+    expect(shorthandedToggle).toHaveTextContent("Enter Player 1/7 · Cancel");
+    expect(benchBtn.closest("button")).toHaveClass("ring-emerald-400");
+
+    // Tapping eligible bench player while armed enters them and disarms synchronously
     fireEvent.click(benchBtn);
 
     await waitFor(() => {
       expect(mockEnterShorthanded).toHaveBeenCalledWith("lineup-2", 1);
     });
+    expect(shorthandedToggle).toHaveAttribute("aria-pressed", "false");
+    expect(shorthandedToggle).toHaveTextContent("Shorthanded 1/7");
+  });
+
+  it("should clear selected active player on arming, disarm on second toggle tap or active player tap, and preserve EX badge styling when armed", async () => {
+    const mockEnterShorthanded = vi.fn().mockResolvedValue("new-id");
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      currentPeriod: 1,
+      activeLineupIds: ["lineup-1"],
+      benchLineupIds: ["lineup-2"],
+      selectedStartingIds: [],
+      activePlayersLimit: 7,
+      maxAllowedActive: 7,
+      isShorthanded: true,
+      disciplinaryState: {
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        isMaxPersonalFoulsKnown: true,
+        permanentNoSubCount: 0,
+        maxAllowedActive: 7,
+        activeTimedPenalties: [],
+        isShorthanded: true,
+        shorthandedSlotsAvailable: 1,
+        playersById: {
+          "lineup-2": {
+            matchLineupId: "lineup-2",
+            personalFoulCount: 1,
+            hasFoulWarning: false,
+            isDisqualified: false,
+            disqualificationReason: null,
+            hasActiveTimedExclusion: true,
+            activeTimedExclusionCount: 1,
+          },
+        },
+      },
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      executeSubstitution: mockExecuteSubstitution,
+      enterShorthandedPlayer: mockEnterShorthanded,
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    } as unknown as ReturnType<typeof usePlayerPresence>);
+
+    const TestWrapper = () => {
+      const [selectedId, setSelectedId] = useState<string | null>("lineup-1");
+      return (
+        <PlayerPresencePanel
+          matchId="test-match"
+          selectedPlayerId={selectedId}
+          setSelectedPlayerId={setSelectedId}
+        />
+      );
+    };
+
+    renderWithRedux(<TestWrapper />);
+
+    const activeBtn = (await screen.findByText("#5")).closest("button")!;
+    const benchBtn = (await screen.findByText("#10")).closest("button")!;
+    const shorthandedToggle = screen.getByTestId("shorthanded-indicator");
+
+    expect(activeBtn).toHaveAttribute("aria-pressed", "true");
+
+    // Arming clears active selection and keeps EX badge + amber background with emerald ring
+    fireEvent.click(shorthandedToggle);
+    expect(activeBtn).toHaveAttribute("aria-pressed", "false");
+    expect(shorthandedToggle).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("timed-exclusion-badge")).toHaveTextContent("EX");
+    expect(benchBtn).toHaveClass("bg-amber-950/80");
+    expect(benchBtn).toHaveClass("ring-emerald-400");
+
+    // Second tap on toggle cancels armed mode
+    fireEvent.click(shorthandedToggle);
+    expect(shorthandedToggle).toHaveAttribute("aria-pressed", "false");
+
+    // Re-arm, then tap an active player -> disarms shorthanded mode and selects active player
+    fireEvent.click(shorthandedToggle);
+    expect(shorthandedToggle).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(activeBtn);
+    expect(shorthandedToggle).toHaveAttribute("aria-pressed", "false");
+    expect(activeBtn).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("should disarm synchronously on failed shorthanded entry and prevent disqualified bench entry when armed", async () => {
+    const mockEnterShorthanded = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Entry failed"));
+
+    vi.mocked(db.matchlineups.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { id: "lineup-1", matchId: "test-match", number: 5 },
+          { id: "lineup-2", matchId: "test-match", number: 10 },
+          { id: "lineup-3", matchId: "test-match", number: 11 },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      currentPeriod: 1,
+      activeLineupIds: ["lineup-1"],
+      benchLineupIds: ["lineup-2", "lineup-3"],
+      selectedStartingIds: [],
+      activePlayersLimit: 7,
+      maxAllowedActive: 7,
+      isShorthanded: true,
+      disciplinaryState: {
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        isMaxPersonalFoulsKnown: true,
+        permanentNoSubCount: 0,
+        maxAllowedActive: 7,
+        activeTimedPenalties: [],
+        isShorthanded: true,
+        shorthandedSlotsAvailable: 1,
+        playersById: {
+          "lineup-3": {
+            matchLineupId: "lineup-3",
+            personalFoulCount: 3,
+            hasFoulWarning: false,
+            isDisqualified: true,
+            disqualificationReason: "PersonalFoulLimit",
+            hasActiveTimedExclusion: false,
+            activeTimedExclusionCount: 0,
+          },
+        },
+      },
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      executeSubstitution: mockExecuteSubstitution,
+      enterShorthandedPlayer: mockEnterShorthanded,
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    } as unknown as ReturnType<typeof usePlayerPresence>);
+
+    renderWithRedux(
+      <PlayerPresencePanel
+        matchId="test-match"
+        selectedPlayerId={null}
+        setSelectedPlayerId={vi.fn()}
+      />,
+    );
+
+    const shorthandedToggle = await screen.findByTestId("shorthanded-indicator");
+    const eligibleBenchBtn = (await screen.findByText("#10")).closest("button")!;
+    const dqBenchBtn = (await screen.findByText("#11")).closest("button")!;
+
+    fireEvent.click(shorthandedToggle);
+    expect(shorthandedToggle).toHaveAttribute("aria-pressed", "true");
+    expect(dqBenchBtn).toBeDisabled();
+    expect(dqBenchBtn).not.toHaveClass("ring-emerald-400");
+
+    fireEvent.click(eligibleBenchBtn);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Failed to enter player.",
+    );
+    expect(shorthandedToggle).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("should auto-disarm shorthanded entry mode when matchId, period lifecycle, or shorthanded eligibility changes", async () => {
+    const mockEnterShorthanded = vi.fn().mockResolvedValue("new-id");
+    const baseHookValue = {
+      currentPeriod: 1,
+      activeLineupIds: ["lineup-1"],
+      benchLineupIds: ["lineup-2"],
+      selectedStartingIds: [],
+      activePlayersLimit: 7,
+      maxAllowedActive: 7,
+      isShorthanded: true,
+      refreshPresenceFromDB: vi.fn().mockResolvedValue(undefined),
+      stageStartingLineup: mockStageStartingLineup,
+      executeSubstitution: mockExecuteSubstitution,
+      enterShorthandedPlayer: mockEnterShorthanded,
+      startPeriodWithRoster: vi.fn(),
+      endPeriodWithRoster: vi.fn(),
+    } as unknown as ReturnType<typeof usePlayerPresence>;
+
+    vi.mocked(usePlayerPresence).mockReturnValue(baseHookValue);
+
+    const store = createTestStore({
+      match: { isPeriodActive: true, isPeriodEnded: false },
+    });
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <PlayerPresencePanel
+          matchId="test-match-1"
+          selectedPlayerId={null}
+          setSelectedPlayerId={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    const shorthandedToggle = await screen.findByTestId("shorthanded-indicator");
+    fireEvent.click(shorthandedToggle);
+    expect(shorthandedToggle).toHaveAttribute("aria-pressed", "true");
+
+    // Changing matchId disarms
+    rerender(
+      <Provider store={store}>
+        <PlayerPresencePanel
+          matchId="test-match-2"
+          selectedPlayerId={null}
+          setSelectedPlayerId={vi.fn()}
+        />
+      </Provider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("shorthanded-indicator")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    });
+
+    // Re-arm, then team ceases to be shorthanded and returns -> disarmed
+    fireEvent.click(screen.getByTestId("shorthanded-indicator"));
+    expect(screen.getByTestId("shorthanded-indicator")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    vi.mocked(usePlayerPresence).mockReturnValue({
+      ...baseHookValue,
+      isShorthanded: false,
+    });
+    rerender(
+      <Provider store={store}>
+        <PlayerPresencePanel
+          matchId="test-match-2"
+          selectedPlayerId={null}
+          setSelectedPlayerId={vi.fn()}
+        />
+      </Provider>,
+    );
+    expect(screen.queryByTestId("shorthanded-indicator")).toBeNull();
+
+    vi.mocked(usePlayerPresence).mockReturnValue(baseHookValue);
+    rerender(
+      <Provider store={store}>
+        <PlayerPresencePanel
+          matchId="test-match-2"
+          selectedPlayerId={null}
+          setSelectedPlayerId={vi.fn()}
+        />
+      </Provider>,
+    );
+    expect(screen.getByTestId("shorthanded-indicator")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   it("should render disciplinary badges (foul count, warning, timed exclusion, DQ) and pre-period Reset button", async () => {

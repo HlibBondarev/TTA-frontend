@@ -80,13 +80,23 @@ const getActivePlayerButtonClass = (
   return "bg-blue-950";
 };
 
-const getBenchPlayerButtonClass = (
-  isSelectedStarter: boolean,
-  isPeriodActive: boolean,
-  isHighlightedCarryover: boolean,
-  hasEffectiveTimedExclusion: boolean,
-  status?: PlayerDisciplinaryStatus,
-): string => {
+interface BenchPlayerButtonClassParams {
+  isSelectedStarter: boolean;
+  isPeriodActive: boolean;
+  isHighlightedCarryover: boolean;
+  hasEffectiveTimedExclusion: boolean;
+  isShorthandedEntryArmed: boolean;
+  status?: PlayerDisciplinaryStatus;
+}
+
+const getBenchPlayerButtonClass = ({
+  isSelectedStarter,
+  isPeriodActive,
+  isHighlightedCarryover,
+  hasEffectiveTimedExclusion,
+  isShorthandedEntryArmed,
+  status,
+}: BenchPlayerButtonClassParams): string => {
   if (!isPeriodActive && isSelectedStarter) {
     return "bg-emerald-600 text-white";
   }
@@ -97,12 +107,41 @@ const getBenchPlayerButtonClass = (
     return "bg-rose-950/60 text-rose-300 opacity-60 cursor-not-allowed";
   }
   if (hasEffectiveTimedExclusion) {
-    return "bg-amber-950/80 text-amber-200 ring-1 ring-amber-500/70";
+    return isShorthandedEntryArmed
+      ? "bg-amber-950/80 text-amber-200 ring-2 ring-emerald-400"
+      : "bg-amber-950/80 text-amber-200 ring-1 ring-amber-500/70";
+  }
+  if (isShorthandedEntryArmed) {
+    return "bg-emerald-950/70 text-emerald-100 ring-1 ring-emerald-400";
   }
   if (status?.hasFoulWarning) {
     return "bg-gray-800 text-gray-200 ring-1 ring-amber-400/80";
   }
   return "bg-gray-800 text-gray-300";
+};
+
+const getShorthandedControlClass = (
+  isArmed: boolean,
+  canEnterShorthanded: boolean,
+): string => {
+  if (!canEnterShorthanded) {
+    return "bg-amber-900/70 border-amber-600 text-amber-200 cursor-default";
+  }
+  if (isArmed) {
+    return "bg-emerald-700 hover:bg-emerald-600 border-emerald-300 text-white ring-1 ring-emerald-300 cursor-pointer";
+  }
+  return "bg-amber-900/80 hover:bg-amber-800/90 border-amber-500 text-amber-100 cursor-pointer";
+};
+
+const getShorthandedControlLabel = (
+  isArmed: boolean,
+  activeCount: number,
+  maxAllowedCount: number,
+): string => {
+  const ratio = `${activeCount}/${maxAllowedCount}`;
+  return isArmed
+    ? `Enter Player ${ratio} · Cancel`
+    : `Shorthanded ${ratio}`;
 };
 
 export const PlayerPresencePanel: React.FC<{
@@ -141,20 +180,50 @@ export const PlayerPresencePanel: React.FC<{
     Record<string, MatchLineupLookup>
   >({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isShorthandedEntryArmed, setIsShorthandedEntryArmed] = useState(false);
+
+  const effectiveMaxAllowedActive =
+    typeof maxAllowedActive === "number"
+      ? maxAllowedActive
+      : (disciplinaryState?.maxAllowedActive ?? activePlayersLimit);
+
+  const effectiveIsShorthanded =
+    typeof isShorthanded === "boolean"
+      ? isShorthanded
+      : Boolean(
+          disciplinaryState?.isShorthanded ??
+            (effectiveMaxAllowedActive > 0 &&
+              activeLineupIds.length < effectiveMaxAllowedActive),
+        );
+
+  const canEnterShorthanded =
+    isPeriodActive &&
+    effectiveIsShorthanded &&
+    typeof enterShorthandedPlayer === "function";
 
   const [prevLifecycle, setPrevLifecycle] = useState({
+    matchId,
     currentPeriod,
     isPeriodActive,
     isPeriodEnded,
   });
 
   if (
+    prevLifecycle.matchId !== matchId ||
     prevLifecycle.currentPeriod !== currentPeriod ||
     prevLifecycle.isPeriodActive !== isPeriodActive ||
     prevLifecycle.isPeriodEnded !== isPeriodEnded
   ) {
-    setPrevLifecycle({ currentPeriod, isPeriodActive, isPeriodEnded });
+    setPrevLifecycle({ matchId, currentPeriod, isPeriodActive, isPeriodEnded });
     setErrorMessage(null);
+    setIsShorthandedEntryArmed(false);
+  }
+
+  if (
+    isShorthandedEntryArmed &&
+    (!canEnterShorthanded || selectedPlayerId !== null)
+  ) {
+    setIsShorthandedEntryArmed(false);
   }
 
   const selectedPlayerIdRef = useRef(selectedPlayerId);
@@ -243,27 +312,26 @@ export const PlayerPresencePanel: React.FC<{
     [carryoverState?.highlightedLineupIds],
   );
 
-  const effectiveMaxAllowedActive =
-    typeof maxAllowedActive === "number"
-      ? maxAllowedActive
-      : (disciplinaryState?.maxAllowedActive ?? activePlayersLimit);
-
-  const effectiveIsShorthanded =
-    typeof isShorthanded === "boolean"
-      ? isShorthanded
-      : Boolean(
-          disciplinaryState?.isShorthanded ??
-            (effectiveMaxAllowedActive > 0 &&
-              activeLineupIds.length < effectiveMaxAllowedActive),
-        );
-
   const effectiveRequiredStarters =
     typeof requiredStartingPlayers === "number"
       ? requiredStartingPlayers
       : (carryoverState?.requiredStartingPlayers ?? activePlayersLimit);
 
+  const handleShorthandedToggle = () => {
+    if (!canEnterShorthanded) {
+      return;
+    }
+    setErrorMessage(null);
+    const nextArmed = !isShorthandedEntryArmed;
+    setIsShorthandedEntryArmed(nextArmed);
+    if (nextArmed && selectedPlayerId !== null) {
+      setSelectedPlayerId(null);
+    }
+  };
+
   const handleActiveTap = (id: string) => {
     setErrorMessage(null);
+    setIsShorthandedEntryArmed(false);
 
     if (isPeriodActive) {
       const newId = selectedPlayerId === id ? null : id;
@@ -291,15 +359,20 @@ export const PlayerPresencePanel: React.FC<{
       return;
     }
 
-    if (
-      typeof enterShorthandedPlayer === "function" &&
-      effectiveIsShorthanded
-    ) {
-      try {
-        await enterShorthandedPlayer(benchId, currentPeriod);
-      } catch {
-        setErrorMessage("Failed to enter player.");
+    if (canEnterShorthanded && enterShorthandedPlayer) {
+      if (isShorthandedEntryArmed) {
+        setIsShorthandedEntryArmed(false);
+        try {
+          await enterShorthandedPlayer(benchId, currentPeriod);
+        } catch {
+          setErrorMessage("Failed to enter player.");
+        }
+        return;
       }
+
+      setErrorMessage(
+        "Select an active player to substitute, or tap Shorthanded to enter a player.",
+      );
       return;
     }
 
@@ -341,12 +414,23 @@ export const PlayerPresencePanel: React.FC<{
         <h3 className="text-sm font-bold">Period {currentPeriod} Roster</h3>
 
         {isPeriodActive && effectiveIsShorthanded && (
-          <span
+          <button
+            type="button"
             data-testid="shorthanded-indicator"
-            className="px-1.5 py-0.5 rounded bg-amber-900/70 border border-amber-600 text-amber-200 text-[10px] font-bold uppercase"
+            aria-pressed={canEnterShorthanded && isShorthandedEntryArmed}
+            disabled={!canEnterShorthanded}
+            onClick={handleShorthandedToggle}
+            className={`px-2 py-1 min-h-6 rounded border text-[10px] font-bold uppercase transition-colors ${getShorthandedControlClass(
+              isShorthandedEntryArmed,
+              canEnterShorthanded,
+            )}`}
           >
-            {`Shorthanded ${activeLineupIds.length}/${effectiveMaxAllowedActive}`}
-          </span>
+            {getShorthandedControlLabel(
+              canEnterShorthanded && isShorthandedEntryArmed,
+              activeLineupIds.length,
+              effectiveMaxAllowedActive,
+            )}
+          </button>
         )}
 
         {!isPeriodActive && (
@@ -374,7 +458,10 @@ export const PlayerPresencePanel: React.FC<{
       </div>
 
       {errorMessage && (
-        <div role="alert" className="text-red-500 text-[10px] mb-2">
+        <div
+          role="alert"
+          className="px-2 py-1 mb-2 rounded bg-amber-950/90 border border-amber-500/80 text-amber-100 text-[11px] font-semibold leading-tight"
+        >
           {errorMessage}
         </div>
       )}
@@ -432,11 +519,15 @@ export const PlayerPresencePanel: React.FC<{
               }}
               aria-pressed={isSelectedStarter}
               className={`p-2 min-h-11 rounded text-xs font-bold transition-colors ${getBenchPlayerButtonClass(
-                isSelectedStarter,
-                isPeriodActive,
-                isHighlightedCarryover,
-                hasEffectiveTimedExclusion,
-                status,
+                {
+                  isSelectedStarter,
+                  isPeriodActive,
+                  isHighlightedCarryover,
+                  hasEffectiveTimedExclusion,
+                  isShorthandedEntryArmed:
+                    canEnterShorthanded && isShorthandedEntryArmed,
+                  status,
+                },
               )}`}
             >
               {`#${lineupsMap[id]?.number || ""}`}
