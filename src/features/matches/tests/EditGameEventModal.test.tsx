@@ -122,6 +122,13 @@ vi.mock("../../../db/ttaDatabase", () => ({
         }),
       }),
     },
+    playerpresences: {
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+    },
   },
 }));
 
@@ -938,5 +945,177 @@ describe("EditGameEventModal Component", () => {
     });
 
     await waitFor(() => expect(mockOnClose).toHaveBeenCalled());
+  });
+
+  it("renders grouped 'Active at Event Time' and 'Bench at Event Time' sections with distinct visual styles and allows reassigning to a bench player", async () => {
+    vi.mocked(db.gameevents.get).mockResolvedValueOnce({
+      id: "action-123",
+      periodNumber: 1,
+      eventTimestamp: "2026-11-20T10:05:00.000Z",
+      locationX: 35.5,
+      locationY: 70.0,
+      shotLocationX: null,
+      shotLocationY: null,
+    } as never);
+
+    vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          { id: "lineup-2", number: 10, matchId: "match-1" },
+          { id: "lineup-1", number: 7, matchId: "match-1" },
+          { id: "lineup-3", number: 4, matchId: "match-1" },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+    vi.mocked(db.playerpresences.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "p-1",
+            matchLineupId: "lineup-1",
+            periodNumber: 1,
+            timeIn: "2026-11-20T10:00:00.000Z",
+            timeOut: null,
+            sequenceNumber: 1,
+            isSynced: 1,
+          },
+          {
+            id: "p-3",
+            matchLineupId: "lineup-3",
+            periodNumber: 1,
+            timeIn: "2026-11-20T10:00:00.000Z",
+            timeOut: "2026-11-20T10:05:00.000Z",
+            sequenceNumber: 2,
+            isSynced: 0,
+          },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    vi.mocked(eventService.updateGameEventTx).mockResolvedValue({
+      id: "action-123",
+      matchLineupId: "lineup-2",
+      eventDefinitionId: "def-1",
+      periodNumber: 1,
+      eventTimestamp: "2026-11-20T10:05:00.000Z",
+      isLeadToGoal: true,
+      createdAt: "",
+      sequenceNumber: 1,
+      isSynced: 0,
+    });
+
+    const mockOnClose = vi.fn();
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction}
+          matchId="match-1"
+          onClose={mockOnClose}
+        />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByText("Active at Event Time"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Bench at Event Time")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Player (Full Roster)"),
+    ).not.toBeInTheDocument();
+
+    const activeSelectedBtn = screen.getByRole("button", { name: "#7" });
+    const activeUnselectedBtn = screen.getByRole("button", { name: "#4" });
+    const benchUnselectedBtn = screen.getByRole("button", { name: "#10" });
+
+    expect(activeSelectedBtn).toHaveAttribute("aria-pressed", "true");
+    expect(activeSelectedBtn.className).toContain("bg-blue-600");
+    expect(activeUnselectedBtn).toHaveAttribute("aria-pressed", "false");
+    expect(activeUnselectedBtn.className).toContain("bg-blue-950");
+    expect(benchUnselectedBtn).toHaveAttribute("aria-pressed", "false");
+    expect(benchUnselectedBtn.className).toContain("bg-gray-900/80");
+
+    // Reassign to bench player #10
+    fireEvent.click(benchUnselectedBtn);
+
+    expect(benchUnselectedBtn).toHaveAttribute("aria-pressed", "true");
+    expect(benchUnselectedBtn.className).toContain("bg-blue-600");
+    expect(activeSelectedBtn).toHaveAttribute("aria-pressed", "false");
+    expect(activeSelectedBtn.className).toContain("bg-blue-950");
+
+    const saveBtn = screen.getByRole("button", { name: /Save/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(eventService.updateGameEventTx).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventId: "action-123",
+          matchLineupId: "lineup-2",
+        }),
+      );
+      expect(mockOnClose).toHaveBeenCalled();
+    });
+  });
+
+  it("omits 'Bench at Event Time' header when all match lineup players were active at event time", async () => {
+    vi.mocked(db.gameevents.get).mockResolvedValueOnce({
+      id: "action-123",
+      periodNumber: 1,
+      eventTimestamp: "2026-11-20T10:05:00.000Z",
+      locationX: 35.5,
+      locationY: 70.0,
+      shotLocationX: null,
+      shotLocationY: null,
+    } as never);
+
+    vi.mocked(db.playerpresences.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            id: "p-1",
+            matchLineupId: "lineup-1",
+            periodNumber: 1,
+            timeIn: "2026-11-20T10:00:00.000Z",
+            timeOut: null,
+            sequenceNumber: 1,
+            isSynced: 1,
+          },
+          {
+            id: "p-2",
+            matchLineupId: "lineup-2",
+            periodNumber: 1,
+            timeIn: "2026-11-20T10:00:00.000Z",
+            timeOut: null,
+            sequenceNumber: 2,
+            isSynced: 1,
+          },
+        ]),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <EditGameEventModal
+          isOpen={true}
+          action={sampleAction}
+          matchId="match-1"
+          onClose={vi.fn()}
+        />
+      </Provider>,
+    );
+
+    expect(
+      await screen.findByText("Active at Event Time"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Bench at Event Time")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Player (Full Roster)"),
+    ).not.toBeInTheDocument();
   });
 });
