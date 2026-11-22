@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useSelector } from "react-redux";
 import { liveQuery } from "dexie";
@@ -7,6 +7,8 @@ import {
   db,
   type MatchLineupLookup,
   type EventDefinitionLookup,
+  type GameEvent,
+  type PlayerPresence,
 } from "../../../db/ttaDatabase";
 import { parseSvgDimensions } from "../../../utils/svgUtils";
 import type { ActionEntry } from "../store/matchSlice";
@@ -185,6 +187,122 @@ function applyInitialShotLocation(
   }
 }
 
+const normalizeIsoTimestampForParse = (raw: string): string =>
+  raw.replace(/(\.\d{3})\d+(?=[Z+-]|$)/i, "$1");
+
+export const parseEventTimestampMs = (timestamp?: string | null): number => {
+  if (!timestamp) return Number.NaN;
+  const trimmed = timestamp.trim();
+  if (!trimmed) return Number.NaN;
+  return Date.parse(normalizeIsoTimestampForParse(trimmed));
+};
+
+export const isPresenceActiveAtTimestamp = (
+  presence: Pick<PlayerPresence, "timeIn" | "timeOut">,
+  eventTimeMs: number,
+): boolean => {
+  if (Number.isNaN(eventTimeMs)) return false;
+  const timeInMs = parseEventTimestampMs(presence.timeIn);
+  if (Number.isNaN(timeInMs) || timeInMs > eventTimeMs) {
+    return false;
+  }
+  if (presence.timeOut === null) {
+    return true;
+  }
+  const timeOutMs = parseEventTimestampMs(presence.timeOut);
+  if (Number.isNaN(timeOutMs)) {
+    return false;
+  }
+  return timeOutMs >= eventTimeMs;
+};
+
+export interface PartitionedEventLineups {
+  activeAtEventLineups: MatchLineupLookup[];
+  benchAtEventLineups: MatchLineupLookup[];
+  hasEventPresenceGrouping: boolean;
+}
+
+export const partitionLineupsByEventPresence = (
+  lineups: readonly MatchLineupLookup[],
+  activeLineupIdsAtEvent: ReadonlySet<string>,
+): PartitionedEventLineups => {
+  const activeAtEventLineups: MatchLineupLookup[] = [];
+  const benchAtEventLineups: MatchLineupLookup[] = [];
+
+  for (const lineup of lineups) {
+    if (activeLineupIdsAtEvent.has(lineup.id)) {
+      activeAtEventLineups.push(lineup);
+    } else {
+      benchAtEventLineups.push(lineup);
+    }
+  }
+
+  if (activeAtEventLineups.length === 0) {
+    return {
+      activeAtEventLineups: [],
+      benchAtEventLineups: [],
+      hasEventPresenceGrouping: false,
+    };
+  }
+
+  return {
+    activeAtEventLineups,
+    benchAtEventLineups,
+    hasEventPresenceGrouping: true,
+  };
+};
+
+async function loadActiveLineupIdsForEvent(
+  evt: Partial<GameEvent> | undefined,
+  fallbackTimestamp?: string,
+): Promise<Set<string>> {
+  const periodNumber = evt?.periodNumber;
+  if (
+    typeof periodNumber !== "number" ||
+    !Number.isFinite(periodNumber) ||
+    periodNumber <= 0
+  ) {
+    return new Set();
+  }
+
+  const rawTimestamp = evt?.eventTimestamp || fallbackTimestamp;
+  const eventTimeMs = parseEventTimestampMs(rawTimestamp);
+  if (Number.isNaN(eventTimeMs)) {
+    return new Set();
+  }
+
+  if (typeof db.playerpresences?.where !== "function") {
+    return new Set();
+  }
+
+  try {
+    const equalsChain = db.playerpresences
+      .where("periodNumber")
+      ?.equals?.(periodNumber);
+    if (typeof equalsChain?.toArray !== "function") {
+      return new Set();
+    }
+
+    const presences = await equalsChain.toArray();
+    if (!Array.isArray(presences) || presences.length === 0) {
+      return new Set();
+    }
+
+    const activeIds = new Set<string>();
+    for (const presence of presences) {
+      if (
+        presence?.matchLineupId &&
+        isPresenceActiveAtTimestamp(presence, eventTimeMs)
+      ) {
+        activeIds.add(presence.matchLineupId);
+      }
+    }
+    return activeIds;
+  } catch {
+    return new Set();
+  }
+}
+
 export function useEditGameEventModal({
   action,
   matchId,
@@ -198,6 +316,9 @@ export function useEditGameEventModal({
   const { updateGameEvent } = useGameEvents(matchId);
 
   const [lineups, setLineups] = useState<MatchLineupLookup[]>([]);
+  const [activeLineupIdsAtEvent, setActiveLineupIdsAtEvent] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const [eventDefinitions, setEventDefinitions] = useState<
     EventDefinitionLookup[]
   >([]);
@@ -265,11 +386,19 @@ export function useEditGameEventModal({
           );
         }
         setIsLocationLoaded(true);
+        void loadActiveLineupIdsForEvent(evt, action.timestamp).then(
+          (activeIds) => {
+            if (isMounted) {
+              setActiveLineupIdsAtEvent(activeIds);
+            }
+          },
+        );
       })
       .catch(() => {
         if (isMounted) {
           setError("Failed to load event coordinates.");
           setIsLocationLoaded(false);
+          setActiveLineupIdsAtEvent(new Set());
         }
       });
 
@@ -332,7 +461,22 @@ export function useEditGameEventModal({
     return () => {
       isMounted = false;
     };
-  }, [action.id, action.eventDefinitionId, matchId, currentUserId]);
+  }, [
+    action.id,
+    action.eventDefinitionId,
+    action.timestamp,
+    matchId,
+    currentUserId,
+  ]);
+
+  const {
+    activeAtEventLineups,
+    benchAtEventLineups,
+    hasEventPresenceGrouping,
+  } = useMemo(
+    () => partitionLineupsByEventPresence(lineups, activeLineupIdsAtEvent),
+    [lineups, activeLineupIdsAtEvent],
+  );
 
   // Real-time subscription to sport configuration changes via Dexie liveQuery
   useEffect(() => {
@@ -474,6 +618,9 @@ export function useEditGameEventModal({
 
   return {
     lineups,
+    activeAtEventLineups,
+    benchAtEventLineups,
+    hasEventPresenceGrouping,
     displayedActions,
     playground,
     shotMap,

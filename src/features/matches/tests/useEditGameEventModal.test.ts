@@ -3,6 +3,9 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import {
   useEditGameEventModal,
   checkIsPositive,
+  parseEventTimestampMs,
+  isPresenceActiveAtTimestamp,
+  partitionLineupsByEventPresence,
 } from "../hooks/useEditGameEventModal";
 import { db } from "../../../db/ttaDatabase";
 
@@ -165,6 +168,13 @@ vi.mock("../../../db/ttaDatabase", () => ({
             { id: "lineup-1", number: 7, matchId: "match-1" },
             { id: "lineup-2", number: 10, matchId: "match-1" },
           ]),
+        }),
+      }),
+    },
+    playerpresences: {
+      where: vi.fn().mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([]),
         }),
       }),
     },
@@ -1275,5 +1285,366 @@ describe("useEditGameEventModal Custom Hook", () => {
     expect(result.current.locationY).toBe(99.0);
     expect(result.current.shotLocationX).toBe(44.0);
     expect(result.current.shotLocationY).toBe(55.0);
+  });
+
+  describe("Event-Time Presence Grouping & Pure Helpers", () => {
+    it("should parse standard and .NET 7-digit fractional tick ISO timestamps and reject invalid strings", () => {
+      const msStandard = parseEventTimestampMs("2026-11-20T10:05:00.123Z");
+      const msDotNetTicks = parseEventTimestampMs(
+        "2026-11-20T10:05:00.1234567Z",
+      );
+      expect(Number.isNaN(msStandard)).toBe(false);
+      expect(msDotNetTicks).toBe(msStandard);
+
+      expect(Number.isNaN(parseEventTimestampMs(""))).toBe(true);
+      expect(Number.isNaN(parseEventTimestampMs("   "))).toBe(true);
+      expect(Number.isNaN(parseEventTimestampMs(null))).toBe(true);
+      expect(Number.isNaN(parseEventTimestampMs(undefined))).toBe(true);
+      expect(Number.isNaN(parseEventTimestampMs("not-a-timestamp"))).toBe(true);
+    });
+
+    it("should evaluate isPresenceActiveAtTimestamp using inclusive timeIn and timeOut bounds", () => {
+      const eventTimeMs = parseEventTimestampMs("2026-11-20T10:05:00.000Z");
+
+      // Open interval covering event time
+      expect(
+        isPresenceActiveAtTimestamp(
+          { timeIn: "2026-11-20T10:00:00.000Z", timeOut: null },
+          eventTimeMs,
+        ),
+      ).toBe(true);
+
+      // Exact lower boundary (timeIn === eventTimestamp)
+      expect(
+        isPresenceActiveAtTimestamp(
+          { timeIn: "2026-11-20T10:05:00.000Z", timeOut: null },
+          eventTimeMs,
+        ),
+      ).toBe(true);
+
+      // Exact upper boundary (auto-exited at eventTimestamp: timeOut === eventTimestamp)
+      expect(
+        isPresenceActiveAtTimestamp(
+          {
+            timeIn: "2026-11-20T10:00:00.000Z",
+            timeOut: "2026-11-20T10:05:00.0000000Z",
+          },
+          eventTimeMs,
+        ),
+      ).toBe(true);
+
+      // Entered after event time
+      expect(
+        isPresenceActiveAtTimestamp(
+          { timeIn: "2026-11-20T10:05:01.000Z", timeOut: null },
+          eventTimeMs,
+        ),
+      ).toBe(false);
+
+      // Exited before event time
+      expect(
+        isPresenceActiveAtTimestamp(
+          {
+            timeIn: "2026-11-20T10:00:00.000Z",
+            timeOut: "2026-11-20T10:04:59.000Z",
+          },
+          eventTimeMs,
+        ),
+      ).toBe(false);
+
+      // Invalid eventTimeMs or unparseable timeIn/timeOut
+      expect(
+        isPresenceActiveAtTimestamp(
+          { timeIn: "2026-11-20T10:00:00.000Z", timeOut: null },
+          Number.NaN,
+        ),
+      ).toBe(false);
+      expect(
+        isPresenceActiveAtTimestamp(
+          { timeIn: "invalid", timeOut: null },
+          eventTimeMs,
+        ),
+      ).toBe(false);
+      expect(
+        isPresenceActiveAtTimestamp(
+          { timeIn: "2026-11-20T10:00:00.000Z", timeOut: "invalid" },
+          eventTimeMs,
+        ),
+      ).toBe(false);
+    });
+
+    it("should partition lineups into active and bench sets or return ungrouped when no active match exists", () => {
+      const sortedLineups = [
+        {
+          id: "l-4",
+          matchId: "m-1",
+          playerRosterId: "r-4",
+          number: 4,
+          positionId: null,
+        },
+        {
+          id: "l-7",
+          matchId: "m-1",
+          playerRosterId: "r-7",
+          number: 7,
+          positionId: null,
+        },
+        {
+          id: "l-10",
+          matchId: "m-1",
+          playerRosterId: "r-10",
+          number: 10,
+          positionId: null,
+        },
+      ];
+
+      const grouped = partitionLineupsByEventPresence(
+        sortedLineups,
+        new Set(["l-4", "l-10"]),
+      );
+      expect(grouped.hasEventPresenceGrouping).toBe(true);
+      expect(grouped.activeAtEventLineups.map((l) => l.number)).toEqual([
+        4, 10,
+      ]);
+      expect(grouped.benchAtEventLineups.map((l) => l.number)).toEqual([7]);
+
+      const ungrouped = partitionLineupsByEventPresence(
+        sortedLineups,
+        new Set(["foreign-lineup-id"]),
+      );
+      expect(ungrouped.hasEventPresenceGrouping).toBe(false);
+      expect(ungrouped.activeAtEventLineups).toEqual([]);
+      expect(ungrouped.benchAtEventLineups).toEqual([]);
+    });
+
+    it("should group lineups into activeAtEventLineups and benchAtEventLineups sorted by number, including auto-exited player at eventTimestamp", async () => {
+      vi.mocked(db.gameevents.get).mockResolvedValueOnce({
+        id: "action-123",
+        periodNumber: 2,
+        eventTimestamp: "2026-11-20T10:15:00.000Z",
+        locationX: 35.5,
+        locationY: 70.0,
+      } as never);
+
+      vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            { id: "lineup-12", number: 12, matchId: "match-1" },
+            { id: "lineup-3", number: 3, matchId: "match-1" },
+            { id: "lineup-10", number: 10, matchId: "match-1" },
+            { id: "lineup-7", number: 7, matchId: "match-1" },
+          ]),
+        }),
+      } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+      vi.mocked(db.playerpresences.where).mockReturnValueOnce({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            // Open presence in period 2
+            {
+              id: "p-1",
+              matchLineupId: "lineup-10",
+              periodNumber: 2,
+              timeIn: "2026-11-20T10:10:00.000Z",
+              timeOut: null,
+              sequenceNumber: 1,
+              isSynced: 1,
+            },
+            // Auto-exited at exact eventTimestamp (inclusive bound)
+            {
+              id: "p-2",
+              matchLineupId: "lineup-3",
+              periodNumber: 2,
+              timeIn: "2026-11-20T10:10:00.000Z",
+              timeOut: "2026-11-20T10:15:00.000Z",
+              sequenceNumber: 2,
+              isSynced: 0,
+            },
+            // Substituted out before eventTimestamp -> Bench at Event Time
+            {
+              id: "p-3",
+              matchLineupId: "lineup-7",
+              periodNumber: 2,
+              timeIn: "2026-11-20T10:10:00.000Z",
+              timeOut: "2026-11-20T10:12:00.000Z",
+              sequenceNumber: 3,
+              isSynced: 1,
+            },
+            // Entered after eventTimestamp -> Bench at Event Time
+            {
+              id: "p-4",
+              matchLineupId: "lineup-12",
+              periodNumber: 2,
+              timeIn: "2026-11-20T10:15:01.000Z",
+              timeOut: null,
+              sequenceNumber: 4,
+              isSynced: 1,
+            },
+          ]),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      const { result } = renderHook(() =>
+        useEditGameEventModal({
+          action: sampleAction,
+          matchId: "match-1",
+          onClose: vi.fn(),
+        }),
+      );
+
+      await waitFor(() => {
+        expect(result.current.hasEventPresenceGrouping).toBe(true);
+      });
+
+      expect(db.playerpresences.where).toHaveBeenCalledWith("periodNumber");
+      expect(
+        result.current.activeAtEventLineups.map((l) => l.number),
+      ).toEqual([3, 10]);
+      expect(result.current.benchAtEventLineups.map((l) => l.number)).toEqual([
+        7, 12,
+      ]);
+    });
+
+    it("should resolve presence grouping deterministically when matchlineups finishes after gameevents and playerpresences", async () => {
+      vi.mocked(db.gameevents.get).mockResolvedValueOnce({
+        id: "action-123",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:05:00.000Z",
+      } as never);
+
+      vi.mocked(db.playerpresences.where).mockReturnValueOnce({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            {
+              id: "p-1",
+              matchLineupId: "lineup-2",
+              periodNumber: 1,
+              timeIn: "2026-11-20T10:00:00.000Z",
+              timeOut: null,
+              sequenceNumber: 1,
+              isSynced: 1,
+            },
+          ]),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      let resolveLineups!: (value: unknown) => void;
+      const delayedLineups = new Promise((resolve) => {
+        resolveLineups = resolve;
+      });
+
+      vi.mocked(db.matchlineups.where).mockReturnValueOnce({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockReturnValueOnce(delayedLineups),
+        }),
+      } as unknown as ReturnType<typeof db.matchlineups.where>);
+
+      const { result } = renderHook(() =>
+        useEditGameEventModal({
+          action: sampleAction,
+          matchId: "match-1",
+          onClose: vi.fn(),
+        }),
+      );
+
+      await waitFor(() => {
+        expect(result.current.isLocationLoaded).toBe(true);
+      });
+      expect(result.current.hasEventPresenceGrouping).toBe(false);
+
+      act(() => {
+        resolveLineups([
+          { id: "lineup-2", number: 10, matchId: "match-1" },
+          { id: "lineup-1", number: 7, matchId: "match-1" },
+        ]);
+      });
+
+      await waitFor(() => {
+        expect(result.current.hasEventPresenceGrouping).toBe(true);
+      });
+
+      expect(result.current.activeAtEventLineups.map((l) => l.id)).toEqual([
+        "lineup-2",
+      ]);
+      expect(result.current.benchAtEventLineups.map((l) => l.id)).toEqual([
+        "lineup-1",
+      ]);
+    });
+
+    it("should skip querying playerpresences and fall back cleanly when periodNumber is missing or timestamp is invalid", async () => {
+      // Default mock for db.gameevents.get has no periodNumber
+      const { result, unmount } = renderHook(() =>
+        useEditGameEventModal({
+          action: sampleAction,
+          matchId: "match-1",
+          onClose: vi.fn(),
+        }),
+      );
+
+      await waitFor(() => {
+        expect(result.current.isLocationLoaded).toBe(true);
+        expect(result.current.lineups).toHaveLength(2);
+      });
+
+      expect(db.playerpresences.where).not.toHaveBeenCalled();
+      expect(result.current.hasEventPresenceGrouping).toBe(false);
+      expect(result.current.error).toBeNull();
+      unmount();
+
+      // Valid periodNumber but invalid timestamp on both event and action
+      vi.mocked(db.gameevents.get).mockResolvedValueOnce({
+        id: "action-123",
+        periodNumber: 1,
+        eventTimestamp: "invalid-date",
+      } as never);
+
+      const { result: resultInvalidTs } = renderHook(() =>
+        useEditGameEventModal({
+          action: { ...sampleAction, timestamp: "also-invalid" },
+          matchId: "match-1",
+          onClose: vi.fn(),
+        }),
+      );
+
+      await waitFor(() => {
+        expect(resultInvalidTs.current.isLocationLoaded).toBe(true);
+      });
+
+      expect(db.playerpresences.where).not.toHaveBeenCalled();
+      expect(resultInvalidTs.current.hasEventPresenceGrouping).toBe(false);
+      expect(resultInvalidTs.current.error).toBeNull();
+    });
+
+    it("should fall back cleanly without setting error when playerpresences query rejects", async () => {
+      vi.mocked(db.gameevents.get).mockResolvedValueOnce({
+        id: "action-123",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:05:00.000Z",
+      } as never);
+
+      vi.mocked(db.playerpresences.where).mockReturnValueOnce({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi
+            .fn()
+            .mockRejectedValueOnce(new Error("Presence table read failure")),
+        }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      const { result } = renderHook(() =>
+        useEditGameEventModal({
+          action: sampleAction,
+          matchId: "match-1",
+          onClose: vi.fn(),
+        }),
+      );
+
+      await waitFor(() => {
+        expect(result.current.isLocationLoaded).toBe(true);
+        expect(result.current.lineups).toHaveLength(2);
+      });
+
+      expect(result.current.hasEventPresenceGrouping).toBe(false);
+      expect(result.current.error).toBeNull();
+    });
   });
 });
