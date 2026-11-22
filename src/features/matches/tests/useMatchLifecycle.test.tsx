@@ -3023,9 +3023,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       () =>
         ({
           equals: vi.fn().mockReturnValue({
-            toArray: vi
-              .fn()
-              .mockResolvedValue([{ id: "lineup-last-open-dq" }]),
+            toArray: vi.fn().mockResolvedValue([{ id: "lineup-last-open-dq" }]),
           }),
         }) as unknown as ReturnType<typeof db.matchlineups.where>,
     );
@@ -3105,9 +3103,7 @@ describe("useMatchLifecycle Hook & State Machine", () => {
       () =>
         ({
           equals: vi.fn().mockReturnValue({
-            toArray: vi
-              .fn()
-              .mockResolvedValue([{ id: "lineup-synced-dq" }]),
+            toArray: vi.fn().mockResolvedValue([{ id: "lineup-synced-dq" }]),
           }),
         }) as unknown as ReturnType<typeof db.matchlineups.where>,
     );
@@ -3280,5 +3276,83 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(db.playerpresences.update).not.toHaveBeenCalled();
     expect(mockSyncQueue.some((i) => i.id === 301)).toBe(true);
     expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:10:00Z");
+  });
+
+  test("should not delete a different end anchor or mutate queue/presences when revertEndPeriod is called with a stale anchorId", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    vi.mocked(db.matchlineups.where).mockImplementation(
+      () =>
+        ({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([{ id: "lineup-1" }]),
+          }),
+        }) as unknown as ReturnType<typeof db.matchlineups.where>,
+    );
+
+    mockSyncQueue.push({
+      id: 950,
+      actionType: "PUT",
+      endpoint: "/Matches/test-match-id/presence/terminate",
+      payload: JSON.stringify({
+        periodNumber: 1,
+        playerLineupIds: ["lineup-1"],
+        timeOut: "2020-01-01T10:10:00Z",
+      }),
+      createdAt: "2020-01-01T10:10:00Z",
+    });
+
+    mockPlayerPresences = [
+      {
+        id: "presence-1",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00Z",
+        matchLineupId: "lineup-1",
+      },
+    ];
+
+    vi.mocked(db.playerpresences.where).mockReturnValue({
+      equals: vi.fn().mockReturnValue({
+        filter: vi
+          .fn()
+          .mockImplementation(
+            (
+              predicate: (p: {
+                matchLineupId: string;
+                timeOut: string | null;
+              }) => boolean,
+            ) => ({
+              toArray: vi
+                .fn()
+                .mockResolvedValue(mockPlayerPresences.filter(predicate)),
+            }),
+          ),
+      }),
+    } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod("stale-nonexistent-end-anchor");
+    });
+
+    expect(db.timeanchors.delete).not.toHaveBeenCalled();
+    expect(db.syncQueue.delete).not.toHaveBeenCalled();
+    expect(db.playerpresences.update).not.toHaveBeenCalled();
+    expect(mockTimeAnchors.some((a) => a.id === "seed-end-anchor")).toBe(true);
+    expect(mockSyncQueue.some((i) => i.id === 950)).toBe(true);
+    expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:10:00Z");
+    expect(store.getState().match.isPeriodEnded).toBe(true);
+    expect(store.getState().match.isPeriodActive).toBe(false);
   });
 });

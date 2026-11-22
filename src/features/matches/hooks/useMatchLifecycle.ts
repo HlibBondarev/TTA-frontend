@@ -332,7 +332,7 @@ const findTargetEndAnchor = async (
       b.timestamp.localeCompare(a.timestamp),
   );
   if (anchorId) {
-    return endAnchors.find((a) => a.id === anchorId) ?? endAnchors[0];
+    return endAnchors.find((a) => a.id === anchorId);
   }
   return endAnchors[0];
 };
@@ -394,7 +394,9 @@ const parseTerminateQueueItem = (item: {
     const periodNumber =
       typeof data.periodNumber === "number" ? data.periodNumber : undefined;
     const playerLineupIds = Array.isArray(data.playerLineupIds)
-      ? data.playerLineupIds.filter((id): id is string => typeof id === "string")
+      ? data.playerLineupIds.filter(
+          (id): id is string => typeof id === "string",
+        )
       : [];
     const timeOut =
       typeof data.timeOut === "string" && data.timeOut.trim().length > 0
@@ -1016,9 +1018,7 @@ export const useMatchLifecycle = () => {
         }
 
         await Promise.all(
-          revertPlan.terminateQueueItemIds.map((id) =>
-            db.syncQueue.delete(id),
-          ),
+          revertPlan.terminateQueueItemIds.map((id) => db.syncQueue.delete(id)),
         );
 
         await Promise.all(
