@@ -528,4 +528,104 @@ describe("useTTAConsole Custom Hook", () => {
 
     expect(result.current.isSubmitting).toBe(false);
   });
+
+  it("should automatically clear selectedPlayerId when that player leaves activeLineupIds", () => {
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+      presence: { activeLineupIds: ["player-1", "player-2"] },
+    });
+
+    const { result, rerender } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.setSelectedPlayerId("player-2");
+    });
+    expect(result.current.selectedPlayerId).toBe("player-2");
+
+    act(() => {
+      store.dispatch({
+        type: "presence/syncActiveAndBenchRoster",
+        payload: { active: ["player-1"], bench: ["player-2"] },
+      });
+    });
+    rerender();
+
+    expect(result.current.selectedPlayerId).toBeNull();
+  });
+
+  it("should clear stale selectedPlayerId and skip recordGameEvent in handleEnter if player exited activeLineupIds", async () => {
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+      presence: { activeLineupIds: ["player-1", "player-2"] },
+    });
+
+    const { result } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.handleActionSelect("Goal", true, "def-goal-1", true);
+      result.current.setSelectedPlayerId("player-2");
+    });
+
+    const staleHandleEnter = result.current.handleEnter;
+
+    act(() => {
+      store.dispatch({
+        type: "presence/syncActiveAndBenchRoster",
+        payload: { active: ["player-1"], bench: ["player-2"] },
+      });
+    });
+
+    await act(async () => {
+      await staleHandleEnter();
+    });
+
+    expect(mockRecordGameEvent).not.toHaveBeenCalled();
+    expect(result.current.selectedPlayerId).toBeNull();
+  });
+
+  it("should clear selectedPlayerId on render and in captured handleEnter when the last active player moves to the bench", async () => {
+    const store = createTestStore({
+      match: { activeMatchId: "m-123" },
+      presence: { activeLineupIds: ["player-1"], benchLineupIds: [] },
+    });
+
+    const { result, rerender } = renderHook(() => useTTAConsole(), {
+      wrapper: createWrapper(store),
+    });
+
+    act(() => {
+      result.current.handleActionSelect("Goal", true, "def-goal-1", true);
+      result.current.setSelectedPlayerId("player-1");
+    });
+
+    expect(result.current.selectedPlayerId).toBe("player-1");
+
+    const capturedHandleEnter = result.current.handleEnter;
+
+    act(() => {
+      store.dispatch({
+        type: "presence/syncActiveAndBenchRoster",
+        payload: { active: [], bench: ["player-1"] },
+      });
+    });
+
+    await act(async () => {
+      await capturedHandleEnter();
+    });
+
+    expect(mockRecordGameEvent).not.toHaveBeenCalled();
+    expect(result.current.selectedPlayerId).toBeNull();
+
+    // Verify render-time clearing as well when activeLineupIds is empty and benchLineupIds is populated
+    act(() => {
+      result.current.setSelectedPlayerId("player-1");
+    });
+    rerender();
+
+    expect(result.current.selectedPlayerId).toBeNull();
+  });
 });

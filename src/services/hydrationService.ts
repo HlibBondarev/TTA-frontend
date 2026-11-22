@@ -88,22 +88,45 @@ const syncPresence = async (
   }
 };
 
+const mergeEventDisciplinarySnapshot = (
+  incoming: GameEvent,
+  existing?: GameEvent,
+): GameEvent => ({
+  ...incoming,
+  ...(incoming.foulImpact === undefined && existing?.foulImpact !== undefined
+    ? { foulImpact: existing.foulImpact }
+    : {}),
+  ...(incoming.penaltyDurationSeconds === undefined &&
+  existing?.penaltyDurationSeconds !== undefined
+    ? { penaltyDurationSeconds: existing.penaltyDurationSeconds }
+    : {}),
+  isSynced: 1,
+});
+
 const syncEvents = async (
   matchLineupIds: Set<string>,
   events?: GameEvent[],
 ) => {
   if (!events) return;
 
-  const syncedKeys = await db.gameevents
-    .filter(
-      (e) =>
-        matchLineupIds.has(e.matchLineupId) &&
-        (e.isSynced === 1 || e.isSynced === -1),
-    )
-    .primaryKeys();
+  const existingSyncedCollection = db.gameevents.filter(
+    (e) =>
+      matchLineupIds.has(e.matchLineupId) &&
+      (e.isSynced === 1 || e.isSynced === -1),
+  );
+  const existingSyncedEvents: GameEvent[] =
+    typeof existingSyncedCollection.toArray === "function"
+      ? await existingSyncedCollection.toArray()
+      : [];
+  const existingById = new Map(existingSyncedEvents.map((e) => [e.id, e]));
+
+  const syncedKeys =
+    existingSyncedEvents.length > 0
+      ? existingSyncedEvents.map((e) => e.id)
+      : ((await existingSyncedCollection.primaryKeys()) as string[]);
 
   if (syncedKeys.length > 0) {
-    await db.gameevents.bulkDelete(syncedKeys as string[]);
+    await db.gameevents.bulkDelete(syncedKeys);
   }
 
   if (events.length > 0) {
@@ -114,7 +137,7 @@ const syncEvents = async (
     );
     const syncedEvents = events
       .filter((e) => !pendingEventIds.has(e.id))
-      .map((e) => ({ ...e, isSynced: 1 }));
+      .map((e) => mergeEventDisciplinarySnapshot(e, existingById.get(e.id)));
     if (syncedEvents.length > 0) {
       await db.gameevents.bulkPut(syncedEvents);
     }
@@ -235,34 +258,56 @@ const recoverPeriodFromAnchors = async (matchId: string): Promise<number> => {
 const refreshShotMapBackground = (
   sportId?: string,
   configurationId?: string,
-): void => {
-  if (!sportId || !configurationId) return;
+  preRequestMaxPersonalFouls?: number | null,
+): Promise<SportConfigurationLookup | undefined> => {
+  if (!sportId || !configurationId) return Promise.resolve(undefined);
 
-  void sportService
+  return sportService
     .getSportConfigurations(sportId)
     .then(async (configs) => {
       const freshConfig = configs.find((c) => c.id === configurationId);
       if (freshConfig) {
+        let finalConfig: SportConfigurationLookup | undefined;
         await db.transaction("rw", db.sportconfigurations, async () => {
           const cachedConfig =
             await db.sportconfigurations.get(configurationId);
+          const canApplyFreshMaxPersonalFouls =
+            freshConfig.maxPersonalFouls !== undefined &&
+            cachedConfig?.maxPersonalFouls === preRequestMaxPersonalFouls;
+          const baseFreshConfig = { ...freshConfig };
+          if (!canApplyFreshMaxPersonalFouls) {
+            delete baseFreshConfig.maxPersonalFouls;
+          }
           const updatedConfig = {
-            ...freshConfig,
+            ...baseFreshConfig,
             ...cachedConfig,
+            ...(canApplyFreshMaxPersonalFouls
+              ? { maxPersonalFouls: freshConfig.maxPersonalFouls }
+              : {}),
             playground:
               cachedConfig?.playground || freshConfig.playground || null,
             shotMap: cachedConfig?.shotMap || freshConfig.shotMap || null,
           };
           await db.sportconfigurations.put(updatedConfig);
+          finalConfig = updatedConfig;
         });
+        return finalConfig;
       }
+      return undefined;
     })
     .catch(() => {
       // Ignore network errors in background
+      return undefined;
     });
 };
 
-const recoverActivePlayersLimit = async (matchId: string): Promise<number> => {
+const recoverSportConfigurationLimits = async (
+  matchId: string,
+): Promise<{
+  activePlayersLimit: number;
+  maxPersonalFouls?: number | null;
+  refreshPromise?: Promise<SportConfigurationLookup | undefined>;
+}> => {
   if (!db?.matches || !db?.tournaments || !db?.sportconfigurations) {
     throw new Error(
       "Match Recovery Error: Required IndexedDB tables are unavailable.",
@@ -295,23 +340,51 @@ const recoverActivePlayersLimit = async (matchId: string): Promise<number> => {
     );
   }
 
-  if (tournament.sportId && !config.shotMap) {
-    refreshShotMapBackground(tournament.sportId, tournament.configurationId);
-  }
+  const needsConfigRefresh =
+    Boolean(tournament.sportId) &&
+    (!config.shotMap || config.maxPersonalFouls === undefined);
 
-  return config.activePlayersLimit;
+  const refreshPromise = needsConfigRefresh
+    ? refreshShotMapBackground(
+        tournament.sportId,
+        tournament.configurationId,
+        config.maxPersonalFouls,
+      )
+    : undefined;
+
+  return {
+    activePlayersLimit: config.activePlayersLimit,
+    ...(config.maxPersonalFouls !== undefined
+      ? { maxPersonalFouls: config.maxPersonalFouls }
+      : {}),
+    ...(refreshPromise ? { refreshPromise } : {}),
+  };
 };
 
 export const getMatchRecoveryState = async (
   matchId: string,
-): Promise<{ recoveredPeriod: number; activePlayersLimit: number }> => {
+): Promise<{
+  recoveredPeriod: number;
+  activePlayersLimit: number;
+  maxPersonalFouls?: number | null;
+  refreshPromise?: Promise<SportConfigurationLookup | undefined>;
+}> => {
   try {
-    const [period, activePlayersLimit] = await Promise.all([
+    const [period, limits] = await Promise.all([
       recoverPeriodFromAnchors(matchId),
-      recoverActivePlayersLimit(matchId),
+      recoverSportConfigurationLimits(matchId),
     ]);
 
-    return { recoveredPeriod: period, activePlayersLimit };
+    return {
+      recoveredPeriod: period,
+      activePlayersLimit: limits.activePlayersLimit,
+      ...(limits.maxPersonalFouls !== undefined
+        ? { maxPersonalFouls: limits.maxPersonalFouls }
+        : {}),
+      ...(limits.refreshPromise
+        ? { refreshPromise: limits.refreshPromise }
+        : {}),
+    };
   } catch (err) {
     const status = extractErrorStatus(err);
     if (status !== undefined && UNRECOVERABLE_STATUS_CODES.has(status)) {
@@ -648,6 +721,10 @@ const persistHydrationPayloads = async (
         isPositive: Boolean(def.isPositive),
         isShot: Boolean(def.isShot),
         score: def.score ?? 0,
+        ...(def.foulImpact !== undefined ? { foulImpact: def.foulImpact } : {}),
+        ...(def.penaltyDurationSeconds !== undefined
+          ? { penaltyDurationSeconds: def.penaltyDurationSeconds }
+          : {}),
         isCustom: def.isCustom,
         isEnabled: def.isEnabled ?? true,
         sortOrder: def.sortOrder ?? idx + 1,

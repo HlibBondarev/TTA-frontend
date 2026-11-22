@@ -46,6 +46,7 @@ vi.mock("../../services/hydrationService", () => ({
   getMatchRecoveryState: vi.fn().mockResolvedValue({
     recoveredPeriod: 2,
     activePlayersLimit: 6,
+    maxPersonalFouls: 3,
   }),
   recoverRecentActions: vi.fn().mockResolvedValue([]),
   StaleUserError: class StaleUserError extends Error {
@@ -264,10 +265,12 @@ describe("useAppSession Custom Hook", () => {
     let resolveRecovery: (val: {
       recoveredPeriod: number;
       activePlayersLimit: number;
+      maxPersonalFouls: number | null;
     }) => void = () => {};
     const deferredRecovery = new Promise<{
       recoveredPeriod: number;
       activePlayersLimit: number;
+      maxPersonalFouls: number | null;
     }>((resolve) => {
       resolveRecovery = resolve;
     });
@@ -290,7 +293,11 @@ describe("useAppSession Custom Hook", () => {
     mockUser = { email: "userB@tta.com", sub: "auth0|user-B" };
     rerender();
 
-    resolveRecovery({ recoveredPeriod: 3, activePlayersLimit: 7 });
+    resolveRecovery({
+      recoveredPeriod: 3,
+      activePlayersLimit: 7,
+      maxPersonalFouls: 3,
+    });
 
     await act(async () => {
       await resumePromise!;
@@ -351,5 +358,279 @@ describe("useAppSession Custom Hook", () => {
     await expect(resumePromise!).resolves.toBeUndefined();
 
     consoleSpy.mockRestore();
+  });
+
+  it("should keep maxPersonalFouls undefined when starting from initial presence state with no background refresh, and update Redux when background refresh resolves", async () => {
+    // 1. Start with default initial presence state (maxPersonalFouls: undefined) and no background refresh
+    vi.mocked(getMatchRecoveryState).mockResolvedValueOnce({
+      recoveredPeriod: 2,
+      activePlayersLimit: 7,
+    });
+
+    const store = createTestStore();
+    expect(
+      (store.getState() as RootState).presence.maxPersonalFouls,
+    ).toBeUndefined();
+
+    const { result } = renderHook(() => useAppSession(), {
+      wrapper: createWrapper(store),
+    });
+
+    await act(async () => {
+      await result.current.handleResumeMatch("match-no-refresh", "team-1");
+    });
+
+    // When cached maxPersonalFouls is absent (undefined) and no refresh runs, it remains undefined (distinct from explicit null)
+    expect(
+      (store.getState() as RootState).presence.maxPersonalFouls,
+    ).toBeUndefined();
+
+    // 2. Resume with a background refresh promise that resolves with remote maxPersonalFouls = 3
+    let resolveRefresh!: (val: {
+      id: string;
+      sportId: string;
+      activePlayersLimit: number;
+      maxPersonalFouls?: number | null;
+    }) => void;
+    const refreshPromise = new Promise<{
+      id: string;
+      sportId: string;
+      activePlayersLimit: number;
+      maxPersonalFouls?: number | null;
+    }>((resolve) => {
+      resolveRefresh = resolve;
+    });
+
+    vi.mocked(getMatchRecoveryState).mockResolvedValueOnce({
+      recoveredPeriod: 2,
+      activePlayersLimit: 7,
+      refreshPromise: refreshPromise as never,
+    });
+
+    await act(async () => {
+      await result.current.handleResumeMatch("match-resumed", "team-1");
+    });
+
+    expect(
+      (store.getState() as RootState).presence.maxPersonalFouls,
+    ).toBeUndefined();
+
+    await act(async () => {
+      resolveRefresh({
+        id: "cfg-1",
+        sportId: "sport-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+      });
+      await refreshPromise;
+    });
+
+    expect((store.getState() as RootState).presence.maxPersonalFouls).toBe(3);
+  });
+
+  it("should ignore a stale background refresh callback if a new match starts before the old refresh resolves", async () => {
+    let resolveOldRefresh!: (val: {
+      id: string;
+      sportId: string;
+      activePlayersLimit: number;
+      maxPersonalFouls?: number | null;
+    }) => void;
+    const oldRefreshPromise = new Promise<{
+      id: string;
+      sportId: string;
+      activePlayersLimit: number;
+      maxPersonalFouls?: number | null;
+    }>((resolve) => {
+      resolveOldRefresh = resolve;
+    });
+
+    vi.mocked(getMatchRecoveryState).mockResolvedValueOnce({
+      recoveredPeriod: 3,
+      activePlayersLimit: 7,
+      maxPersonalFouls: 5,
+      refreshPromise: oldRefreshPromise as never,
+    });
+
+    const store = createTestStore();
+    const { result } = renderHook(() => useAppSession(), {
+      wrapper: createWrapper(store),
+    });
+
+    // 1. Resume first match ("match-old") withpending refresh
+    await act(async () => {
+      await result.current.handleResumeMatch("match-old", "team-1");
+    });
+
+    expect(store.getState().match.activeMatchId).toBe("match-old");
+    expect((store.getState() as RootState).presence.currentPeriod).toBe(3);
+    expect((store.getState() as RootState).presence.activePlayersLimit).toBe(7);
+    expect((store.getState() as RootState).presence.maxPersonalFouls).toBe(5);
+
+    // 2. Start a new match ("match-new") with limit 11, period 1, maxPersonalFouls: null (unlimited)
+    await act(async () => {
+      await result.current.handleQuickStart(
+        "match-new",
+        "sport-2",
+        "cfg-2",
+        11,
+        "team-2",
+        null,
+      );
+    });
+
+    expect(store.getState().match.activeMatchId).toBe("match-new");
+    expect((store.getState() as RootState).presence.currentPeriod).toBe(1);
+    expect((store.getState() as RootState).presence.activePlayersLimit).toBe(
+      11,
+    );
+    expect(
+      (store.getState() as RootState).presence.maxPersonalFouls,
+    ).toBeNull();
+
+    // 3. Resolve the old match's background refresh -> must NOT overwrite the new match's limits or period
+    await act(async () => {
+      resolveOldRefresh({
+        id: "cfg-1",
+        sportId: "sport-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+      });
+      await oldRefreshPromise;
+    });
+
+    expect(store.getState().match.activeMatchId).toBe("match-new");
+    expect((store.getState() as RootState).presence.currentPeriod).toBe(1);
+    expect((store.getState() as RootState).presence.activePlayersLimit).toBe(
+      11,
+    );
+    expect(
+      (store.getState() as RootState).presence.maxPersonalFouls,
+    ).toBeNull();
+  });
+
+  it("should abort stale handleResumeMatch after getMatchRecoveryState if a newer Quick Start session starts first", async () => {
+    type RecoveryState = Awaited<ReturnType<typeof getMatchRecoveryState>>;
+    let resolveRecovery!: (val: RecoveryState) => void;
+    const deferredRecovery = new Promise<RecoveryState>((resolve) => {
+      resolveRecovery = resolve;
+    });
+
+    vi.mocked(getMatchRecoveryState).mockReturnValueOnce(deferredRecovery);
+
+    const store = createTestStore();
+    const { result } = renderHook(() => useAppSession(), {
+      wrapper: createWrapper(store),
+    });
+
+    let resumePromise!: Promise<void>;
+    act(() => {
+      resumePromise = result.current.handleResumeMatch("match-old", "team-old");
+    });
+
+    await act(async () => {
+      await result.current.handleQuickStart(
+        "match-new",
+        "sport-2",
+        "cfg-2",
+        11,
+        "team-new",
+        null,
+      );
+    });
+
+    resolveRecovery({
+      recoveredPeriod: 3,
+      activePlayersLimit: 7,
+      maxPersonalFouls: 3,
+    });
+
+    await act(async () => {
+      await resumePromise;
+    });
+
+    expect(recoverRecentActions).not.toHaveBeenCalled();
+    expect(store.getState().match.activeMatchId).toBe("match-new");
+    expect(store.getState().match.activeTeamId).toBe("team-new");
+    expect((store.getState() as RootState).presence.currentPeriod).toBe(1);
+    expect((store.getState() as RootState).presence.activePlayersLimit).toBe(
+      11,
+    );
+    expect(
+      (store.getState() as RootState).presence.maxPersonalFouls,
+    ).toBeNull();
+  });
+
+  it("should abort stale handleResumeMatch after recoverRecentActions if a newer Quick Start session starts before actions resolve", async () => {
+    type RecoveredActions = Awaited<ReturnType<typeof recoverRecentActions>>;
+    let resolveRecentActions!: (val: RecoveredActions) => void;
+    let notifyRecoverActionsCalled!: () => void;
+    const recoverActionsCalled = new Promise<void>((resolve) => {
+      notifyRecoverActionsCalled = resolve;
+    });
+    const deferredRecentActions = new Promise<RecoveredActions>((resolve) => {
+      resolveRecentActions = resolve;
+    });
+
+    vi.mocked(getMatchRecoveryState).mockResolvedValueOnce({
+      recoveredPeriod: 3,
+      activePlayersLimit: 7,
+      maxPersonalFouls: 3,
+    });
+    vi.mocked(recoverRecentActions).mockImplementationOnce(() => {
+      notifyRecoverActionsCalled();
+      return deferredRecentActions;
+    });
+
+    const store = createTestStore();
+    const { result } = renderHook(() => useAppSession(), {
+      wrapper: createWrapper(store),
+    });
+
+    let resumePromise!: Promise<void>;
+    act(() => {
+      resumePromise = result.current.handleResumeMatch("match-old", "team-old");
+    });
+
+    await recoverActionsCalled;
+
+    await act(async () => {
+      await result.current.handleQuickStart(
+        "match-new",
+        "sport-2",
+        "cfg-2",
+        11,
+        "team-new",
+        null,
+      );
+    });
+
+    resolveRecentActions([
+      {
+        id: "stale-act-1",
+        playerNumber: 5,
+        actionName: "Goal",
+        isPositive: true,
+        timestamp: "2026-06-01T12:00:00Z",
+        matchLineupId: "lin-1",
+        eventDefinitionId: "def-1",
+        isLeadToGoal: false,
+        isSynced: 1,
+      },
+    ]);
+
+    await act(async () => {
+      await resumePromise;
+    });
+
+    expect(store.getState().match.activeMatchId).toBe("match-new");
+    expect(store.getState().match.activeTeamId).toBe("team-new");
+    expect(store.getState().match.recentActions).toEqual([]);
+    expect((store.getState() as RootState).presence.currentPeriod).toBe(1);
+    expect((store.getState() as RootState).presence.activePlayersLimit).toBe(
+      11,
+    );
+    expect(
+      (store.getState() as RootState).presence.maxPersonalFouls,
+    ).toBeNull();
   });
 });

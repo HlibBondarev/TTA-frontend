@@ -9,6 +9,50 @@ interface MatchLifecyclePanelProps {
   onFinalizeSuccess?: () => void;
 }
 
+interface RollbackFailedPeriodStartParams {
+  anchorId: string | null | undefined;
+  activeMatchId: string;
+  previousPeriod: number;
+  effectivePeriod: number;
+  revertStartPeriod: (
+    anchorId?: string | null,
+    restorePeriodNumber?: number,
+  ) => Promise<void>;
+  syncPeriodStateWithDB: (
+    overrideMatchId?: string,
+    overridePeriodNumber?: number,
+  ) => Promise<void>;
+  refreshPresenceFromDB: (overridePeriodNumber?: number) => Promise<void>;
+  setPanelError: React.Dispatch<React.SetStateAction<string | null>>;
+}
+
+const rollbackFailedPeriodStart = async ({
+  anchorId,
+  activeMatchId,
+  previousPeriod,
+  effectivePeriod,
+  revertStartPeriod,
+  syncPeriodStateWithDB,
+  refreshPresenceFromDB,
+  setPanelError,
+}: RollbackFailedPeriodStartParams): Promise<void> => {
+  try {
+    if (anchorId) {
+      await revertStartPeriod(
+        anchorId,
+        effectivePeriod !== previousPeriod ? previousPeriod : undefined,
+      );
+    } else if (activeMatchId) {
+      await syncPeriodStateWithDB(activeMatchId, previousPeriod);
+    }
+    await refreshPresenceFromDB(previousPeriod);
+    setPanelError("Failed to start period. Transaction fully reverted.");
+  } catch (compensationErr) {
+    console.error("Compensation failed:", compensationErr);
+    setPanelError("Failed to start period. Compensation incomplete.");
+  }
+};
+
 export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
   onFinalizeSuccess,
 }) => {
@@ -39,6 +83,7 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
   const {
     selectedStartingIds,
     activePlayersLimit,
+    requiredStartingPlayers,
     startPeriodWithRoster,
     endPeriodWithRoster,
     refreshPresenceFromDB,
@@ -55,11 +100,16 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
       setPanelError("The active players limit is not configured.");
       return;
     }
-    if (selectedStartingIds.length !== activePlayersLimit) {
-      setPanelError(`Select exactly ${activePlayersLimit} players.`);
+    const targetRequiredStarters =
+      typeof requiredStartingPlayers === "number"
+        ? requiredStartingPlayers
+        : activePlayersLimit;
+    if (selectedStartingIds.length !== targetRequiredStarters) {
+      setPanelError(`Select exactly ${targetRequiredStarters} players.`);
       return;
     }
 
+    const previousPeriod = periodNumber;
     const effectivePeriod = targetPeriod ?? periodNumber;
     let anchorId: string | null | undefined = null;
 
@@ -69,19 +119,16 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
       await startPeriodWithRoster(new Date().toISOString(), effectivePeriod);
     } catch (err) {
       console.error(err);
-      try {
-        if (anchorId) {
-          await revertStartPeriod(anchorId);
-        }
-        if (activeMatchId) {
-          await syncPeriodStateWithDB(activeMatchId);
-        }
-        await refreshPresenceFromDB();
-        setPanelError("Failed to start period. Transaction fully reverted.");
-      } catch (compensationErr) {
-        console.error("Compensation failed:", compensationErr);
-        setPanelError("Failed to start period. Compensation incomplete.");
-      }
+      await rollbackFailedPeriodStart({
+        anchorId,
+        activeMatchId,
+        previousPeriod,
+        effectivePeriod,
+        revertStartPeriod,
+        syncPeriodStateWithDB,
+        refreshPresenceFromDB,
+        setPanelError,
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -93,10 +140,11 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
     let anchorId: string | null | undefined = null;
     try {
       setIsProcessing(true);
-      const endResult = await endPeriod();
+      const endTimestamp = new Date().toISOString();
+      const endResult = await endPeriod(endTimestamp);
       anchorId = endResult?.anchorId;
 
-      await endPeriodWithRoster(new Date().toISOString(), periodNumber);
+      await endPeriodWithRoster(endTimestamp, periodNumber);
 
       if (endResult?.isFinal) {
         setIsResultModalOpen(true);

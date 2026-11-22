@@ -1,9 +1,62 @@
 import React from "react";
+import type { MatchLineupLookup } from "../../../db/ttaDatabase";
 import type { ActionEntry } from "../store/matchSlice";
 import { ModalDialog } from "./ModalDialog";
 import { InteractivePlayground } from "./InteractivePlayground";
 import { InteractiveShotMap } from "./InteractiveShotMap";
 import { useEditGameEventModal } from "../hooks/useEditGameEventModal";
+
+type RosterButtonVariant = "active" | "bench" | "default";
+
+const getRosterPlayerButtonClass = (
+  isSelected: boolean,
+  variant: RosterButtonVariant,
+): string => {
+  if (isSelected) {
+    return "bg-blue-600 text-white";
+  }
+  if (variant === "active") {
+    return "bg-blue-950 text-blue-100 border border-blue-800/80 hover:bg-blue-900";
+  }
+  if (variant === "bench") {
+    return "bg-gray-900/80 text-gray-400 border border-gray-800 hover:bg-gray-800 hover:text-gray-200";
+  }
+  return "bg-gray-800 text-gray-300 hover:bg-gray-700";
+};
+
+interface RosterSectionGridProps {
+  players: readonly MatchLineupLookup[];
+  selectedMatchLineupId: string;
+  variant: RosterButtonVariant;
+  onSelectPlayer: (lineupId: string) => void;
+}
+
+const RosterSectionGrid: React.FC<RosterSectionGridProps> = ({
+  players,
+  selectedMatchLineupId,
+  variant,
+  onSelectPlayer,
+}) => (
+  <div className="grid grid-cols-5 gap-1.5">
+    {players.map((l) => {
+      const isSelected = selectedMatchLineupId === l.id;
+      return (
+        <button
+          key={l.id}
+          type="button"
+          aria-pressed={isSelected}
+          onClick={() => onSelectPlayer(l.id)}
+          className={`p-1.5 min-h-10 rounded text-xs font-bold transition-all ${getRosterPlayerButtonClass(
+            isSelected,
+            variant,
+          )}`}
+        >
+          {`#${l.number ?? ""}`}
+        </button>
+      );
+    })}
+  </div>
+);
 
 interface EditGameEventModalProps {
   isOpen: boolean;
@@ -19,6 +72,9 @@ const EditGameEventModalContent: React.FC<{
 }> = ({ action, matchId, onClose }) => {
   const {
     lineups,
+    activeAtEventLineups,
+    benchAtEventLineups,
+    hasEventPresenceGrouping,
     displayedActions,
     playground,
     shotMap,
@@ -69,7 +125,7 @@ const EditGameEventModalContent: React.FC<{
     }
 
     return (
-      <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-1">
+      <div className="grid grid-cols-3 gap-1.5">
         {!isDefinitionsLoaded ? (
           <div className="col-span-3 p-4 text-center text-xs text-gray-400 italic">
             Loading action definitions...
@@ -105,7 +161,7 @@ const EditGameEventModalContent: React.FC<{
       titleId="edit-game-event-title"
       title="Edit Action"
       titleClassName="text-blue-400"
-      maxWidthClass="max-w-md"
+      maxWidthClass="max-w-sm"
     >
       <div className="space-y-3 overflow-y-auto pr-1">
         {error && (
@@ -118,27 +174,46 @@ const EditGameEventModalContent: React.FC<{
         )}
 
         {/* Player Roster Selection */}
-        <div>
-          <span className="block text-[10px] uppercase text-gray-400 font-bold mb-1">
-            Player (Full Roster)
-          </span>
-          <div className="grid grid-cols-5 gap-1.5 max-h-36 overflow-y-auto pr-1">
-            {lineups.map((l) => (
-              <button
-                key={l.id}
-                type="button"
-                onClick={() => setSelectedMatchLineupId(l.id)}
-                className={`p-1.5 min-h-10 rounded text-xs font-bold transition-all ${
-                  selectedMatchLineupId === l.id
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-800 text-gray-300 hover:bg-gray-700"
-                }`}
-              >
-                {`#${l.number ?? ""}`}
-              </button>
-            ))}
+        {hasEventPresenceGrouping ? (
+          <div className="space-y-2">
+            <div>
+              <span className="block text-[10px] uppercase text-blue-300 font-bold mb-1">
+                Active at Event Time
+              </span>
+              <RosterSectionGrid
+                players={activeAtEventLineups}
+                selectedMatchLineupId={selectedMatchLineupId}
+                variant="active"
+                onSelectPlayer={setSelectedMatchLineupId}
+              />
+            </div>
+            {benchAtEventLineups.length > 0 && (
+              <div>
+                <span className="block text-[10px] uppercase text-gray-500 font-bold mb-1">
+                  Bench at Event Time
+                </span>
+                <RosterSectionGrid
+                  players={benchAtEventLineups}
+                  selectedMatchLineupId={selectedMatchLineupId}
+                  variant="bench"
+                  onSelectPlayer={setSelectedMatchLineupId}
+                />
+              </div>
+            )}
           </div>
-        </div>
+        ) : (
+          <div>
+            <span className="block text-[10px] uppercase text-gray-400 font-bold mb-1">
+              Player (Full Roster)
+            </span>
+            <RosterSectionGrid
+              players={lineups}
+              selectedMatchLineupId={selectedMatchLineupId}
+              variant="default"
+              onSelectPlayer={setSelectedMatchLineupId}
+            />
+          </div>
+        )}
 
         {/* Action Type & Location Navigation Tabs */}
         <div>

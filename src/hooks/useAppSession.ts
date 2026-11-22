@@ -2,7 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useAuth0 } from "@auth0/auth0-react";
 
-import { setPresenceLimits } from "../features/playerpresences/store/presenceSlice";
+import {
+  setPresenceLimits,
+  setMaxPersonalFouls,
+} from "../features/playerpresences/store/presenceSlice";
 import {
   setActiveMatch,
   setRecentActions,
@@ -15,6 +18,22 @@ import {
 } from "../services/hydrationService";
 import { setTokenGetter } from "../services/tokenService";
 import type { RootState, AppDispatch } from "../store";
+
+const isStaleRecoverySession = (
+  currentUserId: string | undefined,
+  initiatedUserId: string | undefined,
+  currentSessionToken: number,
+  resumeSessionToken: number,
+): boolean => {
+  if (currentUserId !== initiatedUserId) {
+    console.warn(
+      "Account changed during match recovery. Aborting session resumption.",
+    );
+    return true;
+  }
+
+  return currentSessionToken !== resumeSessionToken;
+};
 
 export function useAppSession() {
   const dispatch = useDispatch<AppDispatch>();
@@ -41,12 +60,20 @@ export function useAppSession() {
 
   const currentUserId = user?.sub ?? user?.email;
   const currentUserIdRef = useRef(currentUserId);
+  const activeMatchIdRef = useRef(activeMatchId);
+  const sessionTokenRef = useRef(0);
 
   useLayoutEffect(() => {
     if (currentUserIdRef.current !== currentUserId) {
       currentUserIdRef.current = currentUserId;
     }
   }, [currentUserId]);
+
+  useLayoutEffect(() => {
+    if (activeMatchIdRef.current !== activeMatchId) {
+      activeMatchIdRef.current = activeMatchId;
+    }
+  }, [activeMatchId]);
 
   // Tab protection during active match session (even during inter-period breaks)
   useEffect(() => {
@@ -87,13 +114,16 @@ export function useAppSession() {
     _configurationId: string,
     activePlayersLimit: number,
     selectedTeamId: string,
+    maxPersonalFouls?: number | null,
   ) => {
     const initiatedUserId = currentUserId;
+    sessionTokenRef.current += 1;
 
     dispatch(
       setPresenceLimits({
         limit: activePlayersLimit,
         period: 1,
+        ...(maxPersonalFouls !== undefined ? { maxPersonalFouls } : {}),
       }),
     );
 
@@ -128,6 +158,7 @@ export function useAppSession() {
       throw new StaleUserError();
     }
 
+    activeMatchIdRef.current = matchId;
     dispatch(
       setActiveMatch({
         matchId,
@@ -138,23 +169,36 @@ export function useAppSession() {
 
   const handleResumeMatch = async (matchId: string, teamId: string) => {
     const initiatedUserId = currentUserId;
+    const resumeSessionToken = ++sessionTokenRef.current;
     try {
-      const { recoveredPeriod, activePlayersLimit } =
-        await getMatchRecoveryState(matchId);
+      const {
+        recoveredPeriod,
+        activePlayersLimit,
+        maxPersonalFouls,
+        refreshPromise,
+      } = await getMatchRecoveryState(matchId);
 
-      if (currentUserIdRef.current !== initiatedUserId) {
-        console.warn(
-          "Account changed during match recovery. Aborting session resumption.",
-        );
+      if (
+        isStaleRecoverySession(
+          currentUserIdRef.current,
+          initiatedUserId,
+          sessionTokenRef.current,
+          resumeSessionToken,
+        )
+      ) {
         return;
       }
 
       const recoveredActions = await recoverRecentActions(matchId);
 
-      if (currentUserIdRef.current !== initiatedUserId) {
-        console.warn(
-          "Account changed during match recovery. Aborting session resumption.",
-        );
+      if (
+        isStaleRecoverySession(
+          currentUserIdRef.current,
+          initiatedUserId,
+          sessionTokenRef.current,
+          resumeSessionToken,
+        )
+      ) {
         return;
       }
 
@@ -162,15 +206,32 @@ export function useAppSession() {
         setPresenceLimits({
           limit: activePlayersLimit,
           period: recoveredPeriod,
+          ...(maxPersonalFouls !== undefined ? { maxPersonalFouls } : {}),
         }),
       );
 
+      activeMatchIdRef.current = matchId;
       dispatch(
         setActiveMatch({
           matchId,
           teamId,
         }),
       );
+
+      if (refreshPromise) {
+        void refreshPromise.then((refreshedConfig) => {
+          const refreshedMaxFouls = refreshedConfig?.maxPersonalFouls;
+          if (
+            currentUserIdRef.current === initiatedUserId &&
+            sessionTokenRef.current === resumeSessionToken &&
+            activeMatchIdRef.current === matchId &&
+            refreshedMaxFouls !== undefined &&
+            refreshedMaxFouls !== maxPersonalFouls
+          ) {
+            dispatch(setMaxPersonalFouls(refreshedMaxFouls));
+          }
+        });
+      }
 
       if (recoveredActions.length > 0) {
         dispatch(setRecentActions(recoveredActions));

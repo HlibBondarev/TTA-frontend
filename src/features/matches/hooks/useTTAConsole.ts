@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { useSelector, useDispatch } from "react-redux";
+import { useSelector, useDispatch, useStore } from "react-redux";
 import { useMatchLifecycle } from "./useMatchLifecycle";
 import { useGameEvents } from "./useGameEvents";
 import { resetMatchState } from "../store/matchSlice";
 import { resetPresenceState } from "../../playerpresences/store/presenceSlice";
 import type { RootState, AppDispatch } from "../../../store";
+
+const EMPTY_LINEUP_IDS: string[] = [];
 
 export interface UseTTAConsoleOptions {
   onCompleteMatch?: () => void;
@@ -12,8 +14,15 @@ export interface UseTTAConsoleOptions {
 
 export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
   const dispatch = useDispatch<AppDispatch>();
+  const store = useStore<RootState>();
   const activeMatchId = useSelector(
     (state: RootState) => state.match.activeMatchId,
+  );
+  const activeLineupIds = useSelector(
+    (state: RootState) => state.presence?.activeLineupIds ?? EMPTY_LINEUP_IDS,
+  );
+  const benchLineupIds = useSelector(
+    (state: RootState) => state.presence?.benchLineupIds ?? EMPTY_LINEUP_IDS,
   );
   const { periodNumber, isPeriodActive, isInsideStoppage } =
     useMatchLifecycle();
@@ -46,6 +55,17 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     setPendingShotLocation(null);
     setSelectedPlayerId(null);
     setConsoleError(null);
+  }
+
+  const isRosterLoaded =
+    activeLineupIds.length > 0 || benchLineupIds.length > 0;
+
+  if (
+    selectedPlayerId !== null &&
+    isRosterLoaded &&
+    !activeLineupIds.includes(selectedPlayerId)
+  ) {
+    setSelectedPlayerId(null);
   }
 
   const isRecordingEnabled = isPeriodActive && !isInsideStoppage;
@@ -90,6 +110,21 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
       activeMatchId &&
       !isSubmitting
     ) {
+      const presenceState = store.getState().presence;
+      const latestActiveLineupIds =
+        presenceState?.activeLineupIds ?? activeLineupIds;
+      const latestBenchLineupIds =
+        presenceState?.benchLineupIds ?? benchLineupIds;
+      const isLatestRosterLoaded =
+        latestActiveLineupIds.length > 0 || latestBenchLineupIds.length > 0;
+      if (
+        isLatestRosterLoaded &&
+        !latestActiveLineupIds.includes(selectedPlayerId)
+      ) {
+        setSelectedPlayerId(null);
+        return;
+      }
+
       setIsSubmitting(true);
       setConsoleError(null);
       try {

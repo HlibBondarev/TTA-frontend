@@ -74,6 +74,7 @@ describe("useMatchSetupWizard", () => {
       usesCleanTime: true,
       fieldSize: "30x20",
       activePlayersLimit: 7,
+      maxPersonalFouls: 3,
       rosterLimit: 13,
       lineupLimit: 13,
     },
@@ -286,5 +287,126 @@ describe("useMatchSetupWizard", () => {
       "auth0|user-777",
     );
     expect(result.current.errorMessage).toBe("Local DB error");
+  });
+
+  it("should reject quick start and display error when selected configuration is missing a valid activePlayersLimit", async () => {
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      {
+        ...mockConfigs[0],
+        activePlayersLimit: 0,
+      },
+    ]);
+
+    const onQuickStart = vi.fn();
+    const { result } = renderHook(() => useMatchSetupWizard({ onQuickStart }));
+
+    await waitFor(() => {
+      expect(result.current.isLoadingSports).toBe(false);
+    });
+
+    act(() => {
+      result.current.setAreDefinitionsLoaded(true);
+      result.current.setIsPresetSaved(true);
+    });
+
+    await act(async () => {
+      await result.current.handleConfirmQuickStart();
+    });
+
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(onQuickStart).not.toHaveBeenCalled();
+    expect(result.current.errorMessage).toBe(
+      "Selected configuration is missing a valid active players limit.",
+    );
+  });
+
+  it("should forward maxPersonalFouls tri-state (number, null, or undefined) unchanged to onQuickStart", async () => {
+    const expectedUuid = "mocked-uuid-tristate";
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(
+      expectedUuid as `${string}-${string}-${string}-${string}-${string}`,
+    );
+    vi.mocked(apiClient.post).mockResolvedValue({
+      id: expectedUuid,
+      homeTeamId: "team-home",
+      guestTeamId: "team-guest",
+    });
+
+    // Case 1: maxPersonalFouls is undefined (omitted by server)
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      {
+        id: "cfg-1",
+        sportId: "water-polo",
+        periodsCount: 4,
+        periodDurationMinutes: 8,
+        usesCleanTime: true,
+        fieldSize: "30x20",
+        activePlayersLimit: 7,
+        rosterLimit: 13,
+        lineupLimit: 13,
+      },
+    ]);
+
+    const onQuickStart = vi.fn().mockResolvedValue(undefined);
+    const { result, unmount } = renderHook(() =>
+      useMatchSetupWizard({ onQuickStart }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoadingSports).toBe(false);
+    });
+
+    act(() => {
+      result.current.setAreDefinitionsLoaded(true);
+      result.current.setIsPresetSaved(true);
+    });
+
+    await act(async () => {
+      await result.current.handleConfirmQuickStart();
+    });
+
+    expect(onQuickStart).toHaveBeenCalledWith(
+      expectedUuid,
+      "water-polo",
+      "cfg-1",
+      7,
+      "team-home",
+      undefined,
+    );
+    unmount();
+
+    // Case 2: maxPersonalFouls is explicitly null (unlimited fouls)
+    onQuickStart.mockClear();
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      {
+        ...mockConfigs[0],
+        maxPersonalFouls: null,
+      },
+    ]);
+
+    const { result: resultNull } = renderHook(() =>
+      useMatchSetupWizard({ onQuickStart }),
+    );
+
+    await waitFor(() => {
+      expect(resultNull.current.isLoadingSports).toBe(false);
+    });
+
+    act(() => {
+      resultNull.current.setAreDefinitionsLoaded(true);
+      resultNull.current.setIsPresetSaved(true);
+    });
+
+    await act(async () => {
+      await resultNull.current.handleConfirmQuickStart();
+    });
+
+    expect(onQuickStart).toHaveBeenCalledWith(
+      expectedUuid,
+      "water-polo",
+      "cfg-1",
+      7,
+      "team-home",
+      null,
+    );
   });
 });

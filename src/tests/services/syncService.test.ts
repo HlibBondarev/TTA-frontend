@@ -657,6 +657,7 @@ describe("Sync Engine Service", () => {
     vi.mocked(apiClient.post).mockResolvedValue({ status: 201 });
 
     type PresenceFilterFn = (p: {
+      id: string;
       matchLineupId: string;
       timeIn: number | null;
       timeOut: number | null;
@@ -680,20 +681,31 @@ describe("Sync Engine Service", () => {
     if (filterPredicate) {
       expect(
         filterPredicate({
+          id: "pres-1",
           matchLineupId: "lineup-1",
           timeIn: 10,
-          timeOut: 20,
+          timeOut: null,
         }),
       ).toBe(true);
       expect(
         filterPredicate({
+          id: "pres-2",
           matchLineupId: "lineup-2",
           timeIn: 10,
-          timeOut: 20,
+          timeOut: null,
         }),
       ).toBe(true);
       expect(
         filterPredicate({
+          id: "pres-earlier-closed",
+          matchLineupId: "lineup-1",
+          timeIn: 5,
+          timeOut: 8,
+        }),
+      ).toBe(false);
+      expect(
+        filterPredicate({
+          id: "pres-other",
           matchLineupId: "other-lineup",
           timeIn: 10,
           timeOut: 20,
@@ -2503,6 +2515,410 @@ describe("Batch Sync Service (syncMatchBatch)", () => {
       );
       expect(db.syncQueue.delete).toHaveBeenCalledWith(1);
       expect(db.syncQueue.delete).not.toHaveBeenCalledWith(2);
+    });
+
+    it("cleans up PUT /presence/terminate queue items in syncMatchBatch ONLY when all of their own presences matching timeOut are synced", async () => {
+      const mockLineups = [
+        { id: "l1", matchId: "m123" },
+        { id: "l2", matchId: "m123" },
+      ];
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue(mockLineups),
+        }),
+      } as never);
+
+      const mockPresences = [
+        // Mid-period exclusion exit for l1 (synced)
+        {
+          id: "p1-mid",
+          matchLineupId: "l1",
+          periodNumber: 1,
+          timeIn: "2026-10-05T12:00:00.000Z",
+          timeOut: "2026-10-05T12:03:00.000Z",
+          isSynced: 0,
+        },
+        // Period-end exit for l1 after re-entry (NOT synced yet)
+        {
+          id: "p1-end",
+          matchLineupId: "l1",
+          periodNumber: 1,
+          timeIn: "2026-10-05T12:05:00.000Z",
+          timeOut: "2026-10-05T12:08:00.000Z",
+          isSynced: 0,
+        },
+        // Period-end exit for l2 (synced)
+        {
+          id: "p2-end",
+          matchLineupId: "l2",
+          periodNumber: 1,
+          timeIn: "2026-10-05T12:00:00.000Z",
+          timeOut: "2026-10-05T12:08:00.000Z",
+          isSynced: 0,
+        },
+      ];
+
+      vi.mocked(db.playerpresences.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockPresences),
+      } as never);
+
+      const mockModify = vi.fn();
+      const mockAnyOf = vi.fn().mockReturnValue({ modify: mockModify });
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        anyOf: mockAnyOf,
+      } as never);
+
+      // Server synced p1-mid and p2-end, but NOT p1-end
+      vi.mocked(apiClient.post).mockResolvedValue({
+        syncedEventIds: [],
+        syncedAnchorIds: [],
+        syncedPresenceIds: ["p1-mid", "p2-end"],
+      });
+
+      const mockQueueItems = [
+        {
+          id: 11,
+          actionType: "PUT",
+          endpoint: "/Matches/m123/presence/terminate",
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["l1"],
+            timeOut: "2026-10-05T12:03:00.000Z",
+          }),
+        },
+        {
+          id: 12,
+          actionType: "PUT",
+          endpoint: "/Matches/m123/presence/terminate",
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["l1", "l2"],
+            timeOut: "2026-10-05T12:08:00.000Z",
+          }),
+        },
+      ];
+
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue(
+        mockQueueItems as never,
+      );
+
+      await syncMatchBatch("m123");
+
+      // Item 11 (mid-period exit for l1 at 12:03) is fully synced -> deleted
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(11);
+      // Item 12 (period-end exit for l1 and l2 at 12:08) is NOT fully synced because p1-end is not synced -> kept!
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(12);
+    });
+
+    it("retains PUT /presence/terminate queue item when local presence has isSynced === 1 from prior initialize but is NOT in syncedPresenceIds, and deletes it when ID is in syncedPresenceIds", async () => {
+      const mockLineups = [{ id: "l1", matchId: "m123" }];
+
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue(mockLineups),
+        }),
+      } as never);
+
+      const mockPresences = [
+        {
+          id: "p1-closed",
+          matchLineupId: "l1",
+          periodNumber: 1,
+          timeIn: "2026-10-05T12:00:00.000Z",
+          timeOut: "2026-10-05T12:03:00.000Z",
+          isSynced: 1, // Marked synced by prior POST /presence/initialize
+        },
+      ];
+
+      vi.mocked(db.playerpresences.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(mockPresences),
+      } as never);
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
+      } as never);
+
+      const mockQueueItems = [
+        {
+          id: 99,
+          actionType: "PUT",
+          endpoint: "/Matches/m123/presence/terminate",
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["l1"],
+            timeOut: "2026-10-05T12:03:00.000Z",
+          }),
+        },
+      ];
+
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue(
+        mockQueueItems as never,
+      );
+
+      // Case 1: p1-closed is NOT in syncedPresenceIds -> queue item 99 must be retained
+      vi.mocked(apiClient.post).mockResolvedValueOnce({
+        syncedEventIds: [],
+        syncedAnchorIds: [],
+        syncedPresenceIds: ["p-other"],
+      });
+
+      await syncMatchBatch("m123");
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(99);
+
+      // Case 2: p1-closed IS in syncedPresenceIds -> queue item 99 is deleted
+      vi.mocked(apiClient.post).mockResolvedValueOnce({
+        syncedEventIds: [],
+        syncedAnchorIds: [],
+        syncedPresenceIds: ["p1-closed"],
+      });
+
+      await syncMatchBatch("m123");
+      expect(db.syncQueue.delete).toHaveBeenCalledWith(99);
+    });
+
+    it("scopes syncPresences in markEntitiesSynced to exact timeOut for PUT /presence/terminate and marks explicit presence IDs for POST /presence/initialize", async () => {
+      type PresenceFilterFn = (p: {
+        id: string;
+        matchLineupId: string;
+        timeIn: string | null;
+        timeOut: string | null;
+      }) => boolean;
+
+      let filterPredicate: PresenceFilterFn | undefined;
+      const mockModify = vi.fn();
+      const mockFilter = vi.fn().mockImplementation((fn: PresenceFilterFn) => {
+        filterPredicate = fn;
+        return { modify: mockModify };
+      });
+
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({ filter: mockFilter }),
+      } as unknown as ReturnType<typeof db.playerpresences.where>);
+
+      await markEntitiesSynced("/Matches/m1/presence/terminate", {
+        periodNumber: 1,
+        playerLineupIds: ["l1"],
+        timeOut: "2026-10-05T12:03:00.000Z",
+      });
+
+      expect(filterPredicate).toBeDefined();
+      if (filterPredicate) {
+        // Matching timeOut -> true
+        expect(
+          filterPredicate({
+            id: "p1-mid",
+            matchLineupId: "l1",
+            timeIn: "2026-10-05T12:00:00.000Z",
+            timeOut: "2026-10-05T12:03:00.000Z",
+          }),
+        ).toBe(true);
+        // Different timeOut for same player in same period -> false!
+        expect(
+          filterPredicate({
+            id: "p1-end",
+            matchLineupId: "l1",
+            timeIn: "2026-10-05T12:05:00.000Z",
+            timeOut: "2026-10-05T12:08:00.000Z",
+          }),
+        ).toBe(false);
+      }
+
+      // Single-item POST /presence/initialize (shorthanded entry with timeOut === null)
+      await markEntitiesSynced("/Matches/m1/presence/initialize", {
+        periodNumber: 1,
+        timeIn: "2026-10-05T12:04:00.000Z",
+        presenceItems: [{ id: "p1-shorthanded-entry", matchLineupId: "l1" }],
+      });
+
+      if (filterPredicate) {
+        expect(
+          filterPredicate({
+            id: "p1-shorthanded-entry",
+            matchLineupId: "l1",
+            timeIn: "2026-10-05T12:04:00.000Z",
+            timeOut: null,
+          }),
+        ).toBe(true);
+        // Earlier closed presence on the same lineup MUST NOT be marked synced by POST /presence/initialize
+        expect(
+          filterPredicate({
+            id: "p1-earlier-closed",
+            matchLineupId: "l1",
+            timeIn: "2026-10-05T12:00:00.000Z",
+            timeOut: "2026-10-05T12:03:00.000Z",
+          }),
+        ).toBe(false);
+      }
+    });
+
+    it("includes db.matchlineups in syncMatchBatch Dexie transaction table list", async () => {
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([{ id: "l1", matchId: "m123" }]),
+        }),
+      } as never);
+      vi.mocked(db.gameevents.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      } as never);
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+      } as never);
+      vi.mocked(db.playerpresences.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      } as never);
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue([]);
+      vi.mocked(apiClient.post).mockResolvedValue({
+        syncedEventIds: [],
+        syncedAnchorIds: [],
+        syncedPresenceIds: [],
+      });
+
+      await syncMatchBatch("m123");
+
+      expect(db.transaction).toHaveBeenCalledWith(
+        "rw",
+        expect.arrayContaining([
+          db.gameevents,
+          db.timeanchors,
+          db.playerpresences,
+          db.syncQueue,
+          db.matchlineups,
+        ]),
+        expect.any(Function),
+      );
+    });
+
+    it("preserves PUT /presence/terminate queue items when loadMatchPresencesForCleanup throws or returns no matching presences", async () => {
+      const mockQueueItems = [
+        {
+          id: 21,
+          actionType: "PUT",
+          endpoint: "/Matches/m123/presence/terminate",
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["l1"],
+            timeOut: "2026-10-05T12:03:00.000Z",
+          }),
+        },
+      ];
+
+      vi.mocked(db.gameevents.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      } as never);
+      vi.mocked(db.timeanchors.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          filter: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+      } as never);
+      vi.mocked(db.playerpresences.where).mockReturnValue({
+        anyOf: vi.fn().mockReturnValue({ modify: vi.fn() }),
+      } as never);
+      vi.mocked(db.syncQueue.toArray).mockResolvedValue(
+        mockQueueItems as never,
+      );
+
+      // Server returns a synced presence ID (syncedPresences.size >= playerLineupIds.length)
+      vi.mocked(apiClient.post).mockResolvedValue({
+        syncedEventIds: [],
+        syncedAnchorIds: [],
+        syncedPresenceIds: ["p-other"],
+      });
+
+      // Case 1: loadMatchPresencesForCleanup returns empty presences
+      vi.mocked(db.matchlineups.where).mockReturnValue({
+        equals: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([{ id: "l1", matchId: "m123" }]),
+        }),
+      } as never);
+      vi.mocked(db.playerpresences.filter).mockReturnValue({
+        toArray: vi.fn().mockResolvedValue([]),
+      } as never);
+
+      await syncMatchBatch("m123");
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(21);
+
+      // Case 2: loadMatchPresencesForCleanup throws during cleanup
+      vi.mocked(db.matchlineups.where)
+        .mockReturnValueOnce({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([{ id: "l1", matchId: "m123" }]),
+          }),
+        } as never)
+        .mockReturnValueOnce({
+          equals: vi.fn().mockReturnValue({
+            toArray: vi
+              .fn()
+              .mockRejectedValue(new Error("Transaction scope error")),
+          }),
+        } as never);
+
+      await syncMatchBatch("m123");
+      expect(db.syncQueue.delete).not.toHaveBeenCalledWith(21);
+    });
+
+    it("executes syncMatchBatch cleanup inside a real Dexie transaction with matchlineups included", async () => {
+      vi.resetModules();
+      vi.doUnmock("../../db/ttaDatabase");
+
+      const realDbModule = await import("../../db/ttaDatabase");
+      const realSyncModule = await import("../../services/syncService");
+      const realApiClientModule = await import("../../api/client");
+
+      const realDb = realDbModule.db;
+      await realDb.delete();
+      await realDb.open();
+
+      try {
+        await realDb.matchlineups.add({
+          id: "real-l1",
+          matchId: "real-m1",
+          playerRosterId: "real-r1",
+          number: 7,
+          positionId: null,
+        });
+        await realDb.playerpresences.add({
+          id: "real-p1",
+          matchLineupId: "real-l1",
+          periodNumber: 1,
+          timeIn: "2026-10-05T12:00:00.000Z",
+          timeOut: "2026-10-05T12:03:00.000Z",
+          sequenceNumber: 1,
+          isSynced: 0,
+        });
+        const queueId = await realDb.syncQueue.add({
+          actionType: "PUT",
+          endpoint: "/Matches/real-m1/presence/terminate",
+          payload: JSON.stringify({
+            periodNumber: 1,
+            playerLineupIds: ["real-l1"],
+            timeOut: "2026-10-05T12:03:00.000Z",
+          }),
+          createdAt: "2026-10-05T12:03:00.000Z",
+        });
+
+        vi.mocked(realApiClientModule.apiClient.post).mockResolvedValueOnce({
+          syncedEventIds: [],
+          syncedAnchorIds: [],
+          syncedPresenceIds: ["real-p1"],
+        });
+
+        await realSyncModule.syncMatchBatch("real-m1");
+
+        const updatedPresence = await realDb.playerpresences.get("real-p1");
+        expect(updatedPresence?.isSynced).toBe(1);
+
+        const remainingQueueItem = await realDb.syncQueue.get(queueId);
+        expect(remainingQueueItem).toBeUndefined();
+      } finally {
+        await realDb.delete();
+      }
     });
   });
 });

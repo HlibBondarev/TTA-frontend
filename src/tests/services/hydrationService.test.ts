@@ -185,7 +185,14 @@ describe("Hydration Service", () => {
   it("fetches event definitions from /Matches/{matchId}/event-definitions and persists them to IndexedDB", async () => {
     const mockDefinitions = [
       { id: "def-1", name: "Goal", isPositive: true, isShot: true, score: 2 },
-      { id: "def-2", name: "Turnover", isPositive: false, isShot: false },
+      {
+        id: "def-2",
+        name: "Turnover",
+        isPositive: false,
+        isShot: false,
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: 20,
+      },
     ];
 
     const tournamentId = "t-1";
@@ -237,6 +244,8 @@ describe("Hydration Service", () => {
         isPositive: false,
         isShot: false,
         score: 0,
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: 20,
         isCustom: undefined,
         ownerId: null,
       },
@@ -2211,6 +2220,7 @@ describe("Hydration Service", () => {
     expect(recoveryState).toEqual({
       recoveredPeriod: 1,
       activePlayersLimit: 6,
+      refreshPromise: expect.any(Promise),
     });
     expect(sportService.getSportConfigurations).toHaveBeenCalledWith("sport-1");
     expect(db.sportconfigurations.put).not.toHaveBeenCalled();
@@ -2267,11 +2277,12 @@ describe("Hydration Service", () => {
     expect(recoveryState).toEqual({
       recoveredPeriod: 1,
       activePlayersLimit: 7,
+      refreshPromise: expect.any(Promise),
     });
     expect(db.sportconfigurations.put).not.toHaveBeenCalled();
   });
 
-  it("should not call API for shotMap refresh if cached config already has shotMap", async () => {
+  it("should not call API for shotMap refresh if cached config already has shotMap and maxPersonalFouls is defined", async () => {
     vi.mocked(db.timeanchors.where).mockReturnValueOnce({
       equals: vi.fn().mockReturnValueOnce({
         toArray: vi.fn().mockResolvedValueOnce([]),
@@ -2290,6 +2301,7 @@ describe("Hydration Service", () => {
     vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
       id: "cfg-1",
       activePlayersLimit: 6,
+      maxPersonalFouls: null,
       shotMap: "<svg>Existing SVG</svg>",
     } as never);
 
@@ -2409,5 +2421,340 @@ describe("Hydration Service", () => {
       playground: "<svg>Cached Field</svg>",
       shotMap: "<svg>Remote ShotMap</svg>",
     });
+  });
+
+  it("should overwrite stale cached maxPersonalFouls with fresh remote maxPersonalFouls during background config refresh", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ periodNumber: 1 }]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      sportId: "sport-1",
+      configurationId: "cfg-1",
+    } as never);
+
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 7,
+      maxPersonalFouls: 5,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: null,
+    } as never);
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      {
+        id: "cfg-1",
+        sportId: "sport-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        playground: null,
+        shotMap: "<svg>Goal SVG</svg>",
+      } as never,
+    ]);
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+    expect(recoveryState.maxPersonalFouls).toBe(5);
+    expect(recoveryState.refreshPromise).toBeDefined();
+
+    const refreshedConfig = await recoveryState.refreshPromise;
+    expect(refreshedConfig?.maxPersonalFouls).toBe(3);
+
+    expect(db.sportconfigurations.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "cfg-1",
+        maxPersonalFouls: 3,
+      }),
+    );
+  });
+
+  it("should NOT overwrite a newer cached maxPersonalFouls updated concurrently while background config refresh is in flight", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ periodNumber: 1 }]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      sportId: "sport-1",
+      configurationId: "cfg-1",
+    } as never);
+
+    // 1st get (pre-request): maxPersonalFouls is 5
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 7,
+      maxPersonalFouls: 5,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: null,
+    } as never);
+
+    // 2nd get (inside transaction after concurrent update): maxPersonalFouls was concurrently updated to 4
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 7,
+      maxPersonalFouls: 4,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: null,
+    } as never);
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      {
+        id: "cfg-1",
+        sportId: "sport-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        playground: null,
+        shotMap: "<svg>Goal SVG</svg>",
+      } as never,
+    ]);
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+    const refreshedConfig = await recoveryState.refreshPromise;
+
+    expect(refreshedConfig?.maxPersonalFouls).toBe(4);
+    expect(db.sportconfigurations.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "cfg-1",
+        maxPersonalFouls: 4,
+        shotMap: "<svg>Goal SVG</svg>",
+      }),
+    );
+  });
+
+  it("should NOT restore remote maxPersonalFouls via spread if a concurrent update replaced the cached record with one omitting maxPersonalFouls", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ periodNumber: 1 }]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      sportId: "sport-1",
+      configurationId: "cfg-1",
+    } as never);
+
+    // 1st get (pre-request): maxPersonalFouls is 5
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 7,
+      maxPersonalFouls: 5,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: null,
+    } as never);
+
+    // 2nd get (inside transaction): concurrent update replaced record with one omitting maxPersonalFouls
+    vi.mocked(db.sportconfigurations.get).mockResolvedValueOnce({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 7,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: null,
+    } as never);
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      {
+        id: "cfg-1",
+        sportId: "sport-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        playground: null,
+        shotMap: "<svg>Goal SVG</svg>",
+      } as never,
+    ]);
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+    const refreshedConfig = await recoveryState.refreshPromise;
+
+    expect(refreshedConfig?.maxPersonalFouls).toBeUndefined();
+    expect(db.sportconfigurations.put).toHaveBeenCalledWith({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 7,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: "<svg>Goal SVG</svg>",
+    });
+  });
+
+  it("should trigger background config refresh when cached config already has shotMap but maxPersonalFouls is undefined", async () => {
+    vi.mocked(db.timeanchors.where).mockReturnValueOnce({
+      equals: vi.fn().mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce([{ periodNumber: 1 }]),
+      }),
+    } as unknown as ReturnType<typeof db.timeanchors.where>);
+
+    vi.mocked(db.matches.get).mockResolvedValueOnce({
+      id: matchId,
+      tournamentId: "t-1",
+    } as never);
+    vi.mocked(db.tournaments.get).mockResolvedValueOnce({
+      id: "t-1",
+      sportId: "sport-1",
+      configurationId: "cfg-1",
+    } as never);
+
+    // Cached config has shotMap, but maxPersonalFouls is omitted (undefined)
+    vi.mocked(db.sportconfigurations.get).mockResolvedValue({
+      id: "cfg-1",
+      sportId: "sport-1",
+      activePlayersLimit: 7,
+      playground: "<svg>Cached Field</svg>",
+      shotMap: "<svg>Existing ShotMap</svg>",
+    } as never);
+
+    vi.mocked(sportService.getSportConfigurations).mockResolvedValueOnce([
+      {
+        id: "cfg-1",
+        sportId: "sport-1",
+        activePlayersLimit: 7,
+        maxPersonalFouls: 3,
+        playground: "<svg>Cached Field</svg>",
+        shotMap: "<svg>Existing ShotMap</svg>",
+      } as never,
+    ]);
+
+    const recoveryState = await getMatchRecoveryState(matchId);
+    expect(recoveryState.maxPersonalFouls).toBeUndefined();
+    expect(recoveryState.refreshPromise).toBeDefined();
+
+    const refreshedConfig = await recoveryState.refreshPromise;
+    expect(refreshedConfig?.maxPersonalFouls).toBe(3);
+  });
+
+  it("should preserve local creation-time foulImpact and penaltyDurationSeconds snapshots during event hydration when server payload omits them", async () => {
+    const existingLocalEvents = [
+      {
+        id: "ev-synced-1",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-ex",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:01:00.000Z",
+        isLeadToGoal: false,
+        locationX: null,
+        locationY: null,
+        shotLocationX: null,
+        shotLocationY: null,
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: 20,
+        createdAt: "2026-11-20T10:01:00.000Z",
+        sequenceNumber: 1,
+        isSynced: 1,
+      },
+      {
+        id: "ev-synced-2",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-plain",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:02:00.000Z",
+        isLeadToGoal: false,
+        locationX: null,
+        locationY: null,
+        shotLocationX: null,
+        shotLocationY: null,
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
+        createdAt: "2026-11-20T10:02:00.000Z",
+        sequenceNumber: 2,
+        isSynced: 1,
+      },
+    ];
+
+    // Server payload omits foulImpact and penaltyDurationSeconds on ev-synced-1,
+    // and provides explicit values on ev-synced-3
+    const serverEvents = [
+      {
+        id: "ev-synced-1",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-ex",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:01:00.000Z",
+        isLeadToGoal: false,
+      },
+      {
+        id: "ev-synced-2",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-plain",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:02:00.000Z",
+        isLeadToGoal: false,
+      },
+      {
+        id: "ev-synced-3",
+        matchLineupId: "l-1",
+        eventDefinitionId: "def-brutality",
+        periodNumber: 1,
+        eventTimestamp: "2026-11-20T10:03:00.000Z",
+        isLeadToGoal: false,
+        foulImpact: "DisqualificationWithSub",
+        penaltyDurationSeconds: 240,
+      },
+    ];
+
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ id: matchId })
+      .mockResolvedValueOnce([{ id: "l-1", matchId }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(serverEvents)
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(db.gameevents.filter)
+      .mockReturnValueOnce({
+        toArray: vi.fn().mockResolvedValueOnce(existingLocalEvents),
+        primaryKeys: vi
+          .fn()
+          .mockResolvedValueOnce(["ev-synced-1", "ev-synced-2"]),
+      } as unknown as ReturnType<typeof db.gameevents.filter>)
+      .mockReturnValueOnce({
+        primaryKeys: vi.fn().mockResolvedValueOnce([]),
+        toArray: vi.fn().mockResolvedValueOnce([]),
+      } as unknown as ReturnType<typeof db.gameevents.filter>);
+
+    await hydrateMatchData(matchId, teamId);
+
+    expect(db.gameevents.bulkDelete).toHaveBeenCalledWith([
+      "ev-synced-1",
+      "ev-synced-2",
+    ]);
+    expect(db.gameevents.bulkPut).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: "ev-synced-1",
+        foulImpact: "PersonalFoul",
+        penaltyDurationSeconds: 20,
+        isSynced: 1,
+      }),
+      expect.objectContaining({
+        id: "ev-synced-2",
+        foulImpact: "None",
+        penaltyDurationSeconds: null,
+        isSynced: 1,
+      }),
+      expect.objectContaining({
+        id: "ev-synced-3",
+        foulImpact: "DisqualificationWithSub",
+        penaltyDurationSeconds: 240,
+        isSynced: 1,
+      }),
+    ]);
   });
 });
