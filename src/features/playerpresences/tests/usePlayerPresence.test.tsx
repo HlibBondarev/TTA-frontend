@@ -570,6 +570,12 @@ describe("usePlayerPresence Hook", () => {
     expect(result.current.selectedStartingIds).toEqual(["lineup-1"]);
 
     act(() => {
+      store.dispatch(setClearedPenaltyEventIds(["evt-cleared-1"]));
+    });
+
+    expect(result.current.clearedPenaltyEventIds).toEqual(["evt-cleared-1"]);
+
+    act(() => {
       result.current.resetPrePeriodClearedPenalties?.();
     });
 
@@ -1309,6 +1315,139 @@ describe("usePlayerPresence Hook", () => {
     // Stale roster must NOT overwrite the current Redux roster, and loading must clear
     expect(result.current.activeLineupIds).toEqual(["lineup-2"]);
     expect(result.current.benchLineupIds).toEqual(["lineup-1"]);
+    expect(store.getState().presence.isLoading).toBe(false);
+  });
+
+  it("should prevent a pending refreshPresenceFromDB from match A from overwriting match B roster or disciplinary data after matchId changes", async () => {
+    act(() => {
+      store.dispatch(setPresenceLimits({ limit: 2, period: 1 }));
+    });
+
+    let resolveMatchALineups!: (value: unknown) => void;
+    let isFirstMatchARefresh = true;
+
+    vi.mocked(db.matchlineups.where).mockImplementation(() => ({
+      equals: vi.fn((id: string) => ({
+        toArray: vi.fn(() => {
+          if (id === "match-A" && isFirstMatchARefresh) {
+            isFirstMatchARefresh = false;
+            return new Promise((resolve) => {
+              resolveMatchALineups = resolve;
+            });
+          }
+          if (id === "match-B") {
+            return Promise.resolve([
+              { id: "lineup-B1", matchId: "match-B" },
+              { id: "lineup-B2", matchId: "match-B" },
+            ]);
+          }
+          return Promise.resolve([{ id: "lineup-A1", matchId: "match-A" }]);
+        }),
+      })),
+    }) as never);
+
+    vi.mocked(db.playerpresences.where).mockImplementation((index: unknown) => {
+      if (index === "periodNumber") {
+        return {
+          equals: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([
+              {
+                id: "pres-A1",
+                matchLineupId: "lineup-A1",
+                periodNumber: 1,
+                timeIn: "2026-07-16T10:00:00.000Z",
+                timeOut: null,
+              },
+              {
+                id: "pres-B1",
+                matchLineupId: "lineup-B1",
+                periodNumber: 1,
+                timeIn: "2026-07-16T10:00:00.000Z",
+                timeOut: null,
+              },
+            ]),
+          }),
+        } as never;
+      }
+      return {
+        anyOf: vi.fn((ids: string[]) => ({
+          toArray: vi.fn().mockResolvedValue(
+            ids.includes("lineup-B1")
+              ? [
+                  {
+                    id: "pres-B1",
+                    matchLineupId: "lineup-B1",
+                    periodNumber: 1,
+                    timeIn: "2026-07-16T10:00:00.000Z",
+                    timeOut: null,
+                  },
+                ]
+              : [
+                  {
+                    id: "pres-A1",
+                    matchLineupId: "lineup-A1",
+                    periodNumber: 1,
+                    timeIn: "2026-07-16T10:00:00.000Z",
+                    timeOut: null,
+                  },
+                ],
+          ),
+        })),
+      } as never;
+    });
+
+    const { result, rerender } = renderHook(
+      ({ currentMatchId }: { currentMatchId: string }) =>
+        usePlayerPresence(currentMatchId),
+      {
+        wrapper,
+        initialProps: { currentMatchId: "match-A" },
+      },
+    );
+
+    // Start an in-flight refreshPresenceFromDB for match A
+    let pendingMatchARefresh!: Promise<void>;
+    act(() => {
+      pendingMatchARefresh = result.current.refreshPresenceFromDB(1);
+    });
+
+    await waitFor(() => {
+      expect(resolveMatchALineups).toBeDefined();
+    });
+
+    // Switch to match B and sync match B's roster in Redux
+    act(() => {
+      store.dispatch(
+        syncActiveAndBenchRoster({
+          active: ["lineup-B1"],
+          bench: ["lineup-B2"],
+        }),
+      );
+    });
+    rerender({ currentMatchId: "match-B" });
+
+    // Wait for match B's liveQuery to populate disciplinary data
+    await waitFor(() => {
+      expect(
+        result.current.disciplinaryState?.playersById["lineup-B1"],
+      ).toBeDefined();
+    });
+
+    // Now resolve the stale in-flight refresh from match A
+    await act(async () => {
+      resolveMatchALineups([{ id: "lineup-A1", matchId: "match-A" }]);
+      await pendingMatchARefresh;
+    });
+
+    // Match B's roster and disciplinary data must remain intact, and loading must clear
+    expect(result.current.activeLineupIds).toEqual(["lineup-B1"]);
+    expect(result.current.benchLineupIds).toEqual(["lineup-B2"]);
+    expect(
+      result.current.disciplinaryState?.playersById["lineup-B1"],
+    ).toBeDefined();
+    expect(
+      result.current.disciplinaryState?.playersById["lineup-A1"],
+    ).toBeUndefined();
     expect(store.getState().presence.isLoading).toBe(false);
   });
 });

@@ -3164,4 +3164,121 @@ describe("useMatchLifecycle Hook & State Machine", () => {
     expect(store.getState().match.isPeriodActive).toBe(true);
     expect(store.getState().match.isPeriodEnded).toBe(false);
   });
+
+  test("should throw and abort revertEndPeriod without mutating DB or Redux state when target PeriodEnd anchor is already synced", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    mockTimeAnchors = [
+      {
+        id: "seed-end-anchor",
+        matchId: "test-match-id",
+        periodNumber: 1,
+        type: 1,
+        timestamp: "2020-01-01T10:10:00Z",
+        sequenceNumber: 2,
+        isSynced: 1,
+      },
+    ];
+
+    mockSyncQueue = [
+      {
+        id: 201,
+        actionType: "PUT",
+        endpoint: "/Matches/test-match-id/presence/terminate",
+        payload: JSON.stringify({
+          periodNumber: 1,
+          playerLineupIds: ["lineup-1"],
+          timeOut: "2020-01-01T10:10:00Z",
+        }),
+        createdAt: "2020-01-01T10:10:00Z",
+      },
+    ];
+
+    mockPlayerPresences = [
+      {
+        id: "presence-1",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00Z",
+        matchLineupId: "lineup-1",
+        isSynced: 0,
+      },
+    ];
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPeriodEnded).toBe(true);
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.revertEndPeriod("seed-end-anchor");
+      }),
+    ).rejects.toThrow(
+      "Cannot revert period end: period end anchor has already been synchronized.",
+    );
+
+    expect(db.timeanchors.delete).not.toHaveBeenCalled();
+    expect(db.syncQueue.delete).not.toHaveBeenCalled();
+    expect(db.playerpresences.update).not.toHaveBeenCalled();
+    expect(mockTimeAnchors.some((a) => a.id === "seed-end-anchor")).toBe(true);
+    expect(mockSyncQueue.some((i) => i.id === 201)).toBe(true);
+    expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:10:00Z");
+    expect(store.getState().match.isPeriodActive).toBe(false);
+    expect(store.getState().match.isPeriodEnded).toBe(true);
+  });
+
+  test("should not delete pending /presence/terminate queue items or reopen closed presences when no matching PeriodEnd anchor exists", async () => {
+    const store = createTestStore({
+      periodNumber: 1,
+      isPeriodActive: false,
+      isPeriodEnded: true,
+    });
+
+    mockTimeAnchors = [];
+
+    mockSyncQueue = [
+      {
+        id: 301,
+        actionType: "PUT",
+        endpoint: "/Matches/test-match-id/presence/terminate",
+        payload: JSON.stringify({
+          periodNumber: 1,
+          playerLineupIds: ["lineup-1"],
+          timeOut: "2020-01-01T10:10:00Z",
+        }),
+        createdAt: "2020-01-01T10:10:00Z",
+      },
+    ];
+
+    mockPlayerPresences = [
+      {
+        id: "presence-1",
+        periodNumber: 1,
+        timeOut: "2020-01-01T10:10:00Z",
+        matchLineupId: "lineup-1",
+        isSynced: 0,
+      },
+    ];
+
+    const { result } = renderHook(() => useMatchLifecycle(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await act(async () => {
+      await result.current.revertEndPeriod("nonexistent-end-anchor");
+    });
+
+    expect(db.timeanchors.delete).not.toHaveBeenCalled();
+    expect(db.syncQueue.delete).not.toHaveBeenCalled();
+    expect(db.playerpresences.update).not.toHaveBeenCalled();
+    expect(mockSyncQueue.some((i) => i.id === 301)).toBe(true);
+    expect(mockPlayerPresences[0].timeOut).toBe("2020-01-01T10:10:00Z");
+  });
 });

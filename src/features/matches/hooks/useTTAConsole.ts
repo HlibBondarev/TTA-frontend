@@ -6,6 +6,8 @@ import { resetMatchState } from "../store/matchSlice";
 import { resetPresenceState } from "../../playerpresences/store/presenceSlice";
 import type { RootState, AppDispatch } from "../../../store";
 
+const EMPTY_LINEUP_IDS: string[] = [];
+
 export interface UseTTAConsoleOptions {
   onCompleteMatch?: () => void;
 }
@@ -17,7 +19,10 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     (state: RootState) => state.match.activeMatchId,
   );
   const activeLineupIds = useSelector(
-    (state: RootState) => state.presence?.activeLineupIds ?? [],
+    (state: RootState) => state.presence?.activeLineupIds ?? EMPTY_LINEUP_IDS,
+  );
+  const benchLineupIds = useSelector(
+    (state: RootState) => state.presence?.benchLineupIds ?? EMPTY_LINEUP_IDS,
   );
   const { periodNumber, isPeriodActive, isInsideStoppage } =
     useMatchLifecycle();
@@ -52,9 +57,12 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
     setConsoleError(null);
   }
 
+  const isRosterLoaded =
+    activeLineupIds.length > 0 || benchLineupIds.length > 0;
+
   if (
     selectedPlayerId !== null &&
-    activeLineupIds.length > 0 &&
+    isRosterLoaded &&
     !activeLineupIds.includes(selectedPlayerId)
   ) {
     setSelectedPlayerId(null);
@@ -102,10 +110,15 @@ export function useTTAConsole({ onCompleteMatch }: UseTTAConsoleOptions = {}) {
       activeMatchId &&
       !isSubmitting
     ) {
+      const presenceState = store.getState().presence;
       const latestActiveLineupIds =
-        store.getState().presence?.activeLineupIds ?? activeLineupIds;
+        presenceState?.activeLineupIds ?? activeLineupIds;
+      const latestBenchLineupIds =
+        presenceState?.benchLineupIds ?? benchLineupIds;
+      const isLatestRosterLoaded =
+        latestActiveLineupIds.length > 0 || latestBenchLineupIds.length > 0;
       if (
-        latestActiveLineupIds.length > 0 &&
+        isLatestRosterLoaded &&
         !latestActiveLineupIds.includes(selectedPlayerId)
       ) {
         setSelectedPlayerId(null);

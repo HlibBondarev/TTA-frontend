@@ -334,10 +334,13 @@ export function usePlayerPresence(matchId: string): UsePlayerPresenceResult {
   const prevMatchForCarryoverRef = useRef(matchId);
 
   useEffect(() => {
-    if (
-      prevPeriodForCarryoverRef.current !== currentPeriod ||
-      prevMatchForCarryoverRef.current !== matchId
-    ) {
+    const matchChanged = prevMatchForCarryoverRef.current !== matchId;
+    const periodChanged = prevPeriodForCarryoverRef.current !== currentPeriod;
+    if (matchChanged) {
+      rosterVersionRef.current += 1;
+      rawDataVersionRef.current += 1;
+    }
+    if (periodChanged || matchChanged) {
       prevPeriodForCarryoverRef.current = currentPeriod;
       prevMatchForCarryoverRef.current = matchId;
       if (clearedPenaltyEventIds.length > 0) {

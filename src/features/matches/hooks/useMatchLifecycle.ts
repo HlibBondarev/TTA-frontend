@@ -977,8 +977,16 @@ export const useMatchLifecycle = () => {
           currentPeriod,
           anchorId,
         );
-        const targetAnchorId = targetAnchor?.id ?? anchorId ?? undefined;
-        const endAnchorTimestamp = targetAnchor?.timestamp;
+        if (!targetAnchor) {
+          return;
+        }
+        if (targetAnchor.isSynced === 1) {
+          throw new Error(
+            "Cannot revert period end: period end anchor has already been synchronized.",
+          );
+        }
+        const targetAnchorId = targetAnchor.id;
+        const endAnchorTimestamp = targetAnchor.timestamp;
 
         const [pendingTerminateItems, closedPresences, endAnchorQueueItemId] =
           await Promise.all([
@@ -994,9 +1002,7 @@ export const useMatchLifecycle = () => {
           endAnchorQueueItemId,
         );
 
-        if (targetAnchorId) {
-          await deleteTimeAnchorWithQueue(targetAnchorId);
-        }
+        await deleteTimeAnchorWithQueue(targetAnchorId);
 
         if (
           normalizedMatchId &&
