@@ -9,6 +9,50 @@ interface MatchLifecyclePanelProps {
   onFinalizeSuccess?: () => void;
 }
 
+interface RollbackFailedPeriodStartParams {
+  anchorId: string | null | undefined;
+  activeMatchId: string;
+  previousPeriod: number;
+  effectivePeriod: number;
+  revertStartPeriod: (
+    anchorId?: string | null,
+    restorePeriodNumber?: number,
+  ) => Promise<void>;
+  syncPeriodStateWithDB: (
+    overrideMatchId?: string,
+    overridePeriodNumber?: number,
+  ) => Promise<void>;
+  refreshPresenceFromDB: (overridePeriodNumber?: number) => Promise<void>;
+  setPanelError: React.Dispatch<React.SetStateAction<string | null>>;
+}
+
+const rollbackFailedPeriodStart = async ({
+  anchorId,
+  activeMatchId,
+  previousPeriod,
+  effectivePeriod,
+  revertStartPeriod,
+  syncPeriodStateWithDB,
+  refreshPresenceFromDB,
+  setPanelError,
+}: RollbackFailedPeriodStartParams): Promise<void> => {
+  try {
+    if (anchorId) {
+      await revertStartPeriod(
+        anchorId,
+        effectivePeriod !== previousPeriod ? previousPeriod : undefined,
+      );
+    } else if (activeMatchId) {
+      await syncPeriodStateWithDB(activeMatchId, previousPeriod);
+    }
+    await refreshPresenceFromDB(previousPeriod);
+    setPanelError("Failed to start period. Transaction fully reverted.");
+  } catch (compensationErr) {
+    console.error("Compensation failed:", compensationErr);
+    setPanelError("Failed to start period. Compensation incomplete.");
+  }
+};
+
 export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
   onFinalizeSuccess,
 }) => {
@@ -75,23 +119,16 @@ export const MatchLifecyclePanel: React.FC<MatchLifecyclePanelProps> = ({
       await startPeriodWithRoster(new Date().toISOString(), effectivePeriod);
     } catch (err) {
       console.error(err);
-      try {
-        if (anchorId) {
-          if (effectivePeriod !== previousPeriod) {
-            await revertStartPeriod(anchorId, previousPeriod);
-          } else {
-            await revertStartPeriod(anchorId);
-          }
-        }
-        if (activeMatchId && !anchorId) {
-          await syncPeriodStateWithDB(activeMatchId, previousPeriod);
-        }
-        await refreshPresenceFromDB(previousPeriod);
-        setPanelError("Failed to start period. Transaction fully reverted.");
-      } catch (compensationErr) {
-        console.error("Compensation failed:", compensationErr);
-        setPanelError("Failed to start period. Compensation incomplete.");
-      }
+      await rollbackFailedPeriodStart({
+        anchorId,
+        activeMatchId,
+        previousPeriod,
+        effectivePeriod,
+        revertStartPeriod,
+        syncPeriodStateWithDB,
+        refreshPresenceFromDB,
+        setPanelError,
+      });
     } finally {
       setIsProcessing(false);
     }
